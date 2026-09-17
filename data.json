@@ -1,0 +1,41 @@
+{
+  "jira": {
+    "type": "datacenter",
+    "authType": "cookie",
+    "baseUrl": "http://192.168.1.85:8080",
+    "email": "tankaikun",
+    "username": "tankaikun",
+    "secretName": "tabonkb-jira-token",
+    "jql": "(assignee = currentUser() OR watcher = currentUser()) AND resolution = Unresolved ORDER BY updated DESC",
+    "refreshIntervalMinutes": 5
+  },
+  "niceaigc": {
+    "baseUrl": "https://node7.nice188.com",
+    "model": "gpt-5-6-thinking",
+    "secretName": "tabonkb-niceaigc-token",
+    "modelDisplayName": "GPT-5.6 Sol (推荐)"
+  },
+  "rss": {
+    "feeds": [
+      {
+        "id": "lwn",
+        "name": "LWN Kernel",
+        "url": "https://lwn.net/headlines/rss",
+        "enabled": true
+      },
+      {
+        "id": "android-dev",
+        "name": "Android Developers",
+        "url": "https://android-developers.googleblog.com/feeds/posts/default",
+        "enabled": true
+      },
+      {
+        "id": "feed_1789533159100",
+        "name": "IT之家",
+        "url": "https://www.ithome.com/rss/",
+        "enabled": true
+      }
+    ],
+    "refreshIntervalMinutes": 15
+  }
+}
