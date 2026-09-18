@@ -45,6 +45,7 @@ const ICON_PARK_PATHS = {
   'book': '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20M4 19.5A2.5 2.5 0 0 0 6.5 22H20V2H6.5A2.5 2.5 0 0 0 4 4.5v15z"/>',
   'lightbulb': '<path d="M9 18h6M10 22h4M12 2a7 7 0 0 0-5 11.9V16a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-2.1A7 7 0 0 0 12 2z"/>',
   'dashboard': '<rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/>',
+  'compass': '<circle cx="12" cy="12" r="9"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/>',
   'folder': '<path d="M2 6a2 2 0 0 1 2-2h5l2 2h9a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6z"/>',
 
   // Model Badges & Categories
@@ -57,7 +58,16 @@ const ICON_PARK_PATHS = {
   'degree-hat': '<path d="M22 10 12 5 2 10l10 5 10-5zM6 12.5V17c0 3 3 5 6 5s6-2 6-5v-4.5M22 10v6"/>',
   'briefcase': '<rect x="3" y="7" width="18" height="14" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M3 12h18"/>',
   'sparkles': '<path d="m12 3 2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5L12 3z"/>',
-  'pie': '<circle cx="12" cy="12" r="9"/><path d="M12 12V3a9 9 0 0 1 9 9h-9z"/>'
+  'pie': '<circle cx="12" cy="12" r="9"/><path d="M12 12V3a9 9 0 0 1 9 9h-9z"/>',
+
+  // Tasks, Workflow & Knowledge
+  'tasks': '<path d="m9 11 3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>',
+  'schedule': '<path d="m9 11 3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>',
+  'check-square': '<path d="m9 11 3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>',
+  'kanban': '<rect x="3.5" y="3.5" width="4.5" height="17" rx="1.5"/><rect x="10" y="3.5" width="4.5" height="11" rx="1.5"/><rect x="16.5" y="3.5" width="4.5" height="15" rx="1.5"/>',
+  'clipboard-check': '<path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/><path d="m9 14 2 2 4-4"/>',
+  'bookmark': '<path d="m19 21-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>',
+  'layers': '<path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>'
 };
 
 /**
@@ -123,6 +133,18 @@ function detectModelBrand(modelOrBrand) {
   if (lower.includes('claude') || lower.includes('sonnet') || lower.includes('opus') || lower.includes('anthropic')) {
     return 'claude';
   }
+  if (lower.includes('deepseek') || lower.includes('r1')) {
+    return 'deepseek';
+  }
+  if (lower.includes('qwen') || lower.includes('千问') || lower.includes('alibaba')) {
+    return 'qwen';
+  }
+  if (lower.includes('kimi') || lower.includes('moonshot')) {
+    return 'kimi';
+  }
+  if (lower.includes('doubao') || lower.includes('豆包') || lower.includes('bytedance')) {
+    return 'doubao';
+  }
   if (lower.includes('gemini') || lower.includes('banana') || lower.includes('google')) {
     return 'gemini';
   }
@@ -151,6 +173,22 @@ function getOfficialModelSvg(modelOrBrand, size = 14) {
   const brand = detectModelBrand(modelOrBrand);
   if (brand === 'claude') {
     return `<svg viewBox="0 0 100 100" width="${size}" height="${size}" fill="#D97757" class="tw-official-brand tw-brand-claude"><path d="m19.6 66.5 19.7-11 .3-1-.3-.5h-1l-3.3-.2-11.2-.3L14 53l-9.5-.5-2.4-.5L0 49l.2-1.5 2-1.3 2.9.2 6.3.5 9.5.6 6.9.4L38 49.1h1.6l.2-.7-.5-.4-.4-.4L29 41l-10.6-7-5.6-4.1-3-2-1.5-2-.6-4.2 2.7-3 3.7.3.9.2 3.7 2.9 8 6.1L37 36l1.5 1.2.6-.4.1-.3-.7-1.1L33 25l-6-10.4-2.7-4.3-.7-2.6c-.3-1-.4-2-.4-3l3-4.2L28 0l4.2.6L33.8 2l2.6 6 4.1 9.3L47 29.9l2 3.8 1 3.4.3 1h.7v-.5l.5-7.2 1-8.7 1-11.2.3-3.2 1.6-3.8 3-2L61 2.6l2 2.9-.3 1.8-1.1 7.7L59 27.1l-1.5 8.2h.9l1-1.1 4.1-5.4 6.9-8.6 3-3.5L77 13l2.3-1.8h4.3l3.1 4.7-1.4 4.9-4.4 5.6-3.7 4.7-5.3 7.1-3.2 5.7.3.4h.7l12-2.6 6.4-1.1 7.6-1.3 3.5 1.6.4 1.6-1.4 3.4-8.2 2-9.6 2-14.3 3.3-.2.1.2.3 6.4.6 2.8.2h6.8l12.6 1 3.3 2 1.9 2.7-.3 2-5.1 2.6-6.8-1.6-16-3.8-5.4-1.3h-.8v.4l4.6 4.5 8.3 7.5L89 80.1l.5 2.4-1.3 2-1.4-.2-9.2-7-3.6-3-8-6.8h-.5v.7l1.8 2.7 9.8 14.7.5 4.5-.7 1.4-2.6 1-2.7-.6-5.8-8-6-9-4.7-8.2-.5.4-2.9 30.2-1.3 1.5-3 1.2-2.5-2-1.4-3 1.4-6.2 1.6-8 1.3-6.4 1.2-7.9.7-2.6v-.2H49L43 72l-9 12.3-7.2 7.6-1.7.7-3-1.5.3-2.8L24 86l10-12.8 6-7.9 4-4.6-.1-.5h-.3L17.2 77.4l-4.7.6-2-2 .2-3 1-1 8-5.5Z"/></svg>`;
+  }
+
+  if (brand === 'deepseek') {
+    return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="#0D53FF" class="tw-official-brand tw-brand-deepseek"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm3.5 13.5c-1.5 1.2-3.5 1.5-5.5.8-1.2-.4-2.2-1.3-2.8-2.3 1.2.2 2.5 0 3.6-.6 1.4-.8 2.3-2 2.7-3.4.8.9 1.5 2 1.8 3.2.3 1-.1 1.7.2 2.3z"/></svg>`;
+  }
+
+  if (brand === 'qwen') {
+    return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="#615CED" class="tw-official-brand tw-brand-qwen"><path d="M12 2l3 5 5 1-3.5 4.5 1 5.5-5.5-2.5L6.5 18l1-5.5L4 8l5-1 3-5z"/></svg>`;
+  }
+
+  if (brand === 'kimi') {
+    return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="#0066FF" class="tw-official-brand tw-brand-kimi"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2" fill="none"/><path d="M12 7v10M8 12l4-5 4 5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+  }
+
+  if (brand === 'doubao') {
+    return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="#3370FF" class="tw-official-brand tw-brand-doubao"><circle cx="12" cy="12" r="9.5" fill="#3370FF"/><circle cx="9" cy="10" r="1.5" fill="#FFFFFF"/><circle cx="15" cy="10" r="1.5" fill="#FFFFFF"/><path d="M8.5 14.5c1 1.5 6 1.5 7 0" stroke="#FFFFFF" stroke-width="1.8" stroke-linecap="round"/></svg>`;
   }
 
   if (brand === 'gemini') {

@@ -1,19 +1,20 @@
 {
   "jira": {
     "type": "datacenter",
-    "authType": "cookie",
+    "authType": "basic",
     "baseUrl": "http://192.168.1.85:8080",
     "email": "tankaikun",
     "username": "tankaikun",
     "secretName": "tabonkb-jira-token",
-    "jql": "(assignee = currentUser() OR watcher = currentUser()) AND resolution = Unresolved ORDER BY updated DESC",
+    "jql": "assignee = currentUser() AND resolution = Unresolved ORDER BY updated DESC",
     "refreshIntervalMinutes": 5
   },
   "niceaigc": {
     "baseUrl": "https://node7.nice188.com",
     "model": "gpt-5-6-thinking",
     "secretName": "tabonkb-niceaigc-token",
-    "modelDisplayName": "GPT-5.6 Sol (推荐)"
+    "modelDisplayName": "GPT-5.6 Sol",
+    "reasoningEffort": "max"
   },
   "rss": {
     "feeds": [
@@ -37,5 +38,17 @@
       }
     ],
     "refreshIntervalMinutes": 15
+  },
+  "vendorPortals": {
+    "mtk": {
+      "url": "https://online.mediatek.com/",
+      "username": "wangdong@cooseagroup.com",
+      "secretName": "tabonkb-mtk-password"
+    },
+    "unisoc": {
+      "url": "https://unisupport.unisoc.com/",
+      "username": "zengxinge@cooseagroup.com",
+      "secretName": "tabonkb-unisoc-password"
+    }
   }
 }

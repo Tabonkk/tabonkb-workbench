@@ -21,6 +21,18 @@ const DEFAULT_SETTINGS = {
   rss: {
     feeds: DEFAULT_FEEDS,
     refreshIntervalMinutes: 15
+  },
+  vendorPortals: {
+    mtk: {
+      url: 'https://online.mediatek.com/',
+      username: '',
+      secretName: 'tabonkb-mtk-password'
+    },
+    unisoc: {
+      url: 'https://unisupport.unisoc.com/',
+      username: '',
+      secretName: 'tabonkb-unisoc-password'
+    }
   }
 };
 
@@ -619,6 +631,137 @@ class TabonKBSettingTab extends PluginSettingTab {
           new Notice(`已添加订阅源: ${newFeedName}`);
         });
       });
+
+    // ==========================================
+    // 4. Chipset Vendor Portals Settings (MTK & Unisoc)
+    // ==========================================
+    containerEl.createEl('h3', { text: '芯片供应商特定资源网配置 (MTK Online / 展锐 Uni-Support)' });
+    const vendorDesc = containerEl.createEl('p', {
+      text: '配置 MTK 资源网 (MediaTek Online) 与 展锐资源网 (Uni-Support) 的企业访问账号与登录密码。凭据将安全保存在 Obsidian 隔离安全凭据库中，用于在「探索」页面中检索、关联与分析原厂芯片技术文档。'
+    });
+    vendorDesc.style.color = 'var(--text-muted)';
+    vendorDesc.style.fontSize = '12px';
+
+    if (!this.plugin.settings.vendorPortals) {
+      this.plugin.settings.vendorPortals = JSON.parse(JSON.stringify(DEFAULT_SETTINGS.vendorPortals));
+    }
+    const vp = this.plugin.settings.vendorPortals;
+
+    // --- MTK Online Settings ---
+    containerEl.createEl('h4', { text: '🟢 MTK 资源网 (MediaTek Online)' });
+    
+    new Setting(containerEl)
+      .setName('MTK 门户地址 (Portal URL)')
+      .setDesc('MediaTek Online 官方技术支持服务网站')
+      .addText(text => {
+        text.setValue(vp.mtk?.url || 'https://online.mediatek.com/')
+          .setPlaceholder('https://online.mediatek.com/')
+          .onChange(async (val) => {
+            if (!vp.mtk) vp.mtk = {};
+            vp.mtk.url = val.trim();
+            await this.plugin.saveSettings();
+          });
+      });
+
+    new Setting(containerEl)
+      .setName('MTK 企业账号 / 登录邮箱')
+      .setDesc('用于访问 MTK Online 知识库与 eService 工单系统的账号')
+      .addText(text => {
+        text.setValue(vp.mtk?.username || '')
+          .setPlaceholder('如 user@mediatek-client.com')
+          .onChange(async (val) => {
+            if (!vp.mtk) vp.mtk = {};
+            vp.mtk.username = val.trim();
+            await this.plugin.saveSettings();
+          });
+      });
+
+    const mtkSecret = vp.mtk?.secretName || 'tabonkb-mtk-password';
+    const mtkPassSetting = new Setting(containerEl)
+      .setName('MTK 登录密码 / 访问凭据')
+      .setDesc('安全保存在 Obsidian 隔离凭据中，绝不写入明文配置或日志');
+
+    let mtkPassInput = null;
+    mtkPassSetting.addText(text => {
+      text.inputEl.type = 'password';
+      text.setPlaceholder('输入密码或访问 Token');
+      mtkPassInput = text;
+      this.getCredential(mtkSecret).then(val => {
+        if (val) text.setValue(val);
+      });
+      text.onChange(async (val) => {
+        await this.setCredential(mtkSecret, val);
+      });
+    });
+
+    mtkPassSetting.addExtraButton(btn => {
+      btn.setIcon('eye')
+        .setTooltip('显示 / 隐藏明文')
+        .onClick(() => {
+          if (mtkPassInput?.inputEl) {
+            const isPwd = mtkPassInput.inputEl.type === 'password';
+            mtkPassInput.inputEl.type = isPwd ? 'text' : 'password';
+          }
+        });
+    });
+
+    // --- Unisoc Uni-Support Settings ---
+    containerEl.createEl('h4', { text: '🟣 展锐资源网 (Uni-Support)' });
+
+    new Setting(containerEl)
+      .setName('展锐门户地址 (Portal URL)')
+      .setDesc('紫光展锐官方技术支持与芯片资源下载平台')
+      .addText(text => {
+        text.setValue(vp.unisoc?.url || 'https://unisupport.unisoc.com/')
+          .setPlaceholder('https://unisupport.unisoc.com/')
+          .onChange(async (val) => {
+            if (!vp.unisoc) vp.unisoc = {};
+            vp.unisoc.url = val.trim();
+            await this.plugin.saveSettings();
+          });
+      });
+
+    new Setting(containerEl)
+      .setName('展锐 登录账号 / Email')
+      .setDesc('用于访问展锐 Uni-Support 文档与代码补丁下载的账号')
+      .addText(text => {
+        text.setValue(vp.unisoc?.username || '')
+          .setPlaceholder('如 unisoc_developer')
+          .onChange(async (val) => {
+            if (!vp.unisoc) vp.unisoc = {};
+            vp.unisoc.username = val.trim();
+            await this.plugin.saveSettings();
+          });
+      });
+
+    const unisocSecret = vp.unisoc?.secretName || 'tabonkb-unisoc-password';
+    const unisocPassSetting = new Setting(containerEl)
+      .setName('展锐 登录密码 / 访问凭据')
+      .setDesc('安全保存在 Obsidian 隔离凭据中');
+
+    let unisocPassInput = null;
+    unisocPassSetting.addText(text => {
+      text.inputEl.type = 'password';
+      text.setPlaceholder('输入密码或访问 Token');
+      unisocPassInput = text;
+      this.getCredential(unisocSecret).then(val => {
+        if (val) text.setValue(val);
+      });
+      text.onChange(async (val) => {
+        await this.setCredential(unisocSecret, val);
+      });
+    });
+
+    unisocPassSetting.addExtraButton(btn => {
+      btn.setIcon('eye')
+        .setTooltip('显示 / 隐藏明文')
+        .onClick(() => {
+          if (unisocPassInput?.inputEl) {
+            const isPwd = unisocPassInput.inputEl.type === 'password';
+            unisocPassInput.inputEl.type = isPwd ? 'text' : 'password';
+          }
+        });
+    });
   }
 }
 

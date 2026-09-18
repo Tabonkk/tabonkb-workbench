@@ -360,7 +360,56 @@ class PiDrawerView {
     
     // Message container click delegation: copy button & external links
     this.messagesEl.onclick = async (e) => {
-      // 1. Copy message text button
+      // 1. Copy code block button
+      const codeCopyBtn = e.target.closest('.tw-code-copy-btn');
+      if (codeCopyBtn) {
+        e.stopPropagation();
+        const pre = codeCopyBtn.closest('pre');
+        if (pre) {
+          const codeEl = pre.querySelector('code');
+          let codeText = '';
+          if (codeEl) {
+            codeText = codeEl.innerText || codeEl.textContent || '';
+          } else {
+            const clone = pre.cloneNode(true);
+            const hb = clone.querySelector('.tw-code-header-bar');
+            if (hb) hb.remove();
+            const obBtn = clone.querySelector('.copy-code-button');
+            if (obBtn) obBtn.remove();
+            codeText = clone.innerText || clone.textContent || '';
+          }
+          codeText = codeText.replace(/\r\n/g, '\n');
+          try {
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+              await navigator.clipboard.writeText(codeText);
+            } else {
+              const ta = document.createElement('textarea');
+              ta.value = codeText;
+              ta.style.position = 'fixed';
+              ta.style.opacity = '0';
+              document.body.appendChild(ta);
+              ta.select();
+              document.execCommand('copy');
+              ta.remove();
+            }
+            codeCopyBtn.classList.add('copied');
+            const prevHtml = codeCopyBtn.innerHTML;
+            codeCopyBtn.innerHTML = `${getIconPark('check', 12, { color: '#10B981' })} <span class="tw-code-copy-text" style="color: #10B981;">已复制</span>`;
+            setTimeout(() => {
+              codeCopyBtn.classList.remove('copied');
+              codeCopyBtn.innerHTML = prevHtml;
+            }, 1800);
+            const app = this.app || (typeof window !== 'undefined' ? window.app : null);
+            const NoticeCls = typeof Notice !== 'undefined' ? Notice : (app?.Notice || class{});
+            new NoticeCls('✓ 代码片段已复制到剪贴板', 2000);
+          } catch (err) {
+            console.warn('[PiDrawerView] Code copy failed:', err);
+          }
+        }
+        return;
+      }
+
+      // 1.1 Copy entire message text button
       const copyBtn = e.target.closest('.tw-msg-copy-btn');
       if (copyBtn) {
         e.stopPropagation();
@@ -1808,6 +1857,7 @@ class PiDrawerView {
     this.hub.on('status_change', (s) => this.updateStatus(s));
 
     this.hub.on('turn_start', () => {
+      this.lastHubError = null;
       this.removeWelcomeScreen();
       if (!this.currentAssistantMessage) {
         this.createAssistantMessageBubble();
@@ -1845,10 +1895,14 @@ class PiDrawerView {
     });
 
     this.hub.on('error', (err) => {
+      this.lastHubError = err;
       if (!this.currentAssistantMessage) {
         this.createAssistantMessageBubble();
       }
-      this.appendAssistantDelta(`\n⚠️ 提示: ${err.error || err.message || '执行异常'}`);
+      const errMsg = err.error || err.message || '执行异常';
+      if (!this.currentAssistantMessage.rawText || !this.currentAssistantMessage.rawText.includes(errMsg)) {
+        this.appendAssistantDelta(`\n⚠️ 提示: ${errMsg}`);
+      }
       this.finishAssistantMessage();
     });
 
@@ -2074,6 +2128,45 @@ class PiDrawerView {
       msg.contentEl.style.display = 'block';
       msg.contentEl.setAttribute('data-raw', msg.rawText);
       this.formatMessageContent(msg.contentEl, msg.rawText);
+
+      // If this message represents an upstream channel exception (e.g. 429 concurrency limit):
+      if (msg.rawText.includes('上游模型通道调用异常') || msg.rawText.includes('Concurrency limit exceeded') || msg.rawText.includes('429')) {
+        const actionWrap = document.createElement('div');
+        actionWrap.className = 'tw-error-actions-bar';
+        actionWrap.style.cssText = 'margin-top: 10px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap;';
+        actionWrap.innerHTML = `
+          <button class="tw-error-switch-ds-btn" style="padding: 5px 12px; font-size: 11.5px; font-weight: 600; background: #10B981; color: #fff; border: none; border-radius: 4px; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; box-shadow: 0 1px 2px rgba(0,0,0,0.1);">
+            ${getIconPark('lightning', 12)} <span>一键切至 DeepSeek 极速通道并重试</span>
+          </button>
+          <button class="tw-error-resend-btn" style="padding: 5px 12px; font-size: 11.5px; font-weight: 500; background: rgba(0,0,0,0.06); color: var(--text-normal); border: 1px solid var(--background-modifier-border); border-radius: 4px; cursor: pointer; display: inline-flex; align-items: center; gap: 5px;">
+            ${getIconPark('refresh', 12)} <span>重新发送本题</span>
+          </button>
+        `;
+        const dsBtn = actionWrap.querySelector('.tw-error-switch-ds-btn');
+        if (dsBtn) {
+          dsBtn.onclick = () => {
+            this.selectModel('deepseek-v4-flash', 'DeepSeek V4 Flash (推荐)', 'deepseek');
+            const msgs = (this.hub && this.hub.sessionManager) ? this.hub.sessionManager.getMessages(this.hub.activeAgentId) : [];
+            const lastUserMsg = [...(msgs || [])].reverse().find(m => m.role === 'user');
+            if (lastUserMsg && lastUserMsg.text) {
+              this.inputEl.value = lastUserMsg.text;
+              this.handleSend();
+            }
+          };
+        }
+        const resendBtn = actionWrap.querySelector('.tw-error-resend-btn');
+        if (resendBtn) {
+          resendBtn.onclick = () => {
+            const msgs = (this.hub && this.hub.sessionManager) ? this.hub.sessionManager.getMessages(this.hub.activeAgentId) : [];
+            const lastUserMsg = [...(msgs || [])].reverse().find(m => m.role === 'user');
+            if (lastUserMsg && lastUserMsg.text) {
+              this.inputEl.value = lastUserMsg.text;
+              this.handleSend();
+            }
+          };
+        }
+        msg.contentEl.appendChild(actionWrap);
+      }
     } else if (isAborted) {
       // Aborted notice already added above
     } else {
@@ -2082,6 +2175,7 @@ class PiDrawerView {
       const adapter = this.hub ? this.hub.getActiveAdapter() : null;
       const currentModel = adapter && typeof adapter.getModel === 'function' ? adapter.getModel() : { id: '', name: '' };
       const modelName = currentModel.name || '当前模型';
+      const errDetail = this.lastHubError ? (this.lastHubError.message || this.lastHubError.error || '') : '';
 
       msg.contentEl.innerHTML = `
         <div class="tw-empty-response-card" style="padding: 12px 14px; border-radius: 6px; background: rgba(239, 68, 68, 0.08); border: 1px dashed rgba(239, 68, 68, 0.35); font-size: 12px; line-height: 1.6; color: var(--text-normal);">
@@ -2089,20 +2183,35 @@ class PiDrawerView {
             <span>${getIconPark('alert', 14, { color: '#EF4444' })}</span><span>未收到模型回复内容</span>
           </div>
           <div style="color: var(--text-muted); font-size: 11.5px;">
-            模型 <b>${escapeHtml(modelName)}</b> 上游通道未返回任何文本（该模型通道可能处于维护或未开放状态）。
+            模型 <b>${escapeHtml(modelName)}</b> 上游通道未返回有效文本${errDetail ? `（上游提示: <code style="color:#ef4444;">${escapeHtml(errDetail)}</code>）` : '（可能处于并发超限 429 或网络瞬时抖动）'}。
           </div>
           <div style="margin-top: 8px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
-            <button class="tw-empty-retry-btn" style="padding: 4px 10px; font-size: 11px; font-weight: 600; background: var(--interactive-accent, #2563EB); color: #fff; border: none; border-radius: 4px; cursor: pointer; transition: all 0.15s ease; display: inline-flex; align-items: center; gap: 5px;">
-              ${getIconPark('lightning', 12)} <span>一键切至 GPT-5.6 Sol (推荐) 并重试</span>
+            <button class="tw-empty-switch-ds-btn" style="padding: 4px 10px; font-size: 11px; font-weight: 600; background: #10B981; color: #fff; border: none; border-radius: 4px; cursor: pointer; transition: all 0.15s ease; display: inline-flex; align-items: center; gap: 5px;">
+              ${getIconPark('lightning', 12)} <span>一键切至 DeepSeek 极速通道并重试</span>
+            </button>
+            <button class="tw-empty-retry-direct-btn" style="padding: 4px 10px; font-size: 11px; font-weight: 500; background: var(--interactive-accent, #2563EB); color: #fff; border: none; border-radius: 4px; cursor: pointer; transition: all 0.15s ease; display: inline-flex; align-items: center; gap: 5px;">
+              ${getIconPark('refresh', 12)} <span>重新发送本题</span>
             </button>
           </div>
         </div>
       `;
 
-      const retryBtn = msg.contentEl.querySelector('.tw-empty-retry-btn');
-      if (retryBtn) {
-        retryBtn.onclick = () => {
-          this.selectModel('gpt-5-6-thinking', 'GPT-5.6 Sol (推荐)', 'brain');
+      const dsBtn = msg.contentEl.querySelector('.tw-empty-switch-ds-btn');
+      if (dsBtn) {
+        dsBtn.onclick = () => {
+          this.selectModel('deepseek-v4-flash', 'DeepSeek V4 Flash (推荐)', 'deepseek');
+          const msgs = (this.hub && this.hub.sessionManager) ? this.hub.sessionManager.getMessages(this.hub.activeAgentId) : [];
+          const lastUserMsg = [...(msgs || [])].reverse().find(m => m.role === 'user');
+          if (lastUserMsg && lastUserMsg.text) {
+            this.inputEl.value = lastUserMsg.text;
+            this.handleSend();
+          }
+        };
+      }
+
+      const directRetryBtn = msg.contentEl.querySelector('.tw-empty-retry-direct-btn');
+      if (directRetryBtn) {
+        directRetryBtn.onclick = () => {
           const msgs = (this.hub && this.hub.sessionManager) ? this.hub.sessionManager.getMessages(this.hub.activeAgentId) : [];
           const lastUserMsg = [...(msgs || [])].reverse().find(m => m.role === 'user');
           if (lastUserMsg && lastUserMsg.text) {
@@ -2147,22 +2256,69 @@ class PiDrawerView {
           this
         );
         this.postProcessRenderedMarkdown(el);
+        setTimeout(() => this.postProcessRenderedMarkdown(el), 60);
+        setTimeout(() => this.postProcessRenderedMarkdown(el), 250);
         return;
       } catch (e) {
         console.warn('[PiDrawerView] MarkdownRenderer failed, falling back to simple format:', e);
       }
     }
 
-    el.innerHTML = renderSimpleMarkdown(text);
+    el.innerHTML = formatMarkdownFallback(text);
     this.postProcessRenderedMarkdown(el);
   }
 
   postProcessRenderedMarkdown(containerEl) {
-    // Add rel and target to external links
+    if (!containerEl) return;
+
+    // 1. Add rel and target to external links
     containerEl.querySelectorAll('a').forEach(a => {
       a.setAttribute('target', '_blank');
       a.setAttribute('rel', 'noopener noreferrer');
       a.classList.add('external-link');
+    });
+
+    // 2. Enhance code blocks with styled header bar, language label, and compact copy button
+    containerEl.querySelectorAll('pre').forEach(preEl => {
+      preEl.classList.add('tw-code-block');
+
+      // Hide default Obsidian copy button to avoid huge or duplicate buttons
+      const obCopyBtn = preEl.querySelector('.copy-code-button');
+      if (obCopyBtn) {
+        obCopyBtn.style.display = 'none';
+      }
+
+      if (preEl.querySelector('.tw-code-header-bar') || preEl.dataset.twProcessed === 'true') {
+        return;
+      }
+      preEl.dataset.twProcessed = 'true';
+
+      const codeEl = preEl.querySelector('code');
+      let lang = '';
+      const classes = [...(preEl.classList || []), ...(codeEl ? codeEl.classList : [])];
+      for (const cls of classes) {
+        if (cls && typeof cls === 'string' && cls.startsWith('language-')) {
+          lang = cls.replace('language-', '').trim();
+          break;
+        }
+      }
+      if (!lang || lang === 'none' || lang === 'text' || lang === 'txt') {
+        lang = 'CODE';
+      } else {
+        lang = lang.toUpperCase();
+      }
+
+      const headerBar = document.createElement('div');
+      headerBar.className = 'tw-code-header-bar';
+      headerBar.innerHTML = `
+        <span class="tw-code-lang-tag">${escapeHtml(lang)}</span>
+        <button class="tw-code-copy-btn" title="复制代码内容">
+          ${getIconPark('copy', 12)}
+          <span class="tw-code-copy-text">复制</span>
+        </button>
+      `;
+
+      preEl.insertBefore(headerBar, preEl.firstChild);
     });
   }
 

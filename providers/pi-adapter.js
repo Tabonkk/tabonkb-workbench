@@ -34,8 +34,10 @@ class PiAdapter extends AgentAdapter {
       }
     }
 
-    this.activeModelId = 'pi-agent-rpc';
-    this.activeModelName = 'Pi Agent';
+    const savedModel = (typeof localStorage !== 'undefined' && localStorage.getItem('tabonkb-pi-active-model')) || 'deepseek-v4-flash';
+    const savedName = (typeof localStorage !== 'undefined' && localStorage.getItem('tabonkb-pi-active-model-name')) || 'DeepSeek V4 Flash (推荐)';
+    this.activeModelId = savedModel;
+    this.activeModelName = savedName;
 
     if (this.bridge) {
       this.setupBridgeEvents();
@@ -45,15 +47,42 @@ class PiAdapter extends AgentAdapter {
   getModelGroups() {
     return [
       {
-        group: 'Pi 引擎',
-        icon: '🥧',
-        iconPark: 'pie',
+        group: 'DeepSeek 极速直连 (推荐)',
+        icon: '⚡',
+        iconPark: 'lightning',
+        brand: 'deepseek',
         isTop: true,
         models: [
-          { id: 'pi-agent-rpc', name: 'Pi RPC Agent', desc: '原生 Pi 本地服务', icon: '🥧', iconPark: 'pie' }
+          { id: 'deepseek-v4-flash', name: 'DeepSeek V4 Flash (推荐)', desc: '官方极速直连 · 毫秒响应 · 稳定无排队', icon: '⚡', iconPark: 'lightning', brand: 'deepseek' },
+          { id: 'deepseek-v4-pro', name: 'DeepSeek V4 Pro', desc: '官方深度推理 · 超长上下文', icon: '💎', iconPark: 'diamond', brand: 'deepseek' }
+        ]
+      },
+      {
+        group: 'OpenAI / Jojom 通道',
+        icon: '🪐',
+        iconPark: 'planet',
+        brand: 'openai',
+        models: [
+          { id: 'gpt-5.6-sol', name: 'GPT-5.6 Sol', desc: 'Jojom 通道 (若上游限流可随时切回 DeepSeek)', icon: '🪐', iconPark: 'planet', brand: 'openai' }
         ]
       }
     ];
+  }
+
+  async setModel(modelId, modelName) {
+    this.activeModelId = modelId;
+    this.activeModelName = modelName || (modelId === 'gpt-5.6-sol' ? 'GPT-5.6 Sol' : (modelId === 'deepseek-v4-pro' ? 'DeepSeek V4 Pro' : 'DeepSeek V4 Flash (推荐)'));
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('tabonkb-pi-active-model', this.activeModelId);
+      localStorage.setItem('tabonkb-pi-active-model-name', this.activeModelName);
+    }
+    let provider = 'cc-switch-deep-seek';
+    if (modelId === 'gpt-5.6-sol') {
+      provider = 'jojom';
+    }
+    if (this.bridge && typeof this.bridge.setModel === 'function') {
+      await this.bridge.setModel(provider, modelId);
+    }
   }
 
   setBridge(bridge) {

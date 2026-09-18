@@ -13,6 +13,7 @@ const path = require('path');
 class PiAgentBridge {
   constructor(options = {}) {
     this.vaultBasePath = options.vaultBasePath || (process.cwd ? process.cwd() : 'd:\\work\\Mgmt\\TabonKB');
+    this.plugin = options.plugin || null;
     this.listeners = new Map();
     this.process = null;
     this.stdoutBuffer = '';
@@ -22,6 +23,10 @@ class PiAgentBridge {
     this.activeTools = new Map();
     this.requestIdCounter = 1;
     this.pendingCommands = new Map();
+    this.currentTurnHasText = false;
+    this.lastTurnError = null;
+    this.activeProvider = (typeof localStorage !== 'undefined' && localStorage.getItem('tabonkb-pi-active-provider')) || 'cc-switch-deep-seek';
+    this.activeModelId = (typeof localStorage !== 'undefined' && localStorage.getItem('tabonkb-pi-active-model')) || 'deepseek-v4-flash';
 
     this.permissionMode = options.permissionMode || 'readwrite';
     try {
@@ -125,13 +130,32 @@ class PiAgentBridge {
     }
   }
 
+  getExtensionPath() {
+    const candidates = [
+      path.join(this.vaultBasePath, '.pi', 'extensions', 'vendor-portal.ts'),
+      path.join(this.vaultBasePath, '.obsidian', 'plugins', 'tabonkb-workbench', 'extensions', 'vendor-portal.ts')
+    ];
+    for (const c of candidates) {
+      if (fs.existsSync(c)) return c;
+    }
+    return null;
+  }
+
   /**
    * Determine launch executable: direct node + bundle cli.js (cleanest) or fallback to pi.cmd
    */
   resolveLaunchCommand() {
-    const tools = this.permissionMode === 'readwrite'
+    const baseTools = this.permissionMode === 'readwrite'
       ? 'read,write,edit,grep,find,ls'
       : 'read,grep,find,ls';
+    const tools = `${baseTools},vendor_portal_search,vendor_portal_get_detail`;
+
+    const extPath = this.getExtensionPath();
+    const extArgs = extPath ? ['--extension', extPath] : [];
+    const modelArgs = [
+      '--provider', this.activeProvider || 'cc-switch-deep-seek',
+      '--model', this.activeModelId || 'deepseek-v4-flash'
+    ];
 
     const defaultNodeDir = this.nodeDir || path.join(
       process.env.APPDATA || 'C:\\Users\\Administrator\\AppData\\Roaming',
@@ -150,7 +174,9 @@ class PiAgentBridge {
         args: [
           this.piBundlePath,
           '--mode', 'rpc',
-          '--tools', tools
+          '--tools', tools,
+          ...modelArgs,
+          ...extArgs
         ],
         nodeDir: defaultNodeDir
       };
@@ -163,7 +189,9 @@ class PiAgentBridge {
         cmd: piCmd,
         args: [
           '--mode', 'rpc',
-          '--tools', tools
+          '--tools', tools,
+          ...modelArgs,
+          ...extArgs
         ],
         nodeDir: defaultNodeDir
       };
@@ -175,7 +203,9 @@ class PiAgentBridge {
       args: [
         '/c', 'pi',
         '--mode', 'rpc',
-        '--tools', tools
+        '--tools', tools,
+        ...modelArgs,
+        ...extArgs
       ],
       nodeDir: defaultNodeDir
     };
@@ -200,13 +230,65 @@ class PiAgentBridge {
       const originalPath = process.env.PATH || process.env.Path || '';
       const envPath = nodeDir ? `${nodeDir}${path.delimiter}${originalPath}` : originalPath;
 
+      // Extract vendor portal credentials
+      let unisocToken = process.env.TABONKB_UNISOC_TOKEN || '';
+      let mtkUsername = process.env.TABONKB_MTK_USERNAME || '';
+      let mtkPassword = process.env.TABONKB_MTK_PASSWORD || '';
+
+      try {
+        const plugin = this.plugin || (typeof window !== 'undefined' && (window.app?.plugins?.getPlugin?.('tabonkb-workbench') || window.app?.plugins?.plugins?.['tabonkb-workbench']));
+        if (plugin) {
+          if (typeof plugin.getSecret === 'function') {
+            if (!unisocToken) unisocToken = (await plugin.getSecret('tabonkb-unisoc-password')) || '';
+            if (!mtkPassword) mtkPassword = (await plugin.getSecret('tabonkb-mtk-password')) || '';
+          }
+          if (plugin.settings?.vendorPortals?.mtk?.username && !mtkUsername) {
+            mtkUsername = plugin.settings.vendorPortals.mtk.username;
+          }
+        }
+      } catch (_) {}
+
+      if (!unisocToken && typeof localStorage !== 'undefined') {
+        unisocToken = localStorage.getItem('tabonkb-secret-tabonkb-unisoc-password') || '';
+      }
+      if (!mtkPassword && typeof localStorage !== 'undefined') {
+        mtkPassword = localStorage.getItem('tabonkb-secret-tabonkb-mtk-password') || '';
+      }
+
+      try {
+        const secCandidates = [
+          path.join(this.vaultBasePath, '.secrets.json'),
+          path.join(this.vaultBasePath, '.obsidian', 'plugins', 'tabonkb-workbench', '.secrets.json')
+        ];
+        for (const secPath of secCandidates) {
+          if (fs.existsSync(secPath)) {
+            const sdata = JSON.parse(fs.readFileSync(secPath, 'utf8'));
+            if (!unisocToken && sdata['tabonkb-unisoc-password']) unisocToken = sdata['tabonkb-unisoc-password'];
+            if (!mtkPassword && sdata['tabonkb-mtk-password']) mtkPassword = sdata['tabonkb-mtk-password'];
+          }
+        }
+      } catch (_) {}
+
+      try {
+        if (!mtkUsername) {
+          const dataJsonPath = path.join(this.vaultBasePath, '.obsidian', 'plugins', 'tabonkb-workbench', 'data.json');
+          if (fs.existsSync(dataJsonPath)) {
+            const dj = JSON.parse(fs.readFileSync(dataJsonPath, 'utf8'));
+            mtkUsername = dj?.vendorPortals?.mtk?.username || '';
+          }
+        }
+      } catch (_) {}
+
       this.process = child_process.spawn(launch.cmd, launch.args, {
         cwd: this.vaultBasePath,
         env: Object.assign({}, process.env, {
           PATH: envPath,
           Path: envPath,
           LANG: 'en_US.UTF-8',
-          PYTHONIOENCODING: 'utf-8'
+          PYTHONIOENCODING: 'utf-8',
+          TABONKB_UNISOC_TOKEN: unisocToken,
+          TABONKB_MTK_USERNAME: mtkUsername,
+          TABONKB_MTK_PASSWORD: mtkPassword
         }),
         stdio: ['pipe', 'pipe', 'pipe']
       });
@@ -305,8 +387,19 @@ class PiAgentBridge {
 
     if (type === 'turn_start') {
       this.isStreaming = true;
+      this.currentTurnHasText = false;
+      this.lastTurnError = null;
       this.setStatus('thinking', '正在思考与规划...');
       this.emit('turn_start', data);
+      return;
+    }
+
+    if (type === 'auto_retry_start') {
+      const attempt = data.attempt || 1;
+      const maxAttempts = data.maxAttempts || 3;
+      const errMsg = data.errorMessage || '';
+      const retryDesc = errMsg ? `正在重试 (${attempt}/${maxAttempts}): ${errMsg.slice(0, 30)}...` : `正在重试请求 (${attempt}/${maxAttempts})...`;
+      this.setStatus('thinking', retryDesc);
       return;
     }
 
@@ -319,6 +412,21 @@ class PiAgentBridge {
     }
 
     if (type === 'turn_end') {
+      const msg = data.message;
+      if (msg && (msg.stopReason === 'error' || msg.errorMessage)) {
+        const errMsg = msg.errorMessage || '上游模型调用异常';
+        this.lastTurnError = errMsg;
+        if (!this.currentTurnHasText) {
+          const isRateLimit = /concurrency|rate_limit|429|too many/i.test(errMsg);
+          const tip = isRateLimit
+            ? `💡 **原因与建议**: 上游 API 通道临时并发受限 (Rate Limit / 429)。该通道正常可用，通常等待数秒后再试即可恢复。`
+            : `💡 **原因与建议**: 上游 API 接口返回错误或网络异常，请稍后点击重试或切换备选通道。`;
+          const notice = `\n\n> ⚠️ **上游模型通道调用异常**\n> 错误信息: \`${errMsg}\`\n>\n> ${tip}\n`;
+          this.emit('text_delta', notice);
+          this.currentTurnHasText = true;
+        }
+        this.emit('error', { message: errMsg, stopReason: msg.stopReason });
+      }
       this.emit('turn_end', data);
       return;
     }
@@ -334,6 +442,9 @@ class PiAgentBridge {
       }
 
       if (ev.type === 'text_delta' && typeof ev.delta === 'string') {
+        if (ev.delta.length > 0) {
+          this.currentTurnHasText = true;
+        }
         this.emit('text_delta', ev.delta);
       }
       return;
@@ -363,6 +474,14 @@ class PiAgentBridge {
         actionDesc = `正在查找: "${pat}"`;
       } else if (toolName === 'ls') {
         actionDesc = `正在查看目录清单`;
+      } else if (toolName === 'vendor_portal_search') {
+        const q = args?.query || '';
+        const v = args?.vendor && args.vendor !== 'all' ? ` (${args.vendor})` : '';
+        actionDesc = `正在检索芯片原厂资料${v}: "${q}"`;
+      } else if (toolName === 'vendor_portal_get_detail') {
+        const docId = args?.docId || '';
+        const v = args?.vendor ? ` [${args.vendor}]` : '';
+        actionDesc = `正在调取原厂技术方案${v}: ${docId}`;
       }
 
       this.setStatus('running_tool', actionDesc);
@@ -475,6 +594,31 @@ class PiAgentBridge {
       this.activeTools.clear();
       this.setStatus('connected', '新会话已开启');
       this.emit('new_session');
+    }
+  }
+
+  /**
+   * Set model dynamically via RPC or restart
+   */
+  async setModel(provider, modelId) {
+    this.activeProvider = provider;
+    this.activeModelId = modelId;
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('tabonkb-pi-active-provider', provider);
+      localStorage.setItem('tabonkb-pi-active-model', modelId);
+    }
+    if (this.process && !this.process.killed) {
+      try {
+        await this.sendCommand({
+          type: 'set_model',
+          provider: provider,
+          modelId: modelId
+        });
+      } catch (e) {
+        console.warn('[PiAgentBridge] setModel RPC failed, restarting process with new model:', e);
+        this.destroy();
+        await this.start();
+      }
     }
   }
 
