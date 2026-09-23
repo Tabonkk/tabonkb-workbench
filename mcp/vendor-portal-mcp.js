@@ -102,7 +102,7 @@ function getServiceInstance() {
 const TOOLS = [
   {
     name: 'vendor_portal_search',
-    description: '检索芯片原厂官方技术资料库（紫光展锐 Uni-Support DCC 手册 / FAQ 与 联发科 MediaTek Online）。支持查询驱动移植、配置指南、外设接口（USB/充电/Camera/UFS/PCIe/PMIC/DTS等）排障与官方 FAQ 问答。',
+    description: '检索芯片原厂官方技术资料库（紫光展锐 Uni-Support DCC 手册 / FAQ 与 联发科 MediaTek Online FAQ / DCC / Quick Start，以及 MTK eService Case 问题单）。支持查询驱动移植、配置指南、外设接口（USB/充电/Camera/UFS/PCIe/PMIC/DTS等）排障、官方 FAQ 问答与 eService Case 案例。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -154,12 +154,25 @@ async function executeSearch(params) {
 
   const res = await service.searchResourcesLive(q, v, '', cat);
   const hits = res.hits || [];
+  const lines = [];
 
-  if (hits.length === 0) {
-    return `原厂知识库与实时门户中未检索到与「${q}」相关的官方资料。建议更换关键词或指定更精确的芯片/接口名称。`;
+  // Show portal status notices if any portal failed authentication
+  if (res.portalStatus?.mtk && !res.portalStatus.mtk.ok && (v === 'mtk' || v === 'all')) {
+    lines.push(`> ⚠️ **【MTK Online 状态】**：${res.portalStatus.mtk.msg}`);
+  }
+  if (res.portalStatus?.unisoc && !res.portalStatus.unisoc.ok && (v === 'unisoc' || v === 'all')) {
+    lines.push(`> ⚠️ **【展锐 Uni-Support 状态】**：${res.portalStatus.unisoc.msg}`);
   }
 
-  const lines = [];
+  if (hits.length === 0) {
+    const errorSuffix = lines.length > 0 ? '\n' + lines.join('\n') : '';
+    return `原厂知识库与实时门户中未检索到与「${q}」相关的官方资料。建议更换关键词或指定更精确的芯片/接口名称。${errorSuffix}`;
+  }
+
+  if (lines.length > 0) {
+    lines.push('');
+  }
+
   lines.push(`### 官方原厂检索结果 (共 ${hits.length} 条资源，${res.isLive ? '官网实时直连' : '本地工程库'}):`);
 
   if (res.aiOverview) {
@@ -175,7 +188,7 @@ async function executeSearch(params) {
     lines.push(`**${idx + 1}. [${h.portalName}] ${h.title}**`);
     lines.push(`   - 编号: \`${h.docId || '无'}\` | 分类: \`${h.category || '技术资料'}\` | 芯片平台: \`${h.chipset || '通用'}\` | 发布更新: ${h.updated || '未知'}`);
     if (h.summary) {
-      const cleanSummary = h.summary.replace(/\\s+/g, ' ').trim();
+      const cleanSummary = h.summary.replace(/\s+/g, ' ').trim();
       lines.push(`   - 摘要: ${cleanSummary.slice(0, 200)}${cleanSummary.length > 200 ? '...' : ''}`);
     }
     lines.push(`   - 官网直链: ${h.url}`);
@@ -192,7 +205,16 @@ async function executeSearch(params) {
 
 async function executeGetDetail(params) {
   const service = getServiceInstance();
-  const { docId, vendor } = params;
+  const docId = (params.docId || '').trim();
+  let vendor = (params.vendor || '').trim().toLowerCase();
+
+  // Intelligent vendor auto-correction based on docId pattern
+  if (/^faq20\d{5,8}/i.test(docId) || /^\d{5,7}$/.test(docId) || /^cr\d+/i.test(docId) || /^dcc/i.test(docId)) {
+    vendor = 'unisoc';
+  } else if (/^faq0\d+/i.test(docId) || /^mto/i.test(docId)) {
+    vendor = 'mtk';
+  }
+
   const isUnisoc = vendor === 'unisoc' || /unisoc|展锐/i.test(vendor);
 
   if (isUnisoc) {
@@ -232,13 +254,24 @@ async function executeGetDetail(params) {
       return resultMarkdown.length > 30000 ? resultMarkdown.slice(0, 30000) + '\n\n...(内容过长已截断)' : resultMarkdown;
     }
 
+    // Check if it's a Unisoc DCC document
+    try {
+      const dccRes = await service.searchUnisocLive(docId, 'dcc');
+      const matchedDcc = (dccRes.hits || []).find(h => String(h.docId) === docId || String(h.id).includes(docId));
+      if (matchedDcc && matchedDcc.detailedContentMarkdown) {
+        return matchedDcc.detailedContentMarkdown;
+      }
+    } catch (_) {}
+
     return `未能在展锐官方 FAQ 库中查找到编号为「${docId}」的在线正文。如果是 DCC 技术规范手册，请参考 DCC 检索结果前往 https://unisupport.unisoc.com/dcc 查阅原版文档。`;
   } else {
     // MTK
     let detail = null;
+    let mtkErr = '';
     try {
       detail = await service.fetchMtkFaqDetail(docId, 'SW');
     } catch (e) {
+      mtkErr = e.message;
       console.error('[VendorPortalMCP] MTK live fetch notice:', e.message);
     }
 
@@ -265,6 +298,10 @@ async function executeGetDetail(params) {
       ];
       const resultMarkdown = sections.join('\n');
       return resultMarkdown.length > 30000 ? resultMarkdown.slice(0, 30000) + '\n\n...(内容过长已截断)' : resultMarkdown;
+    }
+
+    if (mtkErr) {
+      return `调取 MTK 工单 [${docId}] 失败：${mtkErr}。请在工作台账号配置中录入 MTK 账号密码或使用浏览器扩展伴侣同步。`;
     }
 
     return `未能在 MTK Online 中查找到工单 [${docId}] 的详情。如需访问线上实时工单，请在设置中录入 MTK 账号密码。`;

@@ -8,6 +8,7 @@ class AgentSessionManager {
     this.vaultBasePath = options.vaultBasePath || (process.cwd ? process.cwd() : '');
     this.app = options.app || null;
     this.agents = new Map();
+    this._saveDebounceTimer = null;
 
     this.initAgent('pi');
     this.initAgent('codex');
@@ -111,7 +112,21 @@ class AgentSessionManager {
     }
   }
 
+  saveSessionsDebounced(delay = 600) {
+    if (this._saveDebounceTimer) {
+      clearTimeout(this._saveDebounceTimer);
+    }
+    this._saveDebounceTimer = setTimeout(() => {
+      this._saveDebounceTimer = null;
+      this.saveSessions();
+    }, delay);
+  }
+
   saveSessions() {
+    if (this._saveDebounceTimer) {
+      clearTimeout(this._saveDebounceTimer);
+      this._saveDebounceTimer = null;
+    }
     const payload = {};
     for (const [agentId, agent] of this.agents.entries()) {
       // Keep up to 50 sessions per agent, each session up to 100 messages
@@ -120,6 +135,9 @@ class AgentSessionManager {
         title: s.title || '对话',
         createdAt: s.createdAt || Date.now(),
         updatedAt: s.updatedAt || Date.now(),
+        // 服务端会话 ID (NiceAIGC conversation_id / 叶子消息链): 必须随白名单序列化, 否则落盘即丢无法续接
+        conversationId: s.conversationId || null,
+        lastMessageId: s.lastMessageId || null,
         messages: (s.messages || []).slice(-100).map(m => ({
           id: m.id || Math.random().toString(36).slice(2),
           role: m.role,
@@ -234,6 +252,27 @@ class AgentSessionManager {
     return active ? (active.messages || []) : [];
   }
 
+  // 服务端会话状态 (NiceAIGC conversation_id + last_message_id): 随会话持久化, 保证打开历史会话后能续接上下文
+  // backend-api 消息树协议: 续聊时 parent_message_id 必须指向该对话最后一条 assistant 消息, 两者缺一不可
+  setSessionConversation(agentId, convId, lastMsgId) {
+    const active = this.getActiveSession(agentId);
+    if (!active) return;
+    if (active.conversationId === (convId || null) && (active.lastMessageId || null) === (lastMsgId || null)) return;
+    active.conversationId = convId || null;
+    active.lastMessageId = lastMsgId || null;
+    active.updatedAt = Date.now();
+    this.saveSessions();
+  }
+
+  getSessionConversation(agentId) {
+    const active = this.getActiveSession(agentId);
+    if (!active) return { conversationId: null, lastMessageId: null };
+    return {
+      conversationId: active.conversationId || null,
+      lastMessageId: active.lastMessageId || null
+    };
+  }
+
   addMessage(agentId, msg) {
     const agent = this.getAgent(agentId);
     let active = this.getActiveSession(agentId);
@@ -243,7 +282,7 @@ class AgentSessionManager {
       active = this.createSession(agentId, title);
     } else if (active.title === '新对话' && msg.role === 'user') {
       const title = (msg.text || '').trim().slice(0, 36).replace(/\n/g, ' ') || 
-                    (msg.images && msg.images.length > 0 ? `[图片] ${msg.images[0].name || ''}`.trim() : '');
+                    (msg.images && msg.images.length > 0 ? `[ͼƬ] ${msg.images[0].name || ''}`.trim() : '');
       if (title) active.title = title;
     }
 
@@ -276,7 +315,7 @@ class AgentSessionManager {
   setDraft(agentId, draft) {
     const agent = this.getAgent(agentId);
     agent.draft = draft || '';
-    this.saveSessions();
+    this.saveSessionsDebounced(600);
   }
 
   getCurrentAssistant(agentId) {

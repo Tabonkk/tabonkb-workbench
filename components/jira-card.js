@@ -282,11 +282,12 @@ function resolveStatusClass(statusName) {
 }
 
 function resolvePriorityClass(priority) {
-  if (!priority) return 'medium';
+  if (!priority) return 'p-medium';
   const p = priority.toLowerCase();
-  if (p.includes('blocker') || p.includes('highest') || p.includes('urgent') || p.includes('p0')) return 'p-urgent';
-  if (p.includes('high') || p.includes('p1')) return 'p-high';
-  if (p.includes('low') || p.includes('lowest') || p.includes('p3')) return 'p-low';
+  // 兼容 Jira 中/英文字标: 致命(Fatal)/紧急(Blocker)/严重阻塞 → 红; 严重(Major)/高 → 橙; 次要(Minor)/轻微(Trivial)/低 → 绿
+  if (p.includes('blocker') || p.includes('fatal') || p.includes('critical') || p.includes('highest') || p.includes('urgent') || p.includes('p0') || p.includes('\u7d27\u6025') || p.includes('\u81f4\u547d') || p.includes('\u6700\u9ad8') || p.includes('\u4e25\u91cd\u963b\u585e')) return 'p-urgent';
+  if (p.includes('major') || p.includes('high') || p.includes('p1') || p.includes('\u4e25\u91cd') || p.includes('\u9ad8')) return 'p-high';
+  if (p.includes('minor') || p.includes('trivial') || p.includes('low') || p.includes('lowest') || p.includes('p3') || p.includes('p4') || p.includes('\u6b21\u8981') || p.includes('\u8f7b\u5fae') || p.includes('\u4f4e')) return 'p-low';
   return 'p-medium';
 }
 

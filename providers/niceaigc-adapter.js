@@ -11,6 +11,35 @@ function generateUuid() {
   });
 }
 
+function getImageDimensions(buffer) {
+  try {
+    if (buffer && buffer.length > 24) {
+      // PNG: 8-byte signature, then IHDR chunk (length 4, type 4 'IHDR', width 4, height 4)
+      if (buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4E && buffer[3] === 0x47) {
+        return { width: buffer.readUInt32BE(16), height: buffer.readUInt32BE(20) };
+      }
+      // JPEG: SOF0/SOF2 marker
+      if (buffer[0] === 0xFF && buffer[1] === 0xD8) {
+        let offset = 2;
+        while (offset < buffer.length - 8) {
+          if (buffer[offset] !== 0xFF) break;
+          const marker = buffer[offset + 1];
+          if (marker === 0xC0 || marker === 0xC2) {
+            return { height: buffer.readUInt16BE(offset + 5), width: buffer.readUInt16BE(offset + 7) };
+          }
+          const len = buffer.readUInt16BE(offset + 2);
+          offset += 2 + len;
+        }
+      }
+      // GIF: GIF87a or GIF89a
+      if (buffer[0] === 0x47 && buffer[1] === 0x49 && buffer[2] === 0x46) {
+        return { width: buffer.readUInt16LE(6), height: buffer.readUInt16LE(8) };
+      }
+    }
+  } catch (e) {}
+  return { width: 1024, height: 768 };
+}
+
 function normalizeModel(modelStr) {
   if (!modelStr) return 'gpt-5-6-thinking';
   const m = modelStr.trim();
@@ -62,6 +91,9 @@ class NiceAigcAdapter extends AgentAdapter {
     this.conversationHistory = [];
     this.conversationId = null;
     this.lastMessageId = null;
+    // 会话持久化: conversationId 随本地 session 对象存档, 打开历史会话可续接服务端上下文
+    this.sessionManager = options.sessionManager || null;
+    this._boundSessionId = undefined;
     this.activeRequest = null;
     this.abortController = null;
     this._memorySecret = null;
@@ -397,6 +429,305 @@ class NiceAigcAdapter extends AgentAdapter {
   }
 
   /**
+   * 发送前惰性检测本地会话是否切换 (历史面板打开/新建/重启插件):
+   * 切换到另一会话时, 改用该会话存档的 conversationId, 避免服务端新开对话丢失上下文
+   */
+  _syncSessionConversation() {
+    if (!this.sessionManager) return;
+    try {
+      const sid = this.sessionManager.getActiveSessionId ? this.sessionManager.getActiveSessionId('niceaigc') : null;
+      const current = this._boundSessionId === undefined ? null : this._boundSessionId;
+      if (sid === current) return;
+      let saved = { conversationId: null, lastMessageId: null };
+      if (sid && this.sessionManager.getSessionConversation) {
+        saved = this.sessionManager.getSessionConversation('niceaigc') || saved;
+      }
+      this.conversationId = saved.conversationId || null;
+      // 关键: backend-api 消息树协议续聊时 parent_message_id 必须指向该对话的叶子消息,
+      // 若只恢复 conversationId 而 lastMessageId 为空, 发送时 parentId 会随机生成 → 服务端找不到父节点返回空流
+      this.lastMessageId = saved.lastMessageId || null;
+      // 同步重建内存对话历史: 切换/恢复会话后 v1 协议与上下文摘要才有内容可用
+      try {
+        if (this.sessionManager.getMessages) {
+          const msgs = this.sessionManager.getMessages('niceaigc') || [];
+          this.conversationHistory = msgs.slice(-20)
+            .filter(m => m && (m.role === 'user' || m.role === 'assistant'))
+            .map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: String(m.text || '') }));
+        }
+      } catch (e) {}
+      this._boundSessionId = sid;
+    } catch (e) {}
+  }
+
+  _persistConversationId() {
+    if (!this.sessionManager || !this.conversationId || !this.sessionManager.setSessionConversation) return;
+    try {
+      this.sessionManager.setSessionConversation('niceaigc', this.conversationId, this.lastMessageId || null);
+    } catch (e) {}
+  }
+
+  // GET 小工具: 拉取 JSON (对话树查询用)
+  _httpGetJson(url, headers) {
+    return new Promise((resolve, reject) => {
+      const https = url.startsWith('https') ? require('https') : require('http');
+      const urlObj = new URL(url);
+      const req = https.request(urlObj, {
+        method: 'GET',
+        headers,
+        timeout: 15000
+      }, (res) => {
+        let raw = '';
+        res.on('data', (c) => { raw += c; });
+        res.on('end', () => {
+          if (res.statusCode < 200 || res.statusCode >= 300) {
+            reject(new Error(`HTTP ${res.statusCode}`));
+            return;
+          }
+          try { resolve(JSON.parse(raw)); } catch (e) { reject(e); }
+        });
+      });
+      req.on('error', reject);
+      req.on('timeout', () => { req.destroy(new Error('timeout')); });
+      req.end();
+    });
+  }
+
+  // POST 小工具: 提交 JSON (文件上传申请/确认用)
+  _httpPostJson(url, headers, data) {
+    return new Promise((resolve, reject) => {
+      const https = url.startsWith('https') ? require('https') : require('http');
+      const urlObj = new URL(url);
+      const postData = typeof data === 'string' ? data : JSON.stringify(data || {});
+      const reqHeaders = Object.assign({}, headers, {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(postData)
+      });
+      const req = https.request(urlObj, {
+        method: 'POST',
+        headers: reqHeaders,
+        timeout: 20000
+      }, (res) => {
+        let raw = '';
+        res.on('data', (c) => { raw += c; });
+        res.on('end', () => {
+          if (res.statusCode < 200 || res.statusCode >= 300) {
+            reject(new Error(`HTTP ${res.statusCode}: ${raw.slice(0, 150)}`));
+            return;
+          }
+          try { resolve(JSON.parse(raw)); } catch (e) { resolve(raw); }
+        });
+      });
+      req.on('error', reject);
+      req.on('timeout', () => { req.destroy(new Error('timeout')); });
+      req.write(postData);
+      req.end();
+    });
+  }
+
+  // PUT 小工具: 提交二进制流 (文件上传预签名桶用)
+  _httpPutBinary(url, headers, buffer) {
+    return new Promise((resolve, reject) => {
+      let urlObj;
+      try {
+        urlObj = new URL(url);
+      } catch (e) {
+        reject(new Error(`Invalid upload URL: ${url}`));
+        return;
+      }
+      const https = urlObj.protocol === 'https:' ? require('https') : require('http');
+      const reqHeaders = Object.assign({}, headers, {
+        'Content-Length': buffer.length
+      });
+      delete reqHeaders['host'];
+      delete reqHeaders['Host'];
+
+      const req = https.request(urlObj, {
+        method: 'PUT',
+        headers: reqHeaders,
+        timeout: 60000
+      }, (res) => {
+        let raw = '';
+        res.on('data', (c) => { raw += c; });
+        res.on('end', () => {
+          if (res.statusCode < 200 || res.statusCode >= 300) {
+            reject(new Error(`HTTP ${res.statusCode}: ${raw.slice(0, 150)}`));
+            return;
+          }
+          resolve(raw);
+        });
+      });
+      req.on('error', reject);
+      req.on('timeout', () => { req.destroy(new Error('timeout')); });
+      req.write(buffer);
+      req.end();
+    });
+  }
+
+  // 多模态图片预上传: 上传至 ChatGPT Web /backend-api/files 并取得合法附件结构
+  async _uploadImageFile(baseUrl, headers, img) {
+    if (!img) return null;
+    let buffer = null;
+    let format = 'png';
+    let fileName = img.name || `image_${Date.now()}.png`;
+
+    if (img.dataUrl) {
+      const match = img.dataUrl.match(/^data:image\/([a-zA-Z0-9+.-]+);base64,(.+)$/);
+      if (!match) return null;
+      format = match[1].toLowerCase();
+      const b64Data = match[2];
+      buffer = Buffer.from(b64Data, 'base64');
+      const ext = format === 'jpeg' ? 'jpg' : (format === 'svg+xml' ? 'svg' : format);
+      if (!img.name) fileName = `image_${Date.now()}.${ext}`;
+    } else if (img.path && typeof require !== 'undefined') {
+      try {
+        const fs = require('fs');
+        if (fs.existsSync(img.path)) {
+          buffer = fs.readFileSync(img.path);
+          const extMatch = img.path.match(/\.([a-zA-Z0-9]+)$/);
+          if (extMatch) {
+            format = extMatch[1].toLowerCase();
+            if (format === 'jpg') format = 'jpeg';
+          }
+        }
+      } catch (e) {}
+    }
+    if (!buffer) return null;
+    const dimensions = getImageDimensions(buffer);
+
+    // 1. 请求上传预凭据
+    const createUrl = `${baseUrl}/backend-api/files`;
+    const createRes = await this._httpPostJson(createUrl, headers, {
+      file_name: fileName,
+      file_size: buffer.length,
+      use_case: 'multimodal'
+    });
+
+    if (!createRes || (!createRes.file_id && !createRes.id)) {
+      throw new Error('No file_id returned from files endpoint');
+    }
+
+    const fileId = createRes.file_id || createRes.id;
+    let uploadUrl = createRes.upload_url;
+
+    // 2. 若存在预签名存储桶地址，PUT 上传二进制数据
+    if (uploadUrl) {
+      if (uploadUrl.startsWith('/')) {
+        uploadUrl = `${baseUrl}${uploadUrl}`;
+      }
+      const isInternalUpload = uploadUrl.startsWith(baseUrl);
+      const uploadHeaders = Object.assign(
+        {},
+        isInternalUpload ? headers : {},
+        {
+          'Content-Type': `image/${format}`,
+          'x-ms-blob-type': 'BlockBlob'
+        }
+      );
+      await this._httpPutBinary(uploadUrl, uploadHeaders, buffer);
+
+      // 3. 标记上传完成
+      try {
+        await this._httpPostJson(`${baseUrl}/backend-api/files/${fileId}/uploaded`, headers, {});
+      } catch (e) {}
+    }
+
+    return {
+      id: fileId,
+      name: fileName,
+      size: buffer.length,
+      mime_type: `image/${format}`,
+      width: dimensions.width,
+      height: dimensions.height
+    };
+  }
+
+  // 从对话树取叶子节点 id: 叶子 = children 为空的节点; 优先取 assistant 消息节点 (续聊 parent_message_id 必需)
+  _pickLeafNodeId(mapping) {
+    try {
+      const ids = Object.keys(mapping);
+      if (!ids.length) return null;
+      const leaves = ids.filter(id => {
+        const node = mapping[id];
+        return !node || !Array.isArray(node.children) || node.children.length === 0;
+      });
+      const pool = leaves.length ? leaves : ids;
+      const isTombstone = id => !id || id === 'null' || id.startsWith('msg_tombstone');
+      const assistantLeaf = pool.find(id => {
+        const node = mapping[id];
+        return node && node.message && node.message.author && node.message.author.role === 'assistant' && !isTombstone(id);
+      });
+      const picked = assistantLeaf || pool.find(id => !isTombstone(id)) || pool[pool.length - 1];
+      return picked || null;
+    } catch (e) { return null; }
+  }
+
+  // 兼容旧存档: 只有 conversationId 而无叶子消息 id 时, 向服务端查对话树补齐 current_node,
+  // 避免续聊时 parent_message_id 随机生成导致服务端返回空流
+  async _ensureLeafMessageId(baseUrl, headers) {
+    if (!this.conversationId) return;
+    try {
+      const data = await this._httpGetJson(`${baseUrl}/backend-api/conversation/${this.conversationId}`, headers);
+      const conv = (data && data.data) ? data.data : data;
+      let leaf = conv && (conv.current_node || conv.current_node_id) || null;
+      if (!leaf && conv && conv.mapping && typeof conv.mapping === 'object') {
+        leaf = this._pickLeafNodeId(conv.mapping);
+      }
+      if (leaf) {
+        this.lastMessageId = leaf;
+        this._persistConversationId();
+        console.info('[NiceAigcAdapter] Leaf message id recovered from server:', leaf);
+      } else {
+        console.warn('[NiceAigcAdapter] Could not resolve leaf node from conversation tree; continuation may start a new branch.');
+      }
+    } catch (e) {
+      console.warn('[NiceAigcAdapter] Failed to recover leaf message id, will start fresh if server rejects:', e && e.message);
+    }
+  }
+
+  // 调试日志: 追加写入插件目录 .niceaigc-debug.log, 用于定位服务端空流等疑难问题 (不含凭据)
+  _debugLog(entry) {
+    try {
+      if (!this.sessionManager || !this.sessionManager._getStorageFile) return;
+      const file = this.sessionManager._getStorageFile();
+      if (!file) return;
+      const fs = require('fs');
+      const path = require('path');
+      const logFile = path.join(path.dirname(file), '.niceaigc-debug.log');
+      const line = JSON.stringify(Object.assign({ t: new Date().toISOString() }, entry)) + '\n';
+      fs.appendFileSync(logFile, line, 'utf8');
+      // 防止无限增长: 超过 512KB 截断保留后半
+      const st = fs.statSync(logFile);
+      if (st.size > 512 * 1024) {
+        const buf = fs.readFileSync(logFile, 'utf8');
+        fs.writeFileSync(logFile, buf.slice(Math.floor(buf.length / 2)), 'utf8');
+      }
+    } catch (e) {}
+  }
+
+  // 服务端续接失败兜底用: 把本地存档最近几轮对话压成摘要文本, 随新对话一起发给模型保住上下文
+  _buildLocalContextDigest() {
+    try {
+      if (!this.sessionManager || !this.sessionManager.getMessages) return '';
+      const msgs = this.sessionManager.getMessages('niceaigc') || [];
+      const past = msgs.slice(-9, -1); // 去掉本轮刚入队的 user 消息
+      if (!past.length) return '';
+      // 错误/警告气泡也会被存成 assistant 消息, 带入摘要会污染上下文, 必须剔除
+      const isNotice = (t) => /^\s*[⚠▲!！]/.test(t)
+        || t.includes('未返回任何有效文本内容')
+        || t.includes('建议点击左下角模型选择器')
+        || /^\s*提示[：:]/.test(t)
+        || t.includes('NiceAIGC 提示');
+      const lines = past.map(m => {
+        const who = m.role === 'user' ? '用户' : '助手';
+        const body = String(m.text || '').replace(/\s+/g, ' ').trim();
+        if (!body || (m.role !== 'user' && isNotice(body))) return '';
+        return who + ': ' + (body.length > 700 ? body.slice(0, 700) + '…' : body);
+      }).filter(l => l.length > 4);
+      return lines.length ? '【历史对话摘要】\n' + lines.join('\n') : '';
+    } catch (e) { return ''; }
+  }
+
+  /**
    * Reset conversation session
    */
   async newSession() {
@@ -404,6 +735,7 @@ class NiceAigcAdapter extends AgentAdapter {
     this.conversationHistory = [];
     this.conversationId = null;
     this.lastMessageId = null;
+    this._boundSessionId = null;
     this.setStatus('connected', '已重置会话');
   }
 
@@ -485,6 +817,9 @@ class NiceAigcAdapter extends AgentAdapter {
    * @returns {Promise<{ success: boolean, error?: string }>}
    */
   async send(text, contextPayload, attachments = []) {
+    // 先对齐当前本地会话存档的服务端 conversationId, 再做模型切换重置检测
+    this._syncSessionConversation();
+    this._contextFallbackUsed = false;
     const config = typeof this.getConfig === 'function' ? this.getConfig() : {};
     let baseUrl = (config.baseUrl || 'https://node7.nice188.com').trim().replace(/\/+$/, '');
     if (baseUrl.includes('nice188.cc')) {
@@ -592,6 +927,32 @@ class NiceAigcAdapter extends AgentAdapter {
     const isNiceSite = baseUrl.includes('nice188') || baseUrl.includes('niceaigc');
     let useBackendApi = isNiceSite || config.protocol === 'backend-api';
 
+    // 兼容旧存档: 续聊前补齐该对话叶子消息 id (backend-api 消息树协议必需)
+    if ((isNiceSite || config.protocol === 'backend-api') && this.conversationId && !this.lastMessageId) {
+      await this._ensureLeafMessageId(baseUrl, headers);
+    }
+
+    // 实际发送的提示词: 续接失败兜底重发时会被替换为 "本地摘要 + 新问题"
+    let promptText = text;
+
+    // 多模态图片预处理: 若计划走 Web 协议，先尝试通过 /backend-api/files 预上传
+    let webAttachments = [];
+    if (imageAttachments.length > 0 && useBackendApi) {
+      try {
+        for (const img of imageAttachments) {
+          const attachment = await this._uploadImageFile(baseUrl, headers, img);
+          if (attachment) webAttachments.push(attachment);
+        }
+      } catch (uploadErr) {
+        console.warn('[NiceAigcAdapter] Web file upload failed:', uploadErr && uploadErr.message);
+        if (isNiceSite) {
+          // NiceAIGC 节点不开放 /v1 (503 api_not_enabled)，因此绝不能静默剥离图片退回纯文本发问
+          throw new Error(`多模态图片上传失败: ${uploadErr.message || uploadErr}`);
+        }
+        useBackendApi = false; // 其它通用 OpenAI 代理尝试退避至 v1 Vision
+      }
+    }
+
     const executeRequest = async (asBackendApi) => {
       let apiUrl = '';
       let reqBody = '';
@@ -602,30 +963,31 @@ class NiceAigcAdapter extends AgentAdapter {
         const parentId = this.lastMessageId || generateUuid();
         this.lastMessageId = messageId;
 
-        const parts = [text];
-        if (imageAttachments.length > 0) {
-          for (const img of imageAttachments) {
-            if (img.dataUrl) {
-              parts.push({
-                content_type: 'image',
-                asset_pointer: img.dataUrl
-              });
-            }
+        const messageObj = {
+          id: messageId,
+          author: { role: 'user' },
+          content: {
+            content_type: 'text',
+            parts: [promptText]
           }
+        };
+
+        if (webAttachments.length > 0) {
+          messageObj.metadata = {
+            attachments: webAttachments.map(a => ({
+              id: a.id,
+              name: a.name,
+              size: a.size,
+              mime_type: a.mime_type,
+              width: a.width,
+              height: a.height
+            }))
+          };
         }
 
         const payload = {
           action: 'next',
-          messages: [
-            {
-              id: messageId,
-              author: { role: 'user' },
-              content: {
-                content_type: imageAttachments.length > 0 ? 'multimodal_text' : 'text',
-                parts
-              }
-            }
-          ],
+          messages: [messageObj],
           model,
           parent_message_id: parentId,
           conversation_id: this.conversationId || undefined,
@@ -640,6 +1002,7 @@ class NiceAigcAdapter extends AgentAdapter {
         }
 
         reqBody = JSON.stringify(payload);
+        this._debugLog({ type: 'request', proto: 'backend-api', conv: this.conversationId, parent: parentId, model, effort: payload.reasoning_effort || null, hasImages: imageAttachments.length > 0, attachmentCount: webAttachments.length });
       } else {
         apiUrl = baseUrl.endsWith('/chat/completions') 
           ? baseUrl 
@@ -702,8 +1065,8 @@ class NiceAigcAdapter extends AgentAdapter {
           this.conversationId = null;
           this.lastMessageId = null;
           fullAssistantText = await executeRequest(useBackendApi);
-        } else if (firstErr.code === 'API_NOT_ENABLED' || firstErr.message?.includes('503') || firstErr.message?.includes('api_not_enabled')) {
-          // If first attempt failed with API_NOT_ENABLED or 503, try alternative protocol
+        } else if (!isNiceSite && (firstErr.code === 'API_NOT_ENABLED' || firstErr.message?.includes('503') || firstErr.message?.includes('api_not_enabled') || (imageAttachments.length > 0 && (firstErr.message?.includes('422') || firstErr.message?.includes('404'))))) {
+          // If first attempt failed with API_NOT_ENABLED or 503 or 422 with images on generic endpoint, try alternative protocol
           console.warn(`[NiceAigcAdapter] Primary protocol (${useBackendApi ? 'backend-api' : 'v1'}) unavailable, falling back to ${useBackendApi ? 'v1' : 'backend-api'}...`);
           fullAssistantText = await executeRequest(!useBackendApi);
         } else {
@@ -711,9 +1074,33 @@ class NiceAigcAdapter extends AgentAdapter {
         }
       }
 
+      // 服务端续聊返回空流的自动兜底: 放弃服务端上下文, 开新对话并把本地存档摘要作为前缀重发一次
+      if ((!fullAssistantText || !fullAssistantText.trim()) && this.conversationId && !this._contextFallbackUsed) {
+        this._contextFallbackUsed = true;
+        const digest = this._buildLocalContextDigest();
+        if (digest) {
+          console.warn('[NiceAigcAdapter] Continuation returned empty stream (conv=' + this.conversationId + ', parent=' + this.lastMessageId + '); retrying once as a fresh conversation with local context digest.');
+          this._debugLog({ type: 'fallback_retry', conv: this.conversationId, parent: this.lastMessageId, digestLen: digest.length });
+          this.setStatus('connected', '服务端续接异常，已携带本地上下文重发');
+          this.conversationId = null;
+          this.lastMessageId = null;
+          promptText = digest + '\n\n--- 以上为本地历史对话摘要（服务端续接失败时的上下文兜底），请结合它回答下面的新问题 ---\n\n' + text;
+          const lastUser = this.conversationHistory[this.conversationHistory.length - 1];
+          if (lastUser && lastUser.role === 'user' && typeof lastUser.content === 'string') lastUser.content = promptText;
+          try {
+            fullAssistantText = await executeRequest(useBackendApi);
+          } catch (retryErr) {
+            console.warn('[NiceAigcAdapter] Context-digest retry failed:', retryErr && retryErr.message);
+            fullAssistantText = '';
+          }
+        }
+      }
+
       if (fullAssistantText && fullAssistantText.trim().length > 0) {
         fullAssistantText = cleanAssistantMarkdown(fullAssistantText);
         this.conversationHistory.push({ role: 'assistant', content: fullAssistantText });
+        // 本轮流式结束, lastMessageId 已更新为最终 assistant 消息 id, 随会话落盘供下次续聊作 parent
+        this._persistConversationId();
         this.isStreaming = false;
         this.setStatus('connected', '已就绪');
         this.emit('turn_end', { fullText: fullAssistantText });
@@ -721,6 +1108,8 @@ class NiceAigcAdapter extends AgentAdapter {
         return { success: true };
       } else {
         const activeName = this.activeModelName || model;
+        console.warn('[NiceAigcAdapter] Empty text response. conv=' + this.conversationId + ' parent=' + this.lastMessageId + ' model=' + model + '\n--- raw SSE tail ---\n' + String(this._lastRawFrames || '(no frames received)').replace(/(xtoken|token|[A-Za-z0-9._%+-]+@[A-Za-z0-9.-])/gi, '***'));
+        this._debugLog({ type: 'empty_response', conv: this.conversationId, parent: this.lastMessageId, model, rawTail: String(this._lastRawFrames || '(no frames received)').slice(-1500) });
         const errMsg = `当前模型（${activeName}）未返回任何有效文本内容（上游通道可能处于维护或排队状态）。建议点击左下角模型选择器切换至「⭐ GPT-5.6 Sol」或「Google Gemini」重试。`;
         this.isStreaming = false;
         this.setStatus('connected', '已就绪');
@@ -799,6 +1188,16 @@ class NiceAigcAdapter extends AgentAdapter {
         }
         throw new Error('NiceAIGC 返回 HTTP 503 (API服务未启用或处于维护状态)，请确认 Token 权限或 Base URL');
       }
+      if (response.status === 422) {
+        if (errText.includes('multimodal_text') || errText.includes('string_type') || errText.includes('parts')) {
+          const e = new Error('NiceAIGC 提示：当前节点通道未开放直接解析多模态图片（HTTP 422: 服务端参数校验拦截）。建议切换至「Google Gemini」或「Hermes」等原生多模态视觉助手，或转为纯文本提问');
+          e.statusCode = 422;
+          throw e;
+        }
+        const e = new Error(`HTTP 422: ${errText.slice(0, 150)}`);
+        e.statusCode = 422;
+        throw e;
+      }
       throw new Error(`NiceAIGC 接口返回异常 (HTTP ${response.status}): ${errText.slice(0, 150)}`);
     }
 
@@ -848,6 +1247,7 @@ class NiceAigcAdapter extends AgentAdapter {
             const convId = parsed.conversation_id || parsed.v?.conversation_id;
             if (convId) {
               this.conversationId = convId;
+              this._persistConversationId();
             }
 
             // 1. Message frame (direct or inside parsed.v)
@@ -930,6 +1330,7 @@ class NiceAigcAdapter extends AgentAdapter {
           let errData = '';
           res.on('data', c => errData += c);
           res.on('end', () => {
+            this._debugLog({ type: 'http_error', status: res.statusCode, body: errData.slice(0, 400) });
             if (res.statusCode === 503 && errData.includes('api_not_enabled')) {
               const e = new Error('API_NOT_ENABLED');
               e.code = 'API_NOT_ENABLED';
@@ -970,6 +1371,18 @@ class NiceAigcAdapter extends AgentAdapter {
               reject(new Error('NiceAIGC 登录凭据失效或过期 (HTTP 401: 登录态异常)，请在浏览器登录后重新复制最新的 Cookie / Token 并保存至设置'));
               return;
             }
+            if (res.statusCode === 422) {
+              if (errData.includes('multimodal_text') || errData.includes('string_type') || errData.includes('parts')) {
+                const e = new Error('NiceAIGC 提示：当前节点通道未开放直接解析多模态图片（HTTP 422: 服务端参数校验拦截）。建议切换至「Google Gemini」或「Hermes」等原生多模态视觉助手，或转为纯文本提问');
+                e.statusCode = 422;
+                reject(e);
+                return;
+              }
+              const e = new Error(`HTTP 422: ${errData.slice(0, 150)}`);
+              e.statusCode = 422;
+              reject(e);
+              return;
+            }
             reject(new Error(`HTTP ${res.statusCode}: ${errData.slice(0, 150)}`));
           });
           return;
@@ -979,10 +1392,17 @@ class NiceAigcAdapter extends AgentAdapter {
         let lastAccumulatedLength = 0;
         let currentAssistantMsgId = null;
         let currentPath = '';
+        let dataLineCount = 0;
+        let firstFrame = '';
 
         res.setEncoding('utf8');
+        // 诊断用: 保留原始 SSE 帧尾部, 空响应时可直接定位服务端到底返了什么 (无需猜)
+        this._lastRawFrames = '';
         res.on('data', (chunk) => {
           buffer += chunk;
+          try {
+            this._lastRawFrames = (this._lastRawFrames + chunk).slice(-4000);
+          } catch (e) {}
           const lines = buffer.split('\n');
           buffer = lines.pop() || '';
 
@@ -990,11 +1410,14 @@ class NiceAigcAdapter extends AgentAdapter {
             const trimmed = line.trim();
             if (!trimmed || trimmed.startsWith(':')) continue;
             if (trimmed === 'data: [DONE]' || trimmed === 'data:[DONE]') {
+              this._debugLog({ type: 'stream_end', done: true, dataLineCount, firstFrame, rawTail: String(this._lastRawFrames || '').slice(-1500) });
               resolve();
               return;
             }
             if (trimmed.startsWith('data:')) {
               const jsonStr = trimmed.slice(5).trim();
+              dataLineCount++;
+              if (!firstFrame) firstFrame = jsonStr.slice(0, 600);
               try {
                 const parsed = JSON.parse(jsonStr);
 
@@ -1018,6 +1441,7 @@ class NiceAigcAdapter extends AgentAdapter {
                 const convId = parsed.conversation_id || parsed.v?.conversation_id;
                 if (convId) {
                   this.conversationId = convId;
+                  this._persistConversationId();
                 }
 
                 // 1. Message frame (direct or inside parsed.v)
@@ -1078,7 +1502,10 @@ class NiceAigcAdapter extends AgentAdapter {
           }
         });
 
-        res.on('end', () => resolve());
+        res.on('end', () => {
+          this._debugLog({ type: 'stream_end', done: false, dataLineCount, firstFrame, rawTail: String(this._lastRawFrames || '').slice(-1500) });
+          resolve();
+        });
         res.on('error', reject);
       });
 

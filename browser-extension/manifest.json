@@ -1,0 +1,49 @@
+{
+  "manifest_version": 3,
+  "name": "TabonKB 研发工作台伴侣",
+  "version": "1.2.0",
+  "description": "一键将紫光展锐 Uni-Support (DCC & FAQ) 与 MTK 官网登录凭据同步至 TabonKB Obsidian 研发工作台",
+  "permissions": [
+    "cookies",
+    "storage",
+    "activeTab"
+  ],
+  "host_permissions": [
+    "*://unisupport.unisoc.com/*",
+    "*://*.unisoc.com/*",
+    "*://online.mediatek.com/*",
+    "*://*.mediatek.com/*",
+    "http://127.0.0.1/*",
+    "http://localhost/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "TabonKB 工作台伴侣",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "*://unisupport.unisoc.com/*",
+        "*://*.unisoc.com/*",
+        "*://online.mediatek.com/*",
+        "*://*.mediatek.com/*"
+      ],
+      "js": ["content.js"],
+      "css": ["content.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "background": {
+    "service_worker": "background.js"
+  }
+}

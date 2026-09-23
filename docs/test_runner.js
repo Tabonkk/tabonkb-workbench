@@ -1,4 +1,4 @@
-/**
+﻿/**
  * TabonKB Workbench V1.0.0 Automated Self-Test Suite Runner
  * Executes all functional test suites and prints a consolidated report.
  */
@@ -73,7 +73,7 @@ async function runAllSuites() {
   const agentList = hub.getAgentList();
   assert(agentList.length === 4, `Hub has 4 registered agents (got: ${agentList.length})`);
   assert(agentList.some(a => a.id === 'pi'), 'Pi Agent registered');
-  assert(agentList.some(a => a.id === 'codex'), 'Codex Agent registered');
+  assert(agentList.some(a => a.id === 'hermes'), 'Hermes Agent registered');
   assert(agentList.some(a => a.id === 'gemini'), 'Gemini Agent registered');
   assert(agentList.some(a => a.id === 'niceaigc'), 'NiceAIGC Agent registered');
 
@@ -84,15 +84,15 @@ async function runAllSuites() {
   const ctxProvider = new AgentContextProvider(mockApp);
   
   // NiceAIGC should NOT contain knowledge base metadata
-  const userText = '请解释什么是快速充电协议？';
+  const userText = '璇疯В閲婁粈涔堟槸蹇€熷厖鐢靛崗璁紵';
   const niceaigcAdapter = hub.getAdapter('niceaigc');
   const isDecoupled = !niceaigcAdapter.id.includes('kb');
   assert(isDecoupled, 'NiceAIGC is configured as general multi-modal model');
 
-  // Grounded context formatting for Pi/Codex
-  ctxProvider.setKnowledgeNode({ id: 'node-charger', title: '充电驱动模块', module: 'Charger' });
+  // Grounded context formatting for Pi/Hermes
+  ctxProvider.setKnowledgeNode({ id: 'node-charger', title: '鍏呯數椹卞姩妯″潡', module: 'Charger' });
   const formattedWithContext = ctxProvider.formatPromptWithContext(userText);
-  assert(formattedWithContext.includes('充电驱动模块') && formattedWithContext.includes('Charger'), 'Pi/Codex context formatting includes active node metadata');
+  assert(formattedWithContext.includes('鍏呯數椹卞姩妯″潡') && formattedWithContext.includes('Charger'), 'Pi/Hermes context formatting includes active node metadata');
 
   // --- Suite 5: Reasoning Effort Support ---
   console.log('\n>>> Suite 5: Reasoning Effort Selection');
@@ -100,7 +100,7 @@ async function runAllSuites() {
   assert(supportsEffort === true, 'gpt-5-6-thinking supports reasoning effort');
   niceaigcAdapter.setReasoningEffort('max');
   const effortCfg = niceaigcAdapter.getReasoningEffortConfig();
-  assert(effortCfg.id === 'max' && effortCfg.label === '极高', 'Reasoning effort set to max (极高)');
+  assert(effortCfg.id === 'max' && effortCfg.label === '鏋侀珮', 'Reasoning effort set to max (鏋侀珮)');
 
   // --- Suite 6: Session Segmentation & Draft Preservation ---
   console.log('\n>>> Suite 6: Session Segmentation & Draft Preservation');

@@ -15,9 +15,11 @@ def clean_code(code):
 files = [
     f"{plugin_dir}\\ui\\iconpark.js",
     f"{plugin_dir}\\providers\\agent-adapter-base.js",
+    f"{plugin_dir}\\mcp\\vendor-mcp-shared.js",
+    f"{plugin_dir}\\mcp\\weknora-mcp-shared.js",
     f"{plugin_dir}\\pi-agent-bridge.js",
     f"{plugin_dir}\\providers\\pi-adapter.js",
-    f"{plugin_dir}\\providers\\codex-adapter.js",
+    f"{plugin_dir}\\providers\\hermes-adapter.js",
     f"{plugin_dir}\\providers\\gemini-adapter.js",
     f"{plugin_dir}\\providers\\niceaigc-adapter.js",
     f"{plugin_dir}\\agent-session-manager.js",
@@ -31,7 +33,19 @@ files = [
     f"{plugin_dir}\\components\\jira-platform-view.js",
     f"{plugin_dir}\\components\\rss-center-view.js",
     f"{plugin_dir}\\services\\vendor-portal-service.js",
+    f"{plugin_dir}\\services\\companion-server.js",
+    f"{plugin_dir}\\services\\weknora-service.js",
+    f"{plugin_dir}\\services\\weknora-graph-service.js",
+    f"{plugin_dir}\\components\\weknora-manage\\graph-engine.js",
+    f"{plugin_dir}\\components\\weknora-manage\\wiki-drawer.js",
+    f"{plugin_dir}\\components\\weknora-manage\\wiki-graph-view.js",
+    f"{plugin_dir}\\components\\weknora-manage\\documents-view.js",
+    f"{plugin_dir}\\components\\weknora-manage\\sync-view.js",
+    f"{plugin_dir}\\components\\weknora-manage\\webview-embed.js",
+    f"{plugin_dir}\\components\\weknora-manage\\manage-view.js",
+    f"{plugin_dir}\\services\\clip-image-inliner.js",
     f"{plugin_dir}\\components\\explore-view.js",
+    f"{plugin_dir}\\components\\phone-competitor-view.js",
     f"{plugin_dir}\\settings\\workbench-settings-tab.js",
 ]
 
@@ -53,7 +67,7 @@ const http = require('http');
 const zlib = require('zlib');
 
 /* ==========================================================================
-   Embedded Multi-Agent Hub Modules (Pi, Codex, Gemini for Obsidian Workbench)
+   Embedded Multi-Agent Hub Modules (Pi, Hermes, Gemini for Obsidian Workbench)
    ========================================================================== */
 """
 
@@ -112,6 +126,7 @@ new_constructor = """class TabonKBWorkbenchView extends ItemView {
     this.activeTab = this.getSavedActiveTab();
     this.currentTab = 'tasks';
     this.keyword = '';
+    this.tabKeywords = {}; // 各 tab 独立缓存搜索词，切换页面时互不带入
     this.statusFilter = 'all';
     this.moduleFilter = '';
     this.platformFilter = '';
@@ -133,15 +148,17 @@ new_constructor = """class TabonKBWorkbenchView extends ItemView {
     this.rssCenter = null;
     this.jiraCard = null;
     this.rssCard = null;
+    this.weknoraManage = null;
 
     // Home Tab Trend Analytics
     this.homeTrendIssues = null;
     this.homeTrendCardEl = null;
     this.homeTrendTimeRange = this.getHomeTrendTimeRange();
 
-    // Multi-Agent Hub Integration (Pi, Codex, Gemini)
+    // Multi-Agent Hub Integration (Pi, Hermes, Gemini)
     const vaultPath = this.app?.vault?.adapter?.basePath || 'd:\\\\work\\\\Mgmt\\\\TabonKB';
     const plugin = this.app.plugins?.getPlugin?.('tabonkb-workbench') || this.app.plugins?.plugins?.['tabonkb-workbench'];
+    this.plugin = plugin || null;
     this.contextProvider = plugin?.contextProvider || new AgentContextProvider(this.app);
     this.agentBridge = plugin?.agentBridge || new PiAgentBridge({ vaultBasePath: vaultPath, plugin: plugin });
     this.agentHub = plugin?.agentHub || new AgentHub({
@@ -166,7 +183,7 @@ new_constructor = """class TabonKBWorkbenchView extends ItemView {
     try {
       if (typeof localStorage !== 'undefined') {
         const t = localStorage.getItem('tabonkb-active-tab');
-        if (t === 'home' || t === 'tasks' || t === 'news' || t === 'explore') return t;
+        if (t === 'home' || t === 'tasks' || t === 'news' || t === 'explore' || t === 'manage') return t;
       }
     } catch (e) {}
     return 'home';
@@ -174,7 +191,11 @@ new_constructor = """class TabonKBWorkbenchView extends ItemView {
 
   setActiveTab(tab) {
     if (this.activeTab === tab) return;
+    // 离开的页面记住自己的搜索词，进入的页面恢复各自缓存，互不串页
+    if (this.activeTab) this.tabKeywords[this.activeTab] = this.keyword || '';
     this.activeTab = tab;
+    this.keyword = this.tabKeywords[tab] || '';
+    clearTimeout(this.searchDebounceTimer);
     try {
       if (typeof localStorage !== 'undefined') {
         localStorage.setItem('tabonkb-active-tab', tab);
@@ -203,18 +224,30 @@ new_constructor = """class TabonKBWorkbenchView extends ItemView {
   }
 
   getHomeTrendIssues() {
+    const plugin = this.app?.plugins?.getPlugin?.('tabonkb-workbench') || this.app?.plugins?.plugins?.['tabonkb-workbench'];
+    const js = plugin?.jiraService;
+    // 与任务页同源：优先直接复用任务页当前加载的数据集，两页统计保证完全一致
+    const jpIssues = this.jiraPlatform?.issues;
+    if (Array.isArray(jpIssues) && jpIssues.length > 0) {
+      this.homeTrendIssues = jpIssues;
+      return this.homeTrendIssues;
+    }
+    // 任务页尚未加载时读主缓存，任务页刷新后首页走势图实时对应
+    if (js?._cache?.issues?.length) {
+      this.homeTrendIssues = js._cache.issues;
+      return this.homeTrendIssues;
+    }
     if (this.homeTrendIssues && this.homeTrendIssues.length > 0) {
       return this.homeTrendIssues;
     }
-    const plugin = this.app?.plugins?.getPlugin?.('tabonkb-workbench') || this.app?.plugins?.plugins?.['tabonkb-workbench'];
-    const js = plugin?.jiraService;
     if (js?._trendCache?.issues?.length) {
       this.homeTrendIssues = js._trendCache.issues;
       return this.homeTrendIssues;
     }
     try {
       if (typeof localStorage !== 'undefined') {
-        const raw = localStorage.getItem('tabonkb-jira-trend-cache') || localStorage.getItem('tabonkb-jira-cache-v1');
+        const cacheKeys = js?.getTrendCacheKeys ? js.getTrendCacheKeys() : null;
+        const raw = cacheKeys ? localStorage.getItem(cacheKeys.data) : null;
         if (raw) {
           const parsed = JSON.parse(raw);
           if (Array.isArray(parsed) && parsed.length > 0) {
@@ -224,89 +257,17 @@ new_constructor = """class TabonKBWorkbenchView extends ItemView {
         }
       }
     } catch (e) {}
-    if (js?._cache?.issues?.length) {
-      return js._cache.issues;
-    }
     return [];
   }
 
-  smoothConvergenceSeries(totalCount, doneCount, rawCreated, rawDone, nPoints) {
-    if (totalCount <= 0) {
-      return {
-        created: new Array(nPoints).fill(0),
-        done: new Array(nPoints).fill(0)
-      };
-    }
-
-    const smoothedCreated = [];
-    const smoothedDone = [];
-
-    let cStart = rawCreated[0] > 0 ? rawCreated[0] : Math.max(1, Math.round(totalCount * 0.82));
-    if (totalCount - cStart < 4 && totalCount >= 8) {
-      cStart = Math.max(1, totalCount - Math.max(4, Math.round(totalCount * 0.16)));
-    }
-    const cEnd = totalCount;
-
-    let dStart = rawDone[0] > 0 ? rawDone[0] : Math.max(0, Math.round(doneCount * 0.16));
-    const dEnd = doneCount;
-
-    for (let i = 0; i < nPoints; i++) {
-      const t = nPoints > 1 ? i / (nPoints - 1) : 1;
-      const ease = 3 * (t * t) - 2 * (t * t * t);
-
-      const cIdeal = cStart + (cEnd - cStart) * (0.35 * t + 0.65 * ease);
-      const rawC = rawCreated[i] !== undefined ? rawCreated[i] : cEnd;
-      let cVal = Math.round(0.68 * cIdeal + 0.32 * rawC);
-      cVal = Math.min(cEnd, Math.max(cStart, cVal));
-
-      const dIdeal = dStart + (dEnd - dStart) * ease;
-      const rawD = rawDone[i] !== undefined ? rawDone[i] : dEnd;
-      let dVal = Math.round(0.68 * dIdeal + 0.32 * rawD);
-      dVal = Math.min(dEnd, Math.max(0, dVal));
-      dVal = Math.min(dVal, cVal);
-
-      if (i === nPoints - 1) {
-        cVal = cEnd;
-        dVal = dEnd;
-      }
-
-      smoothedCreated.push(cVal);
-      smoothedDone.push(dVal);
-    }
-
-    return { created: smoothedCreated, done: smoothedDone };
-  }
-
-  pointsToSmoothPath(points, minY = 15, maxY = 92) {
+  pointsToLinePath(points) {
     if (!points || points.length === 0) return '';
-    if (points.length === 1) return `M ${points[0].x},${points[0].y}`;
-
-    let d = `M ${points[0].x},${points[0].y}`;
-    const n = points.length;
-    const tension = 0.22;
-
-    for (let i = 0; i < n - 1; i++) {
-      const p0 = points[Math.max(0, i - 1)];
-      const p1 = points[i];
-      const p2 = points[i + 1];
-      const p3 = points[Math.min(n - 1, i + 2)];
-
-      const cp1x = Math.round((p1.x + (p2.x - p0.x) * tension) * 10) / 10;
-      let cp1y = Math.round((p1.y + (p2.y - p0.y) * tension) * 10) / 10;
-      const cp2x = Math.round((p2.x - (p3.x - p1.x) * tension) * 10) / 10;
-      let cp2y = Math.round((p2.y - (p3.y - p1.y) * tension) * 10) / 10;
-
-      cp1y = Math.max(minY, Math.min(maxY, cp1y));
-      cp2y = Math.max(minY, Math.min(maxY, cp2y));
-
-      d += ` C ${cp1x},${cp1y} ${cp2x},${cp2y} ${p2.x},${p2.y}`;
-    }
-    return d;
+    return points.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x},${point.y}`).join(' ');
   }
 
-  calculateHomeTrendData(issues, timeRange) {
+  calculateHomeTrendData(issues, timeRange, W = 500, H = 120) {
     const rangeConfig = {
-      week: { days: 7, buckets: 7, labels: ['D-6', 'D-5', 'D-4', 'D-3', 'D-2', 'D-1', '今天'] },
+      week: { days: 7, buckets: 7, labels: [] }, // 周视图横轴标签由 bucketEnds 动态生成 mm-dd 日期
       month: { days: 30, buckets: 5, labels: ['4周前', '3周前', '2周前', '上周', '本周'] },
       quarter: { days: 90, buckets: 6, labels: ['10周前', '8周前', '6周前', '4周前', '2周前', '本周'] },
       year: { days: 365, buckets: 6, labels: ['10月前', '8月前', '6月前', '4月前', '2月前', '本月'] }
@@ -320,6 +281,15 @@ new_constructor = """class TabonKBWorkbenchView extends ItemView {
     const bucketEnds = [];
     for (let i = 0; i < cfg.buckets; i++) {
       bucketEnds.push(i === cfg.buckets - 1 ? now : startTime + i * stepMs);
+    }
+
+    // 周视图横轴用具体 mm-dd 日期替代 D-* 偏移量，一眼看出对应哪天
+    let axisLabels = cfg.labels;
+    if (timeRange === 'week') {
+      axisLabels = bucketEnds.map((t) => {
+        const d = new Date(t);
+        return `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      });
     }
 
     const parseTime = (ts) => {
@@ -339,17 +309,14 @@ new_constructor = """class TabonKBWorkbenchView extends ItemView {
       const proj = (iss.key && iss.key.includes('-')) ? iss.key.split('-')[0] : '';
       if (proj) projectCounts[proj] = (projectCounts[proj] || 0) + 1;
     }
-    const topProj = Object.entries(projectCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || 'SM8650';
+    const topProj = Object.entries(projectCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || '本人 Jira';
 
-    let scopeIssues = issues.filter(iss => {
-      const uTime = parseTime(iss.rawUpdated || iss.updated);
+    // The chart is a period view: only issues created in the selected range
+    // are included, so the visual never invents a baseline from old cache rows.
+    const scopeIssues = issues.filter(iss => {
       const cTime = parseTime(iss.rawCreated || iss.created);
-      return (uTime >= startTime) || (cTime >= startTime);
+      return cTime >= startTime && cTime <= now;
     });
-
-    if (scopeIssues.length === 0 && issues.length > 0) {
-      scopeIssues = issues.slice(0, 30);
-    }
 
     const rawCreatedSeries = [];
     const rawDoneSeries = [];
@@ -359,20 +326,22 @@ new_constructor = """class TabonKBWorkbenchView extends ItemView {
       let dCount = 0;
       for (const iss of scopeIssues) {
         const cTime = parseTime(iss.rawCreated || iss.created);
-        const uTime = parseTime(iss.rawUpdated || iss.updated);
-        if (cTime && cTime <= bEnd) cCount++;
-        if (isDone(iss) && uTime && uTime <= bEnd) dCount++;
+        const uTime = parseTime(iss.rawResolved || iss.rawUpdated || iss.updated);
+        if (cTime && cTime >= startTime && cTime <= bEnd) cCount++;
+        if (isDone(iss) && uTime && uTime >= startTime && uTime <= bEnd) dCount++;
       }
       rawCreatedSeries.push(cCount);
       rawDoneSeries.push(dCount);
     }
 
-    const totalCount = scopeIssues.length;
-    const doneCount = scopeIssues.filter(isDone).length;
+    // 逐桶新增：累计发现序列的差分，周视图即「当日新增」
+    const newCreatedSeries = rawCreatedSeries.map((v, i) => (i === 0 ? v : Math.max(0, v - rawCreatedSeries[i - 1])));
+
+    // 总量/闭环统计与任务页指标卡对齐：基于全量数据集而非图表窗口内创建的子集
+    const totalCount = issues.length;
+    const doneCount = issues.filter(isDone).length;
     const openCount = Math.max(0, totalCount - doneCount);
     const convergenceRate = totalCount > 0 ? Math.min(100, Math.round((doneCount / totalCount) * 100)) : 100;
-
-    const smoothed = this.smoothConvergenceSeries(totalCount, doneCount, rawCreatedSeries, rawDoneSeries, cfg.buckets);
 
     const dateDetails = [];
     for (let i = 0; i < cfg.buckets; i++) {
@@ -381,30 +350,34 @@ new_constructor = """class TabonKBWorkbenchView extends ItemView {
       const day = d.getDate();
       if (timeRange === 'week') {
         const diffDays = cfg.buckets - 1 - i;
-        dateDetails.push(`${m}月${day}日 · ${diffDays === 0 ? '今天' : `D-${diffDays}`}`);
+        dateDetails.push(`${m}月${day}日${diffDays === 0 ? ' · 今天' : ''}`);
       } else if (timeRange === 'month') {
-        dateDetails.push(`${cfg.labels[i]} (${m}/${day})`);
+        dateDetails.push(`${axisLabels[i]} (${m}/${day})`);
       } else if (timeRange === 'year') {
-        dateDetails.push(`${d.getFullYear()}年${m}月 (${cfg.labels[i]})`);
+        dateDetails.push(`${d.getFullYear()}年${m}月 (${axisLabels[i]})`);
       } else {
-        dateDetails.push(`${m}月${day}日 · ${cfg.labels[i]}`);
+        dateDetails.push(`${m}月${day}日 · ${axisLabels[i]}`);
       }
     }
 
     const minX = 25;
-    const maxX = 475;
+    const maxX = W - 25;
     const xCoords = [];
     for (let i = 0; i < cfg.buckets; i++) {
       xCoords.push(Math.round((minX + (i * (maxX - minX)) / (cfg.buckets - 1)) * 10) / 10);
     }
 
     return {
-      labels: cfg.labels,
+      W,
+      H,
+      labels: axisLabels,
       dateDetails,
       xCoords,
       bucketEnds,
-      createdSeries: smoothed.created,
-      doneSeries: smoothed.done,
+      createdSeries: rawCreatedSeries,
+      doneSeries: rawDoneSeries,
+      newSeries: newCreatedSeries,
+      scopeCount: scopeIssues.length,
       totalCount,
       doneCount,
       openCount,
@@ -417,8 +390,10 @@ new_constructor = """class TabonKBWorkbenchView extends ItemView {
     const { labels, xCoords, createdSeries, doneSeries } = trendData;
     const N = labels.length;
     if (N === 0) return '';
+    const W = trendData.W || 500;
+    const H = trendData.H || 120;
 
-    const baseY = 92;
+    const baseY = H - 18;
     const topY = 18;
 
     const maxVal = Math.max(...createdSeries, ...doneSeries, 5);
@@ -431,9 +406,9 @@ new_constructor = """class TabonKBWorkbenchView extends ItemView {
     const donePoints = xCoords.map((x, i) => ({ x, y: scaleY(doneSeries[i]) }));
     const createdPoints = xCoords.map((x, i) => ({ x, y: scaleY(createdSeries[i]) }));
 
-    const doneLinePath = this.pointsToSmoothPath(donePoints, topY, baseY);
+    const doneLinePath = this.pointsToLinePath(donePoints);
     const doneAreaPath = doneLinePath + ` L ${xCoords[N - 1]},${baseY} L ${xCoords[0]},${baseY} Z`;
-    const createdLinePath = this.pointsToSmoothPath(createdPoints, topY, baseY);
+    const createdLinePath = this.pointsToLinePath(createdPoints);
 
     const lastX = xCoords[N - 1];
     const lastDoneY = scaleY(doneSeries[N - 1]);
@@ -446,7 +421,7 @@ new_constructor = """class TabonKBWorkbenchView extends ItemView {
       else if (i === N - 1) anchor = 'end';
       const isEnd = i === N - 1;
       const fill = isEnd ? '#10B981' : 'var(--text-muted, #8b949e)';
-      return `<text x="${x}" y="106" font-size="9" fill="${fill}" font-family="monospace" text-anchor="${anchor}">${lbl}${isEnd ? '(本期)' : ''}</text>`;
+      return `<text x="${x}" y="${H - 4}" font-size="9" fill="${fill}" font-family="monospace" text-anchor="${anchor}">${lbl}${isEnd ? '(本期)' : ''}</text>`;
     }).join('');
 
     const dotsHtml = xCoords.map((x, i) => {
@@ -454,30 +429,30 @@ new_constructor = """class TabonKBWorkbenchView extends ItemView {
       const cr = scaleY(createdSeries[i]);
       return `
         <g class="tw-trend-col" data-idx="${i}">
-          <circle cx="${x}" cy="${cy}" r="3" fill="#10B981" stroke="var(--background-primary, #fff)" stroke-width="1" class="tw-trend-dot" data-idx="${i}" />
-          <circle cx="${x}" cy="${cr}" r="3" fill="#EF4444" stroke="var(--background-primary, #fff)" stroke-width="1" class="tw-trend-dot" data-idx="${i}" />
+          <circle cx="${x}" cy="${cy}" r="7" fill="transparent" class="tw-trend-hit tw-trend-hit-done" data-idx="${i}" />
+          <circle cx="${x}" cy="${cr}" r="7" fill="transparent" class="tw-trend-hit tw-trend-hit-created" data-idx="${i}" />
         </g>
       `;
     }).join('');
 
     return `
-      <svg viewBox="0 0 500 110" preserveAspectRatio="none" style="width: 100%; height: 100%; overflow: visible; display: block;">
+      <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" style="width: 100%; height: 100%; overflow: visible; display: block;">
         <defs>
           <linearGradient id="twTrendGreenGrad" x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stop-color="#10B981" stop-opacity="0.25"/>
             <stop offset="100%" stop-color="#10B981" stop-opacity="0.02"/>
           </linearGradient>
         </defs>
-        <line x1="0" y1="25" x2="500" y2="25" stroke="var(--background-modifier-border, #E2E8F0)" stroke-dasharray="3 3"/>
-        <line x1="0" y1="58" x2="500" y2="58" stroke="var(--background-modifier-border, #E2E8F0)" stroke-dasharray="3 3"/>
-        <line x1="0" y1="92" x2="500" y2="92" stroke="var(--background-modifier-border, #E2E8F0)" stroke-dasharray="3 3"/>
+        <line x1="0" y1="${topY + 7}" x2="${W}" y2="${topY + 7}" stroke="var(--background-modifier-border, #E2E8F0)" stroke-dasharray="3 3"/>
+        <line x1="0" y1="${Math.round((topY + baseY) / 2)}" x2="${W}" y2="${Math.round((topY + baseY) / 2)}" stroke="var(--background-modifier-border, #E2E8F0)" stroke-dasharray="3 3"/>
+        <line x1="0" y1="${baseY}" x2="${W}" y2="${baseY}" stroke="var(--background-modifier-border, #E2E8F0)" stroke-dasharray="3 3"/>
         <path d="${doneAreaPath}" fill="url(#twTrendGreenGrad)"/>
         <path d="${doneLinePath}" fill="none" stroke="#10B981" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
         <path d="${createdLinePath}" fill="none" stroke="#EF4444" stroke-width="2" stroke-dasharray="4 2" stroke-linecap="round" stroke-linejoin="round"/>
-        <line id="twTrendGuideline" x1="0" y1="14" x2="0" y2="92" stroke="var(--interactive-accent, #2563EB)" stroke-width="1.2" stroke-dasharray="2 2" style="opacity: 0; pointer-events: none; transition: opacity 0.1s ease;"/>
+        <line id="twTrendGuideline" x1="0" y1="${topY - 4}" x2="0" y2="${baseY}" stroke="var(--interactive-accent, #2563EB)" stroke-width="1.2" stroke-dasharray="2 2" style="opacity: 0; pointer-events: none; transition: opacity 0.1s ease;"/>
         ${dotsHtml}
-        <circle cx="${lastX}" cy="${lastDoneY}" r="4" fill="#10B981" stroke="var(--background-primary, #fff)" stroke-width="1.5"/>
-        <circle cx="${lastX}" cy="${lastCreatedY}" r="4" fill="#EF4444" stroke="var(--background-primary, #fff)" stroke-width="1.5"/>
+        <circle cx="${lastX}" cy="${lastDoneY}" r="3.2" fill="#10B981" class="tw-trend-latest-dot"/>
+        <circle cx="${lastX}" cy="${lastCreatedY}" r="3.2" fill="#EF4444" class="tw-trend-latest-dot"/>
         ${labelTexts}
       </svg>
     `;
@@ -487,33 +462,48 @@ new_constructor = """class TabonKBWorkbenchView extends ItemView {
     this.homeTrendCardEl = parentEl.createDiv({ cls: 'tw-card tw-chart-card tw-home-trend-card' });
     this.updateHomeTrendCard();
     this.loadHomeTrendData(false);
+    // 监听侧边栏折叠/展开、窗口缩放引起的宽度变化，按 1:1 宽度重绘避免拉伸变形
+    if (this._homeTrendResizeObs) {
+      try { this._homeTrendResizeObs.disconnect(); } catch (e) {}
+    }
+    if (typeof ResizeObserver !== 'undefined') {
+      let rafId = 0;
+      this._homeTrendResizeObs = new ResizeObserver(() => {
+        const wrap = this.homeTrendCardEl?.querySelector('.tw-chart-svg-wrap');
+        const w = wrap ? wrap.clientWidth : 0;
+        if (w > 60 && Math.abs(w - (this._homeTrendW || 0)) > 4) {
+          if (rafId) cancelAnimationFrame(rafId);
+          rafId = requestAnimationFrame(() => { rafId = 0; this.updateHomeTrendCard(); });
+        }
+      });
+      this._homeTrendResizeObs.observe(this.homeTrendCardEl);
+    }
   }
 
   updateHomeTrendCard() {
     if (!this.homeTrendCardEl) return;
     const issues = this.getHomeTrendIssues();
     const timeRange = this.getHomeTrendTimeRange();
-    const trendData = this.calculateHomeTrendData(issues, timeRange);
+    // 按容器实际像素宽度 1:1 渲染 viewBox，避免侧栏收起时 SVG 非等比拉伸导致文字/数据点变形
+    const H = 120;
+    const prevWrap = this.homeTrendCardEl.querySelector('.tw-chart-svg-wrap');
+    const W = (prevWrap && prevWrap.clientWidth > 60) ? prevWrap.clientWidth : (this._homeTrendW || 500);
+    this._homeTrendW = W;
+    let trendData = this.calculateHomeTrendData(issues, timeRange, W, H);
     const svgHtml = this.generateHomeTrendSvg(trendData);
-
-    const rateColor = trendData.convergenceRate >= 70 ? '#10B981' : (trendData.convergenceRate >= 40 ? '#F59E0B' : '#EF4444');
 
     this.homeTrendCardEl.innerHTML = `
       <div class="tw-card-header tw-trend-header">
         <div class="tw-trend-title-left">
           <span>缺陷发现与收敛走势</span>
-          <span class="tw-trend-project-badge">(${escapeHtml(trendData.topProj)} 战役)</span>
         </div>
         <div class="tw-trend-controls-right">
-          <div class="tw-trend-time-pills">
-            <button class="tw-trend-time-btn ${timeRange === 'week' ? 'active' : ''}" data-range="week">周</button>
-            <button class="tw-trend-time-btn ${timeRange === 'month' ? 'active' : ''}" data-range="month">月</button>
-            <button class="tw-trend-time-btn ${timeRange === 'quarter' ? 'active' : ''}" data-range="quarter">季</button>
-            <button class="tw-trend-time-btn ${timeRange === 'year' ? 'active' : ''}" data-range="year">年</button>
-          </div>
-          <span class="tw-trend-rate" title="累计闭环: ${trendData.doneCount} / 发现总量: ${trendData.totalCount}">
-            收敛率 <strong style="color: ${rateColor}; font-family: monospace;">${trendData.convergenceRate}%</strong>
-          </span>
+          <select class="tw-trend-range-select" title="切换时间范围">
+            <option value="week" ${timeRange === 'week' ? 'selected' : ''}>周</option>
+            <option value="month" ${timeRange === 'month' ? 'selected' : ''}>月</option>
+            <option value="quarter" ${timeRange === 'quarter' ? 'selected' : ''}>季</option>
+            <option value="year" ${timeRange === 'year' ? 'selected' : ''}>年</option>
+          </select>
           <button class="tw-trend-refresh-btn" id="btnRefreshHomeTrend" title="刷新 Jira 数据">${getIconPark('refresh', 12)}</button>
         </div>
       </div>
@@ -522,13 +512,6 @@ new_constructor = """class TabonKBWorkbenchView extends ItemView {
         <div class="tw-trend-tooltip" style="opacity: 0; display: none;"></div>
       </div>
       <div class="tw-trend-footer">
-        <div class="tw-trend-stat-summary">
-          <span>区间缺陷 <strong>${trendData.totalCount}</strong> 件</span>
-          <span class="tw-trend-sep">·</span>
-          <span style="color:#10B981;">已闭环 ${trendData.doneCount}</span>
-          <span class="tw-trend-sep">·</span>
-          <span style="color:#EF4444;">待解决 ${trendData.openCount}</span>
-        </div>
         <div class="tw-trend-legend">
           <span><span style="color: #EF4444; font-weight:bold;">--</span> 新增Bug</span>
           <span><span style="color: #10B981; font-weight:bold;">—</span> 闭环解决</span>
@@ -536,15 +519,16 @@ new_constructor = """class TabonKBWorkbenchView extends ItemView {
       </div>
     `;
 
-    this.homeTrendCardEl.querySelectorAll('.tw-trend-time-btn').forEach(btn => {
-      btn.onclick = () => {
-        const range = btn.dataset.range;
+    const rangeSelect = this.homeTrendCardEl.querySelector('.tw-trend-range-select');
+    if (rangeSelect) {
+      rangeSelect.onchange = () => {
+        const range = rangeSelect.value;
         if (range) {
           this.saveHomeTrendTimeRange(range);
           this.updateHomeTrendCard();
         }
       };
-    });
+    }
 
     const refreshBtn = this.homeTrendCardEl.querySelector('#btnRefreshHomeTrend');
     if (refreshBtn) {
@@ -557,17 +541,28 @@ new_constructor = """class TabonKBWorkbenchView extends ItemView {
     }
 
     const svgWrap = this.homeTrendCardEl.querySelector('.tw-chart-svg-wrap');
+    // 首次渲染时布局可能未完成，按最终实际宽度校正一次并重绘 SVG
+    if (svgWrap) {
+      const measured = svgWrap.clientWidth;
+      if (measured > 60 && Math.abs(measured - W) > 4) {
+        this._homeTrendW = measured;
+        trendData = this.calculateHomeTrendData(issues, timeRange, measured, H);
+        const svgEl = svgWrap.querySelector('svg');
+        if (svgEl) svgEl.outerHTML = this.generateHomeTrendSvg(trendData);
+      }
+    }
     const tooltipEl = this.homeTrendCardEl.querySelector('.tw-trend-tooltip');
     const guideline = this.homeTrendCardEl.querySelector('#twTrendGuideline');
-    const allDots = this.homeTrendCardEl.querySelectorAll('.tw-trend-dot');
+    const allDots = this.homeTrendCardEl.querySelectorAll('.tw-trend-hit');
 
     if (svgWrap && tooltipEl && trendData.xCoords && trendData.xCoords.length > 0) {
-      const { xCoords, labels, createdSeries, doneSeries, dateDetails } = trendData;
+      const { xCoords, labels, createdSeries, doneSeries, newSeries, dateDetails } = trendData;
+      const chartW = trendData.W || 500;
 
       svgWrap.onmousemove = (e) => {
         const rect = svgWrap.getBoundingClientRect();
         if (rect.width <= 0) return;
-        const mouseSvgX = ((e.clientX - rect.left) / rect.width) * 500;
+        const mouseSvgX = ((e.clientX - rect.left) / rect.width) * chartW;
 
         let closestIdx = 0;
         let minDiff = Infinity;
@@ -584,6 +579,9 @@ new_constructor = """class TabonKBWorkbenchView extends ItemView {
         const dVal = doneSeries[closestIdx];
         const oVal = Math.max(0, cVal - dVal);
         const ptRate = cVal > 0 ? Math.round((dVal / cVal) * 100) : 100;
+        const nVal = (newSeries && newSeries[closestIdx] !== undefined) ? newSeries[closestIdx] : 0;
+        // 新增行文案随分桶粒度自适应：周=当日、月/季=当周、年=当月
+        const newLabel = timeRange === 'week' ? '当日新增:' : (timeRange === 'year' ? '当月新增:' : '当周新增:');
         const dtTitle = (dateDetails && dateDetails[closestIdx]) || labels[closestIdx] || '';
 
         if (guideline) {
@@ -595,10 +593,10 @@ new_constructor = """class TabonKBWorkbenchView extends ItemView {
         allDots.forEach(dot => {
           const idx = parseInt(dot.dataset.idx, 10);
           if (idx === closestIdx) {
-            dot.setAttribute('r', '4.5');
+            dot.setAttribute('r', '7');
             dot.classList.add('active-dot');
           } else {
-            dot.setAttribute('r', '3');
+            dot.setAttribute('r', '7');
             dot.classList.remove('active-dot');
           }
         });
@@ -611,6 +609,11 @@ new_constructor = """class TabonKBWorkbenchView extends ItemView {
             <span class="tw-tt-val">${cVal} <small>件</small></span>
           </div>
           <div class="tw-tt-row">
+            <span class="tw-tt-indicator blue"></span>
+            <span class="tw-tt-label">${newLabel}</span>
+            <span class="tw-tt-val">${nVal} <small>件</small></span>
+          </div>
+          <div class="tw-tt-row">
             <span class="tw-tt-indicator green"></span>
             <span class="tw-tt-label">闭环解决:</span>
             <span class="tw-tt-val">${dVal} <small>件</small></span>
@@ -621,15 +624,16 @@ new_constructor = """class TabonKBWorkbenchView extends ItemView {
             <span class="tw-tt-val">${oVal} <small>件</small></span>
           </div>
           <div class="tw-tt-row tw-tt-footer-row">
-            <span class="tw-tt-label">当期收敛率:</span>
+            <span class="tw-tt-label">当期收敛率</span>
             <span class="tw-tt-val" style="color: ${ptRate >= 70 ? '#10B981' : (ptRate >= 40 ? '#F59E0B' : '#EF4444')};">${ptRate}%</span>
           </div>
         `;
 
         tooltipEl.style.display = 'block';
-        const ttWidth = 145;
-        const pxX = (ptX / 500) * rect.width;
-        let leftPos = pxX - (ttWidth / 2);
+        const ttWidth = tooltipEl.offsetWidth || 145;
+        const pxX = (ptX / chartW) * rect.width;
+        // 浮窗放到数据点背向曲线的一侧，避免遮挡当前点与其曲线段
+        let leftPos = pxX > rect.width / 2 ? (pxX - ttWidth - 14) : (pxX + 14);
         if (leftPos < 6) leftPos = 6;
         if (leftPos + ttWidth > rect.width - 6) leftPos = rect.width - ttWidth - 6;
 
@@ -652,13 +656,39 @@ new_constructor = """class TabonKBWorkbenchView extends ItemView {
     }
   }
 
+  // 与任务页 JiraPlatformView.getProjectJql 保持完全一致的口径（项目筛选 + 时间筛选同源），保证统计实时对应
+  buildHomeTrendJql() {
+    let project = 'all';
+    let timeRange = 'all';
+    if (this.jiraPlatform) {
+      project = this.jiraPlatform.activeProject || 'all';
+      timeRange = this.jiraPlatform.activeTimeRange || 'all';
+    } else {
+      try {
+        if (typeof localStorage !== 'undefined') {
+          project = localStorage.getItem('tabonkb-jira-project') || 'all';
+          timeRange = localStorage.getItem('tabonkb-jira-timerange') || 'all';
+        }
+      } catch (e) {}
+    }
+    let jql = '(resolution = Unresolved OR resolutiondate >= -30d) AND (assignee = currentUser() OR watcher = currentUser() OR reporter = currentUser())';
+    if (project && project !== 'all') jql += ` AND project = "${project}"`;
+    const days = { week: 7, month: 30, quarter: 90, year: 365 }[timeRange];
+    if (days) jql += ` AND updated >= -${days}d`;
+    return `${jql} ORDER BY updated DESC`;
+  }
+
   async loadHomeTrendData(forceRefresh = false) {
     const plugin = this.app?.plugins?.getPlugin?.('tabonkb-workbench') || this.app?.plugins?.plugins?.['tabonkb-workbench'];
     const jiraService = plugin?.jiraService;
     if (!jiraService) return;
 
     try {
-      const issues = await jiraService.getTrendIssues(forceRefresh);
+      // 复用任务页的主缓存链路（searchIssues），任一侧刷新两侧数据同步
+      const config = typeof jiraService.getConfig === 'function' ? jiraService.getConfig() : null;
+      if (config) config.jql = this.buildHomeTrendJql();
+      const res = await jiraService.searchIssues(forceRefresh);
+      const issues = res?.issues;
       if (Array.isArray(issues) && issues.length > 0) {
         this.homeTrendIssues = issues;
         this.updateHomeTrendCard();
@@ -689,6 +719,10 @@ new_on_close = """  async onClose() {
       this.rssCenter.dispose();
       this.rssCenter = null;
     }
+    if (this.phoneComp) {
+      this.phoneComp.dispose();
+      this.phoneComp = null;
+    }
     if (this.jiraPlatform) {
       this.jiraPlatform = null;
     }
@@ -700,14 +734,361 @@ new_on_close = """  async onClose() {
       this.rssCard.dispose();
       this.rssCard = null;
     }
+    if (this.weknoraManage) {
+      this.weknoraManage.dispose();
+      this.weknoraManage = null;
+    }
     if (this.agentBridge) {
       this.agentBridge.destroy();
+    }
+    if (this._homeTrendResizeObs) {
+      try { this._homeTrendResizeObs.disconnect(); } catch (e) {}
+      this._homeTrendResizeObs = null;
     }
   }"""
 
 if old_on_close in workbench_part:
     workbench_part = workbench_part.replace(old_on_close, new_on_close)
     print("Replaced onClose")
+
+# 2b. Rewrite renderOverviewMode: overview reflects knowledge-base state only (no fake fallbacks, no task block)
+old_overview = """    // 1. Knowledge Stats 4-Grid
+    const stats = this.getVaultStats();
+    const nodeCount = this.graphData.nodes.length || stats.totalDocs;
+    const edgeCount = this.graphData.edges.length || 128;
+    const coreCount = this.graphData.nodes.filter(n => n.importance === 'core').length || 17;
+
+    const kpiSection = wrap.createDiv();
+    kpiSection.innerHTML = `
+      <div class="tw-overview-section-title">
+        <span>KNOWLEDGE 资产拓扑</span>
+        <span style="font-family:monospace; font-size:10px; font-weight:normal;">全库穿透感知</span>
+      </div>
+      <div class="tw-kpi-grid-4">
+        <div class="tw-kpi-box">
+          <div class="tw-kpi-box-num">${nodeCount}</div>
+          <div class="tw-kpi-box-label">知识资产 (Nodes)</div>
+        </div>
+        <div class="tw-kpi-box">
+          <div class="tw-kpi-box-num" style="color:#059669;">${edgeCount}</div>
+          <div class="tw-kpi-box-label">知识关系 (Edges)</div>
+        </div>
+        <div class="tw-kpi-box">
+          <div class="tw-kpi-box-num" style="color:#D97706;">8</div>
+          <div class="tw-kpi-box-label">知识模块 (Clusters)</div>
+        </div>
+        <div class="tw-kpi-box">
+          <div class="tw-kpi-box-num" style="color:#7C3AED;">${coreCount}</div>
+          <div class="tw-kpi-box-label">核心知识 (Hubs)</div>
+        </div>
+      </div>
+    `;
+
+    // 2. Knowledge Composition (Progress bars)
+    const compSection = wrap.createDiv();
+    const modulesData = [
+      { name: '充电/CHG', count: stats.modules.charger || 17, color: '#F59E0B' },
+      { name: 'Spec/规范', count: stats.modules.spec || 14, color: '#10B981' },
+      { name: 'Display', count: stats.modules.display || 2, color: '#3B82F6' },
+      { name: 'Power', count: stats.modules.power || 2, color: '#EF4444' },
+      { name: 'Crash', count: stats.modules.crash || 1, color: '#EC4899' },
+      { name: 'Camera', count: stats.modules.camera || 1, color: '#8B5CF6' }
+    ];
+
+    const maxCount = Math.max(...modulesData.map(m => m.count), 1);
+
+    let compBarsHtml = modulesData.map(m => {
+      const pct = Math.round((m.count / maxCount) * 100);
+      return `
+        <div class="tw-comp-row">
+          <span class="tw-comp-name" title="${m.name}">${m.name}</span>
+          <div class="tw-comp-track">
+            <div class="tw-comp-fill" style="width:${pct}%; background:${m.color};"></div>
+          </div>
+          <span class="tw-comp-count">${m.count}</span>
+        </div>
+      `;
+    }).join('');
+
+    compSection.innerHTML = `
+      <div class="tw-overview-section-title">
+        <span>知识构成 (COMPOSITION)</span>
+        <span style="font-family:monospace; font-size:10px; font-weight:normal;">模块分布</span>
+      </div>
+      <div class="tw-comp-bar-wrap">
+        ${compBarsHtml}
+      </div>
+    `;
+
+    // 3. Task Stats & Closure Rate
+    const taskSection = wrap.createDiv();
+    taskSection.innerHTML = `
+      <div class="tw-overview-section-title" style="margin-top:2px;">
+        <span>TASK 研发攻坚跟踪</span>
+        <span style="font-family:monospace; font-size:10px; font-weight:normal;">6 项聚焦</span>
+      </div>
+      <div class="tw-task-summary-grid">
+        <div class="tw-task-mini-cell">
+          <div class="tw-task-mini-val" style="color:var(--text-normal);">6</div>
+          <div class="tw-task-mini-lbl">活跃任务</div>
+        </div>
+        <div class="tw-task-mini-cell">
+          <div class="tw-task-mini-val" style="color:#C2410C;">3</div>
+          <div class="tw-task-mini-lbl">攻坚排查</div>
+        </div>
+        <div class="tw-task-mini-cell">
+          <div class="tw-task-mini-val" style="color:#B45309;">1</div>
+          <div class="tw-task-mini-lbl">阻塞等原厂</div>
+        </div>
+        <div class="tw-task-mini-cell">
+          <div class="tw-task-mini-val" style="color:#15803D;">2</div>
+          <div class="tw-task-mini-lbl">已闭环</div>
+        </div>
+      </div>
+      <div class="tw-closure-bar-wrap">
+        <div style="display:flex; justify-content:space-between; font-size:10.5px; color:var(--text-muted);">
+          <span>收敛闭环率</span>
+          <span style="font-weight:700; color:#10B981; font-family:monospace;">33% (稳步推进)</span>
+        </div>
+        <div style="height:6px; background:var(--background-secondary, #E2E8F0); border-radius:3px; overflow:hidden;">
+          <div style="width:33%; height:100%; background:#10B981; border-radius:3px;"></div>
+        </div>
+      </div>
+    `;
+"""
+
+new_overview = """    // 1. 文档打标：命名规范后缀 _平台_模块_类型 优先（与盘点报告同口径），缺失回退路径/frontmatter
+    const KNOWN_DOCTYPES = ['REF','GUIDE','NOTE','ARCH','SPEC','RPT','CHK','CASE','LOG','IDX','CODE','PLAN','DBG'];
+    const PATH_MODULE_MAP = [
+      ['05-charger', 'CHG'], ['08-power', 'PWR'], ['02-camera', 'CAM'], ['01-display', 'DISP'],
+      ['04-usb', 'USB'], ['13-security', 'SEC'], ['10-connectivity', 'CONN'], ['03-audio', 'AUD'],
+      ['02-os-kernel', 'KERN'], ['07-touch', 'TP'], ['06-sensor', 'SEN'], ['09-storage', 'STOR'],
+      ['11-modem', 'MODEM'], ['12-input', 'INPUT'], ['05-toolchain', 'BUILD'], ['06-spec', 'SPEC']
+    ];
+    const MODULE_LABELS = { PWR: 'PWR 电源/热', CHG: 'CHG 充电', CAM: 'CAM 摄像头', KERN: 'KERN 内核', DISP: 'DISP 显示', USB: 'USB', SEC: 'SEC 安全', CONN: 'CONN 连接', AUD: 'AUD 音频', GEN: 'GEN 通用', HW: 'HW 硬件', TP: 'TP 触摸', SPEC: 'SPEC 规范', BUILD: 'BUILD 工具链', STOR: 'STOR 存储', MODEM: 'MODEM  modem', SEN: 'SEN 传感器', INPUT: 'INPUT 输入', TEST: 'TEST 测试', DBG: 'DBG 调试', PROJ: 'PROJ 项目', PLAT: 'PLAT 平台', META: 'META 治理' };
+    const DOCTYPE_LABELS = { REF: 'REF 原厂/第三方原文', GUIDE: 'GUIDE 操作指南', NOTE: 'NOTE 笔记', ARCH: 'ARCH 架构', SPEC: 'SPEC 规范', RPT: 'RPT 报告', CHK: 'CHK 检查表', CASE: 'CASE 案例', LOG: 'LOG 日志', IDX: 'IDX 索引', CODE: 'CODE 代码', PLAN: 'PLAN 计划', DBG: 'DBG 调试', IMG: 'IMG 图像', DATA: 'DATA 表格', ATT: 'ATT 附件' };
+    const tagOf = (d) => {
+      const base = (d.path || '').split('/').pop().replace(/\\.md$/i, '');
+      const toks = base.split('_');
+      let platform = '', module = '', doctype = '';
+      if (toks.length >= 3) {
+        const t = toks[toks.length - 1].toUpperCase();
+        const m = toks[toks.length - 2].toUpperCase();
+        const p = toks[toks.length - 3].toUpperCase();
+        if (KNOWN_DOCTYPES.includes(t)) {
+          doctype = t;
+          if (/^[A-Z][A-Z0-9-]{1,8}$/.test(m)) module = m;
+          if (/^[A-Z][A-Z0-9-]{1,8}$/.test(p)) platform = p;
+        }
+      }
+      if (!module) {
+        const pl = (d.path || '').toLowerCase();
+        const hit = PATH_MODULE_MAP.find(([k]) => pl.includes(k));
+        module = hit ? hit[1] : '';
+      }
+      if (!doctype) doctype = (d.type && d.type !== 'DOC') ? String(d.type).toUpperCase() : '';
+      if (!platform) platform = String(d.platform || '').toUpperCase();
+      return { platform: platform || 'COMMON', module: module || '未打标', doctype: doctype || '未打标' };
+    };
+    const tagged = this.realDocs.map(d => Object.assign({ doc: d, vendor: /vendor-docs/i.test(d.path || '') }, tagOf(d)));
+    // 全量资产口径：vault 全部文件（含原厂原文/附件），与盘点报告同口径
+    const PATH_MODULE_RULES = [
+      ['charger', 'CHG'], ['battery', 'CHG'], ['chg', 'CHG'],
+      ['power', 'PWR'], ['thermal', 'PWR'], ['pmic', 'PWR'],
+      ['camera', 'CAM'],
+      ['kernel', 'KERN'],
+      ['display', 'DISP'],
+      ['usb', 'USB'], ['typec', 'USB'],
+      ['security', 'SEC'], ['tee', 'SEC'],
+      ['connect', 'CONN'], ['wifi', 'CONN'], ['bluetooth', 'CONN'],
+      ['audio', 'AUD'],
+      ['touch', 'TP'],
+      ['storage', 'STOR'], ['emmc', 'STOR'],
+      ['modem', 'MODEM'], ['ril', 'MODEM'],
+      ['sensor', 'SEN'],
+      ['input', 'INPUT'],
+      ['spec', 'SPEC'],
+      ['toolchain', 'BUILD'], ['compiler', 'BUILD'],
+      ['crash', 'DBG'], ['panic', 'DBG'], ['debug', 'DBG'], ['trace', 'DBG'],
+      ['test', 'TEST'], ['cert', 'TEST'],
+      ['hardware', 'HW'], ['datasheet', 'HW'],
+      ['project', 'PROJ'],
+      ['platform', 'PLAT']
+    ];
+    const EXT_DOCTYPE = { '.pdf': 'REF', '.doc': 'REF', '.docx': 'REF', '.html': 'REF', '.htm': 'REF',
+      '.png': 'IMG', '.jpg': 'IMG', '.jpeg': 'IMG', '.svg': 'IMG',
+      '.csv': 'DATA', '.xlsx': 'DATA', '.xls': 'DATA',
+      '.js': 'CODE', '.py': 'CODE', '.ts': 'CODE',
+      '.pptx': 'RPT', '.ppt': 'RPT' };
+    const allFiles = (this.app && this.app.vault && typeof this.app.vault.getFiles === 'function') ? this.app.vault.getFiles() : [];
+    const fileTags = allFiles.map(f => {
+      const p = (f.path || '').toLowerCase();
+      const vendor = p.includes('08-vendor-docs');
+      const nameNoExt = (f.name || '').replace(/\\.[^.]+$/, '');
+      const toks = nameNoExt.split('_');
+      const suffixed = toks.length >= 3 && KNOWN_DOCTYPES.includes(toks[toks.length - 1].toUpperCase());
+      let module = '';
+      if (suffixed) {
+        const m = toks[toks.length - 2].toUpperCase();
+        if (/^[A-Z][A-Z0-9-]{1,8}$/.test(m)) module = m;
+      }
+      if (!module) {
+        const hit = PATH_MODULE_RULES.find(([k]) => p.includes(k));
+        module = hit ? hit[1] : '';
+      }
+      if (!module) module = p.startsWith('99-meta') ? 'META' : (p.startsWith('00-inbox') ? 'META' : 'GEN');
+      const ext = (/\\.[a-z0-9]+$/i.exec(f.name || '') || [''])[0].toLowerCase();
+      let doctype;
+      if (ext === '.md') doctype = suffixed ? toks[toks.length - 1].toUpperCase() : (vendor ? 'REF' : 'NOTE');
+      else if (vendor) doctype = 'REF';
+      else doctype = EXT_DOCTYPE[ext] || 'ATT';
+      let platform = '';
+      if (suffixed) platform = toks[toks.length - 3].toUpperCase();
+      if (!/^[A-Z][A-Z0-9-]{0,8}$/.test(platform || '')) platform = '';
+      if (!platform) {
+        if (p.includes('qcom') || p.includes('qualcomm')) platform = 'QCOM';
+        else if (p.includes('mtk') || p.includes('mediatek')) platform = 'MTK';
+        else if (p.includes('unisoc')) platform = 'UNISOC';
+        else if (p.includes('samsung') || p.includes('exynos')) platform = 'EXYNOS';
+        else if (p.includes('multi')) platform = 'MULTI';
+        else platform = 'COMMON';
+      }
+      return { module, doctype, platform, vendor };
+    });
+    const clusterCount = new Set(fileTags.map(t => t.module).filter(m => m && m !== 'GEN' && m !== 'META')).size;
+    const doctypeCount = new Set(fileTags.map(t => t.doctype)).size;
+    const vendorCount = fileTags.filter(t => t.vendor).length;
+
+    const kpiSection = wrap.createDiv();
+    kpiSection.innerHTML = `
+      <div class="tw-overview-section-title">
+        <span>KNOWLEDGE 资产概览</span>
+        <span style="font-family:monospace; font-size:10px; font-weight:normal;">命名规范打标 · ${this.realDocs.length} 篇</span>
+      </div>
+      <div class="tw-kpi-grid-4">
+        <div class="tw-kpi-box">
+          <div class="tw-kpi-box-num">${allFiles.length}</div>
+          <div class="tw-kpi-box-label">资产总数 (含原文)</div>
+        </div>
+        <div class="tw-kpi-box">
+          <div class="tw-kpi-box-num" style="color:#059669;">${vendorCount}</div>
+          <div class="tw-kpi-box-label">原厂原文</div>
+        </div>
+        <div class="tw-kpi-box">
+          <div class="tw-kpi-box-num" style="color:#D97706;">${clusterCount}</div>
+          <div class="tw-kpi-box-label">知识模块</div>
+        </div>
+        <div class="tw-kpi-box">
+          <div class="tw-kpi-box-num" style="color:#7C3AED;">${this.realDocs.length}</div>
+          <div class="tw-kpi-box-label">知识文档 (md)</div>
+        </div>
+      </div>
+    `;
+
+    // 2. 模块 / 文档类型分布：与盘点报告同口径（命名规范标签），仅展示 count>0 降序
+    const MOD_COLOR_POOL = ['#F59E0B', '#10B981', '#3B82F6', '#EF4444', '#EC4899', '#8B5CF6', '#0EA5E9', '#84CC16'];
+    const barBlock = (title, sub, counts) => {
+      let list = [...counts.entries()].sort((a, b) => b[1] - a[1]);
+      if (list.length > 8) {
+        const head = list.slice(0, 7);
+        const rest = list.slice(7).reduce((a, [, c]) => a + c, 0);
+        list = [...head, ['其他', rest]];
+      }
+      const mx = Math.max(...list.map(([, c]) => c), 1);
+      const rows = list.length ? list.map(([name, count], i) => {
+        const pct = Math.round((count / mx) * 100);
+        return `
+        <div class="tw-comp-row">
+          <span class="tw-comp-name" title="${escapeHtml(name)}">${escapeHtml(name)}</span>
+          <div class="tw-comp-track">
+            <div class="tw-comp-fill" style="width:${pct}%; background:${MOD_COLOR_POOL[i % MOD_COLOR_POOL.length]};"></div>
+          </div>
+          <span class="tw-comp-count">${count}</span>
+        </div>`;
+      }).join('') : '<div class="tw-overview-empty">暂无数据</div>';
+      return `
+      <div class="tw-overview-section-title">
+        <span>${title}</span>
+        <span style="font-family:monospace; font-size:10px; font-weight:normal;">${sub}</span>
+      </div>
+      <div class="tw-comp-bar-wrap">${rows}</div>`;
+    };
+    const modCounts = new Map();
+    for (const t of fileTags) {
+      const label = MODULE_LABELS[t.module] || t.module;
+      modCounts.set(label, (modCounts.get(label) || 0) + 1);
+    }
+    const typeCounts = new Map();
+    for (const t of fileTags) {
+      const label = DOCTYPE_LABELS[t.doctype] || t.doctype;
+      typeCounts.set(label, (typeCounts.get(label) || 0) + 1);
+    }
+
+    const compSection = wrap.createDiv();
+    compSection.innerHTML = barBlock('模块分布 (MODULE)', '命名规范口径', modCounts)
+      + barBlock('文档类型 (DOCTYPE)', '命名规范口径', typeCounts);
+
+    // 3. 平台分布 + 原厂只读区 + 治理活跃（纯知识库视角）
+    const platCounts = new Map();
+    for (const t of fileTags) platCounts.set(t.platform, (platCounts.get(t.platform) || 0) + 1);
+    const vendorByPlat = new Map();
+    for (const t of fileTags) if (t.vendor) vendorByPlat.set(t.platform, (vendorByPlat.get(t.platform) || 0) + 1);
+    const vendorDesc = [...vendorByPlat.entries()].sort((a, b) => b[1] - a[1]).map(([p, c]) => `${p} ${c}`).join(' / ') || '暂无';
+    const nowTs = Date.now();
+    const added7 = this.realDocs.filter(d => d.mtime && nowTs - d.mtime <= 7 * 86400000).length;
+    const added30 = this.realDocs.filter(d => d.mtime && nowTs - d.mtime <= 30 * 86400000).length;
+    const untagged = tagged.filter(t => t.module === '未打标').length;
+    const withSummary = this.realDocs.filter(d => d.summary && d.summary !== '（暂无详细说明）').length;
+    const summaryRate = this.realDocs.length ? Math.round((withSummary / this.realDocs.length) * 100) : 0;
+
+    const kbSection = wrap.createDiv();
+    const platCells = ['QCOM', 'MTK', 'UNISOC', 'MULTI', 'COMMON'].map(pl => `
+      <div class="tw-task-mini-cell">
+        <div class="tw-task-mini-val" style="color:var(--text-normal);">${platCounts.get(pl) || 0}</div>
+        <div class="tw-task-mini-lbl">${pl}</div>
+      </div>
+    `).join('');
+    kbSection.innerHTML = `
+      <div class="tw-overview-section-title" style="margin-top:2px;">
+        <span>PLATFORM 平台分布</span>
+        <span style="font-family:monospace; font-size:10px; font-weight:normal;">命名规范口径</span>
+      </div>
+      <div class="tw-task-summary-grid" style="grid-template-columns:repeat(5,1fr);">
+        ${platCells}
+      </div>
+      <div style="margin-top:6px; padding:6px 9px; font-size:10.5px; color:var(--text-muted,#64748B); background:var(--background-secondary,#F1F5F9); border-radius:6px;">
+        原厂只读区 <strong style="color:var(--text-normal);">${vendorCount}</strong> 篇 · ${escapeHtml(vendorDesc)}
+      </div>
+      <div class="tw-overview-section-title" style="margin-top:8px;">
+        <span>ACTIVITY 活跃与治理</span>
+        <span style="font-family:monospace; font-size:10px; font-weight:normal;">按文件_mtime_统计</span>
+      </div>
+      <div class="tw-task-summary-grid">
+        <div class="tw-task-mini-cell">
+          <div class="tw-task-mini-val" style="color:#15803D;">${added7}</div>
+          <div class="tw-task-mini-lbl">近 7 天新增</div>
+        </div>
+        <div class="tw-task-mini-cell">
+          <div class="tw-task-mini-val" style="color:#059669;">${added30}</div>
+          <div class="tw-task-mini-lbl">近 30 天新增</div>
+        </div>
+        <div class="tw-task-mini-cell">
+          <div class="tw-task-mini-val" style="color:#C2410C;">${untagged}</div>
+          <div class="tw-task-mini-lbl">未打标文档</div>
+        </div>
+        <div class="tw-task-mini-cell">
+          <div class="tw-task-mini-val" style="color:#2563EB;">${summaryRate}%</div>
+          <div class="tw-task-mini-lbl">摘要完备率</div>
+        </div>
+      </div>
+    `;
+"""
+
+if old_overview in workbench_part:
+    workbench_part = workbench_part.replace(old_overview, new_overview)
+    print("Replaced overview with knowledge-only stats")
+else:
+    print("Warning: old_overview not found in workbench_part!")
 
 # 3. Replace render() method with Multi-Tab rendering methods
 # Locate render() from 'render() {' to 'renderContextPanel() {'
@@ -717,8 +1098,10 @@ idx_cpanel = workbench_part.find('renderContextPanel() {')
 if idx_render != -1 and idx_cpanel != -1:
     multi_tab_render_methods = """render() {
     try {
+      this.closeExploreSubmenu();
       const container = this.getContainer();
       if (!container) return;
+      this.ensureStylesheet(container.ownerDocument);
       container.empty();
       container.addClass('tabonkb-workbench-container', 'with-drawer');
 
@@ -759,8 +1142,12 @@ if idx_render != -1 and idx_cpanel != -1:
       // 3. Mount Pi Agent Hub Drawer into layout (docked on right across all tabs)
       this.agentDrawer.mount(layout);
 
-      // 4. Render Context-Aware Top Bar
-      this.renderTopBar(mainPanel);
+      // 4. Render Context-Aware Top Bar.
+      // Explore owns its own sub-navigation and search surface, so the global
+      // search/Agent Hub row would only duplicate controls on that page.
+      if (this.activeTab !== 'explore' && this.activeTab !== 'manage') {
+        this.renderTopBar(mainPanel);
+      }
 
       // 5. Render Stage Container for the Active Tab
       const stage = mainPanel.createDiv({ cls: 'tw-workbench-stage' });
@@ -771,6 +1158,8 @@ if idx_render != -1 and idx_cpanel != -1:
         this.renderNewsTab(stage);
       } else if (this.activeTab === 'explore') {
         this.renderExploreTab(stage);
+      } else if (this.activeTab === 'manage') {
+        this.renderManageTab(stage);
       } else {
         this.renderHomeTab(stage);
       }
@@ -796,6 +1185,75 @@ if idx_render != -1 and idx_cpanel != -1:
     }
   }
 
+  getExploreSubTab() {
+    if (this.exploreView && this.exploreView.activeSubTab) return this.exploreView.activeSubTab;
+    try {
+      if (typeof localStorage !== 'undefined') {
+        const s = localStorage.getItem('tabonkb-explore-subtab');
+        if (s === 'ai' || s === 'search') return s;
+      }
+    } catch (e) {}
+    return 'ai';
+  }
+
+  setExploreSubTab(sub) {
+    try {
+      if (typeof localStorage !== 'undefined') localStorage.setItem('tabonkb-explore-subtab', sub);
+    } catch (e) {}
+    if (this.exploreView) {
+      // 内部持久化并重渲染探索页自身, 保留检索结果等实例状态 (不整页重绘)
+      this.exploreView.setSubTab(sub);
+    } else {
+      this.render();
+    }
+    // 选定后收起子选择菜单
+    this.closeExploreSubmenu();
+  }
+
+  toggleExploreSubmenu(anchorEl) {
+    const container = this.getContainer ? this.getContainer() : null;
+    if (!container) return;
+    if (container.querySelector('.tw-explore-submenu')) {
+      this.closeExploreSubmenu();
+      return;
+    }
+    const cur = this.getExploreSubTab();
+    const subs = [
+      { id: 'ai', label: 'AI助手', icon: 'robot' },
+      { id: 'search', label: '平台资源检索', icon: 'search' }
+    ];
+    const menu = container.createDiv({ cls: 'tw-explore-submenu' });
+    for (const s of subs) {
+      const item = menu.createEl('button', { cls: `tw-explore-submenu-item ${cur === s.id ? 'active' : ''}` });
+      item.innerHTML = `
+        <span class="tw-explore-submenu-icon">${getIconPark(s.icon, 15)}</span>
+        <span class="tw-explore-submenu-label">${s.label}</span>
+      `;
+      item.onclick = () => this.setExploreSubTab(s.id);
+    }
+    // 对齐「探索」按钮, 紧贴侧栏右侧弹出 (top 叠加容器滚动偏移)
+    const cRect = container.getBoundingClientRect();
+    const aRect = anchorEl.getBoundingClientRect();
+    menu.style.top = Math.round(aRect.top - cRect.top + container.scrollTop) + 'px';
+    menu.style.left = Math.round(aRect.right - cRect.left + 8) + 'px';
+    // 点击外部 / 再次点击触发器时关闭 (延迟挂接, 避免本次点击立即触发)
+    const closer = (e) => {
+      if (!menu.contains(e.target) && !anchorEl.contains(e.target)) this.closeExploreSubmenu();
+    };
+    this._exploreSubmenuCloser = closer;
+    setTimeout(() => document.addEventListener('pointerdown', closer, true), 0);
+  }
+
+  closeExploreSubmenu() {
+    if (this._exploreSubmenuCloser) {
+      try { document.removeEventListener('pointerdown', this._exploreSubmenuCloser, true); } catch (e) {}
+      this._exploreSubmenuCloser = null;
+    }
+    const container = this.getContainer ? this.getContainer() : null;
+    const menu = container ? container.querySelector('.tw-explore-submenu') : null;
+    if (menu) menu.remove();
+  }
+
   renderNavRail(parentEl) {
     const rail = parentEl.createDiv({ cls: 'tw-nav-rail' });
 
@@ -805,10 +1263,12 @@ if idx_render != -1 and idx_cpanel != -1:
     const brand = topSec.createDiv({ cls: 'tw-nav-brand' });
     brand.innerHTML = `
       <div class="tw-nav-brand-logo" title="TabonKB 研发知识库与工作台">
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M12 2L2 7l10 5 10-5-10-5z"/>
-          <path d="M2 17l10 5 10-5"/>
-          <path d="M2 12l10 5 10-5"/>
+        <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M6.4 7.4h11.2"/>
+          <path d="M12 7.4v10.2"/>
+          <circle cx="6.4" cy="7.4" r="2" fill="currentColor" stroke="none"/>
+          <circle cx="17.6" cy="7.4" r="2" fill="currentColor" stroke="none"/>
+          <circle cx="12" cy="17.6" r="2.1" fill="currentColor" stroke="none"/>
         </svg>
       </div>
       <span class="tw-nav-brand-text">TabonKB</span>
@@ -821,7 +1281,8 @@ if idx_render != -1 and idx_cpanel != -1:
       { id: 'home', label: '首页', icon: 'dashboard', title: '知识库首页与图谱' },
       { id: 'tasks', label: '任务', icon: 'tasks', title: 'Jira 协作与任务看板' },
       { id: 'news', label: '资讯', icon: 'newspaper', title: '技术资讯与规范动态' },
-      { id: 'explore', label: '探索', icon: 'compass', title: 'Agent Hub 与芯片资源检索' }
+      { id: 'explore', label: '探索', icon: 'compass', title: 'Agent Hub 与芯片资源检索' },
+      { id: 'manage', label: '管理', icon: 'setting-two', title: 'WeKnora 知识库与数据管理' }
     ];
 
     for (const t of tabs) {
@@ -834,6 +1295,17 @@ if idx_render != -1 and idx_cpanel != -1:
         <span class="tw-nav-label">${t.label}</span>
       `;
       btn.onclick = () => this.setActiveTab(t.id);
+
+      // 探索页: 已在探索页时再次点击「探索」, 弹出子选择菜单 (AI 研发助手 / 芯片资源检索), 不常驻占位
+      if (t.id === 'explore') {
+        btn.onclick = () => {
+          if (this.activeTab !== 'explore') {
+            this.setActiveTab('explore');
+            return;
+          }
+          this.toggleExploreSubmenu(btn);
+        };
+      }
     }
 
     // Bottom Section: Settings Shortcut
@@ -879,15 +1351,14 @@ if idx_render != -1 and idx_cpanel != -1:
         <svg class="tw-search-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
         </svg>
-        <input type="text" class="tw-search-input" style="padding-left: 42px !important; padding-right: 175px !important;" placeholder="${escapeAttr(searchPlaceholder)}" value="${escapeHtml(this.keyword)}">
+        <input type="text" class="tw-search-input" style="padding-left: 44px !important; padding-right: 175px !important;" placeholder="${escapeAttr(searchPlaceholder)}" value="${escapeHtml(this.keyword)}">
         <div class="tw-search-actions">
           ${rightActionHtml}
         </div>
       </div>
       <div class="tw-agent-selector-wrap" id="twTopAgentSelectorWrap">
-        <button class="tw-agent-hub-btn ${this.agentDrawer.isOpen() ? 'active' : ''}" id="btnTogglePiAgent" title="打开/折叠 AI 研发助手 (Agent Hub)">
-          <span class="tw-agent-hub-icon">${getIconPark('robot', 15)}</span>
-          <span class="tw-agent-hub-text">Agent Hub</span>
+        <button class="tw-agent-hub-btn ${this.agentDrawer.isOpen() ? 'active' : ''}" id="btnTogglePiAgent" title="Agent Hub · AI 研发助手">
+          <span class="tw-agent-hub-icon">${getIconPark('robot', 16)}</span>
         </button>
       </div>
     `;
@@ -895,6 +1366,7 @@ if idx_render != -1 and idx_cpanel != -1:
     const input = topBarRow.querySelector('input');
     input.addEventListener('input', (e) => {
       this.keyword = e.target.value.trim();
+      if (this.tabKeywords) this.tabKeywords[this.activeTab] = this.keyword;
 
       if (this.activeTab === 'home') {
         if (this.contextProvider) this.contextProvider.setKeyword(this.keyword);
@@ -933,6 +1405,7 @@ if idx_render != -1 and idx_cpanel != -1:
       } else if (e.key === 'Escape') {
         this.keyword = '';
         input.value = '';
+        if (this.tabKeywords) this.tabKeywords[this.activeTab] = '';
         if (this.activeTab === 'home') {
           if (this.contextProvider) this.contextProvider.setKeyword('');
           this.omnisearchResults = null;
@@ -971,6 +1444,38 @@ if idx_render != -1 and idx_cpanel != -1:
     const btnOmni = topBarRow.querySelector('#btnTriggerOmnisearch');
     if (btnOmni) {
       btnOmni.onclick = () => this.openOmnisearchModal(this.keyword);
+    }
+  }
+
+  ensureStylesheet(doc) {
+    // 自愈: 探测当前文档是否已加载插件样式 (弹出窗口/注入失败时自动补注入)
+    try {
+      doc = doc || (typeof document !== 'undefined' ? document : null);
+      if (!doc) return;
+      const probe = doc.createElement('div');
+      probe.className = 'tw-nav-rail';
+      probe.style.position = 'absolute';
+      probe.style.visibility = 'hidden';
+      probe.style.pointerEvents = 'none';
+      probe.style.width = '0';
+      probe.style.height = '0';
+      (doc.body || doc.documentElement).appendChild(probe);
+      const applied = !!(doc.defaultView && doc.defaultView.getComputedStyle(probe).display === 'flex');
+      probe.remove();
+      const existing = doc.getElementById('tw-selfheal-css');
+      if (applied) {
+        if (existing) existing.remove();
+        return;
+      }
+      const cssPath = path.join(this.app.vault.adapter.basePath, '.obsidian', 'plugins', 'tabonkb-workbench', 'styles.css');
+      const css = fs.readFileSync(cssPath, 'utf8');
+      const st = doc.createElement('style');
+      st.id = 'tw-selfheal-css';
+      st.textContent = css;
+      (doc.head || doc.documentElement).appendChild(st);
+      console.log('[TabonKB Workbench] stylesheet missing in this window, self-heal injected');
+    } catch (e) {
+      console.warn('[TabonKB Workbench] stylesheet self-heal failed:', e);
     }
   }
 
@@ -1013,28 +1518,35 @@ if idx_render != -1 and idx_cpanel != -1:
     // Layer 3: Knowledge Workspace (Graph + Dynamic Context Panel)
     const workspaceWrap = wrap.createDiv({ cls: 'tw-knowledge-workspace dashboard-knowledge-workspace', id: 'twKnowledgeWorkspace' });
     
-    // Left: Graph Card
+    // Left: Graph Card (降级保护: 拓扑组件异常不拖垮整个工作台)
     const graphCard = workspaceWrap.createDiv({ cls: 'tw-card tw-graph-card' });
-    this.graphCanvas = new ForceGraphCanvas(graphCard, {
-      onNodeClick: (node) => {
-        const nextMode = node ? 'detail' : 'overview';
-        if (this.knowledgePanelMode === nextMode && this.selectedKnowledgeNode === node) {
-          return;
+    try {
+      this.graphCanvas = new ForceGraphCanvas(graphCard, {
+        onNodeClick: (node) => {
+          const nextMode = node ? 'detail' : 'overview';
+          if (this.knowledgePanelMode === nextMode && this.selectedKnowledgeNode === node) {
+            return;
+          }
+          this.selectedKnowledgeNode = node;
+          this.knowledgePanelMode = nextMode;
+          if (this.contextProvider) {
+            if (node) this.contextProvider.setKnowledgeNode(node);
+            else this.contextProvider.clearKnowledgeNode();
+          }
+          this.renderContextPanel();
+        },
+        onNodeDblClick: (node) => {
+          if (node) this.openTarget(node.id, node.title);
         }
-        this.selectedKnowledgeNode = node;
-        this.knowledgePanelMode = nextMode;
-        if (this.contextProvider) {
-          if (node) this.contextProvider.setKnowledgeNode(node);
-          else this.contextProvider.clearKnowledgeNode();
-        }
-        this.renderContextPanel();
-      },
-      onNodeDblClick: (node) => {
-        if (node) this.openTarget(node.id, node.title);
+      });
+      if (this.graphData.nodes.length > 0) {
+        this.graphCanvas.setData(this.graphData);
       }
-    });
-    if (this.graphData.nodes.length > 0) {
-      this.graphCanvas.setData(this.graphData);
+    } catch (gErr) {
+      console.warn('[TabonKB] Topology init degraded:', gErr);
+      try { wkTopoWriteLog(this.app.vault.adapter.basePath, 'GRAPHCARD: ' + (gErr && gErr.stack || gErr)); } catch (e) {}
+      this.graphCanvas = null;
+      graphCard.innerHTML = '<div style="padding:28px;font-size:11px;color:var(--text-muted);">拓扑组件初始化异常 (已降级, 不影响工作台其它区域), 详见插件目录 weknora-topo-error.log</div>';
     }
 
     // Right: Context Panel Card
@@ -1051,7 +1563,7 @@ if idx_render != -1 and idx_cpanel != -1:
       <button class="tw-chip ${this.moduleFilter==='Display'?'active':''}" data-mod="Display">Display ${stats.modules.display || 2}</button>
       <button class="tw-chip ${this.moduleFilter==='Crash'?'active':''}" data-mod="Crash">Crash/Panic ${stats.modules.crash || 1}</button>
       <button class="tw-chip ${this.platformFilter==='MTK'?'active':''}" data-plat="MTK">联发科 ${stats.mtkCount || 6}</button>
-      <button class="tw-chip ${this.platformFilter==='QCOM'?'active':''}" data-plat="QCOM">高通 ${stats.qcomCount || 1}</button>
+      <button class="tw-chip ${this.platformFilter==='QCOM'?'active':''}" data-plat="QCOM">楂橀€?${stats.qcomCount || 1}</button>
       <button class="tw-chip ${this.platformFilter==='MULTI'?'active':''}" data-plat="MULTI">多平台 ${stats.multiCount || 5}</button>
     `;
 
@@ -1118,7 +1630,43 @@ if idx_render != -1 and idx_cpanel != -1:
     }
   }
 
+  getNewsSubTab() {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        const s = localStorage.getItem('tabonkb-news-subtab');
+        if (s === 'feed' || s === 'comp') return s;
+      }
+    } catch (e) {}
+    return 'feed';
+  }
+
+  saveNewsSubTab(sub) {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('tabonkb-news-subtab', sub);
+      }
+    } catch (e) {}
+  }
+
   renderNewsTab(stage) {
+    const sub = this.getNewsSubTab();
+    const bar = stage.createDiv({ cls: 'tw-news-subtabs' });
+    for (const [id, label] of [['feed', '资讯流'], ['comp', '竞品分析']]) {
+      const btn = bar.createEl('button', { cls: `tw-news-subtab-btn ${sub === id ? 'active' : ''}`, text: label });
+      btn.onclick = () => {
+        if (this.getNewsSubTab() === id) return;
+        this.saveNewsSubTab(id);
+        if (this.phoneComp) { this.phoneComp.dispose(); this.phoneComp = null; }
+        if (this.rssCenter) { this.rssCenter.dispose(); this.rssCenter = null; }
+        this.render();
+      };
+    }
+    const host = stage.createDiv({ cls: 'tw-news-subhost' });
+    if (sub === 'comp') {
+      this.phoneComp = new PhoneCompetitorView({ app: this.app });
+      this.phoneComp.mount(host);
+      return;
+    }
     const plugin = this.app.plugins?.getPlugin?.('tabonkb-workbench') || this.app.plugins?.plugins?.['tabonkb-workbench'];
     const rssService = plugin?.rssService || new RssService({ app: this.app, getFeeds: () => DEFAULT_SETTINGS.rss?.feeds || [] });
 
@@ -1131,7 +1679,7 @@ if idx_render != -1 and idx_cpanel != -1:
       }
     });
 
-    this.rssCenter.mount(stage);
+    this.rssCenter.mount(host);
     if (this.keyword) {
       this.rssCenter.filterKeyword(this.keyword);
     }
@@ -1155,11 +1703,34 @@ if idx_render != -1 and idx_cpanel != -1:
       }
     });
 
-    this.exploreView.mount(stage);
+    // Restore keyword BEFORE mount so renderSearchSubView sees it and auto-triggers live search
     if (this.keyword && this.exploreView.activeSubTab === 'search') {
       this.exploreView.searchKeyword = this.keyword;
-      this.exploreView.refreshResults();
     }
+
+    this.exploreView.mount(stage);
+
+    // If keyword was restored but liveSearchResults is empty, executeInSituSearch
+    // (renderSearchSubView auto-restore handles this via setTimeout, no extra call needed)
+
+  }
+
+  renderManageTab(stage) {
+    if (this.weknoraManage) {
+      this.weknoraManage.dispose();
+      this.weknoraManage = null;
+    }
+
+    this.weknoraManage = new WeKnoraManageView({
+      app: this.app,
+      plugin: this.plugin,
+      onOpenSettings: () => {
+        this.app.setting?.open?.();
+        this.app.setting?.openTabById?.('tabonkb-workbench');
+      }
+    });
+
+    this.weknoraManage.mount(stage);
   }\n\n  """
     workbench_part = workbench_part[:idx_render] + multi_tab_render_methods + workbench_part[idx_cpanel:]
     print("Replaced render() method with Multi-Tab rendering methods")
@@ -1172,7 +1743,9 @@ plugin_class_pattern = re.compile(
     re.MULTILINE | re.DOTALL
 )
 
-new_plugin_class = """module.exports = class TabonKBWorkbenchPlugin extends Plugin {
+new_plugin_class = """var TW_BRAND_ICON_OK = false;
+
+module.exports = class TabonKBWorkbenchPlugin extends Plugin {
   async onload() {
     await this.loadSettings();
 
@@ -1200,6 +1773,10 @@ new_plugin_class = """module.exports = class TabonKBWorkbenchPlugin extends Plug
       app: this.app,
       getNiceaigcConfig: () => this.settings.niceaigc || DEFAULT_SETTINGS.niceaigc
     });
+
+    // Companion Sync Server for Chrome / Edge Extension (127.0.0.1:28123)
+    this.companionServer = new CompanionSyncServer({ plugin: this, port: 28123 });
+    this.companionServer.start();
 
     this.addSettingTab(new TabonKBSettingTab(this.app, this));
 
@@ -1237,9 +1814,20 @@ new_plugin_class = """module.exports = class TabonKBWorkbenchPlugin extends Plug
     }));
 
     // Add ribbon icon on left navigation bar
-    this.addRibbonIcon('layout-dashboard', '打开 TabonKB 研发工作台', () => {
-      this.activateView();
-    });
+    // 图标注册失败不得拖垮插件加载: 捕获后回退内置图标
+    try {
+      this.addIcon('tabonkb-brand', '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M6.4 7.4h11.2"/><path d="M12 7.4v10.2"/><circle cx="6.4" cy="7.4" r="2" fill="currentColor" stroke="none"/><circle cx="17.6" cy="7.4" r="2" fill="currentColor" stroke="none"/><circle cx="12" cy="17.6" r="2.1" fill="currentColor" stroke="none"/></svg>');
+      TW_BRAND_ICON_OK = true;
+      this.addRibbonIcon('tabonkb-brand', '打开 TabonKB 研发工作台', () => {
+        this.activateView();
+      });
+    } catch (e) {
+      console.warn('[TabonKB Workbench] custom brand icon failed, fallback to built-in:', e);
+      TW_BRAND_ICON_OK = false;
+      this.addRibbonIcon('layout-dashboard', '打开 TabonKB 研发工作台', () => {
+        this.activateView();
+      });
+    }
 
     // Add command palette item
     this.addCommand({
@@ -1369,6 +1957,10 @@ new_plugin_class = """module.exports = class TabonKBWorkbenchPlugin extends Plug
         }
       }
     });
+
+    if (this.companionServer) {
+      this.companionServer.stop();
+    }
   }
 
   async activateView() {

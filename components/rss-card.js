@@ -304,7 +304,7 @@ function formatRelativeTime(date) {
   const diffSec = Math.floor((Date.now() - date.getTime()) / 1000);
   if (diffSec < 60) return '刚刚';
   if (diffSec < 3600) return `${Math.floor(diffSec / 60)} 分钟前`;
-  if (diffSec < 86400) return `${Math.floor(diffSec / 3600)} 小时前`;
+  if (diffSec < 86400) return `${Math.floor(diffSec / 3600)} Сʱǰ`;
   if (diffSec < 86400 * 2) return '昨天';
   if (diffSec < 86400 * 3) return '前天';
   if (diffSec < 86400 * 30) return `${Math.floor(diffSec / 86400)} 天前`;

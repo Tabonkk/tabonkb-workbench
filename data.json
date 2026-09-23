@@ -6,7 +6,7 @@
     "email": "tankaikun",
     "username": "tankaikun",
     "secretName": "tabonkb-jira-token",
-    "jql": "assignee = currentUser() AND resolution = Unresolved ORDER BY updated DESC",
+    "jql": "(resolution = Unresolved OR resolutiondate >= -30d) AND (assignee = currentUser() OR watcher = currentUser() OR reporter = currentUser()) AND updated >= -7d ORDER BY updated DESC",
     "refreshIntervalMinutes": 5
   },
   "niceaigc": {
@@ -35,6 +35,12 @@
         "name": "IT之家",
         "url": "https://www.ithome.com/rss/",
         "enabled": true
+      },
+      {
+        "id": "feed_1790081415224",
+        "name": "艾为",
+        "url": "https://www.awinic.com/cn/11/tech.html",
+        "enabled": true
       }
     ],
     "refreshIntervalMinutes": 15
@@ -50,5 +56,33 @@
       "username": "zengxinge@cooseagroup.com",
       "secretName": "tabonkb-unisoc-password"
     }
+  },
+  "weknora": {
+    "baseUrl": "http://192.168.1.62:8080",
+    "webUrl": "http://192.168.1.62:8088",
+    "defaultKb": "9e350fff-b50a-47db-a773-61d736ed24b8",
+    "secretName": "tabonkb-weknora-apikey",
+    "topoEnabled": true,
+    "topoGrouping": "wiki",
+    "topoLimit": 400,
+    "topoTtlHours": 24,
+    "syncFolders": [
+      "01-Platform",
+      "02-OS-Kernel",
+      "03-Driver",
+      "04-Debug",
+      "05-Toolchain",
+      "06-Spec",
+      "10-Test-Cert",
+      "09-Hardware"
+    ]
+  },
+  "clipInliner": {
+    "enabled": true,
+    "folderPrefix": "00-Inbox/",
+    "maxImages": 30,
+    "maxBytes": 10485760,
+    "minBytes": 2048,
+    "debounceMs": 1200
   }
 }

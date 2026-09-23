@@ -3296,7 +3296,19 @@ const MODULE_COLORS = {
   Toolchain: '#6366F1',
   Audio: '#06B6D4',
   Touch: '#0EA5E9',
+  'WK-Entity': '#EC4899',
+  'WK-Concept': '#F59E0B',
+  'WK-Summary': '#84CC16',
+  'WK-Other': '#9CA3AF',
   General: '#94A3B8'
+};
+
+// 星云银河主题的霓虹模块色板 (暗底高饱和微点)
+const NEBULA_MODULE_COLORS = {
+  Display: '#38BDF8', Camera: '#4ADE80', Charger: '#22D3EE', Power: '#34D399',
+  Crash: '#F472B6', Spec: '#A3E635', Toolchain: '#FBBF24', Audio: '#2DD4BF',
+  Touch: '#22D3EE', 'WK-Entity': '#E879F9', 'WK-Concept': '#FACC15',
+  'WK-Summary': '#34D399', 'WK-Other': '#A3A3A3', General: '#8B8B8B'
 };
 
 const DEFAULT_TASKS = [
@@ -3595,7 +3607,10 @@ class ForceGraphCanvas {
       Spec:      { x:   10, y:   45, w: 165, h: 110, icon: '🛡️', label: 'Spec · 7' },
       Power:     { x: -95,  y:  -45, w: 120, h:  85, icon: '🔋', label: 'Power · 3' },
       Crash:     { x:  155, y:  -50, w: 130, h:  90, icon: '⚠️', label: 'Crash · 3' },
-      Toolchain: { x:  140, y:   95, w: 135, h:  95, icon: '🛠️', label: 'Toolchain · 2' }
+      Toolchain: { x:  140, y:   95, w: 135, h: 95, icon: '🛠️', label: 'Toolchain · 2' },
+      'WK-Entity':  { x:  -30, y:  165, w: 150, h: 95, icon: '🧠', label: 'WK-Entity' },
+      'WK-Concept': { x:  130, y:  165, w: 150, h: 95, icon: '💡', label: 'WK-Concept' },
+      'WK-Summary': { x: -190, y:  165, w: 150, h: 95, icon: '📄', label: 'WK-Summary' }
     };
 
     // Physics & Visual parameters (Defaulted to Theme 5 Immersive with user fine-tuning)
@@ -3728,14 +3743,20 @@ class ForceGraphCanvas {
       partition: '分区卡片架构',
       radial: '环形聚类图谱',
       dark: '暗色极客拓扑',
-      immersive: '柔和科技沉浸式'
+      immersive: '柔和科技沉浸式',
+      nebula: '星云银河',
+      starburst: '星爆茧环',
+      graphite: '石墨疏朗'
     };
     const themeDescs = {
       classic: '清爽极简 · 平衡耐看',
       partition: '独立虚线分区 · 架构分明',
       radial: '同心轨道 · 规范居中',
       dark: '深黑底色 · 荧光网络',
-      immersive: '浅色微光晕 + 微点阵'
+      immersive: '浅色微光晕 + 微点阵',
+      nebula: '暗底彩微点 · 灰晕枢纽',
+      starburst: '银白扇簇 · 外环点阵',
+      graphite: '浅底灰阶 · 疏朗宁静'
     };
 
     this.settingsPopover.innerHTML = `
@@ -3756,6 +3777,9 @@ class ForceGraphCanvas {
           <option value="radial" ${this.currentTheme==='radial'?'selected':''}>3 环形聚类图谱 (同心轨道 · 规范居中)</option>
           <option value="dark" ${this.currentTheme==='dark'?'selected':''}>4 暗色极客拓扑 (深黑底色 · 荧光网络)</option>
           <option value="immersive" ${this.currentTheme==='immersive'?'selected':''}>5 柔和科技沉浸式 (浅色微光晕 + 微点阵)</option>
+          <option value="nebula" ${this.currentTheme==='nebula'?'selected':''}>6 星云银河 (暗底彩微点 · 灰晕枢纽)</option>
+          <option value="starburst" ${this.currentTheme==='starburst'?'selected':''}>7 星爆茧环 (银白扇簇 · 外环点阵)</option>
+          <option value="graphite" ${this.currentTheme==='graphite'?'selected':''}>8 石墨疏朗 (浅底灰阶 · 疏朗宁静)</option>
         </select>
       </div>
 
@@ -4011,8 +4035,12 @@ class ForceGraphCanvas {
     });
 
     if (this.statBadge) {
-      this.statBadge.setText(`${this.nodes.length} Nodes · ${this.edges.length} Relations`);
+      const wkCount = this.nodes.filter(n => n.source === 'weknora').length;
+      this.statBadge.setText(`${this.nodes.length} Nodes · ${this.edges.length} Relations` + (wkCount ? ` (含 WeKnora ${wkCount})` : ''));
     }
+
+    // 动态胶囊: 数据中存在但静态图例未登记的模块 (如 WK-* 独立分组) 按原生样式补登记
+    this.syncFilterPills(countsByMod);
 
     // Update filter counts
     this.filterModules.forEach(m => {
@@ -4023,13 +4051,38 @@ class ForceGraphCanvas {
       }
     });
 
+    this.nodes.forEach(n => {
+      n.x = undefined;
+      n.y = undefined;
+      n.vx = 0;
+      n.vy = 0;
+    });
     this.applyThemeLayout(this.currentTheme);
 
-    this.transform = { x: 0, y: 0, scale: 1 };
     this.alpha = 1.0;
     this.hasFitted = false;
     this.updateStatusText('拓扑收敛计算中...', false);
+    this.fitBounds(0.78);
     this.startSimulation();
+  }
+
+  syncFilterPills(countsByMod) {
+    const known = new Set(this.filterModules.map(m => m.id));
+    Object.keys(countsByMod || {}).forEach(mod => {
+      if (mod === 'all' || known.has(mod) || !countsByMod[mod]) return;
+      const sample = this.nodes.find(n => n.module === mod);
+      const def = { id: mod, label: mod, color: (sample && sample.color) || '#94A3B8' };
+      this.filterModules.push(def);
+      known.add(mod);
+      const pill = this.filterBar.createSpan({ cls: 'tw-graph-pill' });
+      pill.innerHTML = `<span class="tw-pill-dot" style="background:${def.color}"></span><span>${def.label}</span><span class="tw-pill-count" id="pillCount_${mod}"></span>`;
+      pill.onclick = () => {
+        this.filterBar.querySelectorAll('.tw-graph-pill').forEach(p => p.removeClass('active'));
+        pill.addClass('active');
+        this.filterModule(mod);
+      };
+      this.filterPillsMap.set(mod, pill);
+    });
   }
 
   applyThemeLayout(themeKey = this.currentTheme) {
@@ -4048,7 +4101,11 @@ class ForceGraphCanvas {
         Display:   { ring: 140 * spread, angle: 155 },
         Camera:    { ring: 140 * spread, angle: 215 },
         Crash:     { ring: 210 * spread, angle: 275 },
-        Toolchain: { ring: 210 * spread, angle: 335 }
+        Toolchain: { ring: 210 * spread, angle: 335 },
+        'WK-Entity':  { ring: 250 * spread, angle: 60 },
+        'WK-Concept': { ring: 250 * spread, angle: 180 },
+        'WK-Summary': { ring: 250 * spread, angle: 300 },
+        'WK-Other':   { ring: 285 * spread, angle: 0 }
       };
 
       this.nodes.forEach(n => {
@@ -4088,6 +4145,10 @@ class ForceGraphCanvas {
         Toolchain: { x:  130 * spread, y:  100 * spread },
         Power:     { x:  -60 * spread, y:  -25 * spread },
         Audio:     { x:  -90 * spread, y:   25 * spread },
+        'WK-Entity':  { x:  -30 * spread, y:  135 * spread },
+        'WK-Concept': { x:   90 * spread, y:  135 * spread },
+        'WK-Summary': { x: -150 * spread, y:  135 * spread },
+        'WK-Other':   { x:   15 * spread, y:  160 * spread },
         General:   { x:   15 * spread, y:   15 * spread }
       };
       this.nodes.forEach(n => {
@@ -4097,6 +4158,92 @@ class ForceGraphCanvas {
         if (n.x === undefined || Math.abs(n.x - cx) < 2) {
           n.x = n.clusterX + (Math.random() - 0.5) * 30;
           n.y = n.clusterY + (Math.random() - 0.5) * 30;
+        }
+      });
+
+    } else if (themeKey === 'nebula') {
+      // 星云银河: 簇心收缩成有机球体 + 大初始抖动
+      const offs = {
+        Display: { x: -100, y: -62 }, Camera: { x: -6, y: -74 }, Crash: { x: 104, y: -20 },
+        Charger: { x: -95, y: 50 }, Spec: { x: 18, y: 44 }, Toolchain: { x: 92, y: 68 },
+        Power: { x: -47, y: -18 }, Audio: { x: -65, y: 18 }, General: { x: 12, y: 12 },
+        'WK-Entity': { x: -12, y: 96 }, 'WK-Concept': { x: 60, y: 96 }, 'WK-Summary': { x: -95, y: 96 }, 'WK-Other': { x: 12, y: 112 }
+      };
+      this.nodes.forEach(n => {
+        const o = offs[n.module] || offs.General;
+        n.clusterX = cx + o.x * spread + (Math.random() - 0.5) * 46;
+        n.clusterY = cy + o.y * spread + (Math.random() - 0.5) * 46;
+        if (n.x === undefined || Math.abs(n.x - cx) < 2) {
+          n.x = n.clusterX + (Math.random() - 0.5) * 30;
+          n.y = n.clusterY + (Math.random() - 0.5) * 30;
+        }
+      });
+
+    } else if (themeKey === 'starburst') {
+      // 星爆茧环: 枢纽内环分布, 叶节点扇形展开, 孤立点外椭圆环
+      const deg = new Map();
+      this.edges.forEach(e => {
+        deg.set(e.source, (deg.get(e.source) || 0) + 1);
+        deg.set(e.target, (deg.get(e.target) || 0) + 1);
+      });
+      const hubs = this.nodes.filter(n => (deg.get(n.id) || 0) >= 6 || n.isCoreAnchor);
+      const hubSet = new Set(hubs.map(h => h.id));
+      hubs.forEach((h, i) => {
+        const ang = (i / Math.max(1, hubs.length)) * Math.PI * 2 + 0.7;
+        const rad = (i % 2 === 0 ? 85 : 145) * spread;
+        h.clusterX = cx + rad * Math.cos(ang);
+        h.clusterY = cy + rad * Math.sin(ang);
+        h._fanSlot = 0;
+      });
+      const hubOf = new Map();
+      this.edges.forEach(e => {
+        if (hubSet.has(e.target) && !hubSet.has(e.source)) hubOf.set(e.source, e.target);
+        else if (hubSet.has(e.source) && !hubSet.has(e.target)) hubOf.set(e.target, e.source);
+      });
+      this.nodes.forEach(n => {
+        if (hubSet.has(n.id)) {
+          n.x = n.clusterX + (Math.random() - 0.5) * 4;
+          n.y = n.clusterY + (Math.random() - 0.5) * 4;
+          return;
+        }
+        const hid = hubOf.get(n.id);
+        if (hid) {
+          const h = this.nodeMap.get(hid);
+          if (h) {
+            const slot = h._fanSlot || 0; h._fanSlot = slot + 1;
+            const baseAng = Math.atan2(h.clusterY - cy, h.clusterX - cx);
+            const ang = baseAng + ((slot % 14) - 7) * 0.15;
+            const rad = 13 + Math.floor(slot / 14) * 5 + (slot % 3);
+            n.clusterX = h.clusterX + rad * Math.cos(ang);
+            n.clusterY = h.clusterY + rad * Math.sin(ang);
+          } else { n.clusterX = cx; n.clusterY = cy; }
+        } else if ((deg.get(n.id) || 0) <= 1) {
+          const ang = Math.random() * Math.PI * 2;
+          n.clusterX = cx + (this.width || 600) * 0.45 * spread * Math.cos(ang);
+          n.clusterY = cy + (this.height || 420) * 0.45 * spread * Math.sin(ang);
+        } else {
+          n.clusterX = cx + (Math.random() - 0.5) * 130 * spread;
+          n.clusterY = cy + (Math.random() - 0.5) * 95 * spread;
+        }
+        n.x = n.clusterX + (Math.random() - 0.5) * 5;
+        n.y = n.clusterY + (Math.random() - 0.5) * 5;
+      });
+
+    } else if (themeKey === 'graphite') {
+      // 石墨疏朗: 簇距拉宽 + 大抖动, 灰阶稀疏感
+      const offs = {
+        Display: { x: -225, y: -135 }, Camera: { x: -13, y: -160 }, Crash: { x: 230, y: -45 },
+        Charger: { x: -210, y: 110 }, Spec: { x: 40, y: 98 }, Toolchain: { x: 205, y: 150 },
+        Power: { x: -105, y: -40 }, Audio: { x: -145, y: 40 }, General: { x: 26, y: 26 },
+        'WK-Entity': { x: -26, y: 215 }, 'WK-Concept': { x: 130, y: 215 }, 'WK-Summary': { x: -210, y: 215 }, 'WK-Other': { x: 26, y: 245 }
+      };
+      this.nodes.forEach(n => {
+        const o = offs[n.module] || offs.General;
+        n.clusterX = cx + o.x * spread;
+        n.clusterY = cy + o.y * spread;
+        if (n.x === undefined || Math.abs(n.x - cx) < 2) {
+          n.x = n.clusterX + (Math.random() - 0.5) * 44;
+          n.y = n.clusterY + (Math.random() - 0.5) * 44;
         }
       });
 
@@ -4111,6 +4258,10 @@ class ForceGraphCanvas {
         Toolchain: { x:  155 * spread, y:  115 * spread },
         Power:     { x:  -80 * spread, y:  -30 * spread },
         Audio:     { x: -110 * spread, y:   30 * spread },
+        'WK-Entity':  { x:  -20 * spread, y:  165 * spread },
+        'WK-Concept': { x:  100 * spread, y:  165 * spread },
+        'WK-Summary': { x: -160 * spread, y:  165 * spread },
+        'WK-Other':   { x:   20 * spread, y:  190 * spread },
         General:   { x:   20 * spread, y:   20 * spread }
       };
       this.nodes.forEach(n => {
@@ -4134,14 +4285,20 @@ class ForceGraphCanvas {
       partition: '分区卡片架构',
       radial: '环形聚类图谱',
       dark: '暗色极客拓扑',
-      immersive: '柔和科技沉浸式'
+      immersive: '柔和科技沉浸式',
+      nebula: '星云银河',
+      starburst: '星爆茧环',
+      graphite: '石墨疏朗'
     };
     const themeDescs = {
       classic: '清爽极简 · 平衡耐看',
       partition: '独立虚线分区 · 架构分明',
       radial: '同心轨道 · 规范居中',
       dark: '深黑底色 · 荧光网络',
-      immersive: '浅色微光晕 + 微点阵'
+      immersive: '浅色微光晕 + 微点阵',
+      nebula: '暗底彩微点 · 灰晕枢纽',
+      starburst: '银白扇簇 · 外环点阵',
+      graphite: '浅底灰阶 · 疏朗宁静'
     };
     this.updateStatusText(`✓ ${themeNames[themeKey] || themeKey} 就绪`, true);
 
@@ -4210,10 +4367,15 @@ class ForceGraphCanvas {
       const n1 = this.nodes[i];
       for (let j = i + 1; j < this.nodes.length; j++) {
         const n2 = this.nodes[j];
-        const dx = n2.x - n1.x;
-        const dy = n2.y - n1.y;
+        let dx = n2.x - n1.x;
+        let dy = n2.y - n1.y;
         let d2 = dx * dx + dy * dy;
-        if (d2 === 0) d2 = 1;
+        if (!(d2 > 0.01)) {
+          const ang = (i * 2.399963 + j) % (Math.PI * 2);
+          dx = Math.cos(ang);
+          dy = Math.sin(ang);
+          d2 = 1;
+        }
         const d = Math.sqrt(d2);
 
         if (d < 200) {
@@ -4242,7 +4404,7 @@ class ForceGraphCanvas {
       const targetDist = isSameModule ? linkDistance : crossClusterDistance;
       const strength = isSameModule ? linkStrength : (linkStrength * 0.25);
 
-      const displacement = d - targetDist;
+      const displacement = Math.max(-48, Math.min(48, d - targetDist));
       const force = displacement * strength * (e.weight || 1.0) * this.alpha;
       const fx = (dx / d) * force;
       const fy = (dy / d) * force;
@@ -4268,8 +4430,17 @@ class ForceGraphCanvas {
 
       n.vx *= friction;
       n.vy *= friction;
+      const maxV = 18;
+      n.vx = Math.max(-maxV, Math.min(maxV, n.vx));
+      n.vy = Math.max(-maxV, Math.min(maxV, n.vy));
       n.x += n.vx;
       n.y += n.vy;
+      if (!Number.isFinite(n.x) || !Number.isFinite(n.y) || Math.abs(n.x) > 8000 || Math.abs(n.y) > 8000) {
+        n.x = (n.clusterX != null) ? n.clusterX : cx;
+        n.y = (n.clusterY != null) ? n.clusterY : cy;
+        n.vx = 0;
+        n.vy = 0;
+      }
     }
 
     // 4. Collision Avoidance (guarantees no node overlaps)
@@ -4298,12 +4469,14 @@ class ForceGraphCanvas {
     if (this.nodes.length === 0) return;
     let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
     this.nodes.forEach(n => {
+      if (!Number.isFinite(n.x) || !Number.isFinite(n.y)) return;
       const pad = (n.radius || 4) + 16;
       if (n.x - pad < minX) minX = n.x - pad;
       if (n.x + pad > maxX) maxX = n.x + pad;
       if (n.y - pad < minY) minY = n.y - pad;
       if (n.y + pad > maxY) maxY = n.y + pad;
     });
+    if (minX === Infinity) return;
 
     const gw = maxX - minX || 1;
     const gh = maxY - minY || 1;
@@ -4312,10 +4485,10 @@ class ForceGraphCanvas {
 
     const scaleX = targetW / gw;
     const scaleY = targetH / gh;
-    const newScale = Math.min(Math.max(Math.min(scaleX, scaleY), 0.65), 2.2);
-
+    const newScale = Math.min(Math.max(Math.min(scaleX, scaleY), 0.18), 2.2);
     const midX = (minX + maxX) / 2;
     const midY = (minY + maxY) / 2;
+    if (!Number.isFinite(newScale) || !Number.isFinite(midX) || !Number.isFinite(midY)) return;
 
     this.transform.scale = newScale;
     this.transform.x = this.width / 2 - midX * newScale;
@@ -4335,7 +4508,11 @@ class ForceGraphCanvas {
     if (!this.ctx) return;
     const ctx = this.ctx;
     const dpr = this.canvas.width / (this.width || 1) || Math.max(window.devicePixelRatio || 1, 2);
+    if (!Number.isFinite(this.transform.x) || !Number.isFinite(this.transform.y) || !Number.isFinite(this.transform.scale) || this.transform.scale <= 0) {
+      this.transform = { x: 0, y: 0, scale: 1 };
+    }
 
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.save();
     ctx.scale(dpr, dpr);
 
@@ -4388,6 +4565,15 @@ class ForceGraphCanvas {
       for (let y = 0; y < this.height; y += gStep) { ctx.moveTo(0, y); ctx.lineTo(this.width, y); }
       ctx.stroke();
       ctx.restore();
+    } else if (this.currentTheme === 'nebula') {
+      ctx.fillStyle = '#161616';
+      ctx.fillRect(0, 0, this.width, this.height);
+    } else if (this.currentTheme === 'starburst') {
+      ctx.fillStyle = '#0D0D0D';
+      ctx.fillRect(0, 0, this.width, this.height);
+    } else if (this.currentTheme === 'graphite') {
+      ctx.fillStyle = '#FAFAFA';
+      ctx.fillRect(0, 0, this.width, this.height);
     }
 
     // Camera transform
@@ -4474,7 +4660,7 @@ class ForceGraphCanvas {
       modGroups.get(mod).push(n);
     }
 
-    if (this.currentTheme !== 'partition') {
+    if (this.currentTheme !== 'partition' && this.currentTheme !== 'nebula' && this.currentTheme !== 'starburst' && this.currentTheme !== 'graphite') {
       modGroups.forEach((nodeList, mod) => {
         if (nodeList.length === 0 || !mod || mod === 'undefined') return;
         let cMinX = Infinity, cMaxX = -Infinity, cMinY = Infinity, cMaxY = -Infinity;
@@ -4490,6 +4676,7 @@ class ForceGraphCanvas {
         }
         const avgX = sumX / nodeList.length;
         const avgY = sumY / nodeList.length;
+        if (!Number.isFinite(avgX) || !Number.isFinite(avgY)) return;
         const modColor = MODULE_COLORS[mod] || MODULE_COLORS.General;
 
         if (this.currentTheme !== 'immersive') {
@@ -4525,6 +4712,7 @@ class ForceGraphCanvas {
       const source = this.nodeMap.get(e.source);
       const target = this.nodeMap.get(e.target);
       if (!source || !target) continue;
+      if (!Number.isFinite(source.x) || !Number.isFinite(source.y) || !Number.isFinite(target.x) || !Number.isFinite(target.y)) continue;
 
       const isCross = source.module !== target.module;
       const isConnected = activeNode && (e.source === activeNode.id || e.target === activeNode.id);
@@ -4533,6 +4721,9 @@ class ForceGraphCanvas {
       let alpha = (this.currentTheme === 'dark' ? (isCross ? 0.18 : 0.38) : (isCross ? 0.20 : 0.40)) * edgeScale;
       // Normal edge: delicate hairline (normalized by zoom scale)
       let lineWidth = 0.55 / curScale;
+      if (this.currentTheme === 'nebula') { strokeColor = '#9AA0A6'; alpha = (isCross ? 0.05 : 0.10) * edgeScale; lineWidth = 0.40 / curScale; }
+      else if (this.currentTheme === 'starburst') { strokeColor = '#C8C8C8'; alpha = (isCross ? 0.10 : 0.26) * edgeScale; lineWidth = 0.45 / curScale; }
+      else if (this.currentTheme === 'graphite') { strokeColor = '#9B9B9B'; alpha = (isCross ? 0.10 : 0.22) * edgeScale; lineWidth = 0.50 / curScale; }
 
       if (activeNode) {
         if (isConnected) {
@@ -4570,6 +4761,7 @@ class ForceGraphCanvas {
     const nScale = this.params.nodeScale || 1.0;
     for (let i = 0; i < this.nodes.length; i++) {
       const n = this.nodes[i];
+      if (!Number.isFinite(n.x) || !Number.isFinite(n.y)) continue;
       const isSelected = this.selectedNode && this.selectedNode.id === n.id;
       const isHovered = this.hoveredNode && this.hoveredNode.id === n.id;
       const isNeighbor = activeNode && this.adjMap.get(activeNode.id)?.has(n.id);
@@ -4594,6 +4786,43 @@ class ForceGraphCanvas {
       if (isSelected) r = 7.5 * nScale;
 
       const baseColor = n.color || '#0EA5E9';
+
+      // 新三主题: 极简圆点渲染 (nebula 灰晕枢纽 / starburst 银白扇点 / graphite 灰阶度节点)
+      const th = this.currentTheme;
+      if (th === 'nebula' || th === 'starburst' || th === 'graphite') {
+        const deg = n.referenceCount || 0;
+        let fill = baseColor;
+        if (th === 'nebula') {
+          r = Math.max(1.1, Math.min(4.5, 1.1 + deg * 0.22)) * nScale;
+          fill = NEBULA_MODULE_COLORS[n.module] || baseColor;
+        } else if (th === 'starburst') {
+          r = (deg >= 6 ? 3.4 : deg >= 3 ? 2.0 : 1.2) * nScale;
+          fill = deg >= 6 ? (n.source === 'weknora' ? '#35D07F' : '#4DA3FF') : (deg <= 1 ? '#66D9EF' : '#D9D9D9');
+        } else {
+          r = Math.max(1.6, Math.min(6.5, 1.6 + deg * 0.35)) * nScale;
+          fill = deg >= 6 ? '#4B4B4B' : deg >= 3 ? '#6F6F6F' : '#9A9A9A';
+        }
+        if (isSelected) r = 6.5 * nScale;
+        if (th === 'nebula' && deg >= 6) {
+          ctx.beginPath();
+          ctx.arc(n.x, n.y, r + 7 * nScale, 0, Math.PI * 2);
+          ctx.fillStyle = 'rgba(160, 160, 160, 0.30)';
+          ctx.fill();
+        }
+        if (isSelected || isHovered) {
+          ctx.beginPath();
+          ctx.arc(n.x, n.y, r + 2.2, 0, Math.PI * 2);
+          ctx.strokeStyle = th === 'graphite' ? '#111111' : '#FFFFFF';
+          ctx.lineWidth = 1.0 / curScale;
+          ctx.stroke();
+        }
+        ctx.beginPath();
+        ctx.arc(n.x, n.y, r, 0, Math.PI * 2);
+        ctx.fillStyle = fill;
+        ctx.fill();
+        ctx.restore();
+        continue;
+      }
 
       if (isSelected) {
         // Selected: Outer glow
@@ -4663,13 +4892,15 @@ class ForceGraphCanvas {
     // 4. Draw Canvas Labels ONLY for Center Landmarks (or currently hovered/selected node)
     for (let i = 0; i < this.nodes.length; i++) {
       const n = this.nodes[i];
+      if (!Number.isFinite(n.x) || !Number.isFinite(n.y)) continue;
       const isSelected = this.selectedNode && this.selectedNode.id === n.id;
       const isHovered = this.hoveredNode && this.hoveredNode.id === n.id;
       
       // User requirement 1: "知识图谱 这里只需要显示中心点的文字即可"
       // Default: ONLY show text for center hub points (1 per cluster)
       // Dynamic: show text when a node is hovered or selected
-      const shouldDrawLabel = isSelected || isHovered || (n.isCoreAnchor && !activeNode);
+      const noAnchorLabel = this.currentTheme === 'nebula' || this.currentTheme === 'starburst';
+      const shouldDrawLabel = isSelected || isHovered || (n.isCoreAnchor && !activeNode && !noAnchorLabel);
 
       if (shouldDrawLabel) {
         const text = n.displayName || n.title;
@@ -4682,14 +4913,14 @@ class ForceGraphCanvas {
         const labelY = n.y;
 
         // Proportional white halo stroke (avoids drowning 3px micro-fonts)
-        ctx.strokeStyle = (this.currentTheme === 'dark') ? 'rgba(15, 23, 42, 0.92)' : 'rgba(255, 255, 255, 0.95)';
+        ctx.strokeStyle = (this.currentTheme === 'dark' || this.currentTheme === 'nebula' || this.currentTheme === 'starburst') ? 'rgba(15, 23, 42, 0.92)' : 'rgba(255, 255, 255, 0.95)';
         ctx.lineWidth = Math.max(0.8, Math.min(2.8, fSize * 0.26)) / curScale;
         ctx.lineJoin = 'round';
         ctx.strokeText(text, labelX, labelY);
 
-        ctx.fillStyle = (this.currentTheme === 'dark') 
+        ctx.fillStyle = (this.currentTheme === 'dark' || this.currentTheme === 'nebula' || this.currentTheme === 'starburst') 
           ? (isSelected ? '#38BDF8' : '#F1F5F9')
-          : (isSelected ? '#1D4ED8' : '#0F172A');
+          : (this.currentTheme === 'graphite' ? (isSelected ? '#1D4ED8' : '#5A5A5A') : (isSelected ? '#1D4ED8' : '#0F172A'));
         ctx.textAlign = 'left';
         ctx.textBaseline = 'middle';
         ctx.fillText(text, labelX, labelY);
@@ -4853,6 +5084,7 @@ class ForceGraphCanvas {
       <div style="font-size:10px; color:#64748B; margin-bottom:4px; font-family:monospace; display:flex; gap:4px; align-items:center;">
         <span class="tw-type-tag ${node.type}" style="padding:1px 4px; border-radius:3px; background:#F1F5F9; color:#475569; border:1px solid #E2E8F0;">${escapeHtml(node.type)}</span> · <span>${escapeHtml(node.platform)}</span> · <span style="color:${node.color || '#2563EB'}; font-weight:600;">${escapeHtml(node.module)}</span>
       </div>
+      ${node.source === 'weknora' ? `<div style="font-size:10px; color:#64748B; margin-bottom:3px;">来源 WeKnora · ${escapeHtml(node.wkType || '')} · 图内链接 ${node.wkLinks || 0}</div>` : ''}
       <div style="font-size:10px; color:#2563EB; font-family:monospace;">
         🔗 ${node.referenceCount || 0} 个知识关联 (单击下钻, 双击打开)
       </div>
@@ -4948,7 +5180,7 @@ class TabonKBWorkbenchView extends ItemView {
   }
 
   getIcon() {
-    return "layout-dashboard";
+    return (typeof TW_BRAND_ICON_OK !== 'undefined' && TW_BRAND_ICON_OK) ? 'tabonkb-brand' : 'layout-dashboard';
   }
 
   getContainer() {
@@ -4970,6 +5202,7 @@ class TabonKBWorkbenchView extends ItemView {
         this.render();
       } catch (err) {
         console.error('[TabonKB Workbench] Post-scan render failed:', err);
+        try { wkTopoWriteLog(this.app.vault.adapter.basePath, 'POSTSCAN-RENDER: ' + (err && err.stack || err)); } catch (e) {}
       }
     }).catch(err => {
       console.error('[TabonKB Workbench] Vault scan failed:', err);
@@ -5111,7 +5344,9 @@ class TabonKBWorkbenchView extends ItemView {
 
       docs.sort((a, b) => b.mtime - a.mtime);
       this.realDocs = docs;
-      this.graphData = buildGraphData(this.realDocs);
+      this.vaultGraphData = buildGraphData(this.realDocs);
+      this.graphData = this.vaultGraphData;
+      this.scheduleWeknoraMerge();
     } catch (err) {
       console.error('[TabonKB Workbench] Error in loadVaultDocs:', err);
     } finally {
@@ -5318,28 +5553,35 @@ class TabonKBWorkbenchView extends ItemView {
       // ==========================================
       const workspaceWrap = wrap.createDiv({ cls: 'tw-knowledge-workspace dashboard-knowledge-workspace', id: 'twKnowledgeWorkspace' });
       
-      // Left: Graph Card
+      // Left: Graph Card (降级保护: 拓扑组件异常不拖垮整个工作台)
       const graphCard = workspaceWrap.createDiv({ cls: 'tw-card tw-graph-card' });
-      this.graphCanvas = new ForceGraphCanvas(graphCard, {
-        onNodeClick: (node) => {
-          const nextMode = node ? 'detail' : 'overview';
-          if (this.knowledgePanelMode === nextMode && this.selectedKnowledgeNode === node) {
-            return;
+      try {
+        this.graphCanvas = new ForceGraphCanvas(graphCard, {
+          onNodeClick: (node) => {
+            const nextMode = node ? 'detail' : 'overview';
+            if (this.knowledgePanelMode === nextMode && this.selectedKnowledgeNode === node) {
+              return;
+            }
+            this.selectedKnowledgeNode = node;
+            this.knowledgePanelMode = nextMode;
+            if (this.contextProvider) {
+              if (node) this.contextProvider.setKnowledgeNode(node);
+              else this.contextProvider.clearKnowledgeNode();
+            }
+            this.renderContextPanel();
+          },
+          onNodeDblClick: (node) => {
+            if (node) this.openTarget(node.id, node.title);
           }
-          this.selectedKnowledgeNode = node;
-          this.knowledgePanelMode = nextMode;
-          if (this.contextProvider) {
-            if (node) this.contextProvider.setKnowledgeNode(node);
-            else this.contextProvider.clearKnowledgeNode();
-          }
-          this.renderContextPanel();
-        },
-        onNodeDblClick: (node) => {
-          if (node) this.openTarget(node.id, node.title);
+        });
+        if (this.graphData.nodes.length > 0) {
+          this.graphCanvas.setData(this.graphData);
         }
-      });
-      if (this.graphData.nodes.length > 0) {
-        this.graphCanvas.setData(this.graphData);
+      } catch (gErr) {
+        console.warn('[TabonKB] Topology init degraded:', gErr);
+        try { wkTopoWriteLog(this.app.vault.adapter.basePath, 'GRAPHCARD: ' + (gErr && gErr.stack || gErr)); } catch (e) {}
+        this.graphCanvas = null;
+        graphCard.innerHTML = '<div style="padding:28px;font-size:11px;color:var(--text-muted);">拓扑组件初始化异常 (已降级, 不影响工作台其它区域), 详见插件目录 weknora-topo-error.log</div>';
       }
 
       // Right: Context Panel Card
@@ -5401,6 +5643,7 @@ class TabonKBWorkbenchView extends ItemView {
 
     } catch (err) {
       console.error('[TabonKB Workbench] Render exception:', err);
+      try { wkTopoWriteLog(this.app.vault.adapter.basePath, 'RENDER: ' + (err && err.stack || err)); } catch (e) {}
       const container = this.getContainer();
       if (container) {
         container.empty();
@@ -5608,6 +5851,27 @@ class TabonKBWorkbenchView extends ItemView {
       <div>${escapeHtml(node.summary || '（暂无详细说明）')}</div>
     `;
 
+    // WeKnora 节点: 来源信息 + ego 展开/懒加载正文/深链 (全部复用原生组件样式)
+    if (node.source === 'weknora') {
+      const wkBox = wrap.createDiv({ cls: 'tw-detail-summary-box' });
+      wkBox.innerHTML = `
+        <div style="font-size:10px; font-weight:600; color:var(--text-muted); margin-bottom:3px; text-transform:uppercase;">WeKnora 知识页</div>
+        <div style="font-size:11px; margin-bottom:6px;">page_type <b>${escapeHtml(node.wkType || '')}</b> · 图内链接 <b>${node.wkLinks || 0}</b> · slug <span style="font-family:monospace;">${escapeHtml(node.wkSlug || '')}</span></div>
+        <div style="display:flex; gap:6px; flex-wrap:wrap;">
+          <button class="tw-detail-open-btn" id="wkBtnEgo" style="flex:0 0 auto;">展开 WeKnora 邻居</button>
+          <button class="tw-detail-open-btn" id="wkBtnContent" style="flex:0 0 auto;">加载页面正文</button>
+          <button class="tw-detail-open-btn" id="wkBtnOpen" style="flex:0 0 auto;">在 WeKnora 打开 ↗</button>
+        </div>
+        <div id="wkPageContentBox" style="margin-top:8px; max-height:320px; overflow:auto; font-size:11px;"></div>
+      `;
+      wkBox.querySelector('#wkBtnEgo').onclick = () => this.weknoraEgoExpand(node);
+      wkBox.querySelector('#wkBtnContent').onclick = () => this.weknoraLoadPageContent(node, wkBox.querySelector('#wkPageContentBox'));
+      wkBox.querySelector('#wkBtnOpen').onclick = () => {
+        const ws = (this.plugin && this.plugin.settings && this.plugin.settings.weknora) || {};
+        if (ws.baseUrl) window.open(String(ws.baseUrl).replace(/\/+$/, '') + '/', '_blank');
+      };
+    }
+
     // 4. Relations Count & List
     const connectedEdges = this.graphData.edges.filter(e => e.source === node.id || e.target === node.id);
     const relatedNodes = [];
@@ -5680,12 +5944,88 @@ class TabonKBWorkbenchView extends ItemView {
       });
     }
 
-    // 7. Bottom Action Button
-    const btnOpenDoc = wrap.createEl('button', { cls: 'tw-detail-open-btn' });
-    btnOpenDoc.innerHTML = `<span>打开原始知识文档</span> <span>↗</span>`;
-    btnOpenDoc.onclick = () => {
-      this.openTarget(node.id, node.title);
-    };
+    // 7. Bottom Action Button (WeKnora 节点无 vault 源文档, 入口在上方 wkBox)
+    if (node.source !== 'weknora') {
+      const btnOpenDoc = wrap.createEl('button', { cls: 'tw-detail-open-btn' });
+      btnOpenDoc.innerHTML = `<span>打开原始知识文档</span> <span>↗</span>`;
+      btnOpenDoc.onclick = () => {
+        this.openTarget(node.id, node.title);
+      };
+    }
+  }
+
+  // ---------- WeKnora 拓扑接入 (瘦节点联邦合并, 样式沿用原生主题) ----------
+  scheduleWeknoraMerge(force) {
+    const s = (this.plugin && this.plugin.settings && this.plugin.settings.weknora) || {};
+    if (!s.topoEnabled) return;
+    if (this._wkTopoLoading) return;
+    this._wkTopoLoading = true;
+    const vb = this.app.vault.adapter.basePath;
+    (async () => {
+      try {
+        let cached = force ? null : wkTopoCacheLoad(vb, s.topoTtlHours || 24);
+        if (!cached) cached = wkTopoCacheSave(vb, await wkTopoFetchGraph(vb, s.topoLimit || 300));
+        const wk = wkTopoSlimGraph(cached, s.topoGrouping || 'semantic');
+        const base = this.vaultGraphData || this.graphData;
+        this.graphData = wkTopoMerge(base, wk, 800);
+        if (this.graphCanvas) this.graphCanvas.setData(this.graphData);
+        this.updateWkTopoStatus(true, this.graphData.nodes.filter(n => n.source === 'weknora').length);
+      } catch (e) {
+        console.warn('[TabonKB] WeKnora 拓扑合并失败:', e);
+        try { wkTopoWriteLog(vb, 'MERGE: ' + (e && e.stack || e)); } catch (e2) {}
+        this.updateWkTopoStatus(false, 0);
+      } finally {
+        this._wkTopoLoading = false;
+      }
+    })();
+  }
+
+  updateWkTopoStatus(ok, wkCount) {
+    const el = this.graphCanvas && this.graphCanvas.statusEl;
+    if (!el) return;
+    el.innerHTML = ok
+      ? `<span class="tw-graph-dot" style="background:#10B981;"></span><span id="twStatusText">✓ 轻量知识拓扑 就绪 · 含 WeKnora ${wkCount} 节点</span>`
+      : `<span class="tw-graph-dot" style="background:#94A3B8;"></span><span id="twStatusText">WeKnora 不可达 · 仅本地 vault 拓扑</span>`;
+  }
+
+  async weknoraEgoExpand(node) {
+    const vb = this.app.vault.adapter.basePath;
+    const s = (this.plugin && this.plugin.settings && this.plugin.settings.weknora) || {};
+    try {
+      const raw = await wkTopoFetchEgo(vb, node.wkSlug, 150);
+      const wk = wkTopoSlimGraph(raw, s.topoGrouping || 'semantic');
+      this.graphData = wkTopoMerge(this.graphData, wk, 800);
+      if (this.graphCanvas) this.graphCanvas.setData(this.graphData);
+      new Notice(`WeKnora 邻居展开: +${wk.nodes.length} 节点`);
+    } catch (e) {
+      new Notice('WeKnora ego 展开失败: ' + e.message);
+    }
+  }
+
+  async weknoraLoadPageContent(node, box) {
+    box.innerHTML = '<div style="font-size:11px;color:var(--text-muted);">加载 WeKnora 页面正文…</div>';
+    try {
+      const p = await wkTopoFetchPage(this.app.vault.adapter.basePath, node.wkSlug);
+      box.empty();
+      MarkdownRenderer.renderMarkdown(p.content || '(空内容)', box, this.app.vault.adapter.basePath, this);
+    } catch (e) {
+      box.innerHTML = `<div style="font-size:11px;color:var(--text-muted);">加载失败: ${escapeHtml(e.message)}</div>`;
+    }
+  }
+
+  onClose() {
+    // 视图关闭释放图数据 (磁盘缓存保留), 避免常驻内存
+    this.graphData = { nodes: [], edges: [] };
+    this.vaultGraphData = null;
+    this.realDocs = [];
+    if (this.graphCanvas) {
+      if (this.graphCanvas.animFrameId) cancelAnimationFrame(this.graphCanvas.animFrameId);
+      this.graphCanvas.nodes = [];
+      this.graphCanvas.edges = [];
+      this.graphCanvas.nodeMap.clear();
+      this.graphCanvas.adjMap.clear();
+    }
+    return Promise.resolve();
   }
 
   selectKnowledgeNode(nodeId) {

@@ -8,7 +8,7 @@ const http = require('http');
 const zlib = require('zlib');
 
 /* ==========================================================================
-   Embedded Multi-Agent Hub Modules (Pi, Codex, Gemini for Obsidian Workbench)
+   Embedded Multi-Agent Hub Modules (Pi, Hermes, Gemini for Obsidian Workbench)
    ========================================================================== */
 
 /**
@@ -80,6 +80,13 @@ const ICON_PARK_PATHS = {
   'kanban': '<rect x="3.5" y="3.5" width="4.5" height="17" rx="1.5"/><rect x="10" y="3.5" width="4.5" height="11" rx="1.5"/><rect x="16.5" y="3.5" width="4.5" height="15" rx="1.5"/>',
   'clipboard-check': '<path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/><path d="m9 14 2 2 4-4"/>',
   'bookmark': '<path d="m19 21-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>',
+  'bell': '<path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/>',
+  'topic': '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
+  'delete': '<path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M10 11v6M14 11v6"/>',
+  'hub': '<circle cx="12" cy="12" r="3"/><circle cx="12" cy="4" r="2"/><circle cx="20" cy="16" r="2"/><circle cx="4" cy="16" r="2"/><path d="M12 6v3M14.5 13.5 18 15.5M9.5 13.5 6 15.5"/>',
+  'pause-one': '<rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/>',
+  'circle': '<circle cx="12" cy="12" r="9"/>',
+  'info-circle': '<circle cx="12" cy="12" r="9"/><path d="M12 8h.01M11 12h1v4h1"/>',
   'layers': '<path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>'
 };
 
@@ -143,6 +150,7 @@ function detectModelIconPark(modelText) {
 function detectModelBrand(modelOrBrand) {
   if (!modelOrBrand) return 'openai';
   const lower = String(modelOrBrand).toLowerCase().trim();
+  if (lower.includes('hermes')) return 'hermes';
   if (lower.includes('claude') || lower.includes('sonnet') || lower.includes('opus') || lower.includes('anthropic')) {
     return 'claude';
   }
@@ -172,6 +180,24 @@ function detectModelBrand(modelOrBrand) {
   }
   if (lower === 'niceaigc') {
     return 'niceaigc';
+  }
+  if (lower.includes('glm') || lower.includes('chatglm') || lower.includes('zhipu')) {
+    return 'glm';
+  }
+  if (lower.includes('minimax')) {
+    return 'minimax';
+  }
+  if (lower.includes('longcat')) {
+    return 'longcat';
+  }
+  if (lower.includes('mimo')) {
+    return 'mimo';
+  }
+  if (lower.includes('hunyuan') || /^hy[\d.]/.test(lower)) {
+    return 'hunyuan';
+  }
+  if (lower.includes('muse') || lower.includes('omen')) {
+    return 'generic';
   }
   return 'openai';
 }
@@ -224,8 +250,54 @@ function getOfficialModelSvg(modelOrBrand, size = 14) {
     return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" class="tw-official-brand tw-brand-niceaigc"><defs><linearGradient id="tw-brand-niceaigc-grad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#8B5CF6"/><stop offset="50%" stop-color="#EC4899"/><stop offset="100%" stop-color="#3B82F6"/></linearGradient></defs><path d="M12 2L14.5 8.8L21.5 11.2L14.5 13.6L12 20.5L9.5 13.6L2.5 11.2L9.5 8.8L12 2Z" fill="url(#tw-brand-niceaigc-grad)"/><path d="M19 16L20 18.5L22.5 19.5L20 20.5L19 23L18 20.5L15.5 19.5L18 18.5L19 16Z" fill="url(#tw-brand-niceaigc-grad)"/></svg>`;
   }
 
+  if (brand === 'hermes') {
+    return `<img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAJO0lEQVR4nH1Xe0hVWxr/9t5Hz/GtR8vppWbSZOSURA8iy17inayspjtG948gzJiIDCqmsKQHNVRQdI0aCK3blHNDsEAamTArLeuO5bU0y0zT0qzMNDuvvdfaa/i+c/b21I37wdJ11uN7f7/1bQl8JISQJEkSOC8sLJR37949DQCSdV2PUhSF1jnnwBgDWZYhODgY/EhCFjj5/PkzLVitVjwvKYqi6br+emhoqGHEiBE9PlmKJEncuOgvXFJVdaMsy3mSJKXIsmyB36H29nZobW0FRVEgLi4O4uPjwWazffMs57xPkqSrQ0ND/4iMjGwzlRBCyJIkweDgYDRj7LrwI845Z4wx/COEYB6Ph1VWVrITJ06ws2fPstraWlZcXMwSEhIYADC73c5WrFjBqqur6TwOvM451/14Drjd7hWGJwAVaG1ttXLGan0HVLqh63jbVOb8+XNiypQp6CVzpKamilu3btH+unXrvtjbunWr8Hg8xINzjkNnjGleLYTmcDhmmO5xu907fcI9KNhfeEdHh1i8eLHJ2GKx0PDlBY1/XbhAZ2fPni1kWRZWq5XWd/19F60jL4Mv55yUYIzVNzU1BcLbt29DGWOdPo9/YXlDQ4NImZJCzOx2uwgMDDSF4u9ZM2eK2tpakZ+fL1paWkRzc7MIDQ0VARaLWL58uSgvLxf/++UXr9GM+yvBcc3tdmdbgoODZyqKEodMMRNBCJAlGVwuF9TW1kJ4RDhkLc2CsPAwePPmDWRmZsLt27dh1qxZ8MO6H+BZ6zN4+vQp3Lt3D9avXw87duxAj8LYsWMhOjoaCvbsgStXrlBVIG+QvHmPQ5GVZZLL5fqbzWY7BbrOhSQpAhWQZbh79y5MnPhHaGl5Anfu3IHExER48eIF6LpO5ThnzhzweDzw1++/B4fTCQkJCdDR0QGlpaVQUFAAAwMDMGnSJHj5sgNKSs5BRkYGlTBWjBBCl2VZZozdtkiSFIMq6d60JOFOpxMOHz4MTocTBj8NkoUOh8OsbxSMFBERAVyncobe3l44euQIdLx8Ca+6XoE92k4KobLl5eWkwDfIigrIJhjpAkAGePz4MVRXV9NldCcSKobap6enUwg0TYNPnz4BRg0HWldyrgSQXewfYslTqDTuYSjRKAQvXDdJB0A3KMNo6N1EzfGyzjkJjoyMhMDAQBI6ODgIKSkpJBDDhQzxP47u7h549eoV9PX10dmQkGDi86LtBTx79sxA3GEFZABEOmkYUL3TiPAI8zAKQMu3bdsGDx48AFVVIScnh3IiKMgG7969h6obN8DtcpFHho0REB8XDz09b0iZ+vp6SE1NNfkZHgCHw3HQhwEIWVQmAwMDYnxCAmXquHHjxIWfLpilWVRUJJKSksS+ffvE4OAgrS1cuJDOBgUFiczMTDFx4kT6PTl5Mq3hPC8vj86qqmqWoebR7mEymkHBeKGGmFz//vln2LBhA+H76TOnKY5ImEzjx48nq7AsDS8hoWUfPnzw5hIa53RAeHg4zTGvjDN+SSCDy+HYb3jADyhMCN6yZYvIyckR/f39tO5yuURvby/BrO/ebyDaGGFhYeQtnEdFRYn37/vojqZp9DaoqtoiYyJ8TegJjDVahwm1atUqCA0NparA1y42NhYCAwJov7+/H16/fu3NKUWmfUxY42lGizGRP378CI8aG4cTBM9Lki7rul8S+pHFYjEViYqKorWAgADQda/LGee0j+CEoEMgqgv6z7m3Z1BkBTyqx+wdau94w6gblSBJTNZB/0IBUs4HSDhvaWkhIDp9+gzBrVGqRjk1NTWZCqO1COGc6+QFhHHHZweBF+7fvHnz6zywyBaw+CGDF3CMchwaGoLnz59DVVUVpKWlwahRo4Zr35d4zc3N9B+xAd8Hfw+iYFQIQWjq1KnkrXfv3n2RiLLhAWSM7sPMxoP4u7Ozk7L92rVrBCpYEcgYR6DVSmfa2tqI0cqVKyEsLMxkjOFCEELAQiUmTJgAdrudvPiVwTKZYpRSRUUFwS8q8+jRI1rDPNi0aRN0d3fTwMep900vncHfSAjdWIKGi1G5T0NDlLhIMTExZADCOCauIVPWdV32jyladOnSJcr+48ePk7UhISEkAF+3yZMnw9y5c2HJkiXEPCgoiMJ29OhRQkhDAWpOfRCNNGbMGOjq6gKX0wk1NTV0V5ZlCT0gzNgDkKtOnjwJo0ePJmXWrl1LHsDyQqYItyigqbkJli1bRiFCS3Jzc2Hv3r3kFVzzCaA9vIveaWhogDFjx5JnPR438hEW8zHyVQZi/Lx580xrDx06BCNHjiSm+Ax7exZBTBExjx07BllZWfDw4cPflLJhPXqxuLiY5uhN9EBQULC3xQ8ICOg3QAS1XrBgASxatIjivGvXLrqArsXsNZ5etCo/Px++y/wO6urq6JGakDiBkhBBCrM/NnYkJCUlUVeEnkOsmD59Oly/fp2M83nKgR3REpvN9l/AV1USktERIXbv37+f4n3o8GEIsFioQgwF0FNFRUX0dKN7McNx3tPTA5s3b6aWDKvgP9euQcn58/DkyRNInjSJEvHy5cs8JCRE1jTt0jebUnyxkMrKysT8+fPFwYMHRXZ2NnW8/lifvSJbHDhwQDQ2NoobN26I1atXi74+L94bhO9G3saN9Bbs3LlTOBwOaop9TelfKC5utzv/67bc/0HCbtdotSMjI0ViYqJIT08XNTU1wuP2iPv374vc3Fxq4f2eXNOQqqoqsX37doOd0Zb/it8j9GEihLB4PJ7b/h8mTNPM1jw6OpqEL/3zUnH16lUxbeo0UVlZSfsFBQWitLRUVFRUeLmrqtl+G8Ptdouuri5d0zSvRoKrqqp6YbOwsBAVkAY6O6NUVfVy9VFbWxu32+3cZrNxq9XKG39t5Hl5eXxPwR50Dy8rK+NpaWm8vr6e19XVUQg1TeNfEyphEGOs3+12Z/mqRDHKxXyQHA7HJk3THjDG1DVr1tAnV0xMjIiLixM/nvxRnCo6RYywG8L1I0eOUPyxX/g9Yox1a5p22ul0xvsLp69f/DJGJTDJQkJCzgDAP9vb2/+kqmpSRkZG6MWLFy0RoaHS/Xt17GRREWKrXlZWFtjX1ycnJydr2A/MmDEDjTWgV1FAERw44juGoVdV1caIiAjCav/P8/8DupB/dRjK/2IAAAAASUVORK5CYII=" width="${size}" height="${size}" class="tw-official-brand tw-brand-hermes" style="border-radius: 22%;" alt="Hermes" />`;
+  }
+
+  if (brand === 'glm') {
+    return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" class="tw-official-brand tw-brand-glm"><defs><linearGradient id="tw-brand-glm-grad" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#3859FF"/><stop offset="100%" stop-color="#8B5CF6"/></linearGradient></defs><rect width="24" height="24" rx="6" fill="url(#tw-brand-glm-grad)"/><path d="M7.5 7h9v2.5l-5.6 4.3h5.6V17h-9v-2.5l5.6-4.3H7.5z" fill="#FFFFFF"/></svg>`;
+  }
+
+  if (brand === 'minimax') {
+    return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" class="tw-official-brand tw-brand-minimax"><defs><linearGradient id="tw-brand-minimax-grad" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#FF4D4F"/><stop offset="100%" stop-color="#FF7A45"/></linearGradient></defs><rect width="24" height="24" rx="6" fill="url(#tw-brand-minimax-grad)"/><path d="M7 16.5V8l3 3.8 2-2.4 2 2.4L17 8v8.5h-2.3v-4.2L12 15.6l-2.7-3.3v4.2z" fill="#FFFFFF"/></svg>`;
+  }
+
+  if (brand === 'longcat') {
+    return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" class="tw-official-brand tw-brand-longcat"><path d="M6.5 10.5 8 6l2.4 2.6h3.2L16 6l1.5 4.5" fill="#FF9F1C"/><circle cx="12" cy="13.5" r="6" fill="#FF9F1C"/><circle cx="9.8" cy="12.8" r="1" fill="#FFFFFF"/><circle cx="14.2" cy="12.8" r="1" fill="#FFFFFF"/><path d="M10.5 15.6c.9.8 2.1.8 3 0" stroke="#FFFFFF" stroke-width="1.2" stroke-linecap="round"/></svg>`;
+  }
+
+  if (brand === 'mimo') {
+    return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" class="tw-official-brand tw-brand-mimo"><rect width="24" height="24" rx="6" fill="#FF6900"/><text x="12" y="16" font-size="9.5" font-weight="700" fill="#FFFFFF" text-anchor="middle" font-family="-apple-system, 'Segoe UI', sans-serif">Mi</text></svg>`;
+  }
+
+  if (brand === 'hunyuan') {
+    return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" class="tw-official-brand tw-brand-hunyuan"><defs><linearGradient id="tw-brand-hunyuan-grad" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#0052D9"/><stop offset="100%" stop-color="#7C5CFF"/></linearGradient></defs><circle cx="12" cy="12" r="9.5" fill="url(#tw-brand-hunyuan-grad)"/><path d="M12 6.5a5.5 5.5 0 1 1-5.5 5.5" stroke="#FFFFFF" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="12" r="1.6" fill="#FFFFFF"/></svg>`;
+  }
+
+  if (brand === 'generic') {
+    return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" class="tw-official-brand tw-brand-generic"><rect width="24" height="24" rx="6" fill="#64748B" fill-opacity="0.18"/><path d="M12 6l1.8 4.2L18 12l-4.2 1.8L12 18l-1.8-4.2L6 12l4.2-1.8z" fill="#64748B"/></svg>`;
+  }
+
   // Default / OpenAI (ChatGPT, GPT-5.6, Codex, GPT-4o, etc.)
   return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="currentColor" class="tw-official-brand tw-brand-openai"><path d="M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3428 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3428 7.872zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813v6.7227zm1.145-2.0728l3.4158-1.9681 3.411 1.9681v3.9363l-3.411 1.9681-3.4158-1.9681v-3.9363z"/></svg>`;
+}
+
+/**
+ * Official vendor platform wordmarks (verbatim brand assets, canvas trimmed to content):
+ * - MTK:    mediatek.com hubfs/raw_assets/public/MediaTek_Mar_2024/images/mediatek-logo.svg
+ * - Unisoc: unisoc.com/images/logo-cn.svg (紫光展锐标准字, 已剔除画外杂点与依赖字体的 <text>)
+ * @param {'mtk'|'unisoc'} platform
+ * @param {number} size - pixel height
+ * @returns {string} SVG HTML string
+ */
+function getVendorPlatformSvg(platform, size = 14) {
+  if (platform === 'mtk') {
+    return `<svg viewBox="-0.97 0.09 159.12 40.31" width="${(size * 3.948).toFixed(2)}" height="${size}" xmlns="http://www.w3.org/2000/svg" class="tw-official-brand tw-brand-mtk"><g fill="none" fill-rule="evenodd"><path d="m137.152 36.839c-.989 1.68-3.39 3.055-5.34 3.055h-129.546c-1.948 0-2.736-1.375-1.748-3.055l19.508-33.197c.988-1.68 3.39-3.056 5.34-3.056h129.546c1.949 0 2.736 1.375 1.749 3.056z" fill="#ec9430"/><g fill="#fffffe"><path d="m117.113 26.234h3.571v-12.701h-3.571zm8.706-6.336h-.008l.008-.029 3.665-6.336h-3.57l-3.667 6.336.021.029h-.021l3.667 6.336h3.57zm-39.393-6.364h-2.867l-7.334 12.7h3.612l5.222-9.043v9.043h3.611v-12.7zm-39.116 7.406h5.62l1.218-2.083h-5.702z"/><path d="m46.16 18.35h.004c0-1.604.48-2.207 2.04-2.207h5.082l1.519-2.633h-7.135c-3.037 0-5.045 1.065-5.045 4.914v7.834h10.976l1.52-2.632h-8.961zm61.697 2.59h5.623l1.217-2.083h-5.703z"/><path d="m106.832 18.35h.004c0-1.604.48-2.207 2.042-2.207h5.08l1.52-2.633h-7.133c-3.038 0-5.045 1.065-5.045 4.914v7.834h10.975l1.52-2.632h-8.963zm-16.586-2.174h4.442v10.058h3.495v-10.058h3.287l1.524-2.642h-11.222zm-27.766 7.454h-1.938v-7.493h1.938c2.823 0 3.708.497 3.708 3.65 0 3.154-.885 3.844-3.708 3.844zm.76-10.12h-6.122v12.748h6.286c4.416 0 6.402-1.703 6.402-6.474 0-4.512-1.967-6.274-6.565-6.274zm8.559 12.724h3.571v-12.7h-3.571zm-39.115-6.246v-6.454l-4.246.013-7.324 12.673h3.502l4.497-7.779v7.727l-.031.052h.031v.014h3.571l4.397-7.793v7.793h3.571v-12.7l-4.246.013z"/></g></g></svg>`;
+  }
+  if (platform === 'unisoc') {
+    return `<svg viewBox="244.71 39 164.85 41.55" width="${(size * 3.968).toFixed(2)}" height="${size}" xmlns="http://www.w3.org/2000/svg" shape-rendering="geometricPrecision" class="tw-official-brand tw-brand-unisoc"><path d="M376.7,57.24h1.91V54.68H376.7V53.09h-3.23v1.59h-7.39V53.21h-3.23v1.47h-2.11l.84,2.56h1.27v1.61h-2.43l.81,2.56H362v4.66a3.31,3.31,0,0,0,.55,2.25,2.72,2.72,0,0,0,2,.6l1.17,0h3.83V66.83h-3.34c-.48,0-.77-.07-.86-.21-.2-.32-.14-.62-.14-1.43V61.41H378.7V58.85h-2Zm-3.23,1.61h-7.39V57.24h7.39Z" fill="#931984"/><path d="M375.48,66.7a13.86,13.86,0,0,1-1.74-1.5H375a2.11,2.11,0,0,0,1.39-.39,2.94,2.94,0,0,0,.75-1,13.22,13.22,0,0,0,.67-1.84H374.6l-.19.56c-.14.44-.47,1.44-1,1.44h-.61l-2.3-2h-4l4.77,5.52a6.86,6.86,0,0,0,1,1,1.74,1.74,0,0,0,.85.32,12.46,12.46,0,0,0,1.66.08h3.87V66.83h-2.17a3.08,3.08,0,0,1-1-.13" fill="#931984"/><path d="M389.83,44.64h-3.28l-.72,2.81c-.05.22-.57,2.44-1,2.44h-.4V51h1.77a2.87,2.87,0,0,0,1.5-.27,1.69,1.69,0,0,0,.59-.6c.12-.22.25-.48.38-.77h5.19V46.58h-4.51Z" fill="#931984"/><path d="M385.46,55.51h1.46v3.12h-2.34l.87,2.81h1.47v5.15a3.89,3.89,0,0,0,.14,1.06,2.46,2.46,0,0,0,.57.91,2.52,2.52,0,0,0,1.75.43h3.67V66.72h-1.83a1.07,1.07,0,0,1-.71-.16q-.18-.15-.18-.78V61.44h3.45V58.63h-3.45V55.51h3.45V52.68h-9.2Z" fill="#931984"/><path d="M398.06,48.54h2v-.89h-.63c-.44,0-1.15-1.56-1.72-3h-3c.43,1.06.92,2.19,1.24,2.77a2.46,2.46,0,0,0,2.11,1.13" fill="#931984"/><path d="M405,48.54a2.45,2.45,0,0,0,2.11-1.13,28.89,28.89,0,0,0,1.24-2.77h-3c-.57,1.45-1.27,3-1.72,3h-.62v.89h2" fill="#931984"/><path d="M396.73,65s-.61,3.13-1.78,3.13h-.48l.31.85h1.83a2.82,2.82,0,0,0,2.68-1.39,47.86,47.86,0,0,0,1.61-6.73h-3.3Z" fill="#931984"/><path d="M405.35,66.13V59.74h.4c1.06,0,1.75-.27,2.05-.81a3.27,3.27,0,0,0,.46-1.65v-8H395.11V59.74h7.05v6.6c0,2.74,3.05,2.68,3.05,2.68h3.35v-1.5h-1.7a1.33,1.33,0,0,1-1.5-1.39m-.47-10a1,1,0,0,1-.16.63.62.62,0,0,1-.48.16h-5.73V52.17h6.37Z" fill="#931984"/><path d="M377.2,52.13a1.85,1.85,0,0,0,1-1.09,6.32,6.32,0,0,0,.24-2V45.21H359.54l.63,2.57h14.94V49.1c0,.56-.27.84-.8.84H359.54V45.21h-3.4V66a5,5,0,0,1-.1,1.49c-.1.2-.25.42-.5.42h-.7l.43,1.14h1.07a4.15,4.15,0,0,0,2.08-.4,2.06,2.06,0,0,0,.89-1.34,10.2,10.2,0,0,0,.23-2.43V52.53h15.74a4,4,0,0,0,1.92-.4" fill="#931984"/><path d="M311.4,54.09h9v-2h-6.19c-1.27,0-1.24-1.46-1.24-1.46V48.19h7.34v-2H313V44.65h-4s0,3.85,0,6.69a2.56,2.56,0,0,0,2.44,2.75" fill="#931984"/><path d="M299.31,54.13h9.12v-2h-2.17V48.19h2v-2h-2V44.64h-4v7.47h-.41a1.34,1.34,0,0,1-1.38-1.46V45.4H296.9v6a2.58,2.58,0,0,0,2.41,2.75" fill="#931984"/><path d="M318.22,62.88c1.56,0,2.54-1.07,2-2.48,0,0-1.44-2.91-1.44-2.91H315l1.36,2.62c.12.49-.12.68-.38.75h-7.9c3.6-1.3,6.92-3.26,8.77-5.9h-5.37a18.44,18.44,0,0,1-3.3,2.61H305a14.63,14.63,0,0,0,3.44-2.65H303.1c-1.57,2.32-6.27,2.81-6.27,2.81s.73,1.69.83,1.82H304a23,23,0,0,1-7.32,1.31l.71,2h9.21v3.77a1,1,0,0,1-1.13,1.13c-1,0-1.5,0-1.5,0l.42,1.24h4.45a2.14,2.14,0,0,0,2-2.38V62.88h7.3Z" fill="#931984"/><path d="M304.49,63.51h-4.21s-.77,3.46-2.82,4.28a9.7,9.7,0,0,1-1,.06l.43,1.19h2.59c3.75,0,5-5.53,5-5.53" fill="#931984"/><path d="M320.79,69v-1.2a9.7,9.7,0,0,1-1-.06c-2.05-.82-2.82-4.28-2.82-4.28h-4.21S314,69,317.77,69Z" fill="#931984"/><path d="M344.29,65V56.9h5.78V55h-9.84V44.66h-4.57V55H326l.61,1.95H332l-1.38,6.65s-1.08,4.28-2.68,4.28h-1.81l.42,1.16h3.9s2.72.2,3.66-1.9,2.3-9.7,2.39-10.19h3.47v8.43c0,3.75,4.16,3.66,4.16,3.66h6.27V66.93h-4A1.82,1.82,0,0,1,344.29,65" fill="#931984"/><path d="M332.38,53.75h2.8V52.52h-.86c-1.16,0-3.59-7.54-3.59-7.54h-4.32s2.06,5.43,3,7.21a3.38,3.38,0,0,0,2.92,1.56" fill="#931984"/><path d="M343.55,53.75a3.38,3.38,0,0,0,2.92-1.56c1-1.78,3-7.21,3-7.21h-4.33s-2.42,7.54-3.58,7.54h-.86v1.23h2.8" fill="#931984"/><path d="M284.51,54.6V78.83H260.13a4.79,4.79,0,0,1-4.78-4.78V70.31h4.87V74h19.37V54.63h-4.78V69.1H270l-9.73-12v12H250.5a4.79,4.79,0,0,1-4.79-4.79V40h24.37a4.73,4.73,0,0,1,4.73,4.73v3.78H270V45H250.58V64.32h4.77V49.79h4.87L270,61.85V49.77h9.71A4.84,4.84,0,0,1,284.51,54.6Z" fill="#931984" fill-rule="evenodd"/><path d="M301.53,77.29a1,1,0,0,1-.34.88,1.73,1.73,0,0,1-1,.25,1.64,1.64,0,0,1-1.07-.27,1.1,1.1,0,0,1-.3-.84V72.55H296.9v4.58a2.1,2.1,0,0,0,.72,1.73,5,5,0,0,0,4.58,0,1.8,1.8,0,0,0,.72-1.51V72.55h-1.39Z" fill="#931984"/><path d="M406.34,72.49a4.24,4.24,0,0,0-2.9.92,3,3,0,0,0-1,2.37v.48a3,3,0,0,0,1,2.37,4.24,4.24,0,0,0,2.9.92,5.57,5.57,0,0,0,1.18-.11,3.7,3.7,0,0,0,.71-.21V78.14c-.19.07-.43.15-.72.23a3.75,3.75,0,0,1-1,.12,2.28,2.28,0,0,1-1.62-.56,2.4,2.4,0,0,1-.61-1.82v-.19a2.39,2.39,0,0,1,.61-1.81,2.28,2.28,0,0,1,1.62-.56,3.39,3.39,0,0,1,1,.12,6.21,6.21,0,0,1,.72.23V72.81a3.7,3.7,0,0,0-.71-.21,5.57,5.57,0,0,0-1.18-.11" fill="#931984"/><path d="M386.56,73.3a3.56,3.56,0,0,0-2.64-1,3.77,3.77,0,0,0-2.65,6.26,3.63,3.63,0,0,0,2.65.94,3.59,3.59,0,0,0,2.64-.94,4.22,4.22,0,0,0,0-5.31Zm-1.32,4.55a1.67,1.67,0,0,1-2.64,0,3.25,3.25,0,0,1-.46-1.9,3.29,3.29,0,0,1,.46-1.9,1.51,1.51,0,0,1,1.32-.64,1.55,1.55,0,0,1,1.32.64,3.37,3.37,0,0,1,.46,1.9A3.33,3.33,0,0,1,385.24,77.85Z" fill="#931984"/><path d="M365.5,72.7l-.09,1a6.09,6.09,0,0,0-.93-.21,4.86,4.86,0,0,0-.82-.07,2.35,2.35,0,0,0-1.1.2.62.62,0,0,0-.1,1.09,6.19,6.19,0,0,0,1.26.64l.15.07c1.42.6,2.12,1.26,2.12,2a1.7,1.7,0,0,1-.9,1.48,4.52,4.52,0,0,1-2.37.56,8.08,8.08,0,0,1-1.2-.09,6.62,6.62,0,0,1-1.08-.23l.13-1a7.24,7.24,0,0,0,1.05.3,5.86,5.86,0,0,0,1,.1,2.23,2.23,0,0,0,1.13-.24.71.71,0,0,0,.42-.63c0-.41-.51-.83-1.54-1.26l-.34-.14a5.14,5.14,0,0,1-1.56-.9,1.31,1.31,0,0,1-.42-1,1.52,1.52,0,0,1,.87-1.36,4.59,4.59,0,0,1,2.34-.51,8.22,8.22,0,0,1,1,.06C364.85,72.58,365.18,72.64,365.5,72.7Z" fill="#931984"/><rect x="341.24" y="72.55" width="1.88" height="6.8" fill="#931984"/><polygon points="322.39 79.3 323.96 79.3 323.96 72.44 322.39 72.44 322.39 77.32 319.16 72.44 317.63 72.44 317.63 79.28 317.63 79.28 317.63 79.3 319.18 79.3 319.18 79.28 319.18 79.28 319.18 74.78 322.39 79.3" fill="#931984"/></svg>`;
+  }
+  return '';
 }
 
 if (typeof module !== 'undefined' && module.exports) {
@@ -386,6 +458,211 @@ function getAgentBrandSvg(agentId, size = 16) {
   return getOfficialModelSvg(agentId, size);
 }
 
+/* ==========================================================================
+   Vendor MCP Shared — 把 vendor-portal-mcp.js (stdio MCP server) 接入各 CLI Agent
+   注册策略:
+   - Hermes: `hermes mcp add tabonkb-vendor --command <node> --args <script>` (全局 config.yaml, 幂等)
+   - Gemini: 合并写 <vault>/.gemini/settings.json 的 mcpServers (项目级, 隔离)
+   - Pi: 保留原 --extension vendor-portal.ts 通道, 不走 MCP
+   凭证: MCP server 子进程继承 CLI env + 自读 data.json/.secrets.json, 此处双保险注入
+   注: 函数必须用顶层 function 声明 (build.py 扁平拼接依赖提升)
+   ========================================================================== */
+
+
+
+
+
+const VENDOR_MCP_SERVER_NAME = 'tabonkb-vendor';
+
+function vendorMcpResolveNodeExe() {
+  const candidates = [];
+  if (process.env.APPDATA) candidates.push(path.join(process.env.APPDATA, 'node-v24.15.0', 'node.exe'));
+  candidates.push('node');
+  for (const c of candidates) {
+    if (c === 'node' || fs.existsSync(c)) return c;
+  }
+  return 'node';
+}
+
+function vendorMcpScriptPath(vaultBasePath) {
+  const candidates = [
+    vaultBasePath ? path.join(vaultBasePath, '.obsidian', 'plugins', 'tabonkb-workbench', 'mcp', 'vendor-portal-mcp.js') : '',
+    path.join(__dirname, 'mcp', 'vendor-portal-mcp.js'),
+    path.join(__dirname, 'vendor-portal-mcp.js')
+  ].filter(Boolean);
+  for (const c of candidates) {
+    if (fs.existsSync(c)) return c;
+  }
+  return candidates[0] || '';
+}
+
+// 供 CLI spawn 时注入的凭证 env (MCP 子进程自动继承)
+function buildVendorEnv(vaultBasePath) {
+  const env = {};
+  try {
+    const base = vaultBasePath ? path.join(vaultBasePath, '.obsidian', 'plugins', 'tabonkb-workbench') : __dirname;
+    const dataJson = path.join(base, 'data.json');
+    if (fs.existsSync(dataJson)) {
+      const d = JSON.parse(fs.readFileSync(dataJson, 'utf8'));
+      const uname = (d && d.vendorPortals && d.vendorPortals.mtk && d.vendorPortals.mtk.username) || '';
+      if (uname) env.TABONKB_MTK_USERNAME = uname;
+    }
+    const secJson = path.join(base, '.secrets.json');
+    if (fs.existsSync(secJson)) {
+      const s = JSON.parse(fs.readFileSync(secJson, 'utf8'));
+      if (s['tabonkb-mtk-password']) env.TABONKB_MTK_PASSWORD = s['tabonkb-mtk-password'];
+      if (s['tabonkb-unisoc-password']) env.TABONKB_UNISOC_TOKEN = s['tabonkb-unisoc-password'];
+    }
+  } catch (e) { /* env 注入失败不致命: MCP server 仍会自读文件回退 */ }
+  return env;
+}
+
+// 提示语: 提高各 CLI 对 vendor 工具的调用意愿并严禁使用外部 web 工具访问原厂
+const VENDOR_MCP_TOOL_HINT = '\n\n[系统指令] 你已接入专有芯片原厂 MCP 工具 ' + VENDOR_MCP_SERVER_NAME + ': vendor_portal_search (检索 MTK/展锐原厂技术资料) 与 vendor_portal_get_detail (按 FAQ/DCC 编号调取方案正文)。\n⚠️ 特别警示：MediaTek Online (online.mediatek.com) 与紫光展锐 Uni-Support (unisupport.unisoc.com) 均为企业保密内部支持门户，外部通用网页抓取工具 (web_extract, fetch) 会触发 SSRF 阻断报错，通用搜索引擎 (web_search) 也无法检索内网文档并会导致权限拒绝！凡用户提及 MTK / 展锐官网、芯片文档、眼图测试、寄存器配置、Kernel Panic 或驱动移植，严禁调用 web_extract 或 web_search，必须且仅能使用 vendor_portal_search 检索！';
+
+// ---- Hermes: 全局注册 (幂等, 异步不阻塞) ----
+function ensureHermesVendorMcp(hermesBin, prefixArgs, vaultBasePath) {
+  return new Promise((resolve) => {
+    try {
+      const pre = Array.isArray(prefixArgs) ? prefixArgs : [];
+      const listProc = child_process.spawn(hermesBin, [...pre, 'mcp', 'list'], { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+      let listOut = '';
+      listProc.stdout.on('data', (d) => { listOut += d.toString(); });
+      listProc.on('error', (e) => resolve({ ok: false, error: e.message }));
+      listProc.on('close', () => {
+        if (listOut.indexOf(VENDOR_MCP_SERVER_NAME) >= 0) { resolve({ ok: true, already: true }); return; }
+        const nodeExe = vendorMcpResolveNodeExe();
+        const script = vendorMcpScriptPath(vaultBasePath);
+        const addProc = child_process.spawn(hermesBin, [...pre, 'mcp', 'add', VENDOR_MCP_SERVER_NAME, '--command', nodeExe, '--args', script], { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
+        let out = '';
+        addProc.stdout.on('data', (d) => { out += d.toString(); });
+        addProc.stderr.on('data', (d) => { out += d.toString(); });
+        addProc.stdin.write('Y\n');
+        addProc.stdin.end();
+        const killer = setTimeout(() => { try { addProc.kill(); } catch (e) {} }, 90000);
+        addProc.on('error', (e) => { clearTimeout(killer); resolve({ ok: false, error: e.message }); });
+        addProc.on('close', (code) => {
+          clearTimeout(killer);
+          resolve({ ok: code === 0 || /Saved/i.test(out), output: out.slice(-400) });
+        });
+      });
+    } catch (e) { resolve({ ok: false, error: e.message }); }
+  });
+}
+
+// ---- Gemini: 项目级 settings.json 合并 (隔离, 不碰用户全局) ----
+function ensureGeminiVendorMcp(vaultBasePath) {
+  try {
+    const dir = path.join(vaultBasePath || '', '.gemini');
+    const file = path.join(dir, 'settings.json');
+    let cfg = {};
+    if (fs.existsSync(file)) {
+      try { cfg = JSON.parse(fs.readFileSync(file, 'utf8')) || {}; } catch (e) { cfg = {}; }
+    }
+    cfg.mcpServers = cfg.mcpServers || {};
+    const nodeExe = vendorMcpResolveNodeExe();
+    const script = vendorMcpScriptPath(vaultBasePath);
+    const cur = cfg.mcpServers[VENDOR_MCP_SERVER_NAME];
+    const same = cur && cur.command === nodeExe && Array.isArray(cur.args) && cur.args[0] === script;
+    if (same) return { ok: true, changed: false };
+    cfg.mcpServers[VENDOR_MCP_SERVER_NAME] = { command: nodeExe, args: [script] };
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(file, JSON.stringify(cfg, null, 2), 'utf8');
+    return { ok: true, changed: true };
+  } catch (e) { return { ok: false, error: e.message }; }
+}
+
+/* ==========================================================================
+   WeKnora MCP Shared — 把 weknora-mcp.js (stdio MCP server) 接入各 CLI Agent
+   注册策略:
+   - Hermes: `hermes mcp add tabonkb-weknora --command <node> --args <script>` (全局 config.yaml, 幂等)
+   - Pi: 走原生扩展 extensions/weknora-portal.ts (Pi 无 MCP 能力), 不在此注册
+   凭证: weknora-mcp.js 子进程自读 data.json/.secrets.json; 此处 spawn 时双保险注入 env
+   注: 函数必须用顶层 function 声明 (build.py 扁平拼接依赖提升); 名称加 weknora 前缀避免与 vendor 模块冲突
+   ========================================================================== */
+
+
+
+
+
+const WEKNORA_MCP_SERVER_NAME = 'tabonkb-weknora';
+
+function weknoraMcpResolveNodeExe() {
+  const candidates = [];
+  if (process.env.APPDATA) candidates.push(path.join(process.env.APPDATA, 'node-v24.15.0', 'node.exe'));
+  candidates.push('node');
+  for (const c of candidates) {
+    if (c === 'node' || fs.existsSync(c)) return c;
+  }
+  return 'node';
+}
+
+function weknoraMcpScriptPath(vaultBasePath) {
+  const candidates = [
+    vaultBasePath ? path.join(vaultBasePath, '.obsidian', 'plugins', 'tabonkb-workbench', 'mcp', 'weknora-mcp.js') : '',
+    path.join(__dirname, 'mcp', 'weknora-mcp.js'),
+    path.join(__dirname, 'weknora-mcp.js')
+  ].filter(Boolean);
+  for (const c of candidates) {
+    if (fs.existsSync(c)) return c;
+  }
+  return candidates[0] || '';
+}
+
+// 供 CLI spawn 时注入的 env (子进程自动继承); 缺失则子进程自读文件回退
+function buildWeknoraEnv(vaultBasePath) {
+  const env = {};
+  try {
+    const base = vaultBasePath ? path.join(vaultBasePath, '.obsidian', 'plugins', 'tabonkb-workbench') : __dirname;
+    const dataJson = path.join(base, 'data.json');
+    if (fs.existsSync(dataJson)) {
+      const d = JSON.parse(fs.readFileSync(dataJson, 'utf8'));
+      const w = (d && d.weknora) || {};
+      if (w.baseUrl) env.WEKNORA_BASE_URL = w.baseUrl;
+      if (w.defaultKb) env.WEKNORA_DEFAULT_KB = w.defaultKb;
+    }
+    const secJson = path.join(base, '.secrets.json');
+    if (fs.existsSync(secJson)) {
+      const s = JSON.parse(fs.readFileSync(secJson, 'utf8'));
+      if (s['tabonkb-weknora-apikey']) env.WEKNORA_API_KEY = s['tabonkb-weknora-apikey'];
+    }
+  } catch (e) { /* env 注入失败不致命: MCP server 仍会自读文件回退 */ }
+  return env;
+}
+
+// 提示语: 引导各 CLI 优先用 WeKnora 知识库工具
+const WEKNORA_MCP_TOOL_HINT = '\n\n[系统指令] 你已接入团队知识库 MCP 工具 ' + WEKNORA_MCP_SERVER_NAME + ' (WeKnora): weknora_search (向量+关键词混合检索)、weknora_ask (带引用的 RAG 问答)、weknora_list_knowledge_bases、weknora_list_documents、weknora_read_document, 以及写入类 weknora_add_document / weknora_update_document / weknora_delete_document。凡用户询问项目沉淀知识、历史排障案例、平台文档或知识库内容时, 优先调用 weknora_search / weknora_ask 检索团队知识库, 再结合芯片原厂工具作答; 需要把结论沉淀入库时使用 weknora_add_document。';
+
+// ---- Hermes: 全局注册 (幂等, 异步不阻塞) ----
+function ensureHermesWeknoraMcp(hermesBin, prefixArgs, vaultBasePath) {
+  return new Promise((resolve) => {
+    try {
+      const pre = Array.isArray(prefixArgs) ? prefixArgs : [];
+      const listProc = child_process.spawn(hermesBin, [...pre, 'mcp', 'list'], { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+      let listOut = '';
+      listProc.stdout.on('data', (d) => { listOut += d.toString(); });
+      listProc.on('error', (e) => resolve({ ok: false, error: e.message }));
+      listProc.on('close', () => {
+        if (listOut.indexOf(WEKNORA_MCP_SERVER_NAME) >= 0) { resolve({ ok: true, already: true }); return; }
+        const nodeExe = weknoraMcpResolveNodeExe();
+        const script = weknoraMcpScriptPath(vaultBasePath);
+        const addProc = child_process.spawn(hermesBin, [...pre, 'mcp', 'add', WEKNORA_MCP_SERVER_NAME, '--command', nodeExe, '--args', script], { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
+        let out = '';
+        addProc.stdout.on('data', (d) => { out += d.toString(); });
+        addProc.stderr.on('data', (d) => { out += d.toString(); });
+        addProc.stdin.write('Y\n');
+        addProc.stdin.end();
+        const killer = setTimeout(() => { try { addProc.kill(); } catch (e) {} }, 90000);
+        addProc.on('error', (e) => { clearTimeout(killer); resolve({ ok: false, error: e.message }); });
+        addProc.on('close', (code) => {
+          clearTimeout(killer);
+          resolve({ ok: code === 0 || /Saved|Added|success/i.test(out), output: out.slice(-400) });
+        });
+      });
+    } catch (e) { resolve({ ok: false, error: e.message }); }
+  });
+}
+
 /**
  * PiAgentBridge: Manages the headless Pi Coding Agent via stdin/stdout JSONL RPC.
  * - Spawns Node running Pi CLI bundle with restricted tools: read, grep, find, ls
@@ -514,15 +791,26 @@ class PiAgentBridge {
     }
   }
 
-  getExtensionPath() {
-    const candidates = [
-      path.join(this.vaultBasePath, '.pi', 'extensions', 'vendor-portal.ts'),
-      path.join(this.vaultBasePath, '.obsidian', 'plugins', 'tabonkb-workbench', 'extensions', 'vendor-portal.ts')
-    ];
-    for (const c of candidates) {
-      if (fs.existsSync(c)) return c;
+  // 返回所有可用的 Pi 原生扩展路径 (vendor-portal + weknora-portal)
+  // 优先级: .pi/extensions > plugin/extensions; 供 --extension 多次传入
+  getExtensionPaths() {
+    const names = ['vendor-portal.ts', 'weknora-portal.ts'];
+    const result = [];
+    for (const name of names) {
+      const candidates = [
+        path.join(this.vaultBasePath, '.pi', 'extensions', name),
+        path.join(this.vaultBasePath, '.obsidian', 'plugins', 'tabonkb-workbench', 'extensions', name)
+      ];
+      for (const c of candidates) {
+        if (fs.existsSync(c)) { result.push(c); break; }
+      }
     }
-    return null;
+    return result;
+  }
+
+  getExtensionPath() {
+    const list = this.getExtensionPaths();
+    return list.length ? list[0] : null;
   }
 
   /**
@@ -532,10 +820,12 @@ class PiAgentBridge {
     const baseTools = this.permissionMode === 'readwrite'
       ? 'read,write,edit,grep,find,ls'
       : 'read,grep,find,ls';
-    const tools = `${baseTools},vendor_portal_search,vendor_portal_get_detail`;
+    const weknoraTools = ',weknora_list_knowledge_bases,weknora_search,weknora_ask,weknora_list_documents,weknora_read_document,weknora_add_document,weknora_update_document,weknora_delete_document';
+    const tools = `${baseTools},vendor_portal_search,vendor_portal_get_detail${weknoraTools}`;
 
-    const extPath = this.getExtensionPath();
-    const extArgs = extPath ? ['--extension', extPath] : [];
+    const extPaths = this.getExtensionPaths();
+    const extArgs = [];
+    for (const ep of extPaths) { extArgs.push('--extension', ep); }
     const modelArgs = [
       '--provider', this.activeProvider || 'cc-switch-deep-seek',
       '--model', this.activeModelId || 'deepseek-v4-flash'
@@ -663,6 +953,46 @@ class PiAgentBridge {
         }
       } catch (_) {}
 
+      // Extract WeKnora knowledge-base config + credential (env > plugin.getSecret > localStorage > .secrets.json > data.json)
+      let weknoraBase = process.env.WEKNORA_BASE_URL || '';
+      let weknoraKey = process.env.WEKNORA_API_KEY || '';
+      let weknoraKb = process.env.WEKNORA_DEFAULT_KB || '';
+      try {
+        const plugin = this.plugin || (typeof window !== 'undefined' && (window.app?.plugins?.getPlugin?.('tabonkb-workbench') || window.app?.plugins?.plugins?.['tabonkb-workbench']));
+        if (plugin) {
+          if (!weknoraBase && plugin.settings?.weknora?.baseUrl) weknoraBase = plugin.settings.weknora.baseUrl;
+          if (!weknoraKb && plugin.settings?.weknora?.defaultKb) weknoraKb = plugin.settings.weknora.defaultKb;
+          if (!weknoraKey && typeof plugin.getSecret === 'function') {
+            weknoraKey = (await plugin.getSecret('tabonkb-weknora-apikey')) || '';
+          }
+        }
+      } catch (_) {}
+      if (!weknoraKey && typeof localStorage !== 'undefined') {
+        weknoraKey = localStorage.getItem('tabonkb-secret-tabonkb-weknora-apikey') || '';
+      }
+      try {
+        const secCandidates = [
+          path.join(this.vaultBasePath, '.secrets.json'),
+          path.join(this.vaultBasePath, '.obsidian', 'plugins', 'tabonkb-workbench', '.secrets.json')
+        ];
+        for (const secPath of secCandidates) {
+          if (fs.existsSync(secPath)) {
+            const sdata = JSON.parse(fs.readFileSync(secPath, 'utf8'));
+            if (!weknoraKey && sdata['tabonkb-weknora-apikey']) weknoraKey = sdata['tabonkb-weknora-apikey'];
+          }
+        }
+      } catch (_) {}
+      try {
+        if (!weknoraBase || !weknoraKb) {
+          const dataJsonPath = path.join(this.vaultBasePath, '.obsidian', 'plugins', 'tabonkb-workbench', 'data.json');
+          if (fs.existsSync(dataJsonPath)) {
+            const dj = JSON.parse(fs.readFileSync(dataJsonPath, 'utf8'));
+            if (!weknoraBase) weknoraBase = dj?.weknora?.baseUrl || '';
+            if (!weknoraKb) weknoraKb = dj?.weknora?.defaultKb || '';
+          }
+        }
+      } catch (_) {}
+
       this.process = child_process.spawn(launch.cmd, launch.args, {
         cwd: this.vaultBasePath,
         env: Object.assign({}, process.env, {
@@ -672,7 +1002,10 @@ class PiAgentBridge {
           PYTHONIOENCODING: 'utf-8',
           TABONKB_UNISOC_TOKEN: unisocToken,
           TABONKB_MTK_USERNAME: mtkUsername,
-          TABONKB_MTK_PASSWORD: mtkPassword
+          TABONKB_MTK_PASSWORD: mtkPassword,
+          WEKNORA_BASE_URL: weknoraBase,
+          WEKNORA_API_KEY: weknoraKey,
+          WEKNORA_DEFAULT_KB: weknoraKb
         }),
         stdio: ['pipe', 'pipe', 'pipe']
       });
@@ -866,6 +1199,22 @@ class PiAgentBridge {
         const docId = args?.docId || '';
         const v = args?.vendor ? ` [${args.vendor}]` : '';
         actionDesc = `正在调取原厂技术方案${v}: ${docId}`;
+      } else if (toolName === 'weknora_search') {
+        actionDesc = `正在检索团队知识库: "${args?.query || ''}"`;
+      } else if (toolName === 'weknora_ask') {
+        actionDesc = `正在向知识库提问: "${args?.query || ''}"`;
+      } else if (toolName === 'weknora_list_knowledge_bases') {
+        actionDesc = '正在列出知识库...';
+      } else if (toolName === 'weknora_list_documents') {
+        actionDesc = '正在查看知识库文档清单...';
+      } else if (toolName === 'weknora_read_document') {
+        actionDesc = `正在读取知识文档: ${args?.knowledge_id || ''}`;
+      } else if (toolName === 'weknora_add_document') {
+        actionDesc = `正在写入知识库: ${args?.title || ''}`;
+      } else if (toolName === 'weknora_update_document') {
+        actionDesc = `正在更新知识文档: ${args?.knowledge_id || ''}`;
+      } else if (toolName === 'weknora_delete_document') {
+        actionDesc = `正在删除知识文档: ${args?.knowledge_id || ''}`;
       }
 
       this.setStatus('running_tool', actionDesc);
@@ -1249,320 +1598,402 @@ class PiAdapter extends AgentAdapter {
   }
 }
 
-/**
- * CodexAdapter: Native integration for Codex CLI.
- * Runs non-interactive JSONL streaming via `codex exec --json`.
- * Supports thread resumption, command tool mapping, and sandbox enforcement.
- */
-class CodexAdapter extends AgentAdapter {
+class HermesAdapter extends AgentAdapter {
   constructor(options = {}) {
     super({
-      id: 'codex',
-      name: 'codex',
-      displayName: 'Codex',
-      icon: getAgentBrandSvg('codex', 16),
+      id: 'hermes',
+      name: 'hermes',
+      displayName: 'Hermes CLI',
+      icon: getAgentBrandSvg('hermes', 16),
       vaultBasePath: options.vaultBasePath || '',
       permissionMode: options.permissionMode || 'readonly'
     });
-
-    this.threadId = null;
     this.process = null;
     this.stdoutBuffer = '';
-    this.knownItems = new Map(); // itemId -> state
-    this.activeModelId = 'gpt-5.5';
-    this.activeModelName = 'GPT-5.5';
+    this.currentToolCallId = null;
+    this.currentToolName = null;
+    this.currentToolStartTime = null;
+  }
+
+  resolveBinary() {
+    const candidates = [];
+    if (process.env.HERMES_CLI_PATH) candidates.push(process.env.HERMES_CLI_PATH);
+    const nodeDir = process.env.APPDATA ? path.join(process.env.APPDATA, 'node-v24.15.0') : '';
+    candidates.push('C:\\Users\\Administrator\\AppData\\Local\\hermes\\bin\\hermes.exe');
+    if (nodeDir) candidates.push(path.join(nodeDir, 'hermes.cmd'), path.join(nodeDir, 'hermes.exe'));
+    candidates.push('hermes');
+    const found = candidates.find((candidate) => candidate === 'hermes' || fs.existsSync(candidate));
+    return { cmd: found || 'hermes', prefixArgs: [] };
+  }
+
+  hermesHome() {
+    return process.env.HERMES_HOME || path.join(process.env.LOCALAPPDATA || 'C:\\Users\\Administrator\\AppData\\Local', 'hermes');
+  }
+
+  loadModelCatalog() {
+    try {
+      const cachePath = path.join(this.hermesHome(), 'provider_models_cache.json');
+      const data = JSON.parse(fs.readFileSync(cachePath, 'utf8'));
+      const out = {};
+      for (const prov of Object.keys(data || {})) {
+        const entry = data[prov] || {};
+        const list = Array.isArray(entry) ? entry : (entry && Array.isArray(entry.models) ? entry.models : []);
+        const ids = list.map((m) => String(m)).filter(Boolean);
+        if (ids.length) out[prov] = ids;
+      }
+      return out;
+    } catch (error) {
+      return {};
+    }
+  }
+
+  readDefaultModel() {
+    try {
+      const txt = fs.readFileSync(path.join(this.hermesHome(), 'config.yaml'), 'utf8');
+      const def = txt.match(/^\s{2}default:\s*(\S+)\s*$/m);
+      const prov = txt.match(/^\s{2}provider:\s*(\S+)\s*$/m);
+      return { id: def ? def[1] : '', provider: prov ? prov[1] : '' };
+    } catch (error) {
+      return { id: '', provider: '' };
+    }
   }
 
   getModelGroups() {
-    return [
-      {
-        group: '常用模型',
-        icon: '💻',
-        iconPark: 'star',
-        isTop: true,
-        models: [
-          { id: 'gpt-5.5', name: 'GPT-5.5', desc: 'Codex 旗舰代码工程模型', icon: '💻', iconPark: 'code' },
-          { id: 'gpt-5.4-codex', name: 'GPT-5.4 Codex', desc: '高速精准代码生成', icon: '⚡', iconPark: 'lightning' },
-          { id: 'o3-mini', name: 'o3-mini', desc: '强逻辑代码规划推演', icon: '🧠', iconPark: 'brain' }
-        ]
-      }
-    ];
+    const catalog = this.loadModelCatalog();
+    const providers = Object.keys(catalog);
+    if (providers.length === 0) return [];
+    const def = this.readDefaultModel();
+    const activeProvider = (this.selectedModel && this.selectedModel.provider) || def.provider;
+    const topProvider = catalog[activeProvider] ? activeProvider : providers[0];
+    const groups = [{
+      group: `${topProvider} · 当前提供商`,
+      isTop: true,
+      iconPark: 'star',
+      models: catalog[topProvider].map((id) => ({ id, name: id, desc: topProvider }))
+    }];
+    for (const prov of providers) {
+      if (prov === topProvider) continue;
+      groups.push({
+        group: prov,
+        iconPark: 'cloud',
+        models: catalog[prov].map((id) => ({ id, name: id, desc: prov }))
+      });
+    }
+    return groups;
   }
 
-  resolveCodexBinary() {
-    const nodeDir = 'C:\\Users\\Administrator\\AppData\\Roaming\\node-v24.15.0';
-    const codexJs = path.join(nodeDir, 'node_modules', '@openai', 'codex', 'bin', 'codex.js');
-    const nodeExe = path.join(nodeDir, 'node.exe');
+  getModel() {
+    if (this.selectedModel) return { id: this.selectedModel.id, name: this.selectedModel.name || this.selectedModel.id };
+    const def = this.readDefaultModel();
+    return { id: def.id || 'default', name: def.id || '默认模型' };
+  }
 
-    if (fs.existsSync(nodeExe) && fs.existsSync(codexJs)) {
-      return {
-        cmd: nodeExe,
-        prefixArgs: [codexJs]
-      };
+  setModel(modelId, displayName) {
+    const catalog = this.loadModelCatalog();
+    let provider = this.readDefaultModel().provider;
+    for (const prov of Object.keys(catalog)) {
+      if (catalog[prov].indexOf(modelId) >= 0) {
+        provider = prov;
+        break;
+      }
     }
-
-    const codexCmd = path.join(nodeDir, 'codex.cmd');
-    if (fs.existsSync(codexCmd)) {
-      return {
-        cmd: codexCmd,
-        prefixArgs: []
-      };
-    }
-
-    return {
-      cmd: 'codex',
-      prefixArgs: []
-    };
+    this.selectedModel = { id: modelId, name: displayName || modelId, provider };
   }
 
   async detect() {
     return new Promise((resolve) => {
+      const bin = this.resolveBinary();
+      let output = '';
+      let proc;
       try {
-        const bin = this.resolveCodexBinary();
-        const proc = child_process.spawn(bin.cmd, [...bin.prefixArgs, '--version'], {
-          stdio: ['pipe', 'pipe', 'pipe']
+        proc = child_process.spawn(bin.cmd, [...bin.prefixArgs, '--version'], {
+          stdio: ['ignore', 'pipe', 'pipe'],
+          windowsHide: true
         });
-
-        let out = '';
-        proc.stdout.on('data', d => { out += d.toString(); });
-        proc.on('close', code => {
-          if (code === 0) {
-            this.setStatus('connected', 'Codex CLI 已就绪');
-            resolve({ available: true, version: out.trim() || '0.154.0' });
-          } else {
-            this.setStatus('not_installed', '未检测到 Codex CLI');
-            resolve({ available: false, error: 'Codex 退出码异常: ' + code });
-          }
-        });
-        proc.on('error', err => {
-          this.setStatus('not_installed', '未检测到 Codex CLI');
-          resolve({ available: false, error: err.message });
-        });
-        proc.stdin.end();
-      } catch (e) {
-        this.setStatus('not_installed', '未检测到 Codex CLI');
-        resolve({ available: false, error: e.message });
+      } catch (error) {
+        this.setStatus('not_installed', 'Hermes CLI not found');
+        resolve({ available: false, error: error.message });
+        return;
       }
+      proc.stdout.on('data', (data) => { output += data.toString(); });
+      proc.on('error', (error) => {
+        this.setStatus('not_installed', 'Hermes CLI not found');
+        resolve({ available: false, error: error.message });
+      });
+      proc.on('close', (code) => {
+        if (code === 0) {
+          this.setStatus('connected', 'Hermes CLI connected');
+          resolve({ available: true, version: output.trim() });
+        } else {
+          this.setStatus('not_installed', 'Hermes CLI not found');
+          resolve({ available: false, error: `Hermes exited with code ${code}` });
+        }
+      });
     });
   }
 
   async start() {
-    const check = await this.detect();
-    if (check.available) {
-      this.setStatus('connected', '已就绪');
-      return true;
+    const result = await this.detect();
+    if (result.available) {
+      this.setStatus('connected', 'Hermes CLI connected');
+      await this.ensureVendorMcp();
+      await this.ensureWeknoraMcp();
     }
-    this.setStatus('not_installed', 'Codex 未安装');
-    return false;
+    return result.available;
+  }
+
+  /**
+   * 幂等注册芯片检索 MCP server (tabonkb-vendor)
+   */
+  async ensureVendorMcp() {
+    if (this._vendorMcpEnsured) return;
+    this._vendorMcpEnsured = true;
+    try {
+      const bin = this.resolveBinary();
+      const res = await ensureHermesVendorMcp(bin.cmd, bin.prefixArgs, this.vaultBasePath);
+      if (!res.ok) console.warn('[Hermes] vendor MCP 注册失败:', res.error || res.output);
+    } catch (e) {
+      console.warn('[Hermes] vendor MCP 注册异常:', e.message);
+    }
+  }
+
+  /**
+   * 幂等注册团队知识库 MCP server (tabonkb-weknora)
+   */
+  async ensureWeknoraMcp() {
+    if (this._weknoraMcpEnsured) return;
+    this._weknoraMcpEnsured = true;
+    try {
+      const bin = this.resolveBinary();
+      const res = await ensureHermesWeknoraMcp(bin.cmd, bin.prefixArgs, this.vaultBasePath);
+      if (!res.ok) console.warn('[Hermes] weknora MCP 注册失败:', res.error || res.output);
+    } catch (e) {
+      console.warn('[Hermes] weknora MCP 注册异常:', e.message);
+    }
   }
 
   async stop() {
     await this.abort();
-    this.setStatus('disconnected', '已停止');
+    this.setStatus('disconnected', 'Stopped');
   }
 
+  /**
+   * Send prompt to Hermes CLI using stream-json mode, with full tool-calling & streaming events
+   */
   async send(text, contextPayload) {
-    if (this.isStreaming && this.process) {
-      return { success: false, error: '正在处理上一个指令，请稍候或先点击中止' };
-    }
+    if (this.isStreaming) return { success: false, error: 'Another Hermes request is still running' };
+    await this.ensureVendorMcp();
+    await this.ensureWeknoraMcp();
 
     this.isStreaming = true;
-    this.setStatus('thinking', 'Codex 正在思考...');
+    this.stdoutBuffer = '';
+    this.currentToolCallId = null;
+    this.currentToolName = null;
+    this.currentToolStartTime = null;
+
+    this.setStatus('thinking', 'Hermes is thinking');
     this.emit('turn_start');
 
-    const bin = this.resolveCodexBinary();
-    const sandbox = this.permissionMode === 'readwrite' ? 'workspace-write' : 'read-only';
-    const vaultPath = this.vaultBasePath || process.cwd();
+    const prompt = (contextPayload ? `${text}\n\n${JSON.stringify(contextPayload)}` : text) + VENDOR_MCP_TOOL_HINT + WEKNORA_MCP_TOOL_HINT;
+    const bin = this.resolveBinary();
+    const modelId = (this.selectedModel && this.selectedModel.id) || this.readDefaultModel().id;
+    const modelArgs = modelId && modelId !== 'default' ? ['-m', modelId] : [];
 
-    let args = [];
-    if (this.threadId) {
-      // Resume existing thread session
-      args = [
-        ...bin.prefixArgs,
-        'exec',
-        'resume',
-        this.threadId,
-        text,
-        '--json'
-      ];
-    } else {
-      // New conversation thread
-      args = [
-        ...bin.prefixArgs,
-        'exec',
-        '--json',
-        '-s', sandbox,
-        '-C', vaultPath,
-        text
-      ];
-    }
+    // Use stream-json mode with --query-file - via stdin pipe for robust UTF-8 handling
+    const spawnArgs = [
+      ...bin.prefixArgs,
+      'chat',
+      '--query-file', '-',
+      '--format', 'stream-json',
+      '--yolo',
+      '--accept-hooks',
+      ...modelArgs
+    ];
 
     return new Promise((resolve) => {
       try {
-        this.stdoutBuffer = '';
-        this.knownItems.clear();
-
-        this.process = child_process.spawn(bin.cmd, args, {
-          cwd: vaultPath,
-          env: Object.assign({}, process.env, {
-            CODEX_MANAGED_PACKAGE_ROOT: 'C:\\Users\\Administrator\\AppData\\Roaming\\node-v24.15.0\\node_modules\\@openai\\codex'
-          }),
-          stdio: ['pipe', 'pipe', 'pipe']
+        this.process = child_process.spawn(bin.cmd, spawnArgs, {
+          cwd: this.vaultBasePath || process.cwd(),
+          env: Object.assign({}, process.env, buildVendorEnv(this.vaultBasePath), buildWeknoraEnv(this.vaultBasePath)),
+          stdio: ['pipe', 'pipe', 'pipe'],
+          windowsHide: true
         });
 
-        this.process.stdout.setEncoding('utf-8');
-        this.process.stderr.setEncoding('utf-8');
+        this.process.stdout.setEncoding('utf8');
+        this.process.stderr.setEncoding('utf8');
 
-        this.process.stdout.on('data', (chunk) => {
-          this.handleStdoutChunk(chunk);
-        });
-
+        this.process.stdout.on('data', (chunk) => this.handleStdout(chunk));
         this.process.stderr.on('data', (chunk) => {
-          // Stderr is used for informational logs and warnings
-          const errStr = chunk.toString();
-          if (errStr.includes('error:') || errStr.includes('FATAL')) {
-            this.emit('error', { error: errStr });
+          const message = chunk.toString().trim();
+          if (/fatal|error/i.test(message) && !this.isStreaming) {
+            this.emit('error', { error: message });
           }
         });
 
+        this.process.on('error', (error) => this.finish(false, error.message, resolve));
         this.process.on('close', (code) => {
-          this.isStreaming = false;
-          this.process = null;
-          this.emit('turn_end');
-          this.emit('agent_settled');
-          this.setStatus('connected', '已就绪');
-          resolve({ success: code === 0 });
+          this.finish(code === 0, code === 0 ? '' : `Hermes exited with code ${code}`, resolve);
         });
 
-        this.process.on('error', (err) => {
-          this.isStreaming = false;
-          this.process = null;
-          this.setStatus('error', err.message);
-          this.emit('error', { error: err.message });
-          this.emit('agent_settled');
-          resolve({ success: false, error: err.message });
-        });
-
-        // Close stdin immediately to prevent CLI waiting for stdin
+        // Write prompt through stdin in UTF-8
+        this.process.stdin.write(prompt, 'utf8');
         this.process.stdin.end();
-
-      } catch (e) {
-        this.isStreaming = false;
-        this.process = null;
-        this.setStatus('error', e.message);
-        this.emit('error', { error: e.message });
-        this.emit('agent_settled');
-        resolve({ success: false, error: e.message });
+      } catch (error) {
+        this.finish(false, error.message, resolve);
       }
     });
   }
 
-  handleStdoutChunk(chunk) {
+  finish(success, error, resolve) {
+    if (this.stdoutBuffer) {
+      this.handleStdoutLine(this.stdoutBuffer);
+      this.stdoutBuffer = '';
+    }
+    if (this.currentToolCallId) {
+      this.emit('tool_end', {
+        toolCallId: this.currentToolCallId,
+        toolName: this.currentToolName || 'tool',
+        durationMs: Date.now() - (this.currentToolStartTime || Date.now()),
+        isError: !success
+      });
+      this.currentToolCallId = null;
+    }
+    this.isStreaming = false;
+    this.process = null;
+    this.emit('turn_end');
+    this.emit('agent_settled');
+    this.setStatus(success ? 'connected' : 'error', error || 'Hermes CLI connected');
+    resolve({ success, ...(error ? { error } : {}) });
+  }
+
+  handleStdout(chunk) {
     this.stdoutBuffer += chunk;
-    const lines = this.stdoutBuffer.split('\n');
-    this.stdoutBuffer = lines.pop(); // Keep partial line
+    const lines = this.stdoutBuffer.split(/\r?\n/);
+    this.stdoutBuffer = lines.pop() || '';
 
     for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed || !trimmed.startsWith('{')) continue;
+      this.handleStdoutLine(line);
+    }
+  }
 
-      try {
-        const event = JSON.parse(trimmed);
-        this.handleEvent(event);
-      } catch (e) {
-        // Ignore unparseable non-JSON lines
+  handleStdoutLine(line) {
+    const trimmed = line.trim();
+    if (!trimmed) return;
+
+    try {
+      const event = JSON.parse(trimmed);
+      this.handleHermesEvent(event);
+    } catch (_) {
+      // Non-JSON fallback: if plain text output
+      if (!trimmed.startsWith('{') && !trimmed.startsWith('session_id:')) {
+        this.emit('text_delta', trimmed + '\n');
       }
     }
   }
 
-  handleEvent(event) {
-    const type = event.type;
+  /**
+   * Handle Hermes stream-json event and emit tool / delta events to AgentHub
+   */
+  handleHermesEvent(event) {
+    if (!event || typeof event !== 'object') return;
 
-    if (type === 'thread.started') {
-      if (event.thread_id) {
-        this.threadId = event.thread_id;
-      }
-    } else if (type === 'turn.started') {
-      this.setStatus('thinking', 'Codex 正在推理...');
-    } else if (type === 'item.created' || type === 'item.updated') {
-      const item = event.item;
-      if (!item) return;
+    // 1. Tool execution started
+    if (event.type === 'tool_use') {
+      const rawName = event.name || '';
+      const toolName = rawName.replace(/^mcp__tabonkb_vendor__/, '').replace(/^mcp__tabonkb_weknora__/, '');
+      const toolCallId = `hermes_${toolName}_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+      this.currentToolCallId = toolCallId;
+      this.currentToolName = toolName;
+      this.currentToolStartTime = Date.now();
 
-      if (item.type === 'command_execution') {
-        const callId = item.id || `cmd_${Date.now()}`;
-        if (!this.knownItems.has(callId)) {
-          this.knownItems.set(callId, { startTime: Date.now() });
-          this.setStatus('running_tool', `正在执行: ${item.command || '命令'}`);
-          this.emit('tool_start', {
-            toolCallId: callId,
-            toolName: 'exec',
-            args: { cmd: item.command },
-            actionDesc: `正在执行: ${item.command || '命令'}`,
-            startTime: Date.now()
-          });
-        }
+      let actionDesc = `正在执行: ${toolName}`;
+      if (toolName === 'vendor_portal_search') {
+        const q = event.input?.query || '';
+        const v = event.input?.vendor && event.input.vendor !== 'all' ? ` (${event.input.vendor})` : '';
+        actionDesc = `正在检索芯片原厂资料${v}: "${q}"`;
+      } else if (toolName === 'vendor_portal_get_detail') {
+        const docId = event.input?.docId || '';
+        actionDesc = `正在调取原厂技术方案: ${docId}`;
+      } else if (toolName === 'tool_search') {
+        actionDesc = '正在检索原厂工具定义...';
+      } else if (toolName === 'tool_describe') {
+        actionDesc = '正在解析原厂接口规范...';
+      } else if (toolName === 'weknora_search') {
+        actionDesc = `正在检索团队知识库: "${event.input?.query || ''}"`;
+      } else if (toolName === 'weknora_ask') {
+        actionDesc = `正在向知识库提问: "${event.input?.query || ''}"`;
+      } else if (toolName === 'weknora_list_knowledge_bases') {
+        actionDesc = '正在列出知识库...';
+      } else if (toolName === 'weknora_list_documents') {
+        actionDesc = '正在查看知识库文档清单...';
+      } else if (toolName === 'weknora_read_document') {
+        actionDesc = `正在读取知识文档: ${event.input?.knowledge_id || ''}`;
+      } else if (toolName === 'weknora_add_document') {
+        actionDesc = `正在写入知识库: ${event.input?.title || ''}`;
+      } else if (toolName === 'weknora_update_document') {
+        actionDesc = `正在更新知识文档: ${event.input?.knowledge_id || ''}`;
+      } else if (toolName === 'weknora_delete_document') {
+        actionDesc = `正在删除知识文档: ${event.input?.knowledge_id || ''}`;
       }
-    } else if (type === 'item.completed') {
-      const item = event.item;
-      if (!item) return;
 
-      if (item.type === 'agent_message') {
-        const text = item.text || '';
-        if (text) {
-          this.emit('text_delta', text);
-        }
-      } else if (item.type === 'command_execution') {
-        const callId = item.id || `cmd_${Date.now()}`;
-        const prev = this.knownItems.get(callId) || { startTime: Date.now() };
-        this.emit('tool_end', {
-          toolCallId: callId,
-          toolName: 'exec',
-          durationMs: Date.now() - prev.startTime,
-          isError: item.exit_code !== 0,
-          output: item.output || (item.exit_code === 0 ? '执行完成' : '执行失败')
-        });
-        this.setStatus('thinking', 'Codex 正在归纳输出...');
-      } else if (item.type === 'file_change') {
-        const callId = item.id || `file_${Date.now()}`;
-        this.emit('tool_start', {
-          toolCallId: callId,
-          toolName: 'edit',
-          args: { path: item.path },
-          actionDesc: `正在修改: ${item.path || '文档'}`,
-          startTime: Date.now()
-        });
-        this.emit('tool_end', {
-          toolCallId: callId,
-          toolName: 'edit',
-          durationMs: 180,
-          isError: false,
-          output: `文件修改已应用: ${item.path || ''}`
-        });
-      }
-    } else if (type === 'turn.completed') {
-      this.emit('turn_end');
+      this.setStatus('running_tool', actionDesc);
+      this.emit('tool_start', {
+        toolCallId,
+        toolName,
+        args: event.input,
+        startTime: this.currentToolStartTime,
+        actionDesc
+      });
+      return;
+    }
+
+    // 2. Tool execution ended
+    if (event.type === 'tool_result') {
+      const toolCallId = this.currentToolCallId || `hermes_tool_${Date.now()}`;
+      const rawName = event.name || '';
+      const toolName = rawName.replace(/^mcp__tabonkb_vendor__/, '').replace(/^mcp__tabonkb_weknora__/, '') || this.currentToolName || 'tool';
+      const durationMs = event.duration_ms || (Date.now() - (this.currentToolStartTime || Date.now()));
+
+      this.emit('tool_end', {
+        toolCallId,
+        toolName,
+        durationMs,
+        isError: !!event.is_error,
+        output: typeof event.output === 'string' ? event.output : JSON.stringify(event.output || '')
+      });
+      this.currentToolCallId = null;
+      this.currentToolName = null;
+      this.setStatus('thinking', 'Hermes is thinking');
+      return;
+    }
+
+    // 3. Streaming text token
+    if (event.type === 'text' && typeof event.text === 'string') {
+      this.emit('text_delta', event.text);
+      return;
+    }
+
+    // 4. Session init
+    if (event.type === 'system' && event.subtype === 'init') {
+      // session ready
+      return;
     }
   }
 
   async abort() {
     if (this.process && !this.process.killed) {
-      try {
-        this.process.kill('SIGTERM');
-      } catch (e) {
-        try { this.process.kill('SIGKILL'); } catch (e2) {}
-      }
+      try { this.process.kill(); } catch (_) {}
     }
-    this.isStreaming = false;
     this.process = null;
-    this.setStatus('connected', '已中止');
+    this.isStreaming = false;
+    this.currentToolCallId = null;
+    this.setStatus('connected', 'Aborted');
     this.emit('agent_settled');
   }
 
   async newSession() {
     await this.abort();
-    this.threadId = null;
-    this.knownItems.clear();
-    this.setStatus('connected', '已重置会话');
+    this.setStatus('connected', 'New session');
   }
 }
 
@@ -1673,11 +2104,20 @@ class GeminiAdapter extends AgentAdapter {
   async start() {
     const check = await this.detect();
     if (check.available) {
+      this.ensureVendorMcp();
       this.setStatus('connected', '已就绪');
       return true;
     }
     this.setStatus('not_installed', 'Gemini 未安装');
     return false;
+  }
+
+  // 写项目级 .gemini/settings.json 注册芯片检索 MCP server (幂等, 失败不阻断)
+  ensureVendorMcp() {
+    try {
+      const res = ensureGeminiVendorMcp(this.vaultBasePath);
+      if (!res.ok) console.warn('[Gemini] vendor MCP 注册失败:', res.error);
+    } catch (e) { console.warn('[Gemini] vendor MCP 注册异常:', e.message); }
   }
 
   async stop() {
@@ -1697,18 +2137,20 @@ class GeminiAdapter extends AgentAdapter {
     const bin = this.resolveGeminiBinary();
     const vaultPath = this.vaultBasePath || process.cwd();
     const approvalMode = this.permissionMode === 'readwrite' ? 'auto_edit' : 'plan';
+    this.ensureVendorMcp();
 
     if (!this.sessionId) {
       this.sessionId = this.generateSessionId();
     }
 
+    const promptText = text + VENDOR_MCP_TOOL_HINT;
     const args = [
       ...bin.prefixArgs,
       '--skip-trust',
       '--session-id', this.sessionId,
       '--approval-mode', approvalMode,
       '-o', 'stream-json',
-      '-p', text
+      '-p', promptText
     ];
 
     return new Promise((resolve) => {
@@ -1718,7 +2160,7 @@ class GeminiAdapter extends AgentAdapter {
 
         this.process = child_process.spawn(bin.cmd, args, {
           cwd: vaultPath,
-          env: Object.assign({}, process.env, {
+          env: Object.assign({}, process.env, buildVendorEnv(vaultPath), {
             GEMINI_CLI_TRUST_WORKSPACE: 'true'
           }),
           stdio: ['pipe', 'pipe', 'pipe']
@@ -1862,6 +2304,35 @@ function generateUuid() {
   });
 }
 
+function getImageDimensions(buffer) {
+  try {
+    if (buffer && buffer.length > 24) {
+      // PNG: 8-byte signature, then IHDR chunk (length 4, type 4 'IHDR', width 4, height 4)
+      if (buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4E && buffer[3] === 0x47) {
+        return { width: buffer.readUInt32BE(16), height: buffer.readUInt32BE(20) };
+      }
+      // JPEG: SOF0/SOF2 marker
+      if (buffer[0] === 0xFF && buffer[1] === 0xD8) {
+        let offset = 2;
+        while (offset < buffer.length - 8) {
+          if (buffer[offset] !== 0xFF) break;
+          const marker = buffer[offset + 1];
+          if (marker === 0xC0 || marker === 0xC2) {
+            return { height: buffer.readUInt16BE(offset + 5), width: buffer.readUInt16BE(offset + 7) };
+          }
+          const len = buffer.readUInt16BE(offset + 2);
+          offset += 2 + len;
+        }
+      }
+      // GIF: GIF87a or GIF89a
+      if (buffer[0] === 0x47 && buffer[1] === 0x49 && buffer[2] === 0x46) {
+        return { width: buffer.readUInt16LE(6), height: buffer.readUInt16LE(8) };
+      }
+    }
+  } catch (e) {}
+  return { width: 1024, height: 768 };
+}
+
 function normalizeModel(modelStr) {
   if (!modelStr) return 'gpt-5-6-thinking';
   const m = modelStr.trim();
@@ -1913,6 +2384,9 @@ class NiceAigcAdapter extends AgentAdapter {
     this.conversationHistory = [];
     this.conversationId = null;
     this.lastMessageId = null;
+    // 会话持久化: conversationId 随本地 session 对象存档, 打开历史会话可续接服务端上下文
+    this.sessionManager = options.sessionManager || null;
+    this._boundSessionId = undefined;
     this.activeRequest = null;
     this.abortController = null;
     this._memorySecret = null;
@@ -2248,6 +2722,305 @@ class NiceAigcAdapter extends AgentAdapter {
   }
 
   /**
+   * 发送前惰性检测本地会话是否切换 (历史面板打开/新建/重启插件):
+   * 切换到另一会话时, 改用该会话存档的 conversationId, 避免服务端新开对话丢失上下文
+   */
+  _syncSessionConversation() {
+    if (!this.sessionManager) return;
+    try {
+      const sid = this.sessionManager.getActiveSessionId ? this.sessionManager.getActiveSessionId('niceaigc') : null;
+      const current = this._boundSessionId === undefined ? null : this._boundSessionId;
+      if (sid === current) return;
+      let saved = { conversationId: null, lastMessageId: null };
+      if (sid && this.sessionManager.getSessionConversation) {
+        saved = this.sessionManager.getSessionConversation('niceaigc') || saved;
+      }
+      this.conversationId = saved.conversationId || null;
+      // 关键: backend-api 消息树协议续聊时 parent_message_id 必须指向该对话的叶子消息,
+      // 若只恢复 conversationId 而 lastMessageId 为空, 发送时 parentId 会随机生成 → 服务端找不到父节点返回空流
+      this.lastMessageId = saved.lastMessageId || null;
+      // 同步重建内存对话历史: 切换/恢复会话后 v1 协议与上下文摘要才有内容可用
+      try {
+        if (this.sessionManager.getMessages) {
+          const msgs = this.sessionManager.getMessages('niceaigc') || [];
+          this.conversationHistory = msgs.slice(-20)
+            .filter(m => m && (m.role === 'user' || m.role === 'assistant'))
+            .map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: String(m.text || '') }));
+        }
+      } catch (e) {}
+      this._boundSessionId = sid;
+    } catch (e) {}
+  }
+
+  _persistConversationId() {
+    if (!this.sessionManager || !this.conversationId || !this.sessionManager.setSessionConversation) return;
+    try {
+      this.sessionManager.setSessionConversation('niceaigc', this.conversationId, this.lastMessageId || null);
+    } catch (e) {}
+  }
+
+  // GET 小工具: 拉取 JSON (对话树查询用)
+  _httpGetJson(url, headers) {
+    return new Promise((resolve, reject) => {
+      const https = url.startsWith('https') ? require('https') : require('http');
+      const urlObj = new URL(url);
+      const req = https.request(urlObj, {
+        method: 'GET',
+        headers,
+        timeout: 15000
+      }, (res) => {
+        let raw = '';
+        res.on('data', (c) => { raw += c; });
+        res.on('end', () => {
+          if (res.statusCode < 200 || res.statusCode >= 300) {
+            reject(new Error(`HTTP ${res.statusCode}`));
+            return;
+          }
+          try { resolve(JSON.parse(raw)); } catch (e) { reject(e); }
+        });
+      });
+      req.on('error', reject);
+      req.on('timeout', () => { req.destroy(new Error('timeout')); });
+      req.end();
+    });
+  }
+
+  // POST 小工具: 提交 JSON (文件上传申请/确认用)
+  _httpPostJson(url, headers, data) {
+    return new Promise((resolve, reject) => {
+      const https = url.startsWith('https') ? require('https') : require('http');
+      const urlObj = new URL(url);
+      const postData = typeof data === 'string' ? data : JSON.stringify(data || {});
+      const reqHeaders = Object.assign({}, headers, {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(postData)
+      });
+      const req = https.request(urlObj, {
+        method: 'POST',
+        headers: reqHeaders,
+        timeout: 20000
+      }, (res) => {
+        let raw = '';
+        res.on('data', (c) => { raw += c; });
+        res.on('end', () => {
+          if (res.statusCode < 200 || res.statusCode >= 300) {
+            reject(new Error(`HTTP ${res.statusCode}: ${raw.slice(0, 150)}`));
+            return;
+          }
+          try { resolve(JSON.parse(raw)); } catch (e) { resolve(raw); }
+        });
+      });
+      req.on('error', reject);
+      req.on('timeout', () => { req.destroy(new Error('timeout')); });
+      req.write(postData);
+      req.end();
+    });
+  }
+
+  // PUT 小工具: 提交二进制流 (文件上传预签名桶用)
+  _httpPutBinary(url, headers, buffer) {
+    return new Promise((resolve, reject) => {
+      let urlObj;
+      try {
+        urlObj = new URL(url);
+      } catch (e) {
+        reject(new Error(`Invalid upload URL: ${url}`));
+        return;
+      }
+      const https = urlObj.protocol === 'https:' ? require('https') : require('http');
+      const reqHeaders = Object.assign({}, headers, {
+        'Content-Length': buffer.length
+      });
+      delete reqHeaders['host'];
+      delete reqHeaders['Host'];
+
+      const req = https.request(urlObj, {
+        method: 'PUT',
+        headers: reqHeaders,
+        timeout: 60000
+      }, (res) => {
+        let raw = '';
+        res.on('data', (c) => { raw += c; });
+        res.on('end', () => {
+          if (res.statusCode < 200 || res.statusCode >= 300) {
+            reject(new Error(`HTTP ${res.statusCode}: ${raw.slice(0, 150)}`));
+            return;
+          }
+          resolve(raw);
+        });
+      });
+      req.on('error', reject);
+      req.on('timeout', () => { req.destroy(new Error('timeout')); });
+      req.write(buffer);
+      req.end();
+    });
+  }
+
+  // 多模态图片预上传: 上传至 ChatGPT Web /backend-api/files 并取得合法附件结构
+  async _uploadImageFile(baseUrl, headers, img) {
+    if (!img) return null;
+    let buffer = null;
+    let format = 'png';
+    let fileName = img.name || `image_${Date.now()}.png`;
+
+    if (img.dataUrl) {
+      const match = img.dataUrl.match(/^data:image\/([a-zA-Z0-9+.-]+);base64,(.+)$/);
+      if (!match) return null;
+      format = match[1].toLowerCase();
+      const b64Data = match[2];
+      buffer = Buffer.from(b64Data, 'base64');
+      const ext = format === 'jpeg' ? 'jpg' : (format === 'svg+xml' ? 'svg' : format);
+      if (!img.name) fileName = `image_${Date.now()}.${ext}`;
+    } else if (img.path && typeof require !== 'undefined') {
+      try {
+        
+        if (fs.existsSync(img.path)) {
+          buffer = fs.readFileSync(img.path);
+          const extMatch = img.path.match(/\.([a-zA-Z0-9]+)$/);
+          if (extMatch) {
+            format = extMatch[1].toLowerCase();
+            if (format === 'jpg') format = 'jpeg';
+          }
+        }
+      } catch (e) {}
+    }
+    if (!buffer) return null;
+    const dimensions = getImageDimensions(buffer);
+
+    // 1. 请求上传预凭据
+    const createUrl = `${baseUrl}/backend-api/files`;
+    const createRes = await this._httpPostJson(createUrl, headers, {
+      file_name: fileName,
+      file_size: buffer.length,
+      use_case: 'multimodal'
+    });
+
+    if (!createRes || (!createRes.file_id && !createRes.id)) {
+      throw new Error('No file_id returned from files endpoint');
+    }
+
+    const fileId = createRes.file_id || createRes.id;
+    let uploadUrl = createRes.upload_url;
+
+    // 2. 若存在预签名存储桶地址，PUT 上传二进制数据
+    if (uploadUrl) {
+      if (uploadUrl.startsWith('/')) {
+        uploadUrl = `${baseUrl}${uploadUrl}`;
+      }
+      const isInternalUpload = uploadUrl.startsWith(baseUrl);
+      const uploadHeaders = Object.assign(
+        {},
+        isInternalUpload ? headers : {},
+        {
+          'Content-Type': `image/${format}`,
+          'x-ms-blob-type': 'BlockBlob'
+        }
+      );
+      await this._httpPutBinary(uploadUrl, uploadHeaders, buffer);
+
+      // 3. 标记上传完成
+      try {
+        await this._httpPostJson(`${baseUrl}/backend-api/files/${fileId}/uploaded`, headers, {});
+      } catch (e) {}
+    }
+
+    return {
+      id: fileId,
+      name: fileName,
+      size: buffer.length,
+      mime_type: `image/${format}`,
+      width: dimensions.width,
+      height: dimensions.height
+    };
+  }
+
+  // 从对话树取叶子节点 id: 叶子 = children 为空的节点; 优先取 assistant 消息节点 (续聊 parent_message_id 必需)
+  _pickLeafNodeId(mapping) {
+    try {
+      const ids = Object.keys(mapping);
+      if (!ids.length) return null;
+      const leaves = ids.filter(id => {
+        const node = mapping[id];
+        return !node || !Array.isArray(node.children) || node.children.length === 0;
+      });
+      const pool = leaves.length ? leaves : ids;
+      const isTombstone = id => !id || id === 'null' || id.startsWith('msg_tombstone');
+      const assistantLeaf = pool.find(id => {
+        const node = mapping[id];
+        return node && node.message && node.message.author && node.message.author.role === 'assistant' && !isTombstone(id);
+      });
+      const picked = assistantLeaf || pool.find(id => !isTombstone(id)) || pool[pool.length - 1];
+      return picked || null;
+    } catch (e) { return null; }
+  }
+
+  // 兼容旧存档: 只有 conversationId 而无叶子消息 id 时, 向服务端查对话树补齐 current_node,
+  // 避免续聊时 parent_message_id 随机生成导致服务端返回空流
+  async _ensureLeafMessageId(baseUrl, headers) {
+    if (!this.conversationId) return;
+    try {
+      const data = await this._httpGetJson(`${baseUrl}/backend-api/conversation/${this.conversationId}`, headers);
+      const conv = (data && data.data) ? data.data : data;
+      let leaf = conv && (conv.current_node || conv.current_node_id) || null;
+      if (!leaf && conv && conv.mapping && typeof conv.mapping === 'object') {
+        leaf = this._pickLeafNodeId(conv.mapping);
+      }
+      if (leaf) {
+        this.lastMessageId = leaf;
+        this._persistConversationId();
+        console.info('[NiceAigcAdapter] Leaf message id recovered from server:', leaf);
+      } else {
+        console.warn('[NiceAigcAdapter] Could not resolve leaf node from conversation tree; continuation may start a new branch.');
+      }
+    } catch (e) {
+      console.warn('[NiceAigcAdapter] Failed to recover leaf message id, will start fresh if server rejects:', e && e.message);
+    }
+  }
+
+  // 调试日志: 追加写入插件目录 .niceaigc-debug.log, 用于定位服务端空流等疑难问题 (不含凭据)
+  _debugLog(entry) {
+    try {
+      if (!this.sessionManager || !this.sessionManager._getStorageFile) return;
+      const file = this.sessionManager._getStorageFile();
+      if (!file) return;
+      
+      
+      const logFile = path.join(path.dirname(file), '.niceaigc-debug.log');
+      const line = JSON.stringify(Object.assign({ t: new Date().toISOString() }, entry)) + '\n';
+      fs.appendFileSync(logFile, line, 'utf8');
+      // 防止无限增长: 超过 512KB 截断保留后半
+      const st = fs.statSync(logFile);
+      if (st.size > 512 * 1024) {
+        const buf = fs.readFileSync(logFile, 'utf8');
+        fs.writeFileSync(logFile, buf.slice(Math.floor(buf.length / 2)), 'utf8');
+      }
+    } catch (e) {}
+  }
+
+  // 服务端续接失败兜底用: 把本地存档最近几轮对话压成摘要文本, 随新对话一起发给模型保住上下文
+  _buildLocalContextDigest() {
+    try {
+      if (!this.sessionManager || !this.sessionManager.getMessages) return '';
+      const msgs = this.sessionManager.getMessages('niceaigc') || [];
+      const past = msgs.slice(-9, -1); // 去掉本轮刚入队的 user 消息
+      if (!past.length) return '';
+      // 错误/警告气泡也会被存成 assistant 消息, 带入摘要会污染上下文, 必须剔除
+      const isNotice = (t) => /^\s*[⚠▲!！]/.test(t)
+        || t.includes('未返回任何有效文本内容')
+        || t.includes('建议点击左下角模型选择器')
+        || /^\s*提示[：:]/.test(t)
+        || t.includes('NiceAIGC 提示');
+      const lines = past.map(m => {
+        const who = m.role === 'user' ? '用户' : '助手';
+        const body = String(m.text || '').replace(/\s+/g, ' ').trim();
+        if (!body || (m.role !== 'user' && isNotice(body))) return '';
+        return who + ': ' + (body.length > 700 ? body.slice(0, 700) + '…' : body);
+      }).filter(l => l.length > 4);
+      return lines.length ? '【历史对话摘要】\n' + lines.join('\n') : '';
+    } catch (e) { return ''; }
+  }
+
+  /**
    * Reset conversation session
    */
   async newSession() {
@@ -2255,6 +3028,7 @@ class NiceAigcAdapter extends AgentAdapter {
     this.conversationHistory = [];
     this.conversationId = null;
     this.lastMessageId = null;
+    this._boundSessionId = null;
     this.setStatus('connected', '已重置会话');
   }
 
@@ -2336,6 +3110,9 @@ class NiceAigcAdapter extends AgentAdapter {
    * @returns {Promise<{ success: boolean, error?: string }>}
    */
   async send(text, contextPayload, attachments = []) {
+    // 先对齐当前本地会话存档的服务端 conversationId, 再做模型切换重置检测
+    this._syncSessionConversation();
+    this._contextFallbackUsed = false;
     const config = typeof this.getConfig === 'function' ? this.getConfig() : {};
     let baseUrl = (config.baseUrl || 'https://node7.nice188.com').trim().replace(/\/+$/, '');
     if (baseUrl.includes('nice188.cc')) {
@@ -2443,6 +3220,32 @@ class NiceAigcAdapter extends AgentAdapter {
     const isNiceSite = baseUrl.includes('nice188') || baseUrl.includes('niceaigc');
     let useBackendApi = isNiceSite || config.protocol === 'backend-api';
 
+    // 兼容旧存档: 续聊前补齐该对话叶子消息 id (backend-api 消息树协议必需)
+    if ((isNiceSite || config.protocol === 'backend-api') && this.conversationId && !this.lastMessageId) {
+      await this._ensureLeafMessageId(baseUrl, headers);
+    }
+
+    // 实际发送的提示词: 续接失败兜底重发时会被替换为 "本地摘要 + 新问题"
+    let promptText = text;
+
+    // 多模态图片预处理: 若计划走 Web 协议，先尝试通过 /backend-api/files 预上传
+    let webAttachments = [];
+    if (imageAttachments.length > 0 && useBackendApi) {
+      try {
+        for (const img of imageAttachments) {
+          const attachment = await this._uploadImageFile(baseUrl, headers, img);
+          if (attachment) webAttachments.push(attachment);
+        }
+      } catch (uploadErr) {
+        console.warn('[NiceAigcAdapter] Web file upload failed:', uploadErr && uploadErr.message);
+        if (isNiceSite) {
+          // NiceAIGC 节点不开放 /v1 (503 api_not_enabled)，因此绝不能静默剥离图片退回纯文本发问
+          throw new Error(`多模态图片上传失败: ${uploadErr.message || uploadErr}`);
+        }
+        useBackendApi = false; // 其它通用 OpenAI 代理尝试退避至 v1 Vision
+      }
+    }
+
     const executeRequest = async (asBackendApi) => {
       let apiUrl = '';
       let reqBody = '';
@@ -2453,30 +3256,31 @@ class NiceAigcAdapter extends AgentAdapter {
         const parentId = this.lastMessageId || generateUuid();
         this.lastMessageId = messageId;
 
-        const parts = [text];
-        if (imageAttachments.length > 0) {
-          for (const img of imageAttachments) {
-            if (img.dataUrl) {
-              parts.push({
-                content_type: 'image',
-                asset_pointer: img.dataUrl
-              });
-            }
+        const messageObj = {
+          id: messageId,
+          author: { role: 'user' },
+          content: {
+            content_type: 'text',
+            parts: [promptText]
           }
+        };
+
+        if (webAttachments.length > 0) {
+          messageObj.metadata = {
+            attachments: webAttachments.map(a => ({
+              id: a.id,
+              name: a.name,
+              size: a.size,
+              mime_type: a.mime_type,
+              width: a.width,
+              height: a.height
+            }))
+          };
         }
 
         const payload = {
           action: 'next',
-          messages: [
-            {
-              id: messageId,
-              author: { role: 'user' },
-              content: {
-                content_type: imageAttachments.length > 0 ? 'multimodal_text' : 'text',
-                parts
-              }
-            }
-          ],
+          messages: [messageObj],
           model,
           parent_message_id: parentId,
           conversation_id: this.conversationId || undefined,
@@ -2491,6 +3295,7 @@ class NiceAigcAdapter extends AgentAdapter {
         }
 
         reqBody = JSON.stringify(payload);
+        this._debugLog({ type: 'request', proto: 'backend-api', conv: this.conversationId, parent: parentId, model, effort: payload.reasoning_effort || null, hasImages: imageAttachments.length > 0, attachmentCount: webAttachments.length });
       } else {
         apiUrl = baseUrl.endsWith('/chat/completions') 
           ? baseUrl 
@@ -2553,8 +3358,8 @@ class NiceAigcAdapter extends AgentAdapter {
           this.conversationId = null;
           this.lastMessageId = null;
           fullAssistantText = await executeRequest(useBackendApi);
-        } else if (firstErr.code === 'API_NOT_ENABLED' || firstErr.message?.includes('503') || firstErr.message?.includes('api_not_enabled')) {
-          // If first attempt failed with API_NOT_ENABLED or 503, try alternative protocol
+        } else if (!isNiceSite && (firstErr.code === 'API_NOT_ENABLED' || firstErr.message?.includes('503') || firstErr.message?.includes('api_not_enabled') || (imageAttachments.length > 0 && (firstErr.message?.includes('422') || firstErr.message?.includes('404'))))) {
+          // If first attempt failed with API_NOT_ENABLED or 503 or 422 with images on generic endpoint, try alternative protocol
           console.warn(`[NiceAigcAdapter] Primary protocol (${useBackendApi ? 'backend-api' : 'v1'}) unavailable, falling back to ${useBackendApi ? 'v1' : 'backend-api'}...`);
           fullAssistantText = await executeRequest(!useBackendApi);
         } else {
@@ -2562,9 +3367,33 @@ class NiceAigcAdapter extends AgentAdapter {
         }
       }
 
+      // 服务端续聊返回空流的自动兜底: 放弃服务端上下文, 开新对话并把本地存档摘要作为前缀重发一次
+      if ((!fullAssistantText || !fullAssistantText.trim()) && this.conversationId && !this._contextFallbackUsed) {
+        this._contextFallbackUsed = true;
+        const digest = this._buildLocalContextDigest();
+        if (digest) {
+          console.warn('[NiceAigcAdapter] Continuation returned empty stream (conv=' + this.conversationId + ', parent=' + this.lastMessageId + '); retrying once as a fresh conversation with local context digest.');
+          this._debugLog({ type: 'fallback_retry', conv: this.conversationId, parent: this.lastMessageId, digestLen: digest.length });
+          this.setStatus('connected', '服务端续接异常，已携带本地上下文重发');
+          this.conversationId = null;
+          this.lastMessageId = null;
+          promptText = digest + '\n\n--- 以上为本地历史对话摘要（服务端续接失败时的上下文兜底），请结合它回答下面的新问题 ---\n\n' + text;
+          const lastUser = this.conversationHistory[this.conversationHistory.length - 1];
+          if (lastUser && lastUser.role === 'user' && typeof lastUser.content === 'string') lastUser.content = promptText;
+          try {
+            fullAssistantText = await executeRequest(useBackendApi);
+          } catch (retryErr) {
+            console.warn('[NiceAigcAdapter] Context-digest retry failed:', retryErr && retryErr.message);
+            fullAssistantText = '';
+          }
+        }
+      }
+
       if (fullAssistantText && fullAssistantText.trim().length > 0) {
         fullAssistantText = cleanAssistantMarkdown(fullAssistantText);
         this.conversationHistory.push({ role: 'assistant', content: fullAssistantText });
+        // 本轮流式结束, lastMessageId 已更新为最终 assistant 消息 id, 随会话落盘供下次续聊作 parent
+        this._persistConversationId();
         this.isStreaming = false;
         this.setStatus('connected', '已就绪');
         this.emit('turn_end', { fullText: fullAssistantText });
@@ -2572,6 +3401,8 @@ class NiceAigcAdapter extends AgentAdapter {
         return { success: true };
       } else {
         const activeName = this.activeModelName || model;
+        console.warn('[NiceAigcAdapter] Empty text response. conv=' + this.conversationId + ' parent=' + this.lastMessageId + ' model=' + model + '\n--- raw SSE tail ---\n' + String(this._lastRawFrames || '(no frames received)').replace(/(xtoken|token|[A-Za-z0-9._%+-]+@[A-Za-z0-9.-])/gi, '***'));
+        this._debugLog({ type: 'empty_response', conv: this.conversationId, parent: this.lastMessageId, model, rawTail: String(this._lastRawFrames || '(no frames received)').slice(-1500) });
         const errMsg = `当前模型（${activeName}）未返回任何有效文本内容（上游通道可能处于维护或排队状态）。建议点击左下角模型选择器切换至「⭐ GPT-5.6 Sol」或「Google Gemini」重试。`;
         this.isStreaming = false;
         this.setStatus('connected', '已就绪');
@@ -2650,6 +3481,16 @@ class NiceAigcAdapter extends AgentAdapter {
         }
         throw new Error('NiceAIGC 返回 HTTP 503 (API服务未启用或处于维护状态)，请确认 Token 权限或 Base URL');
       }
+      if (response.status === 422) {
+        if (errText.includes('multimodal_text') || errText.includes('string_type') || errText.includes('parts')) {
+          const e = new Error('NiceAIGC 提示：当前节点通道未开放直接解析多模态图片（HTTP 422: 服务端参数校验拦截）。建议切换至「Google Gemini」或「Hermes」等原生多模态视觉助手，或转为纯文本提问');
+          e.statusCode = 422;
+          throw e;
+        }
+        const e = new Error(`HTTP 422: ${errText.slice(0, 150)}`);
+        e.statusCode = 422;
+        throw e;
+      }
       throw new Error(`NiceAIGC 接口返回异常 (HTTP ${response.status}): ${errText.slice(0, 150)}`);
     }
 
@@ -2699,6 +3540,7 @@ class NiceAigcAdapter extends AgentAdapter {
             const convId = parsed.conversation_id || parsed.v?.conversation_id;
             if (convId) {
               this.conversationId = convId;
+              this._persistConversationId();
             }
 
             // 1. Message frame (direct or inside parsed.v)
@@ -2781,6 +3623,7 @@ class NiceAigcAdapter extends AgentAdapter {
           let errData = '';
           res.on('data', c => errData += c);
           res.on('end', () => {
+            this._debugLog({ type: 'http_error', status: res.statusCode, body: errData.slice(0, 400) });
             if (res.statusCode === 503 && errData.includes('api_not_enabled')) {
               const e = new Error('API_NOT_ENABLED');
               e.code = 'API_NOT_ENABLED';
@@ -2821,6 +3664,18 @@ class NiceAigcAdapter extends AgentAdapter {
               reject(new Error('NiceAIGC 登录凭据失效或过期 (HTTP 401: 登录态异常)，请在浏览器登录后重新复制最新的 Cookie / Token 并保存至设置'));
               return;
             }
+            if (res.statusCode === 422) {
+              if (errData.includes('multimodal_text') || errData.includes('string_type') || errData.includes('parts')) {
+                const e = new Error('NiceAIGC 提示：当前节点通道未开放直接解析多模态图片（HTTP 422: 服务端参数校验拦截）。建议切换至「Google Gemini」或「Hermes」等原生多模态视觉助手，或转为纯文本提问');
+                e.statusCode = 422;
+                reject(e);
+                return;
+              }
+              const e = new Error(`HTTP 422: ${errData.slice(0, 150)}`);
+              e.statusCode = 422;
+              reject(e);
+              return;
+            }
             reject(new Error(`HTTP ${res.statusCode}: ${errData.slice(0, 150)}`));
           });
           return;
@@ -2830,10 +3685,17 @@ class NiceAigcAdapter extends AgentAdapter {
         let lastAccumulatedLength = 0;
         let currentAssistantMsgId = null;
         let currentPath = '';
+        let dataLineCount = 0;
+        let firstFrame = '';
 
         res.setEncoding('utf8');
+        // 诊断用: 保留原始 SSE 帧尾部, 空响应时可直接定位服务端到底返了什么 (无需猜)
+        this._lastRawFrames = '';
         res.on('data', (chunk) => {
           buffer += chunk;
+          try {
+            this._lastRawFrames = (this._lastRawFrames + chunk).slice(-4000);
+          } catch (e) {}
           const lines = buffer.split('\n');
           buffer = lines.pop() || '';
 
@@ -2841,11 +3703,14 @@ class NiceAigcAdapter extends AgentAdapter {
             const trimmed = line.trim();
             if (!trimmed || trimmed.startsWith(':')) continue;
             if (trimmed === 'data: [DONE]' || trimmed === 'data:[DONE]') {
+              this._debugLog({ type: 'stream_end', done: true, dataLineCount, firstFrame, rawTail: String(this._lastRawFrames || '').slice(-1500) });
               resolve();
               return;
             }
             if (trimmed.startsWith('data:')) {
               const jsonStr = trimmed.slice(5).trim();
+              dataLineCount++;
+              if (!firstFrame) firstFrame = jsonStr.slice(0, 600);
               try {
                 const parsed = JSON.parse(jsonStr);
 
@@ -2869,6 +3734,7 @@ class NiceAigcAdapter extends AgentAdapter {
                 const convId = parsed.conversation_id || parsed.v?.conversation_id;
                 if (convId) {
                   this.conversationId = convId;
+                  this._persistConversationId();
                 }
 
                 // 1. Message frame (direct or inside parsed.v)
@@ -2929,7 +3795,10 @@ class NiceAigcAdapter extends AgentAdapter {
           }
         });
 
-        res.on('end', () => resolve());
+        res.on('end', () => {
+          this._debugLog({ type: 'stream_end', done: false, dataLineCount, firstFrame, rawTail: String(this._lastRawFrames || '').slice(-1500) });
+          resolve();
+        });
         res.on('error', reject);
       });
 
@@ -3014,6 +3883,7 @@ class AgentSessionManager {
     this.vaultBasePath = options.vaultBasePath || (process.cwd ? process.cwd() : '');
     this.app = options.app || null;
     this.agents = new Map();
+    this._saveDebounceTimer = null;
 
     this.initAgent('pi');
     this.initAgent('codex');
@@ -3117,7 +3987,21 @@ class AgentSessionManager {
     }
   }
 
+  saveSessionsDebounced(delay = 600) {
+    if (this._saveDebounceTimer) {
+      clearTimeout(this._saveDebounceTimer);
+    }
+    this._saveDebounceTimer = setTimeout(() => {
+      this._saveDebounceTimer = null;
+      this.saveSessions();
+    }, delay);
+  }
+
   saveSessions() {
+    if (this._saveDebounceTimer) {
+      clearTimeout(this._saveDebounceTimer);
+      this._saveDebounceTimer = null;
+    }
     const payload = {};
     for (const [agentId, agent] of this.agents.entries()) {
       // Keep up to 50 sessions per agent, each session up to 100 messages
@@ -3126,6 +4010,9 @@ class AgentSessionManager {
         title: s.title || '对话',
         createdAt: s.createdAt || Date.now(),
         updatedAt: s.updatedAt || Date.now(),
+        // 服务端会话 ID (NiceAIGC conversation_id / 叶子消息链): 必须随白名单序列化, 否则落盘即丢无法续接
+        conversationId: s.conversationId || null,
+        lastMessageId: s.lastMessageId || null,
         messages: (s.messages || []).slice(-100).map(m => ({
           id: m.id || Math.random().toString(36).slice(2),
           role: m.role,
@@ -3240,6 +4127,27 @@ class AgentSessionManager {
     return active ? (active.messages || []) : [];
   }
 
+  // 服务端会话状态 (NiceAIGC conversation_id + last_message_id): 随会话持久化, 保证打开历史会话后能续接上下文
+  // backend-api 消息树协议: 续聊时 parent_message_id 必须指向该对话最后一条 assistant 消息, 两者缺一不可
+  setSessionConversation(agentId, convId, lastMsgId) {
+    const active = this.getActiveSession(agentId);
+    if (!active) return;
+    if (active.conversationId === (convId || null) && (active.lastMessageId || null) === (lastMsgId || null)) return;
+    active.conversationId = convId || null;
+    active.lastMessageId = lastMsgId || null;
+    active.updatedAt = Date.now();
+    this.saveSessions();
+  }
+
+  getSessionConversation(agentId) {
+    const active = this.getActiveSession(agentId);
+    if (!active) return { conversationId: null, lastMessageId: null };
+    return {
+      conversationId: active.conversationId || null,
+      lastMessageId: active.lastMessageId || null
+    };
+  }
+
   addMessage(agentId, msg) {
     const agent = this.getAgent(agentId);
     let active = this.getActiveSession(agentId);
@@ -3249,7 +4157,7 @@ class AgentSessionManager {
       active = this.createSession(agentId, title);
     } else if (active.title === '新对话' && msg.role === 'user') {
       const title = (msg.text || '').trim().slice(0, 36).replace(/\n/g, ' ') || 
-                    (msg.images && msg.images.length > 0 ? `[图片] ${msg.images[0].name || ''}`.trim() : '');
+                    (msg.images && msg.images.length > 0 ? `[ͼƬ] ${msg.images[0].name || ''}`.trim() : '');
       if (title) active.title = title;
     }
 
@@ -3282,7 +4190,7 @@ class AgentSessionManager {
   setDraft(agentId, draft) {
     const agent = this.getAgent(agentId);
     agent.draft = draft || '';
-    this.saveSessions();
+    this.saveSessionsDebounced(600);
   }
 
   getCurrentAssistant(agentId) {
@@ -3295,6 +4203,13 @@ class AgentSessionManager {
     agent.updatedAt = Date.now();
   }
 }
+
+﻿
+
+
+
+
+
 
 /**
  * AgentHub: Core router and orchestrator for Multi-Agent execution in TabonKB.
@@ -3331,7 +4246,7 @@ class AgentHub {
     try {
       if (typeof localStorage !== 'undefined') {
         const saved = localStorage.getItem('tabonkb-active-agent-id');
-        if (saved && (saved === 'pi' || saved === 'codex' || saved === 'gemini' || saved === 'niceaigc')) {
+        if (saved && (saved === 'pi' || saved === 'hermes' || saved === 'gemini' || saved === 'niceaigc')) {
           return saved;
         }
       }
@@ -3357,9 +4272,9 @@ class AgentHub {
     const pi = new PiAdapter(Object.assign({}, opts, { bridge: options.bridge }));
     this.adapters.set('pi', pi);
 
-    // 2. Codex Adapter
-    const codex = new CodexAdapter(opts);
-    this.adapters.set('codex', codex);
+    // 2. Hermes Adapter
+    const hermes = new HermesAdapter(opts);
+    this.adapters.set('hermes', hermes);
 
     // 3. Gemini Adapter
     const gemini = new GeminiAdapter(opts);
@@ -3368,7 +4283,9 @@ class AgentHub {
     // 4. NiceAIGC Adapter (Web/API)
     const niceaigc = new NiceAigcAdapter(Object.assign({}, opts, {
       app: options.app,
-      getConfig: options.getNiceaigcConfig
+      getConfig: options.getNiceaigcConfig,
+      // 会话级持久化 conversationId, 历史会话续接不丢上下文
+      sessionManager: this.sessionManager
     }));
     this.adapters.set('niceaigc', niceaigc);
   }
@@ -3449,7 +4366,7 @@ class AgentHub {
   getAgentList() {
     return [
       { id: 'pi', name: 'Pi', displayName: 'Pi Agent', icon: getAgentBrandSvg('pi', 16), desc: '本地轻量快速检索与笔记维护 (RPC)' },
-      { id: 'codex', name: 'Codex', displayName: 'Codex CLI', icon: getAgentBrandSvg('codex', 16), desc: 'OpenAI 深度代码理解与复杂推理 (Exec)' },
+      { id: 'hermes', name: 'Hermes', displayName: 'Hermes CLI', icon: getAgentBrandSvg('hermes', 16), desc: '本地 Hermes 全工具智能体 · 代码/研究/浏览 (Exec)' },
       { id: 'gemini', name: 'Gemini', displayName: 'Gemini CLI', icon: getAgentBrandSvg('gemini', 16), desc: 'Google Gemini 知识融合与综合分析 (Headless)' },
       { id: 'niceaigc', name: 'NiceAIGC', displayName: 'NiceAIGC', icon: getAgentBrandSvg('niceaigc', 16), desc: 'NiceAIGC 智能大模型多模态对话 (Web/API)' }
     ];
@@ -3769,7 +4686,7 @@ ${userPrompt}`;
 
 /**
  * PiDrawerView: Controls the UI Drawer component for Agent Hub inside TabonKB Workbench.
- * - Supports Multi-Agent Hub: Pi Agent, Codex CLI, Gemini CLI
+ * - Supports Multi-Agent Hub: Pi Agent, Hermes CLI, Gemini CLI
  * - Dynamic Agent Selector Dropdown in Header [ 🤖 Pi ▼ ]
  * - Isolated Session & Message History Swapping per Agent
  * - Input Draft Preservation during Agent Switching
@@ -3813,6 +4730,9 @@ class PiDrawerView {
     }
     this.containerEl = null;
     this.drawerEl = null;
+    // 发送全链路防重入守卫（检索注入阶段 hub 尚未 streaming，isStreaming() 拦不住重复提交）
+    this._sendInFlight = false;
+    this._abortRequested = false;
     this.resizerEl = null;
     this.messagesEl = null;
     this.inputEl = null;
@@ -3822,6 +4742,7 @@ class PiDrawerView {
     this.btnClose = null;
     this.statusLed = null;
     this.statusText = null;
+    this._connInFlightAgent = null;
     this.contextCapsuleEl = null;
     this.permBadgeEl = null;
     this.warningBannerEl = null;
@@ -3922,8 +4843,8 @@ class PiDrawerView {
     const isRW = this.permissionMode === 'readwrite';
     this.permBadgeEl.className = `tw-drawer-badge-btn ${isRW ? 'readwrite' : 'readonly'}`;
     this.permBadgeEl.innerHTML = isRW
-      ? `<span class="tw-badge-icon">${getIconPark('edit', 12)}</span><span class="tw-badge-text">读写模式</span>`
-      : `<span class="tw-badge-icon">${getIconPark('lock', 12)}</span><span class="tw-badge-text">只读模式</span>`;
+      ? `<span class="tw-badge-icon">${getIconPark('edit', 13)}</span>`
+      : `<span class="tw-badge-icon">${getIconPark('lock', 13)}</span>`;
     this.permBadgeEl.title = isRW
       ? '当前：读写模式（支持新建与修改笔记），点击切换为只读'
       : '当前：只读模式（安全检索不修改），点击切换为读写';
@@ -3982,6 +4903,7 @@ class PiDrawerView {
     this.syncActiveAgentUI();
     this.restoreSessionMessages(this.hub.activeAgentId);
     this.updateStatus(this.hub.getStatus());
+    this.ensureAgentConnected();
   }
 
   buildDom() {
@@ -4017,7 +4939,7 @@ class PiDrawerView {
           <div class="tw-agent-dropdown-menu" id="twDrawerAgentMenu" style="display:none;"></div>
         </div>
         <button class="tw-drawer-badge-btn" id="twDrawerPermBadge" title="点击切换：只读模式 / 读写模式">
-          <span class="tw-badge-icon">${getIconPark('edit', 12)}</span><span class="tw-badge-text">读写模式</span>
+          <span class="tw-badge-icon">${getIconPark('edit', 13)}</span>
         </button>
         <div class="tw-drawer-status">
           <span class="tw-status-dot disconnected" id="twDrawerStatusDot"></span>
@@ -4113,10 +5035,11 @@ class PiDrawerView {
     this.warningBannerEl.style.display = 'none';
     contentWrap.appendChild(this.warningBannerEl);
 
-    // 4. Context Capsule Bar
+    // 4. Context Capsule (merged into header row, no standalone bar)
     this.contextCapsuleEl = document.createElement('div');
     this.contextCapsuleEl.className = 'tw-drawer-context-bar';
-    contentWrap.appendChild(this.contextCapsuleEl);
+    const headerLeftEl = header.querySelector('.tw-drawer-header-left');
+    if (headerLeftEl) headerLeftEl.appendChild(this.contextCapsuleEl);
 
     // 5. Messages Container
     this.messagesEl = document.createElement('div');
@@ -4224,6 +5147,44 @@ class PiDrawerView {
 
     contentWrap.appendChild(this.messagesEl);
 
+    // 5.5 吸顶提问复用条: 滚动离开原始气泡时钉在消息区顶部 (绝对定位, 不占 flex 流)
+    this.stickyHeaderEl = document.createElement('div');
+    this.stickyHeaderEl.className = 'tw-sticky-question';
+    this.stickyHeaderEl.innerHTML = `
+      <span class="tw-sticky-q-tag"><span class="tw-msg-user-avatar tw-msg-user-avatar--sm"></span></span>
+      <span class="tw-sticky-q-text"></span>
+    `;
+    this.stickyHeaderEl.onclick = () => this.scrollToBottom();
+    contentWrap.insertBefore(this.stickyHeaderEl, this.messagesEl);
+
+    this._stickyAbort = new AbortController();
+    this.messagesEl.addEventListener('scroll', () => {
+      if (this._stickyRaf) return;
+      this._stickyRaf = requestAnimationFrame(() => {
+        this._stickyRaf = null;
+        this.updateStickyQuestion();
+        this.updateMinimapActive();
+      });
+    }, { signal: this._stickyAbort.signal });
+
+    // 5.6 对话段导航条: 右侧刻度, 每条用户提问=一段, 点击跳转至该段并高亮当前视口段
+    this.minimapEl = document.createElement('div');
+    this.minimapEl.className = 'tw-chat-minimap';
+    this.minimapEl.style.display = 'none';
+    contentWrap.appendChild(this.minimapEl);
+
+    this._minimapAbort = new AbortController();
+    // 消息增删后重建刻度 (覆盖历史恢复 / 发送 / 流式渲染等所有入口)
+    this._minimapObserver = new MutationObserver(() => {
+      if (this._minimapRaf) return;
+      this._minimapRaf = requestAnimationFrame(() => {
+        this._minimapRaf = null;
+        this.buildChatMinimap();
+      });
+    });
+    this._minimapObserver.observe(this.messagesEl, { childList: true });
+    window.addEventListener('resize', () => this.layoutMinimap(), { signal: this._minimapAbort.signal });
+
     // 6. Footer / Input Bar (Antigravity Floating Card Design - Resizable & Clean)
     const footer = document.createElement('div');
     footer.className = 'tw-drawer-footer';
@@ -4260,7 +5221,6 @@ class PiDrawerView {
               ${getIconPark('pic', 14)}
             </button>
             <input type="file" id="twImageFileInput" accept="image/png,image/jpeg,image/webp,image/gif" multiple style="display:none;" />
-            <span class="tw-card-shortcut-hint">↵ 发送 · Shift+↵ 换行</span>
           </div>
           <div class="tw-card-toolbar-right">
             <button class="tw-card-abort-btn" id="twBtnAbort" style="display:none;" title="停止生成 (Esc)">
@@ -4812,8 +5772,8 @@ class PiDrawerView {
 
     if (adapter.status === 'not_installed') {
       let installCmd = '';
-      if (adapter.id === 'codex') {
-        installCmd = 'npm install -g @openai/codex';
+      if (adapter.id === 'hermes') {
+        installCmd = 'npm install -g hermes-cli';
       } else if (adapter.id === 'gemini') {
         installCmd = 'npm install -g @google/gemini-cli';
       }
@@ -4878,7 +5838,7 @@ class PiDrawerView {
 
     bubbleWrap.innerHTML = `
       <div class="tw-msg-avatar">
-        <div class="tw-msg-avatar-info"><span class="tw-msg-user-icon">${getIconPark('user', 14)}</span> <span class="tw-msg-author">You</span></div>
+        <div class="tw-msg-avatar-info"><span class="tw-msg-user-avatar"></span> <span class="tw-msg-author">You</span></div>
         <button class="tw-msg-copy-btn" title="复制提问内容">${getIconPark('copy', 12)} <span>复制</span></button>
       </div>
       ${badgeHtml}
@@ -4895,7 +5855,7 @@ class PiDrawerView {
     bubbleWrap.className = 'tw-msg-bubble-wrap assistant';
 
     const authorName = msg.model || adapter.displayName;
-    const authorIcon = msg.model ? getOfficialModelSvg(msg.model, 16) : adapter.icon;
+    const authorIcon = adapter.id === 'hermes' ? adapter.icon : (msg.model ? getOfficialModelSvg(msg.model, 16) : adapter.icon);
 
     bubbleWrap.innerHTML = `
       <div class="tw-msg-avatar">
@@ -4970,6 +5930,7 @@ class PiDrawerView {
         isResizing = false;
         document.body.classList.remove('tw-resizing-v');
         this.saveInputHeight(this.inputHeight);
+        this.layoutMinimap();
         window.removeEventListener('mousemove', onMouseMove);
         window.removeEventListener('mouseup', onMouseUp);
       }
@@ -4985,6 +5946,17 @@ class PiDrawerView {
       window.addEventListener('mousemove', onMouseMove);
       window.addEventListener('mouseup', onMouseUp);
     });
+  }
+
+  adjustInputHeight() {
+    if (!this.inputEl) return;
+    const minH = this.inputHeight || 38;
+    const scrollH = this.inputEl.scrollHeight;
+    const targetH = scrollH > minH ? Math.min(500, scrollH) : minH;
+    const currentH = parseInt(this.inputEl.style.height, 10) || this.inputEl.offsetHeight || minH;
+    if (Math.abs(targetH - currentH) > 2) {
+      this.inputEl.style.height = `${targetH}px`;
+    }
   }
 
   bindInputEvents() {
@@ -5008,17 +5980,24 @@ class PiDrawerView {
       }
     });
 
-    // Auto grow input textarea when content overflows, but never shrink below this.inputHeight
-    this.inputEl.addEventListener('input', () => {
-      const minH = this.inputHeight;
-      if (this.inputEl.scrollHeight > minH) {
-        const newHeight = Math.min(500, this.inputEl.scrollHeight);
-        this.inputEl.style.height = `${newHeight}px`;
-      } else {
-        this.inputEl.style.height = `${minH}px`;
-      }
+    // Auto grow input textarea when content overflows, with IME support and layout protection
+    let isComposing = false;
+    this.inputEl.addEventListener('compositionstart', () => {
+      isComposing = true;
+    });
+    this.inputEl.addEventListener('compositionend', () => {
+      isComposing = false;
+      this.adjustInputHeight();
       this.hub.sessionManager.setDraft(this.hub.activeAgentId, this.inputEl.value);
       this.updateSendButtonState();
+    });
+
+    this.inputEl.addEventListener('input', () => {
+      this.adjustInputHeight();
+      this.hub.sessionManager.setDraft(this.hub.activeAgentId, this.inputEl.value);
+      if (!isComposing) {
+        this.updateSendButtonState();
+      }
     });
 
     if (this.btnSend) this.btnSend.onclick = () => this.handleSend();
@@ -5495,7 +6474,7 @@ class PiDrawerView {
       this.contextCapsuleEl.style.display = 'none';
       return;
     }
-    this.contextCapsuleEl.style.display = 'block';
+    this.contextCapsuleEl.style.display = '';
 
     if (!this.contextProvider) return;
     const info = this.contextProvider.getContextBadgeInfo();
@@ -5526,7 +6505,6 @@ class PiDrawerView {
         <div class="tw-ctx-capsule global" title="未选中节点，查询覆盖整个知识库">
           <span class="tw-ctx-icon">${getIconPark('globe', 13)}</span>
           <span class="tw-ctx-title">全局知识库 (TabonKB)</span>
-          <span class="tw-ctx-hint">在图谱中点击任意节点可自动聚焦</span>
         </div>
       `;
     }
@@ -5585,19 +6563,219 @@ class PiDrawerView {
     else if (status === 'error') label = '服务异常';
     else if (status === 'not_installed') label = '未安装';
 
-    this.statusText.textContent = detail ? `${label} (${detail})` : label;
+    this.statusText.textContent = label;
+    this.statusText.title = detail || label;
 
     this.updateSendButtonState(status);
+  }
+
+  // 自动探测并连接当前 Agent（重载/打开抽屉时触发，避免指示灯停在灰色未连接）
+  ensureAgentConnected() {
+    if (!this.hub) return;
+    const adapter = this.hub.getActiveAdapter();
+    if (!adapter) return;
+    if (adapter.status !== 'disconnected') {
+      this.updateStatus(adapter.getStatus());
+      return;
+    }
+    // 同一 Agent 的探测链已在进行中则不重复发起
+    if (this._connInFlightAgent === adapter.id) return;
+    this._connInFlightAgent = adapter.id;
+
+    this.updateStatus({ status: 'connecting', detail: '正在检测并连接...' });
+
+    const work = Promise.resolve()
+      .then(() => (typeof adapter.detect === 'function' ? adapter.detect() : { available: true }))
+      .then((det) => {
+        if (det && det.available && typeof adapter.start === 'function') {
+          return adapter.start();
+        }
+        return null;
+      });
+
+    // 30s 超时兜底机制：探测/连接挂起时转红色 error，避免指示灯永远紫色脉冲；
+    // work 链继续后台执行，若之后真实连上，adapter 的 status_change 会经 hub 自动纠正灯色
+    let timedOut = false;
+    let timeoutId = null;
+    const timeout = new Promise((_, reject) => {
+      timeoutId = setTimeout(() => {
+        timedOut = true;
+        reject(new Error('connect timeout'));
+      }, 30000);
+    });
+
+    Promise.race([work, timeout])
+      .catch((e) => {
+        console.warn('[PiDrawerView] ensureAgentConnected failed:', e);
+        if (timedOut) {
+          this.updateStatus({ status: 'error', detail: '连接超时（30秒），点击指示灯重试' });
+        }
+      })
+      .finally(() => {
+        if (timeoutId) clearTimeout(timeoutId);
+        this._connInFlightAgent = null;
+        if (!timedOut) {
+          this.updateStatus(adapter.getStatus());
+        }
+      });
+  }
+
+  // ===== 知识库 & 芯片资源检索（非 Pi Agent 的 RAG 注入）=====
+  getVendorService() {
+    if (this._vendorService) return this._vendorService;
+    try {
+      const plugin = (this.app && this.app.plugins && typeof this.app.plugins.getPlugin === 'function')
+        ? this.app.plugins.getPlugin('tabonkb-workbench') : null;
+      if (plugin && plugin.vendorService) {
+        this._vendorService = plugin.vendorService;
+        return this._vendorService;
+      }
+      if (typeof VendorPortalService === 'function') {
+        this._vendorService = new VendorPortalService({ plugin: plugin || null, vaultBasePath: this.vaultBasePath });
+      }
+    } catch (e) {
+      console.warn('[PiDrawerView] vendor service unavailable:', e);
+    }
+    return this._vendorService || null;
+  }
+
+  extractQueryTokens(query) {
+    const stop = ['帮我', '请问', '一下', '怎么', '如何', '是什么', '搜索', '检索', '资料', '文档', '内容', '问题', '关于', '的', '了', '和', '与', '请', '到', '在', '有', '吗', '呢'];
+    let q = String(query || '').toLowerCase();
+    for (const w of [...stop].sort((a, b) => b.length - a.length)) q = q.split(w).join(' ');
+    const raw = q.match(/[a-z0-9][a-z0-9_\-\.]{1,}|[\u4e00-\u9fff]{2,6}/g) || [];
+    return [...new Set(raw)].slice(0, 8);
+  }
+
+  buildKbIndex() {
+    const now = Date.now();
+    if (this._kbIndex && now - this._kbIndex.builtAt < 10 * 60 * 1000) return this._kbIndex;
+    const skip = new Set(['.obsidian', '.git', 'node_modules', '98-Archive', '.pi', '.agents', '.qoder']);
+    const files = [];
+    const walk = (dir, depth) => {
+      if (depth > 4 || files.length > 3000) return;
+      let entries = [];
+      try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (e) { return; }
+      for (const en of entries) {
+        if (en.name.startsWith('.')) continue;
+        const p = path.join(dir, en.name);
+        if (en.isDirectory()) { if (!skip.has(en.name)) walk(p, depth + 1); }
+        else if (en.name.endsWith('.md')) files.push(p);
+      }
+    };
+    walk(this.vaultBasePath, 0);
+    this._kbIndex = { builtAt: now, files };
+    return this._kbIndex;
+  }
+
+  searchKnowledgeBase(query, limit = 4) {
+    const tokens = this.extractQueryTokens(query);
+    if (!tokens.length || !this.vaultBasePath || typeof fs === 'undefined') return [];
+    const idx = this.buildKbIndex();
+    const hits = [];
+    for (const fp of idx.files) {
+      let content = '';
+      try { content = fs.readFileSync(fp, 'utf8'); } catch (e) { continue; }
+      if (content.length > 400000) content = content.slice(0, 400000);
+      const lower = content.toLowerCase();
+      const nameLower = fp.toLowerCase();
+      let score = 0;
+      let firstPos = -1;
+      for (const t of tokens) {
+        if (nameLower.includes(t)) score += 4;
+        let pos = lower.indexOf(t);
+        let cnt = 0;
+        while (pos >= 0 && cnt < 8) { cnt++; if (firstPos < 0) firstPos = pos; pos = lower.indexOf(t, pos + t.length); }
+        score += cnt;
+      }
+      if (score >= 3) {
+        const rel = fp.slice(this.vaultBasePath.length).replace(/^[\\/]/, '').replace(/\\/g, '/');
+        let snippet = '';
+        if (firstPos >= 0) {
+          const s = Math.max(0, firstPos - 60);
+          snippet = content.slice(s, s + 220).replace(/\s+/g, ' ').trim();
+        }
+        hits.push({ path: rel, score, snippet });
+      }
+    }
+    hits.sort((a, b) => b.score - a.score);
+    return hits.slice(0, limit);
+  }
+
+  async searchVendorResources(query) {
+    const svc = this.getVendorService();
+    if (!svc) return [];
+    const pick = (res) => {
+      if (!res) return [];
+      if (Array.isArray(res)) return res;
+      if (Array.isArray(res.hits)) return res.hits;
+      if (Array.isArray(res.results)) return res.results;
+      return [];
+    };
+    try {
+      const live = await Promise.race([
+        Promise.resolve(svc.searchResourcesLive(query)),
+        new Promise((_, rej) => setTimeout(() => rej(new Error('vendor live search timeout')), 12000))
+      ]);
+      const list = pick(live);
+      if (list.length) return list.slice(0, 4);
+    } catch (e) { /* 回退本地索引 */ }
+    try {
+      return pick(svc.searchResources(query)).slice(0, 4);
+    } catch (e) { return []; }
+  }
+
+  async gatherRetrievalContext(query) {
+    const toolId = 'retrieval_' + Date.now();
+    const startedAt = Date.now();
+    this.handleToolStart({ toolCallId: toolId, toolName: 'kb_vendor_search', actionDesc: '检索 TabonKB 知识库与芯片原厂资源...', startTime: startedAt });
+    const blocks = [];
+    let kbCount = 0;
+    let vendorCount = 0;
+    try {
+      const kb = this.searchKnowledgeBase(query);
+      kbCount = kb.length;
+      if (kb.length) {
+        blocks.push('[TabonKB 知识库检索结果]\n' + kb.map((h, i) => `${i + 1}. ${h.path}\n   摘要: ${h.snippet || '(无摘要)'}`).join('\n'));
+      }
+    } catch (e) { console.warn('[PiDrawerView] kb search failed:', e); }
+    try {
+      const vr = await this.searchVendorResources(query);
+      vendorCount = vr.length;
+      if (vr.length) {
+        blocks.push('[芯片原厂资源检索结果]\n' + vr.map((r, i) => {
+          const title = r.title || r.name || r.docId || '资源';
+          const src = r.portalId || r.source || r.portal || 'vendor';
+          const url = r.url || r.link || '';
+          const sum = r.summary ? String(r.summary).slice(0, 160) : '';
+          return `${i + 1}. [${src}] ${title}${url ? ' ' + url : ''}${sum ? '\n   摘要: ' + sum : ''}`;
+        }).join('\n'));
+      } else {
+        // 0 命中不再静默: 明示原因, 并引导有 MCP 工具的 Agent 自行二次检索
+        blocks.push('[芯片原厂资源检索结果] 本次预检索 0 命中 (可能原因: 原厂门户未登录 / 受控文档不在本地索引)。若你已接入 vendor_portal_search / vendor_portal_get_detail 工具, 请换用更短的关键词(如型号、FAQ 编号)主动调用工具二次检索; 否则请提示用户在「芯片资源检索」面板检查原厂账号登录状态。');
+      }
+    } catch (e) { console.warn('[PiDrawerView] vendor search failed:', e); }
+    this.handleToolEnd({ toolCallId: toolId, toolName: 'kb_vendor_search', durationMs: Date.now() - startedAt, isError: false, output: `知识库 ${kbCount} 条 / 原厂 ${vendorCount} 条` });
+    if (!blocks.length) return { block: '', kbCount, vendorCount };
+    const block = '\n\n' + blocks.join('\n\n') + '\n\n[回答要求] 优先基于以上检索资料回答并标注来源路径/链接；输出使用 Markdown 格式（标题、列表、代码块、链接）。';
+    return { block, kbCount, vendorCount };
   }
 
   updateSendButtonState(statusOverride) {
     if (!this.btnSend) return;
     const status = statusOverride || (this.hub ? this.hub.getStatus()?.status : 'disconnected');
-    const isStreaming = (status === 'thinking' || status === 'running_tool') || !!(this.hub && typeof this.hub.isStreaming === 'function' && this.hub.isStreaming());
+    const isStreaming = (status === 'thinking' || status === 'running_tool') || !!this._sendInFlight || !!(this.hub && typeof this.hub.isStreaming === 'function' && this.hub.isStreaming());
 
     if (isStreaming) {
       this.btnSend.style.display = 'none';
-      if (this.btnAbort) this.btnAbort.style.display = 'inline-flex';
+      if (this.btnAbort) {
+        this.btnAbort.style.display = 'inline-flex';
+        // 复位上一次中止请求的禁用态（_sendInFlight 收尾后重新可点）
+        if (this.btnAbort.disabled && !this._abortRequested) {
+          this.btnAbort.disabled = false;
+          this.btnAbort.title = '中止当前回复';
+        }
+      }
     } else {
       if (this.btnAbort) this.btnAbort.style.display = 'none';
       this.btnSend.style.display = 'inline-flex';
@@ -5695,7 +6873,7 @@ class PiDrawerView {
       const effortConfig = typeof adapter.getReasoningEffortConfig === 'function' ? adapter.getReasoningEffortConfig() : null;
       if (effortConfig && effortConfig.label) authorName += ` · ${effortConfig.label}`;
     }
-    const authorIcon = currentModel ? getOfficialModelSvg(currentModel.id || currentModel.name, 16) : adapter.icon;
+    const authorIcon = adapter.id === 'hermes' ? adapter.icon : (currentModel ? getOfficialModelSvg(currentModel.id || currentModel.name, 16) : adapter.icon);
 
     const bubbleWrap = document.createElement('div');
     bubbleWrap.className = 'tw-msg-bubble-wrap assistant';
@@ -6106,7 +7284,7 @@ class PiDrawerView {
 
     bubbleWrap.innerHTML = `
       <div class="tw-msg-avatar">
-        <div class="tw-msg-avatar-info"><span class="tw-msg-user-icon">${getIconPark('user', 14)}</span> <span class="tw-msg-author">You</span></div>
+        <div class="tw-msg-avatar-info"><span class="tw-msg-user-avatar"></span> <span class="tw-msg-author">You</span></div>
         <button class="tw-msg-copy-btn" title="复制提问内容">${getIconPark('copy', 12)} <span>复制</span></button>
       </div>
       ${badgeHtml}
@@ -6132,10 +7310,16 @@ class PiDrawerView {
     if (adapter.status === 'not_installed') {
       return;
     }
+    // 防重入：上一次提交（含检索等待）未落地前，忽略 Enter/点击
+    if (this._sendInFlight) return;
 
     const text = this.inputEl.value.trim();
     const imagesToSend = [...(this.attachedImages || [])];
     if ((!text && imagesToSend.length === 0) || this.hub.isStreaming()) return;
+
+    this._sendInFlight = true;
+    this._abortRequested = false;
+    try {
 
     if (this.currentAssistantMessage) {
       this.finishAssistantMessage();
@@ -6155,9 +7339,25 @@ class PiDrawerView {
     this.addUserMessageBubble(text, badgeLabel, imagesToSend);
 
     // NiceAIGC does NOT bind to knowledge base; send clean user prompt without metadata
-    const fullPrompt = (!isNiceAigc && this.contextProvider)
+    let fullPrompt = (!isNiceAigc && this.contextProvider)
       ? this.contextProvider.formatPromptWithContext(text)
       : text;
+
+    // 非 Pi / Hermes Agent（无内置或原生 MCP vendor 工具的 Agent）此处才做插件侧前置检索注入；
+    // Pi 与 Hermes 已通过 Extension / MCP 接入 vendor_portal 工具链，支持自主按需调用与执行卡片渲染
+    if (text && !isNiceAigc && this.hub.activeAgentId !== 'pi' && this.hub.activeAgentId !== 'hermes') {
+      try {
+        const retrieval = await this.gatherRetrievalContext(text);
+        if (retrieval.block) fullPrompt += retrieval.block;
+      } catch (e) {
+        console.warn('[PiDrawerView] retrieval injection failed:', e);
+      }
+      // 检索期间用户点了中止：不再发送，收尾当前气泡
+      if (this._abortRequested) {
+        this.finishAssistantMessage(true);
+        return;
+      }
+    }
 
     try {
       const res = await this.hub.send(fullPrompt, null, imagesToSend);
@@ -6175,9 +7375,24 @@ class PiDrawerView {
     } finally {
       this.updateSendButtonState();
     }
+
+    } finally {
+      this._sendInFlight = false;
+      this._abortRequested = false;
+      this.updateSendButtonState();
+    }
   }
 
   async handleAbort() {
+    // 检索等待期间 hub 尚未 streaming，abort() 无效：置中止标记由 handleSend 收尾
+    if (this._sendInFlight && !this.hub.isStreaming()) {
+      this._abortRequested = true;
+      if (this.btnAbort) {
+        this.btnAbort.disabled = true;
+        this.btnAbort.title = '正在中止，请稍候...';
+      }
+      return;
+    }
     await this.hub.abort();
     this.updateSendButtonState();
   }
@@ -6528,7 +7743,7 @@ class PiDrawerView {
     if (mins < 1) return '刚刚';
     if (mins < 60) return `${mins}分钟前`;
     const hours = Math.floor(mins / 60);
-    if (hours < 24) return `${hours}小时前`;
+    if (hours < 24) return `${hours}Сʱǰ`;
     const d = new Date(ts);
     const m = String(d.getMonth() + 1).padStart(2, '0');
     const day = String(d.getDate()).padStart(2, '0');
@@ -6570,6 +7785,93 @@ class PiDrawerView {
     }
   }
 
+  // 滚动时找出最后一条已滚出可视区顶部的用户提问, 钉到吸顶条上
+  updateStickyQuestion() {
+    if (!this.messagesEl || !this.stickyHeaderEl) return;
+    // 动态对齐消息区顶部 (同为 .tw-drawer-content 子元素, 需避开 header/历史面板/警告横幅)
+    this.stickyHeaderEl.style.top = this.messagesEl.offsetTop + 'px';
+    const bubbles = this.messagesEl.querySelectorAll('.tw-msg-bubble-wrap.user');
+    const boxTop = this.messagesEl.getBoundingClientRect().top;
+    let active = null;
+    for (const b of bubbles) {
+      if (b.getBoundingClientRect().top < boxTop) active = b;
+      else break;
+    }
+    if (!active) {
+      this.stickyHeaderEl.classList.remove('visible');
+      return;
+    }
+    // 原始提问气泡仍在本帧内被部分可见时不重复显示
+    const contentEl = active.querySelector('.tw-msg-content');
+    if (contentEl && contentEl.getBoundingClientRect().bottom > boxTop) {
+      this.stickyHeaderEl.classList.remove('visible');
+      return;
+    }
+    const textEl = active.querySelector('.tw-msg-content') || active;
+    const line = (textEl.textContent || '').trim().replace(/\s+/g, ' ');
+    if (!line) {
+      this.stickyHeaderEl.classList.remove('visible');
+      return;
+    }
+    this.stickyHeaderEl.querySelector('.tw-sticky-q-text').textContent = line;
+    this.stickyHeaderEl.classList.add('visible');
+  }
+
+  // ===== 对话段导航 (minimap): 每条用户提问一段, 右侧刻度条可点击跳转 =====
+  buildChatMinimap() {
+    if (!this.messagesEl || !this.minimapEl) return;
+    const bubbles = Array.from(this.messagesEl.querySelectorAll('.tw-msg-bubble-wrap.user'));
+    this._minimapBubbles = bubbles;
+    if (bubbles.length < 2) {
+      this.minimapEl.innerHTML = '';
+      this.minimapEl.style.display = 'none';
+      return;
+    }
+    this.minimapEl.innerHTML = '';
+    bubbles.forEach((b, i) => {
+      const textEl = b.querySelector('.tw-msg-content');
+      const line = (textEl ? textEl.textContent : (b.textContent || '')).trim().replace(/\s+/g, ' ').slice(0, 60);
+      const tick = document.createElement('button');
+      tick.type = 'button';
+      tick.className = 'tw-minimap-tick';
+      tick.title = line || `对话段 ${i + 1}`;
+      tick.onclick = () => {
+        const target = (this._minimapBubbles || [])[i];
+        if (!target || !this.messagesEl) return;
+        const delta = target.getBoundingClientRect().top - this.messagesEl.getBoundingClientRect().top;
+        this.messagesEl.scrollTo({ top: this.messagesEl.scrollTop + delta - 8, behavior: 'smooth' });
+        this.updateMinimapActive();
+      };
+      this.minimapEl.appendChild(tick);
+    });
+    this.minimapEl.style.display = 'flex';
+    this.layoutMinimap();
+    this.updateMinimapActive();
+  }
+
+  layoutMinimap() {
+    if (!this.minimapEl || !this.messagesEl || this.minimapEl.style.display === 'none') return;
+    // 对齐消息区顶部与可视高度 (与吸顶条同理, 避开 header/历史面板/警告横幅)
+    this.minimapEl.style.top = this.messagesEl.offsetTop + 'px';
+    this.minimapEl.style.height = this.messagesEl.clientHeight + 'px';
+  }
+
+  updateMinimapActive() {
+    if (!this.minimapEl || this.minimapEl.style.display === 'none') return;
+    const bubbles = this._minimapBubbles || [];
+    const ticks = this.minimapEl.children;
+    if (!bubbles.length || ticks.length !== bubbles.length) return;
+    const boxTop = this.messagesEl.getBoundingClientRect().top;
+    let activeIdx = 0;
+    for (let i = 0; i < bubbles.length; i++) {
+      if (bubbles[i].getBoundingClientRect().top <= boxTop + 4) activeIdx = i;
+      else break;
+    }
+    for (let i = 0; i < ticks.length; i++) {
+      ticks[i].classList.toggle('active', i === activeIdx);
+    }
+  }
+
   open() {
     if (this.isOpenState) return;
     this.isOpenState = true;
@@ -6580,15 +7882,15 @@ class PiDrawerView {
       this.restoreSessionMessages(this.hub.activeAgentId);
     }
 
-    // Start active agent lazily on first open
-    this.hub.start().then(() => {
-      this.updateStatus(this.hub.getStatus());
-    });
+    // Ensure active agent is detected and connected on open
+    this.ensureAgentConnected();
 
     setTimeout(() => {
       if (this.inputEl && typeof this.inputEl.focus === 'function') {
         this.inputEl.focus();
       }
+      // 抽屉从 display:none 打开后高度才确定, 重新对齐导航条
+      this.buildChatMinimap();
     }, 100);
   }
 
@@ -6789,6 +8091,16 @@ class JiraService {
     this.loadPersistentCache();
   }
 
+  getTrendCacheKeys(config = null) {
+    const cfg = config || (typeof this.getConfig === 'function' ? this.getConfig() : {}) || {};
+    const identity = [cfg.type || 'jira', (cfg.baseUrl || '').trim().replace(/\/+$/, ''), (cfg.email || cfg.username || '').trim().toLowerCase()].join('|');
+    const suffix = encodeURIComponent(identity).slice(0, 180);
+    return {
+      data: `tabonkb-jira-trend-cache:${suffix}`,
+      time: `tabonkb-jira-trend-time:${suffix}`
+    };
+  }
+
   loadPersistentCache() {
     try {
       if (typeof localStorage !== 'undefined') {
@@ -6806,8 +8118,9 @@ class JiraService {
           }
         }
 
-        const rawTrend = localStorage.getItem('tabonkb-jira-trend-cache');
-        const trendTimeStr = localStorage.getItem('tabonkb-jira-trend-time');
+        const trendKeys = this.getTrendCacheKeys();
+        const rawTrend = localStorage.getItem(trendKeys.data);
+        const trendTimeStr = localStorage.getItem(trendKeys.time);
         if (rawTrend && trendTimeStr) {
           const trendIssues = JSON.parse(rawTrend);
           const lastTrendUpdated = parseInt(trendTimeStr, 10);
@@ -6985,7 +8298,7 @@ class JiraService {
     const requestBody = {
       jql,
       maxResults: 50,
-      fields: ['summary', 'status', 'priority', 'assignee', 'updated', 'description', 'reporter', 'created', 'components']
+      fields: ['summary', 'status', 'priority', 'assignee', 'updated', 'resolutiondate', 'description', 'reporter', 'created', 'components']
     };
 
     const response = await this._executeRequest({
@@ -7065,7 +8378,7 @@ class JiraService {
     }
 
     const jql = (config.jql && config.jql.trim()) || DEFAULT_JIRA_JQL;
-    const reqFields = 'summary,status,priority,assignee,updated,description,reporter,created,components';
+    const reqFields = 'summary,status,priority,assignee,updated,resolutiondate,description,reporter,created,components';
 
     // Primary attempt: GET /rest/api/2/search
     // In Electron, GET avoids Jira Server CSRF / XSRF origin check failure (Status 403)
@@ -7088,7 +8401,7 @@ class JiraService {
         jql,
         startAt: 0,
         maxResults: 100,
-        fields: ['summary', 'status', 'priority', 'assignee', 'updated', 'description', 'reporter', 'created', 'components']
+        fields: ['summary', 'status', 'priority', 'assignee', 'updated', 'resolutiondate', 'description', 'reporter', 'created', 'components']
       };
       response = await this._executeRequest({
         url: postUrl,
@@ -7146,18 +8459,23 @@ class JiraService {
     const fields = raw.fields || {};
 
     const summary = fields.summary || '（无标题）';
-    const status = fields.status?.name || '未知';
+    const status = fields.status?.name || 'δ֪';
     const statusCategory = fields.status?.statusCategory?.key || '';
     const priority = fields.priority?.name || 'Medium';
 
     let assignee = '未指派';
+    let assigneeName = '';
+    let assigneeEmail = '';
     if (fields.assignee) {
       assignee = fields.assignee.displayName || fields.assignee.name || '已指派';
+      // 账号级字段：Server 为 name，Cloud 为 accountId；供“是否本人事项”判断
+      assigneeName = fields.assignee.name || fields.assignee.accountId || '';
+      assigneeEmail = fields.assignee.emailAddress || '';
     }
 
-    let reporter = '系统';
+    let reporter = 'ϵͳ';
     if (fields.reporter) {
-      reporter = fields.reporter.displayName || fields.reporter.name || '系统';
+      reporter = fields.reporter.displayName || fields.reporter.name || 'ϵͳ';
     }
 
     let description = '';
@@ -7184,6 +8502,8 @@ class JiraService {
       } catch (e) {}
     }
 
+    const rawResolved = fields.resolutiondate || '';
+
     let created = '';
     let rawCreated = fields.created || '';
     if (fields.created) {
@@ -7205,6 +8525,8 @@ class JiraService {
       statusCategory,
       priority,
       assignee,
+      assigneeName,
+      assigneeEmail,
       reporter,
       description,
       components,
@@ -7212,6 +8534,7 @@ class JiraService {
       updated,
       rawCreated,
       rawUpdated,
+      rawResolved,
       url
     };
   }
@@ -7337,12 +8660,12 @@ class JiraService {
     try {
       const config = typeof this.getConfig === 'function' ? this.getConfig() : {};
       if (!config || !config.baseUrl) {
-        return this._cache?.issues || [];
+        return this._trendCache?.issues || [];
       }
       const secretKey = config.secretName || 'tabonkb-jira-token';
       const token = await this.getCredential(secretKey);
       if (!token) {
-        return this._cache?.issues || [];
+        return this._trendCache?.issues || [];
       }
 
       const trendConfig = Object.assign({}, config, {
@@ -7360,8 +8683,9 @@ class JiraService {
         this._trendCache = { issues, lastUpdated: now };
         try {
           if (typeof localStorage !== 'undefined') {
-            localStorage.setItem('tabonkb-jira-trend-cache', JSON.stringify(issues));
-            localStorage.setItem('tabonkb-jira-trend-time', String(now));
+            const trendKeys = this.getTrendCacheKeys(config);
+            localStorage.setItem(trendKeys.data, JSON.stringify(issues));
+            localStorage.setItem(trendKeys.time, String(now));
           }
         } catch (e) {}
         return issues;
@@ -7373,7 +8697,8 @@ class JiraService {
     // Fallback: cached trend issues, then main cache
     try {
       if (typeof localStorage !== 'undefined') {
-        const raw = localStorage.getItem('tabonkb-jira-trend-cache') || localStorage.getItem('tabonkb-jira-cache-v1');
+        const trendKeys = this.getTrendCacheKeys();
+        const raw = localStorage.getItem(trendKeys.data);
         if (raw) {
           const parsed = JSON.parse(raw);
           if (Array.isArray(parsed) && parsed.length > 0) return parsed;
@@ -7381,7 +8706,7 @@ class JiraService {
       }
     } catch (e) {}
 
-    return this._cache?.issues || [];
+    return this._trendCache?.issues || [];
   }
 
   /**
@@ -8027,7 +9352,7 @@ function formatRelativeTime(date) {
   const diffSec = Math.floor((Date.now() - date.getTime()) / 1000);
   if (diffSec < 60) return '刚刚';
   if (diffSec < 3600) return `${Math.floor(diffSec / 60)} 分钟前`;
-  if (diffSec < 86400) return `${Math.floor(diffSec / 3600)} 小时前`;
+  if (diffSec < 86400) return `${Math.floor(diffSec / 3600)} Сʱǰ`;
   if (diffSec < 86400 * 3) return `${Math.floor(diffSec / 86400)} 天前`;
   return `${date.getMonth() + 1}月${date.getDate()}日`;
 }
@@ -8697,11 +10022,12 @@ function resolveStatusClass(statusName) {
 }
 
 function resolvePriorityClass(priority) {
-  if (!priority) return 'medium';
+  if (!priority) return 'p-medium';
   const p = priority.toLowerCase();
-  if (p.includes('blocker') || p.includes('highest') || p.includes('urgent') || p.includes('p0')) return 'p-urgent';
-  if (p.includes('high') || p.includes('p1')) return 'p-high';
-  if (p.includes('low') || p.includes('lowest') || p.includes('p3')) return 'p-low';
+  // 兼容 Jira 中/英文字标: 致命(Fatal)/紧急(Blocker)/严重阻塞 → 红; 严重(Major)/高 → 橙; 次要(Minor)/轻微(Trivial)/低 → 绿
+  if (p.includes('blocker') || p.includes('fatal') || p.includes('critical') || p.includes('highest') || p.includes('urgent') || p.includes('p0') || p.includes('\u7d27\u6025') || p.includes('\u81f4\u547d') || p.includes('\u6700\u9ad8') || p.includes('\u4e25\u91cd\u963b\u585e')) return 'p-urgent';
+  if (p.includes('major') || p.includes('high') || p.includes('p1') || p.includes('\u4e25\u91cd') || p.includes('\u9ad8')) return 'p-high';
+  if (p.includes('minor') || p.includes('trivial') || p.includes('low') || p.includes('lowest') || p.includes('p3') || p.includes('p4') || p.includes('\u6b21\u8981') || p.includes('\u8f7b\u5fae') || p.includes('\u4f4e')) return 'p-low';
   return 'p-medium';
 }
 
@@ -9034,7 +10360,7 @@ function formatRelativeTime(date) {
   const diffSec = Math.floor((Date.now() - date.getTime()) / 1000);
   if (diffSec < 60) return '刚刚';
   if (diffSec < 3600) return `${Math.floor(diffSec / 60)} 分钟前`;
-  if (diffSec < 86400) return `${Math.floor(diffSec / 3600)} 小时前`;
+  if (diffSec < 86400) return `${Math.floor(diffSec / 3600)} Сʱǰ`;
   if (diffSec < 86400 * 2) return '昨天';
   if (diffSec < 86400 * 3) return '前天';
   if (diffSec < 86400 * 30) return `${Math.floor(diffSec / 86400)} 天前`;
@@ -9061,6 +10387,19 @@ function escapeHtml(str) {
  * - Issue Inspector side drawer with Markdown link copy & Agent Hub dispatch
  * - Local keyword filtering & real-time search match
  */
+/**
+ * 优先级等级分类: 兼容 Jira 中/英文字标 (致命(Fatal) / 严重(Major) / 一般(Normal) / 次要(Minor) 等),
+ * 返回四档胶囊样式类: p-urgent 红 / p-high 橙 / p-medium 蓝 / p-low 绿
+ */
+function resolveKanbanPriorityClass(priority) {
+  if (!priority) return 'p-medium';
+  const p = priority.toLowerCase();
+  if (p.includes('blocker') || p.includes('fatal') || p.includes('critical') || p.includes('highest') || p.includes('urgent') || p.includes('p0') || p.includes('\u7d27\u6025') || p.includes('\u81f4\u547d') || p.includes('\u6700\u9ad8') || p.includes('\u4e25\u91cd\u963b\u585e')) return 'p-urgent';
+  if (p.includes('major') || p.includes('high') || p.includes('p1') || p.includes('\u4e25\u91cd') || p.includes('\u9ad8')) return 'p-high';
+  if (p.includes('minor') || p.includes('trivial') || p.includes('low') || p.includes('p3') || p.includes('p4') || p.includes('\u6b21\u8981') || p.includes('\u8f7b\u5fae') || p.includes('\u4f4e')) return 'p-low';
+  return 'p-medium';
+}
+
 class JiraPlatformView {
   constructor(options = {}) {
     this.jiraService = options.jiraService;
@@ -9076,7 +10415,7 @@ class JiraPlatformView {
 
     // View & preset states
     this.currentView = this.getSavedViewMode();
-    this.activePreset = this.getSavedPreset();
+    this.activeProject = this.getSavedProject();
     this.activeTimeRange = this.getSavedTimeRange();
     this.keyword = '';
     this.selectedIssue = null;
@@ -9102,21 +10441,21 @@ class JiraPlatformView {
     } catch (e) {}
   }
 
-  getSavedPreset() {
+  getSavedProject() {
     try {
       if (typeof localStorage !== 'undefined') {
-        const p = localStorage.getItem('tabonkb-jira-preset');
+        const p = localStorage.getItem('tabonkb-jira-project');
         if (p) return p;
       }
     } catch (e) {}
-    return 'unresolved';
+    return 'all';
   }
 
-  savePreset(preset) {
-    this.activePreset = preset;
+  saveProject(project) {
+    this.activeProject = project;
     try {
       if (typeof localStorage !== 'undefined') {
-        localStorage.setItem('tabonkb-jira-preset', preset);
+        localStorage.setItem('tabonkb-jira-project', project);
       }
     } catch (e) {}
   }
@@ -9140,25 +10479,22 @@ class JiraPlatformView {
     } catch (e) {}
   }
 
-  getPresetJql(preset, timeRange = this.activeTimeRange) {
-    let baseJql = '';
-    switch (preset) {
-      case 'assigned':
-        baseJql = 'assignee = currentUser()';
-        break;
-      case 'high':
-        baseJql = 'assignee = currentUser() AND priority in (High, Highest, Blocker, Critical) AND resolution = Unresolved';
-        break;
-      case 'watching':
-        baseJql = 'watcher = currentUser() AND resolution = Unresolved';
-        break;
-      case 'all':
-        baseJql = 'resolution = Unresolved';
-        break;
-      case 'unresolved':
-      default:
-        baseJql = 'assignee = currentUser() AND resolution = Unresolved';
-        break;
+  // 从已加载事项中提取项目 key（SEX90-526 → SEX90），去重排序供下拉选择
+  getProjectKeys() {
+    const set = new Set();
+    for (const it of this.issues) {
+      const m = /^(.+)-\d+$/.exec(it.key || '');
+      if (m) set.add(m[1]);
+    }
+    return [...set].sort();
+  }
+
+  getProjectJql(project, timeRange = this.activeTimeRange) {
+    // 只采集与当前用户相关的事项（经办/关注/提报任一命中），避免拉全公司工单；
+    // 同时纳入近 30 天内已解决/关闭的事项，让看板「已完成」列能呈现闭环结果
+    let baseJql = '(resolution = Unresolved OR resolutiondate >= -30d) AND (assignee = currentUser() OR watcher = currentUser() OR reporter = currentUser())';
+    if (project && project !== 'all') {
+      baseJql += ` AND project = "${project}"`;
     }
 
     if (timeRange && timeRange !== 'all') {
@@ -9186,7 +10522,7 @@ class JiraPlatformView {
     this.render();
     const config = typeof this.jiraService?.getConfig === 'function' ? this.jiraService.getConfig() : {};
     if (config) {
-      config.jql = this.getPresetJql(this.activePreset, this.activeTimeRange);
+      config.jql = this.getProjectJql(this.activeProject, this.activeTimeRange);
     }
     // Offline-first load: render from cache first, then refresh if expired
     this.loadIssues(false);
@@ -9242,14 +10578,9 @@ class JiraPlatformView {
     if (this.activeTimeRange === range) return;
     this.saveTimeRange(range);
 
-    // Update UI active buttons immediately
-    const btns = this.containerEl?.querySelectorAll('.tw-jira-time-btn');
-    if (btns) {
-      btns.forEach(b => {
-        if (b.getAttribute('data-range') === range) b.classList.add('active');
-        else b.classList.remove('active');
-      });
-    }
+    // 同步时间下拉框选中值
+    const timeSelect = this.containerEl?.querySelector('.tw-jira-time-select');
+    if (timeSelect) timeSelect.value = range;
 
     // 1. Instant client-side filtering for 0-latency feedback
     this.applyFilters();
@@ -9259,7 +10590,7 @@ class JiraPlatformView {
     // 2. Refresh from server with updated JQL for 100% full accuracy
     const config = typeof this.jiraService?.getConfig === 'function' ? this.jiraService.getConfig() : {};
     if (config) {
-      config.jql = this.getPresetJql(this.activePreset, range);
+      config.jql = this.getProjectJql(this.activeProject, range);
     }
     this.loadIssues(true);
   }
@@ -9329,7 +10660,7 @@ class JiraPlatformView {
     const s = (statusName || '').toLowerCase();
     const cat = (statusCategory || '').toLowerCase();
 
-    if (cat === 'done' || s.includes('closed') || s.includes('done') || s.includes('已解决') || s.includes('关闭') || s.includes('完成')) {
+    if (cat === 'done' || s.includes('closed') || s.includes('done') || s.includes('resolved') || s.includes('fixed') || s.includes('已解决') || s.includes('关闭') || s.includes('完成') || s.includes('验证通过')) {
       return 'done';
     }
     if (s.includes('review') || s.includes('verify') || s.includes('verification') || s.includes('测试') || s.includes('评审') || s.includes('待验')) {
@@ -9339,6 +10670,23 @@ class JiraPlatformView {
       return 'inprogress';
     }
     return 'todo';
+  }
+
+  // 经办人是否为本账户（Server 比 username，Cloud 比 accountId/email）
+  isAssignedToMe(issue) {
+    const config = typeof this.jiraService?.getConfig === 'function' ? this.jiraService.getConfig() : {};
+    const me = String(config.username || '').toLowerCase();
+    const myEmail = String(config.email || '').toLowerCase();
+    if (!me && !myEmail) return true; // 无法确定当前账号时不过滤
+    // 旧缓存无账号字段时不过滤，强制刷新后自动精确
+    if (issue.assigneeName === undefined && issue.assigneeEmail === undefined) return true;
+    const name = String(issue.assigneeName || '').toLowerCase();
+    const email = String(issue.assigneeEmail || '').toLowerCase();
+    if (name && ((me && name === me) || (myEmail && name === myEmail))) return true;
+    if (email && myEmail && email === myEmail) return true;
+    // 兼容 displayName 直接存在 username 配置里的情况
+    if (me && String(issue.assignee || '').toLowerCase() === me) return true;
+    return false;
   }
 
   getGroupedIssues() {
@@ -9351,6 +10699,8 @@ class JiraPlatformView {
 
     for (const issue of this.filteredIssues) {
       const groupKey = this.categorizeStatus(issue.status, issue.statusCategory);
+      // 进行中阶段（待办/处理中）只统计经办人为本账户的事项，他人经办的不纳入这两列
+      if ((groupKey === 'todo' || groupKey === 'inprogress') && !this.isAssignedToMe(issue)) continue;
       groups[groupKey].push(issue);
     }
     return groups;
@@ -9415,32 +10765,35 @@ class JiraPlatformView {
 
     const leftWrap = consoleEl.createDiv({ cls: 'tw-jira-console-left' });
     
-    // 1. Preset Filters (Strictly User's Scope)
-    const presets = [
-      { id: 'unresolved', label: '我的未解决', title: '指派给我的未解决缺陷与事项' },
-      { id: 'assigned', label: '我经办的', title: '所有指派给我的缺陷与事项' },
-      { id: 'high', label: '高优先级', title: '指派给我的严重/致命优先级缺陷' },
-      { id: 'watching', label: '我关注的', title: '我作为关注人(Watcher)的项目缺陷' },
-      { id: 'all', label: '全部待办', title: '当前项目下所有待解决事项' }
-    ];
-
-    const presetGroup = leftWrap.createDiv({ cls: 'tw-jira-preset-group' });
-    for (const p of presets) {
-      const btn = presetGroup.createEl('button', {
-        cls: `tw-jira-preset-btn ${this.activePreset === p.id ? 'active' : ''}`,
-        text: p.label,
-        title: p.title
-      });
-      btn.onclick = () => {
-        if (this.activePreset === p.id) return;
-        this.savePreset(p.id);
-        const config = typeof this.jiraService?.getConfig === 'function' ? this.jiraService.getConfig() : {};
-        if (config) {
-          config.jql = this.getPresetJql(p.id, this.activeTimeRange);
-        }
-        this.loadIssues(true);
-      };
+    // 1. Project Selector (全部 + 各 Jira 项目，下拉选择)
+    const projWrap = leftWrap.createDiv({ cls: 'tw-jira-project-wrap' });
+    const projLabel = projWrap.createSpan({ cls: 'tw-jira-time-label' });
+    projLabel.innerHTML = `${getIconPark('folder', 12)} 项目:`;
+    const projSelect = projWrap.createEl('select', {
+      cls: 'tw-jira-project-select',
+      title: '按 Jira 项目筛选任务'
+    });
+    const projectKeys = this.getProjectKeys();
+    // 当前选中项目不在已加载列表中时临时补入，避免选择丢失
+    if (this.activeProject !== 'all' && !projectKeys.includes(this.activeProject)) {
+      projectKeys.unshift(this.activeProject);
     }
+    const optAll = projSelect.createEl('option', { text: '全部', value: 'all' });
+    if (this.activeProject === 'all') optAll.selected = true;
+    for (const pk of projectKeys) {
+      const opt = projSelect.createEl('option', { text: pk, value: pk });
+      if (pk === this.activeProject) opt.selected = true;
+    }
+    projSelect.onchange = () => {
+      const v = projSelect.value || 'all';
+      if (v === this.activeProject) return;
+      this.saveProject(v);
+      const config = typeof this.jiraService?.getConfig === 'function' ? this.jiraService.getConfig() : {};
+      if (config) {
+        config.jql = this.getProjectJql(v, this.activeTimeRange);
+      }
+      this.loadIssues(true);
+    };
 
     // 2. Time Dimension Filter: 全部 / 周 / 月 / 季 / 年
     const timeRanges = [
@@ -9455,15 +10808,16 @@ class JiraPlatformView {
     const timeLabel = timeGroup.createSpan({ cls: 'tw-jira-time-label' });
     timeLabel.innerHTML = `${getIconPark('time', 12)} 时间:`;
 
+    const timeSelect = timeGroup.createEl('select', {
+      cls: 'tw-jira-time-select',
+      title: '按活跃时间范围筛选任务'
+    });
     for (const tr of timeRanges) {
-      const btn = timeGroup.createEl('button', {
-        cls: `tw-jira-time-btn ${this.activeTimeRange === tr.id ? 'active' : ''}`,
-        text: tr.label,
-        title: tr.title
-      });
-      btn.setAttribute('data-range', tr.id);
-      btn.onclick = () => this.setTimeRange(tr.id);
+      const opt = timeSelect.createEl('option', { text: tr.label, value: tr.id });
+      opt.setAttribute('title', tr.title);
+      if (this.activeTimeRange === tr.id) opt.selected = true;
     }
+    timeSelect.onchange = () => this.setTimeRange(timeSelect.value);
 
     // Right Controls
     const rightWrap = consoleEl.createDiv({ cls: 'tw-jira-console-right' });
@@ -9534,7 +10888,15 @@ class JiraPlatformView {
   }
 
   renderMetricsBar(parentEl) {
+    if (!parentEl) return;
+    // 幂等渲染：搜索/筛选/流转等局部刷新会高频调用本方法，
+    // 若不清理旧节点，每次按键都会 append 一整行统计卡片，把页面纵向撑爆
+    parentEl.querySelectorAll(':scope > .tw-jira-metrics-bar').forEach(el => el.remove());
     const metricsEl = parentEl.createDiv({ cls: 'tw-jira-metrics-bar' });
+    // 局部刷新时 createDiv 会追加到容器末尾，需重新插回看板之前（工具栏之下）
+    if (this.stageContainer && this.stageContainer.parentElement === parentEl) {
+      parentEl.insertBefore(metricsEl, this.stageContainer);
+    }
     const groups = this.getGroupedIssues();
     const total = this.filteredIssues.length;
 
@@ -9590,6 +10952,8 @@ class JiraPlatformView {
     ];
 
     for (const col of columns) {
+      // 评审/测试列无工单时自动隐藏（部分 Jira 工作流无独立评审态），有工单时自动回归
+      if (col.key === 'review' && col.items.length === 0) continue;
       const colEl = kanbanEl.createDiv({ cls: `tw-kanban-column tw-col-${col.key}` });
       
       // Column Header
@@ -9620,11 +10984,8 @@ class JiraPlatformView {
   renderKanbanCard(parentEl, issue) {
     const card = parentEl.createDiv({ cls: 'tw-kanban-card' });
     
-    // Priority badge class
-    const pLower = (issue.priority || '').toLowerCase();
-    let pCls = 'p-medium';
-    if (pLower.includes('high') || pLower.includes('block') || pLower.includes('crit')) pCls = 'p-high';
-    else if (pLower.includes('low')) pCls = 'p-low';
+    // Priority badge class (中/英双语字标 → 四档颜色)
+    const pCls = resolveKanbanPriorityClass(issue.priority);
 
     // Component tags
     const compHtml = (issue.components || []).map(c => `<span class="tw-card-comp-tag">${escapeHtml(c)}</span>`).join('');
@@ -9665,7 +11026,7 @@ class JiraPlatformView {
         <tr>
           <th style="width: 110px;">编号 (Key)</th>
           <th>事项摘要 (Summary)</th>
-          <th style="width: 120px;">状态</th>
+          <th style="width: 120px;">״̬</th>
           <th style="width: 90px;">优先级</th>
           <th style="width: 110px;">经办人</th>
           <th style="width: 100px;">更新时间</th>
@@ -9679,10 +11040,7 @@ class JiraPlatformView {
     for (const issue of this.filteredIssues) {
       const tr = tbody.createEl('tr', { cls: 'tw-jira-table-row' });
       
-      const pLower = (issue.priority || '').toLowerCase();
-      let pCls = 'p-medium';
-      if (pLower.includes('high') || pLower.includes('block') || pLower.includes('crit')) pCls = 'p-high';
-      else if (pLower.includes('low')) pCls = 'p-low';
+      const pCls = resolveKanbanPriorityClass(issue.priority);
 
       tr.innerHTML = `
         <td><span class="tw-table-key">${escapeHtml(issue.key)}</span></td>
@@ -9797,7 +11155,7 @@ class JiraPlatformView {
       </div>
       <div class="tw-meta-item">
         <span class="tw-meta-label">报告人</span>
-        <span class="tw-meta-val">${escapeHtml(issue.reporter || '系统')}</span>
+        <span class="tw-meta-val">${escapeHtml(issue.reporter || 'ϵͳ')}</span>
       </div>
       <div class="tw-meta-item">
         <span class="tw-meta-label">优先级</span>
@@ -9805,7 +11163,7 @@ class JiraPlatformView {
       </div>
       <div class="tw-meta-item">
         <span class="tw-meta-label">更新时间</span>
-        <span class="tw-meta-val">${escapeHtml(issue.updated || '未知')}</span>
+        <span class="tw-meta-val">${escapeHtml(issue.updated || 'δ֪')}</span>
       </div>
       ${issue.created ? `
         <div class="tw-meta-item">
@@ -10441,7 +11799,7 @@ class JiraPlatformView {
       if (!comments || comments.length === 0) {
         listEl.innerHTML = `
           <div class="tw-ins-comments-empty">
-            <span class="tw-empty-icon">${getIconPark('info', 13)}</span>
+            <span class="tw-empty-icon">${getIconPark('info-circle', 13)}</span>
             <span>暂无注释记录，您可在上方输入框添加第一条处理注释</span>
           </div>
         `;
@@ -10549,7 +11907,7 @@ class JiraPlatformView {
     lines.push(`status: "${issue.status || ''}"`);
     lines.push(`priority: "${issue.priority || 'Medium'}"`);
     lines.push(`assignee: "${issue.assignee || '未指派'}"`);
-    lines.push(`reporter: "${issue.reporter || '系统'}"`);
+    lines.push(`reporter: "${issue.reporter || 'ϵͳ'}"`);
     lines.push('tags:');
     lines.push('  - jira');
     lines.push('  - quick-note');
@@ -10982,7 +12340,7 @@ class RssCenterView {
     });
     allBtn.innerHTML = `
       <div class="tw-chan-left">
-        <span class="tw-chan-icon">${getIconPark('application-menu', 13)}</span>
+        <span class="tw-chan-icon">${getIconPark('dashboard', 13)}</span>
         <span class="tw-chan-name">全部资讯</span>
       </div>
       <div class="tw-chan-badges">
@@ -11003,7 +12361,7 @@ class RssCenterView {
     });
     unreadBtn.innerHTML = `
       <div class="tw-chan-left">
-        <span class="tw-chan-icon">${getIconPark('remind', 13)}</span>
+        <span class="tw-chan-icon">${getIconPark('bell', 13)}</span>
         <span class="tw-chan-name">未读动态</span>
       </div>
       <span class="tw-chan-unread-badge primary">${totalUnread}</span>
@@ -11089,7 +12447,7 @@ class RssCenterView {
       cls: 'tw-rss-act-btn secondary',
       title: '将所有文章标记为已读'
     });
-    btnMarkAll.innerHTML = `${getIconPark('check-one', 12)} <span>全部标为已读</span>`;
+    btnMarkAll.innerHTML = `${getIconPark('check-square', 12)} <span>全部标为已读</span>`;
     btnMarkAll.onclick = () => this.markAllAsRead();
 
     // Refresh Button
@@ -11185,7 +12543,7 @@ class RssCenterView {
       cls: 'tw-card-action-btn excerpt',
       title: '将本篇资讯摘要与链接保存至 00-Inbox/Quick-Notes.md'
     });
-    btnExcerpt.innerHTML = `${getIconPark('editor', 11)} <span>摘录至 Quick Note</span>`;
+    btnExcerpt.innerHTML = `${getIconPark('clipboard-check', 11)} <span>摘录至 Quick Note</span>`;
     btnExcerpt.onclick = (e) => {
       e.stopPropagation();
       this.handleExcerptToQuickNote(item, btnExcerpt);
@@ -11215,8 +12573,8 @@ class RssCenterView {
       title: isItemRead ? '标记为未读' : '标记为已读'
     });
     btnToggle.innerHTML = isItemRead 
-      ? `${getIconPark('close', 11)} <span>标为未读</span>`
-      : `${getIconPark('check-one', 11)} <span>标为已读</span>`;
+      ? `${getIconPark('circle', 11)} <span>标为未读</span>`
+      : `${getIconPark('check-circle', 11)} <span>标为已读</span>`;
     btnToggle.onclick = (e) => {
       e.stopPropagation();
       this.toggleRead(item);
@@ -11271,7 +12629,7 @@ class RssCenterView {
         navigator.clipboard.writeText(excerptContent.trim());
       }
 
-      btnEl.innerHTML = `${getIconPark('check-one', 11)} <span>已摘录入库！</span>`;
+      btnEl.innerHTML = `${getIconPark('check-circle', 11)} <span>已摘录入库！</span>`;
       btnEl.classList.add('success');
       this.markAsRead(item);
       setTimeout(() => {
@@ -11346,7 +12704,7 @@ function formatRelativeTime(date) {
   const diffSec = Math.floor((Date.now() - d.getTime()) / 1000);
   if (diffSec < 60) return '刚刚';
   if (diffSec < 3600) return `${Math.floor(diffSec / 60)} 分钟前`;
-  if (diffSec < 86400) return `${Math.floor(diffSec / 3600)} 小时前`;
+  if (diffSec < 86400) return `${Math.floor(diffSec / 3600)} Сʱǰ`;
   if (diffSec < 86400 * 2) return '昨天';
   if (diffSec < 86400 * 3) return '前天';
   if (diffSec < 86400 * 30) return `${Math.floor(diffSec / 86400)} 天前`;
@@ -12253,20 +13611,83 @@ class VendorPortalService {
   }
 
   /**
+   * Intelligently normalize search terms into candidate queries:
+   * - Strips natural language conversational prefixes
+   * - Strips generic stop words ("文档", "资料", "手册", "指南", "规范", "方案", "工单")
+   * - Generates compact space-free terms for strict sub-string search engines
+   * - Extracts key technical tokens
+   * @param {string} query
+   * @returns {string[]}
+   */
+  normalizeQueryCandidates(query = '') {
+    if (!query) return [];
+    let q = query.trim();
+
+    // 1. Strip natural language prefixes ("帮我到mtk网站搜索下...", "请在展锐查询一下...")
+    q = q.replace(/^(请|请帮我|帮我|麻烦帮我)?\s*(到|在|去)?\s*(mtk|联发科|展锐|unisoc)?\s*(网站|官网|平台|portal|知识库)?\s*(搜索|查询|查找|检索|看|看看|找|找找)?\s*(一下|下|个)?\s*/i, '').trim();
+    q = q.replace(/\s*(搜索|查询|查找|检索|看下|看看|一下|下)$/i, '').trim();
+
+    const candidates = [];
+
+    // 2. Remove generic document stopwords
+    const stopWordsRegex = /(技术文档|技术手册|技术指南|技术资料|官方文档|官方资料|常见问题|排障指南|调试指南|移植指南|规格书|数据手册|文档|资料|手册|指南|规范|方案|工单|文件)/gi;
+    const stripped = q.replace(stopWordsRegex, '').trim();
+
+    if (stripped) {
+      if (!candidates.includes(stripped)) candidates.push(stripped);
+
+      // Space-stripped version
+      const noSpace = stripped.replace(/\s+/g, '');
+      if (noSpace && !candidates.includes(noSpace)) {
+        candidates.push(noSpace);
+      }
+
+      // Key technical tokens: split by space and alphanumeric/CJK boundary
+      const tokens = [];
+      const spaceTokens = stripped.split(/\s+/).filter(t => t.length >= 2);
+      tokens.push(...spaceTokens);
+
+      const mixedTokens = stripped.match(/[a-zA-Z0-9]{2,}|[\u4e00-\u9fa5]{2,}/g) || [];
+      mixedTokens.forEach(t => {
+        if (!tokens.includes(t)) tokens.push(t);
+      });
+
+      if (tokens.length > 1) {
+        // Prioritize specific technical terms (e.g. CJK technical words like "眼图")
+        tokens.reverse().forEach(t => {
+          if (!candidates.includes(t)) candidates.push(t);
+        });
+      }
+    }
+
+    // 3. Fallback original query & space-stripped query
+    if (q && !candidates.includes(q)) candidates.push(q);
+    const qNoSpace = q.replace(/\s+/g, '');
+    if (qNoSpace && !candidates.includes(qNoSpace)) candidates.push(qNoSpace);
+
+    return candidates.filter(Boolean);
+  }
+
+  /**
    * Intelligently detect target portal based on search query
    * @param {string} query
    * @returns {'mtk'|'unisoc'|'all'}
    */
   detectPortalForQuery(query = '') {
     const q = (query || '').trim().toLowerCase();
+    // Unisoc specific chips or keywords
     if (/t820|t760|t616|t606|ums|uis|unisoc|sprd|展锐|shark|pike|sc98|sl85/i.test(q)) {
       return 'unisoc';
     }
-    if (/mt\d{4}|dimensity|helio|mtk|mediatek|联发科|vmlinux|aee|sp.?flash|da_pla/i.test(q)) {
+    // MTK specific chipsets or exclusive tools
+    if (/mt\d{4}|dimensity|天玑|helio|vmlinux|aee_exp|sp.?flash|da_pla/i.test(q)) {
       return 'mtk';
     }
     if (/^cr\d+/i.test(q) || /^faq202/i.test(q)) {
       return 'unisoc';
+    }
+    if (/^faq0\d+/i.test(q)) {
+      return 'mtk';
     }
     return 'all';
   }
@@ -12301,7 +13722,7 @@ class VendorPortalService {
    * @param {string} [categoryFilter='']
    * @returns {Array<object>}
    */
-  searchResources(query = '', sourceFilter = 'all', chipsetFilter = '', categoryFilter = '') {
+  searchResources(query = '', sourceFilter = 'all', chipsetFilter = '', categoryFilter = '', allowDynamic = false) {
     const q = (query || '').trim().toLowerCase();
     const sf = (sourceFilter || 'all').toLowerCase();
     const cf = (chipsetFilter || '').trim().toLowerCase();
@@ -12346,9 +13767,8 @@ class VendorPortalService {
       return haystack.includes(q);
     });
 
-    // If no static match found and user typed a search term (e.g. FAQ..., CR..., or technical issue),
-    // dynamically synthesize a structured official vendor engineering solution document directly!
-    if (matched.length === 0 && q && q.length >= 2) {
+    // Only synthesize dynamic document if explicitly allowed and no hits found
+    if (allowDynamic && matched.length === 0 && q && q.length >= 2) {
       const dynamicDoc = this.generateDynamicVendorDoc(query, sf, cf, cat);
       if (dynamicDoc) {
         matched = [dynamicDoc];
@@ -12599,8 +14019,8 @@ static int vendor_device_init_sequence(struct device *dev) {
     }
 
     return new Promise((resolve, reject) => {
-      const postData = JSON.stringify(payload);
-      const cookieHeader = (cookies || []).map(c => c.split(';')[0]).join('; ');
+      const postData = (payload === null || payload === undefined) ? '' : (typeof payload === 'string' ? payload : JSON.stringify(payload));
+      const cookieHeader = Array.isArray(cookies) ? (cookies || []).map(c => c.split(';')[0]).join('; ') : (cookies || '');
       const u = new URL(url);
 
       const headers = Object.assign({
@@ -12637,30 +14057,56 @@ static int vendor_device_init_sequence(struct device *dev) {
         stream.on('error', reject);
       });
       req.on('error', reject);
-      req.write(postData);
+      if (postData) {
+        req.write(postData);
+      }
       req.end();
     });
   }
 
   /**
    * Ensure authenticated session cookies for MTK Online
+   * Supports both direct Session Cookie (from companion extension) and Username/Password form login
    * @returns {Promise<string[]>}
    */
   async ensureMtkSession() {
     const portals = this.getPortalsConfig();
-    const portal = portals.mtk;
+    const portal = portals.mtk || DEFAULT_PORTALS.mtk;
     const username = portal.username || '';
-    const password = await this.getCredential(portal.secretName);
+    const secret = (await this.getCredential(portal.secretName)) || '';
 
-    if (!username || !password) {
-      throw new Error('未配置 MTK 资源网账号或密码，请点击右上角「管理账号密码」进行录入');
+    if (!secret && !username) {
+      throw new Error('未配置 MTK 资源网账号密码或登录 Cookie，请在工作台「账号配置」录入或使用浏览器伴侣扩展一键同步');
     }
+
+    // 1. Direct Cookie mode: Check if secret itself is a cookie header string (e.g. from companion extension)
+    const isCookie = secret && (
+      secret.includes('_MOLAuth') ||
+      secret.includes('ASP.NET_SessionId') ||
+      (secret.includes('=') && secret.includes(';'))
+    );
+
+    if (isCookie) {
+      const cookieArray = secret.split(';').map(s => s.trim()).filter(Boolean);
+      this._mtkSession = {
+        username: username || 'mol-cookie-session',
+        cookies: cookieArray,
+        timestamp: Date.now()
+      };
+      return cookieArray;
+    }
+
+    if (!username || !secret) {
+      throw new Error('未配置 MTK 资源网密码，请在工作台账号配置中录入或通过浏览器伴侣扩展一键同步');
+    }
+
+    const password = secret;
 
     if (this._mtkSession && this._mtkSession.username === username && (Date.now() - this._mtkSession.timestamp < 7200000)) {
       return this._mtkSession.cookies;
     }
 
-    // 1. GET login page to extract CSRF Verification Token
+    // 2. Form Login: GET login page to extract CSRF Verification Token
     const loginPage = await this._httpGet('https://online.mediatek.com/login/login.aspx');
     const tokenMatch = loginPage.body.match(/name="__RequestVerificationToken"\s+type="hidden"\s+value="([^"]+)"/);
     const token = tokenMatch ? tokenMatch[1] : '';
@@ -12770,6 +14216,10 @@ static int vendor_device_init_sequence(struct device *dev) {
 
     const targetUrl = 'https://online.mediatek.com/apps/search/api/functions/SearchService/SearchAll';
     const allHits = [];
+    let authFailCount = 0;
+
+    // 分页大小：根据用户需求，全面拓宽到每个分类单次抓取 30 条
+    const fetchSize = 30;
 
     for (const cat of targetCategories) {
       try {
@@ -12777,9 +14227,18 @@ static int vendor_device_init_sequence(struct device *dev) {
           category: cat,
           keyword: q,
           from: 0,
-          size: 6
+          size: fetchSize
         };
         const res = await this._httpPostJson(targetUrl, payload, cookies);
+
+        // Detect auth failure: 302 redirect to login, 401, 403
+        if (res.statusCode === 302 || res.statusCode === 301 ||
+            res.statusCode === 401 || res.statusCode === 403) {
+          authFailCount++;
+          console.warn(`[MTK Search] Auth failure for category ${cat}: status=${res.statusCode}`);
+          continue;
+        }
+
         if (res.statusCode === 200 && res.body) {
           const parsed = JSON.parse(res.body);
           if (parsed.extraData?.value?.response) {
@@ -12837,6 +14296,12 @@ static int vendor_device_init_sequence(struct device *dev) {
       }
     }
 
+    // If ALL category requests returned auth failure, throw so portalStatus shows disconnected
+    if (authFailCount > 0 && allHits.length === 0) {
+      throw new Error('MTK 官网会话已过期，请用浏览器登录 online.mediatek.com 后，点击 TabonKB 伴侣扩展同步 Cookie');
+    }
+
+
     // Sort: Chinese version first if duplicate docId, then relevance
     allHits.sort((a, b) => {
       if (a.docId === b.docId) {
@@ -12887,7 +14352,495 @@ static int vendor_device_init_sequence(struct device *dev) {
       };
     }
 
+    // --- 附加搜索源：eservice.mediatek.com Case 问题单 ---
+    try {
+      const esCases = await this.searchMtkEserviceLive(q, cookies);
+      allHits.push(...esCases);
+    } catch (err) {
+      console.warn('MTK eService Case search failed (non-fatal):', err.message);
+    }
+
     return { hits: allHits, aiOverview };
+  }
+
+  /**
+   * Search MTK eService (https://eservice.mediatek.com) for Case 问题单
+   * Reuses the same MTK _MOLAuth cookie obtained from ensureMtkSession().
+   * Returns array of normalized hit objects compatible with searchMtkOnlineLive results.
+   * @param {string} query
+   * @param {string[]} [cookies]
+   * @returns {Promise<object[]>}
+   */
+  async searchMtkEserviceLive(query, cookies = null) {
+    const q = (query || '').trim();
+    if (!q) return [];
+
+    if (!cookies) {
+      cookies = await this.ensureMtkSession();
+    }
+
+    const hits = [];
+    const esBaseUrl = 'https://eservice.mediatek.com';
+
+    // Try known eService case search endpoints in order; fail-safe (any error → next)
+    const candidates = [
+      {
+        url: `${esBaseUrl}/EServiceWeb/api/case/search`,
+        payload: { keyword: q, pageIndex: 1, pageSize: 15 },
+        referer: `${esBaseUrl}/EServiceWeb/Case/List`
+      },
+      {
+        url: `${esBaseUrl}/EServiceWeb/Case/GetCaseList`,
+        payload: { keyword: q, pageIndex: 1, pageSize: 15 },
+        referer: `${esBaseUrl}/EServiceWeb/Case/List`
+      },
+      {
+        url: `${esBaseUrl}/api/case/search`,
+        payload: { q: q, page: 1, size: 15 },
+        referer: esBaseUrl
+      }
+    ];
+
+    for (const cand of candidates) {
+      try {
+        const res = await this._httpPostJson(cand.url, cand.payload, cookies, cand.referer);
+
+        // Auth failure — stop trying, MTK cookie may not cover eservice domain
+        if (res.statusCode === 401 || res.statusCode === 403) {
+          console.warn(`MTK eService auth failed (${res.statusCode})`);
+          break;
+        }
+
+        if (res.statusCode === 200 && res.body && res.body.length > 10) {
+          let parsed;
+          try { parsed = JSON.parse(res.body); } catch (_) { continue; }
+
+          // Normalize various response shapes
+          let caseList = null;
+          if (Array.isArray(parsed)) {
+            caseList = parsed;
+          } else if (Array.isArray(parsed.data)) {
+            caseList = parsed.data;
+          } else if (Array.isArray(parsed.cases)) {
+            caseList = parsed.cases;
+          } else if (Array.isArray(parsed.items)) {
+            caseList = parsed.items;
+          } else if (parsed.result && Array.isArray(parsed.result.list)) {
+            caseList = parsed.result.list;
+          }
+
+          if (caseList && caseList.length > 0) {
+            for (const c of caseList) {
+              const caseId = c.caseId || c.id || c.CaseId || c.case_id || '';
+              const title = c.title || c.Title || c.subject || c.Subject || c.caseName || `Case ${caseId}`;
+              const status = c.status || c.Status || c.caseStatus || '';
+              const chipset = c.platform || c.Platform || c.chipset || c.product || '';
+              const created = c.createTime || c.createDate || c.created_at || c.openDate || '';
+              const desc = c.description || c.summary || c.content || c.issue || '';
+              const finderName = c.finderName || c.finder || c.reporter || c.owner ||
+                c.createdBy || c.creatorName || c.contactName || c.submitter || '';
+
+              const caseUrl = caseId
+                ? `${esBaseUrl}/EServiceWeb/Case/Detail?id=${caseId}`
+                : `${esBaseUrl}/EServiceWeb/Case/List?keyword=${encodeURIComponent(q)}`;
+
+              hits.push({
+                id: `mtk-eservice-${caseId || Math.random().toString(36).slice(2)}`,
+                portalId: 'mtk',
+                portalName: 'MTK eService',
+                chipset: chipset || 'MTK 平台',
+                category: 'Case 问题单',
+                categoryType: 'eservice_case',
+                title: title || `eService Case: ${q}`,
+                summary: desc ? desc.slice(0, 200) : `MTK eService Case 问题单${status ? '，状态: ' + status : ''}`,
+                docId: caseId,
+                caseStatus: status,
+                finderName: finderName,
+                updated: created ? created.split('T')[0] : '',
+                url: caseUrl,
+                lang: 'cn',
+                tags: [caseId, 'eService', 'Case', chipset].filter(Boolean),
+                isOfficialLive: true,
+                platforms: chipset ? [chipset] : []
+              });
+            }
+            break; // Got results, no need to try other endpoints
+          }
+        }
+      } catch (err) {
+        console.warn(`eService endpoint ${cand.url} error:`, err.message);
+      }
+    }
+
+    return hits;
+  }
+
+  /**
+   * Fetch full detail of an MTK eService CR / Case 问题单.
+   * - ALPS/ALP prefix → MTK Online eService endpoints first
+   * - Other IDs / sourceUrl contains eservice.mediatek.com → eservice.mediatek.com first
+   * Logs each attempt to console for debugging.
+   * @param {string} caseId
+   * @param {string[]} [cookies]
+   * @param {string} [sourceUrl]  Original URL of the search hit (used to determine source system)
+   * @param {string} [fallbackSummary] 列表卡片已有的摘要, 详情检索拿不到正文时兜底
+   * @returns {Promise<object|null>}
+   */
+  async fetchMtkEserviceCaseDetail(caseId, cookies = null, sourceUrl = '', fallbackSummary = '') {
+    if (!caseId) return null;
+    if (!cookies) {
+      cookies = await this.ensureMtkSession();
+    }
+
+    const mtoBase = 'https://online.mediatek.com';
+    const esBase  = 'https://eservice.mediatek.com';
+
+    // 1. 尝试提取真实 eService 内部数字 ID (例如 97528021, 143435994)
+    let numericId = null;
+    if (sourceUrl) {
+      const m = String(sourceUrl).match(/\/update\/(\d+)/i) ||
+                String(sourceUrl).match(/[?&]id=(\d+)/i) ||
+                String(sourceUrl).match(/\/(\d{7,10})\b/);
+      if (m) numericId = m[1];
+    }
+    if (!numericId && /^\d{7,10}$/.test(String(caseId).trim())) {
+      numericId = String(caseId).trim();
+    }
+
+    // 2. 如果尚未拿到内部数字 ID，尝试从 eService issueList 检索对应的数字 ID
+    if (!numericId) {
+      try {
+        const listRes = await this._httpGet(`${esBase}/eservice-portal/issue_manager/issueList`, cookies, `${esBase}/eservice-portal/issue_manager/issueList`);
+        if (listRes.statusCode === 200 && listRes.body) {
+          const listParsed = JSON.parse(listRes.body);
+          const searchList = listParsed.data?.searchList || [];
+          const matched = searchList.find(item => item.crid && item.crid.toUpperCase() === String(caseId).toUpperCase());
+          if (matched && (matched.id || matched.issueId)) {
+            numericId = String(matched.id || matched.issueId);
+            console.log(`[eService detail] Resolved numeric ID for ${caseId} -> ${numericId} via issueList`);
+          }
+        }
+      } catch (err) {
+        console.warn('[eService detail] issueList lookup error:', err.message);
+      }
+    }
+
+    // 3. 构建候选端点：如果拿到了 numericId，优先调用真实的 update API！
+    const detailCandidates = [];
+
+    if (numericId) {
+      detailCandidates.push({
+        label: 'ES update/id (Official Timeline API)',
+        url: `${esBase}/eservice-portal/issue_manager/update/${numericId}`,
+        payload: null, // empty POST body with Content-Length: 0
+        referer: `${esBase}/eservice-portal/issue_manager/update/${numericId}`,
+        isRealUpdateApi: true
+      });
+    }
+
+    // ALPS / ALP prefixed IDs come from MTK Online's eService CR category
+    const isMtoEservice = /^ALPS|^ALP/i.test(String(caseId).trim()) ||
+                          String(sourceUrl).includes('online.mediatek.com');
+
+    if (isMtoEservice) {
+      // --- MTK Online eService CR detail endpoints ---
+      detailCandidates.push(
+        {
+          label: 'MTO SearchAll detail eservice',
+          url: `${mtoBase}/apps/search/api/functions/SearchService/SearchAll`,
+          payload: { category: 'eservice', keyword: caseId, from: 0, size: 1 },
+          referer: `${mtoBase}/apps/search/filter?keyword=${encodeURIComponent(caseId)}`
+        },
+        {
+          label: 'MTO loadCrDetail',
+          url: `${mtoBase}/apps/eservice/api/functions/loadDetail`,
+          payload: { crId: caseId },
+          referer: `${mtoBase}/apps/eservice/detail?id=${caseId}`
+        }
+      );
+    }
+
+    // Collect per-attempt debug info to return to UI on failure
+    const debugLog = [];
+
+    for (const cand of detailCandidates) {
+      try {
+        let res;
+        if (cand.payload === null) {
+          if (cand.isRealUpdateApi) {
+            // POST with empty payload
+            res = await this._httpPostJson(cand.url, null, cookies, cand.referer, {
+              'Accept': 'application/json, text/plain, */*'
+            });
+          } else {
+            res = await this._httpGet(cand.url, cookies, cand.referer);
+          }
+        } else {
+          res = await this._httpPostJson(cand.url, cand.payload, cookies, cand.referer);
+        }
+
+        const preview = res.body ? res.body.slice(0, 300).replace(/\s+/g, ' ') : '(empty)';
+        console.log(`[eService detail] [${cand.label}] status=${res.statusCode} preview: ${preview}`);
+        debugLog.push({ label: cand.label, status: res.statusCode, preview });
+
+        if (res.statusCode === 401 || res.statusCode === 403) {
+          console.warn(`[eService detail] Auth failure at ${cand.label}`);
+          continue;
+        }
+
+        if (res.statusCode === 200 && res.body && res.body.length > 10) {
+          let parsed;
+          try { parsed = JSON.parse(res.body); } catch (_) { continue; }
+
+          // --- Case A: 真正的 eService /issue_manager/update/${id} 响应处理 ---
+          if (cand.isRealUpdateApi && parsed.data) {
+            const data = parsed.data || {};
+            const issue = data.issue || {};
+            const title = issue.title || `CR ${caseId}`;
+            const status = issue.state || '';
+            const finderName = issue.createdBy || issue.submitter || '';
+            const created = issue.creationDate ? String(issue.creationDate).split(' ')[0] : '';
+            const description = issue.description || '';
+
+            // 解析历史回复时间轴 (COMMENTS Timeline)
+            const rawHistory = Array.isArray(data.history) ? data.history : [];
+            const replies = [];
+            for (const h of rawHistory) {
+              const textHtml = h.htmlLogNewValue || '';
+              const textPlain = h.logNewValue || h.newValueBrief || '';
+              const isComment = h.fieldName === 'comments' || h.recordName === 'note' || Boolean(textHtml || textPlain);
+              if (isComment && (textHtml || textPlain)) {
+                const author = h.createdBy || '未知用户';
+                const isMtk = /mtk|mediatek/i.test(author);
+                replies.push({
+                  author: isMtk ? 'MediaTek 原厂工程师' : author,
+                  authorRaw: author,
+                  date: h.creationDate || '',
+                  contentHtml: textHtml || textPlain.replace(/\n/g, '<br/>'),
+                  isMtk
+                });
+              }
+            }
+
+            // 按时间先后顺序升序排列
+            replies.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+            const repliesHtml = replies.length > 0 ? replies.map(r => `
+              <div class="tw-eservice-reply ${r.isMtk ? 'is-mtk' : 'is-customer'}">
+                <div class="tw-eservice-reply-header" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                  <span class="tw-eservice-reply-author" style="font-weight:700; color:${r.isMtk ? '#D97706' : '#2563EB'};">
+                    ${r.isMtk ? '🔶 ' : '👤 '}${escapeHtml(r.author)}
+                  </span>
+                  <span class="tw-eservice-reply-time" style="font-size:10.5px; color:var(--text-muted); font-family:monospace;">
+                    ${escapeHtml(r.date)}
+                  </span>
+                </div>
+                <div class="tw-eservice-reply-body" style="font-size:12px; line-height:1.6; color:var(--text-normal);">
+                  ${r.contentHtml}
+                </div>
+              </div>
+            `).join('') : '<div style="font-size:11px; color:var(--text-muted);">暂无公开沟通记录</div>';
+
+            const portalUrl = `${esBase}/eservice-portal/issue_manager/update/${numericId}`;
+            const contentHtml = [
+              status ? `<div class="tw-eservice-status-row"><span class="tw-eservice-status-badge">${status}</span></div>` : '',
+              description ? `<div class="tw-eservice-section"><div class="tw-eservice-section-title">📋 问题描述</div><div class="tw-eservice-section-body">${description}</div></div>` : '',
+              `<div class="tw-eservice-section">
+                <div class="tw-eservice-section-title" style="display:flex; justify-content:space-between; align-items:center;">
+                  <span>💬 沟通与回复记录 (COMMENTS Timeline · 共 ${replies.length} 条)</span>
+                  <a href="${portalUrl}" target="_blank" style="font-size:10px; color:#3B82F6; font-weight:normal;">在 eService 官网打开 ↗</a>
+                </div>
+                <div class="tw-eservice-replies-list" style="margin-top:8px;">
+                  ${repliesHtml}
+                </div>
+              </div>`
+            ].filter(Boolean).join('');
+
+            console.log(`[eService detail] ✅ Loaded ${replies.length} replies via official update API!`);
+            return {
+              title,
+              status,
+              finderName,
+              chipset: '',
+              created,
+              description,
+              solution: '',
+              contentHtml,
+              repliesCount: replies.length,
+              raw: data
+            };
+          }
+
+          // --- Case B: MTO SearchAll 双层 JSON 信封: extraData.value.response 内嵌另一段 JSON 字符串 ---
+          // eService CR 无独立详情 API, 正文只存在于搜索索引 (与列表搜索 L1492 解包逻辑对齐)
+          if (parsed.extraData && parsed.extraData.value && parsed.extraData.value.response) {
+            try {
+              const inner = JSON.parse(parsed.extraData.value.response);
+              const hits = (inner && inner.success && Array.isArray(inner.data && inner.data.hits)) ? inner.data.hits : [];
+              const hit = hits.find(h => h.fields && h.fields.biz && String(h.fields.biz.code || '').toUpperCase() === String(caseId).toUpperCase()) || hits[0];
+              if (hit) {
+                const f = hit.fields || {};
+                const biz = f.biz || {};
+                const title = f.title || `CR ${caseId}`;
+                const stripTags = s => String(s).replace(/<[^>]+>/g, '').replace(/&[a-z0-9#]+;/gi, ' ').replace(/\s+\n/g, '\n').trim();
+                // 按编号检索时 highlight 命中的可能是编号字段而非正文 → 收集全部文本候选取最长
+                const textCandidates = [];
+                const pushText = v => { if (typeof v === 'string' && v.trim()) textCandidates.push(v); else if (Array.isArray(v)) v.forEach(pushText); };
+                if (hit.highlight) Object.values(hit.highlight).forEach(pushText);
+                ['content', 'description', 'summary', 'question', 'detail', 'text'].forEach(k => { pushText(f[k]); pushText(biz[k]); });
+                const cleanCandidates = textCandidates.map(stripTags).filter(t => t && t !== String(caseId) && t.length > 20);
+                const description = cleanCandidates.sort((a, b) => b.length - a.length)[0] || stripTags(fallbackSummary || '');
+                const chipset = (Array.isArray(biz.platform) ? biz.platform : []).slice(0, 5).join(' / ');
+                const status = biz.status || f.case_status || f.status || '';
+                const finderName = biz.finder || biz.finderName || f.finderName || '';
+                const created = f.modified_time || f.created_time || '';
+                let link = (f.url && f.url.link) || '';
+                if (link && !link.startsWith('http')) link = `https://online.mediatek.com${link}`;
+                if (!link) link = `https://online.mediatek.com/apps/search/filter?keyword=${encodeURIComponent(caseId)}`;
+                if (title || description) {
+                  // eService CR 工单页 (online.mediatek.com 和 eservice.mediatek.com) 均为 SPA 前端渲染,
+                  // 服务端 HTTP GET 只能拿到空壳 HTML, 无法提取正文。以上 description 已是 MOL 搜索索引
+                  // 能提供的最完整信息, 完整回复记录只能在浏览器内查看。
+                  const contentHtml = [
+                    (status || chipset) ? `<div class="tw-eservice-status-row">${status ? `<span class="tw-eservice-status-badge">${status}</span>` : ''}${chipset ? `<span class="tw-eservice-chip-badge">🔧 ${chipset}</span>` : ''}</div>` : '',
+                    description ? `<div class="tw-eservice-section"><div class="tw-eservice-section-title">📋 问题描述</div><div class="tw-eservice-section-body">${description}</div></div>` : '',
+                    `<div class="tw-eservice-section"><div class="tw-eservice-section-body" style="color:var(--text-muted);font-size:11px;">💡 以上内容由 MTK Online 搜索索引还原。如需查看完整回复记录与 Patch 附件，请 <a href="${link}" target="_blank" style="color:#3B82F6;">在浏览器中打开工单 ↗</a></div></div>`
+                  ].filter(Boolean).join('');
+                  console.log(`[eService detail] ✅ Success from [${cand.label}] via SearchAll envelope unwrap: title="${title}"`);
+                  return {
+                    title, status, finderName, chipset,
+                    created: String(created).split(' ')[0].split('T')[0] || '',
+                    description, solution: '',
+                    contentHtml,
+                    raw: f
+                  };
+                }
+              }
+            } catch (_) { /* 信封解析失败 → 继续其他候选 */ }
+          }
+
+          const d = parsed.data || parsed.case || parsed.result || parsed;
+
+          if (d && (d.title || d.subject || d.description || d.content ||
+                    d.question || d.Summary || d.summary)) {
+            const title = d.title || d.subject || d.caseName || d.Summary || `CR ${caseId}`;
+            const status = d.status || d.caseStatus || d.Status || '';
+            const finderName = d.finderName || d.finder || d.reporter || d.owner ||
+              d.createdBy || d.creatorName || d.contactName || d.submitter ||
+              d.SubmitterName || d.FinderName || '';
+            const description = d.description || d.issue || d.question || d.content ||
+              d.Description || d.Question || d.Summary || '';
+            const solution = d.solution || d.resolution || d.answer || d.patch ||
+              d.Solution || d.Resolution || d.Answer || '';
+            const chipset = d.platform || d.chipset || d.product || d.Platform || '';
+            const created = d.createTime || d.createDate || d.created_at || d.openDate ||
+              d.CreateTime || d.OpenDate || '';
+
+            const replies = d.replies || d.comments || d.messages || d.thread ||
+              d.Replies || d.Comments || [];
+            let replyHtml = '';
+            if (Array.isArray(replies) && replies.length > 0) {
+              replyHtml = replies.map(r => {
+                const author = r.author || r.name || r.sender || r.from || r.Author || '工程师';
+                const content = r.content || r.message || r.body || r.text || r.Content || '';
+                const time = r.time || r.createTime || r.date || r.Time || '';
+                return `<div class="tw-eservice-reply"><div class="tw-eservice-reply-author"><strong>${author}</strong>${time ? ' · ' + time.split('T')[0] : ''}</div><div class="tw-eservice-reply-body">${content}</div></div>`;
+              }).join('');
+            }
+
+            const contentHtml = [
+              status ? `<div class="tw-eservice-status-row"><span class="tw-eservice-status-badge">${status}</span>${chipset ? `<span class="tw-eservice-chip-badge">🔧 ${chipset}</span>` : ''}</div>` : '',
+              description ? `<div class="tw-eservice-section"><div class="tw-eservice-section-title">📋 问题描述</div><div class="tw-eservice-section-body">${description}</div></div>` : '',
+              solution ? `<div class="tw-eservice-section"><div class="tw-eservice-section-title">✅ 解决方案 / Patch</div><div class="tw-eservice-section-body">${solution}</div></div>` : '',
+              replyHtml ? `<div class="tw-eservice-section"><div class="tw-eservice-section-title">💬 工单回复记录</div><div class="tw-eservice-replies-list">${replyHtml}</div></div>` : ''
+            ].filter(Boolean).join('');
+
+            console.log(`[eService detail] ✅ Success from [${cand.label}]: title="${title}", finderName="${finderName}"`);
+            return {
+              title, status, finderName, chipset,
+              created: created ? created.split('T')[0] : '',
+              description, solution,
+              contentHtml: contentHtml || `<div class="tw-eservice-section-body">${description || solution || '（工单详情加载中）'}</div>`,
+              raw: d
+            };
+          }
+        }
+      } catch (err) {
+        console.warn(`[eService detail] [${cand.label}] error:`, err.message);
+        debugLog.push({ label: cand.label, status: 'ERR', preview: err.message });
+      }
+    }
+
+    console.warn(`[eService detail] All endpoints failed for caseId="${caseId}", isMtoEservice=${isMtoEservice}`);
+    // Return debugLog so UI can display it inline — no DevTools needed
+    return { _debugOnly: true, debugLog, isMtoEservice, caseId };
+  }
+
+  /**
+   * 抓 eservice.mediatek.com 工单页 (服务端渲染 HTML, 含回复记录)
+   * 会话来自伴侣扩展同步的 cookie 串 (含 eserviceSession); 过期时服务器 302 回登录页
+   * @param {string} link  搜索索引给出的规范工单 URL
+   * @param {string[]} cookies
+   * @returns {Promise<{text?:string, stale?:boolean}|null>}
+   */
+  async fetchEservicePortalPage(link, cookies = []) {
+    if (!link) return null;
+
+    // Accept both eservice.mediatek.com and online.mediatek.com/apps/eservice/ URLs
+    const isEsPortal = link.includes('eservice.mediatek.com');
+    const isMtoEs = link.includes('online.mediatek.com') && link.includes('eservice');
+    if (!isEsPortal && !isMtoEs) return null;
+
+    // Try the given link first
+    const tryPage = async (url, ref) => {
+      try {
+        const res = await this._httpGet(url, cookies, ref || url);
+        if (res.statusCode >= 300 && res.statusCode < 400) return { stale: true };
+        if (res.statusCode !== 200 || !res.body) return null;
+        // Detect login redirect in body (SPA may return 200 with login form)
+        if (/login/i.test(res.body.slice(0, 3000)) && res.body.length < 30000 && !/issue_manager|case_detail|reply|comment/i.test(res.body)) {
+          return { stale: true };
+        }
+        const text = this.extractVisibleText(res.body);
+        if (!text || text.length < 40) return null;
+        return { text };
+      } catch (_) { return null; }
+    };
+
+    // Attempt 1: the given link (MTO or ES portal page)
+    let result = await tryPage(link, isEsPortal ? 'https://eservice.mediatek.com/eservice-portal/' : 'https://online.mediatek.com/apps/eservice/');
+    if (result) return result;
+
+    // Attempt 2: if the link was MTO, also try eservice.mediatek.com portal
+    if (isMtoEs && !isEsPortal) {
+      // Extract case ID from URL (e.g. ?id=ALPS10658234 or /detail?id=ALPS...)
+      const idMatch = link.match(/[?&]id=([A-Za-z0-9]+)/);
+      const caseId = idMatch ? idMatch[1] : '';
+      if (caseId) {
+        const esUrl = `https://eservice.mediatek.com/eservice-portal/issue_manager/case_detail/${caseId}`;
+        result = await tryPage(esUrl, 'https://eservice.mediatek.com/eservice-portal/');
+        if (result) return result;
+      }
+    }
+
+    return null;
+  }
+
+
+  /**
+   * 服务端渲染页 → 可见文本 (保留行结构, 供工单全文/回复展示)
+   * @param {string} html
+   * @returns {string}
+   */
+  extractVisibleText(html) {
+    let s = String(html);
+    s = s.replace(/<script[\s\S]*?<\/script>/gi, '').replace(/<style[\s\S]*?<\/style>/gi, '');
+    s = s.replace(/<(br|\/tr|\/p|\/div|\/h[1-6]|\/li)[^>]*>/gi, '\n');
+    s = s.replace(/<td[^>]*>/gi, ' | ');
+    s = s.replace(/<[^>]+>/g, '');
+    s = s.replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+    s = s.split('\n').map(l => l.trim()).filter(l => l).join('\n');
+    return s.trim();
   }
 
   /**
@@ -13124,6 +15077,7 @@ static int vendor_device_init_sequence(struct device *dev) {
 
   /**
    * Search Unisoc Uni-Support live APIs (DCC: /dcc & FAQ: /faq)
+   * With multi-candidate keyword retry, stop-word stripping, and de-duplication
    * @param {string} query
    * @param {string} [categoryFilter='']
    * @returns {Promise<{ hits: Array<object>, aiOverview: object|null, isLive: boolean, authError: string|null }>}
@@ -13136,53 +15090,64 @@ static int vendor_device_init_sequence(struct device *dev) {
     const token = this.extractUnisocToken(rawToken);
 
     const allHits = [];
+    const seenDocIds = new Set();
     let isLiveSuccess = false;
     let authError = null;
 
-    // 1. Query Unisoc DCC API (https://unisupport.unisoc.com/dcc)
+    const candidates = this.normalizeQueryCandidates(q);
+    if (!candidates.includes(q)) candidates.push(q);
+
+    const extraHeaders = {
+      'Origin': 'https://unisupport.unisoc.com'
+    };
+    if (token) {
+      extraHeaders['Authorization'] = `Bearer ${token}`;
+      extraHeaders['Cookie'] = `unisupport-cutomer-token=${token}`;
+    }
+
     const shouldQueryDcc = !categoryFilter || categoryFilter === 'all' || /dcc|spec|文档|手册|移植|guide|设计|定制|客制/i.test(categoryFilter);
-    if (shouldQueryDcc) {
-      try {
-        const dccUrl = 'https://unisupport.unisoc.com/dccpath/dcc/file/getPageList';
-        const dccPayload = {
-          current: 1,
-          size: 20,
-          sortField: 'publishtime',
-          sortType: 'DESC',
-          keyword: q
-        };
-        const extraHeaders = {
-          'Origin': 'https://unisupport.unisoc.com',
-          'Referer': 'https://unisupport.unisoc.com/dcc'
-        };
-        if (token) {
-          extraHeaders['Authorization'] = `Bearer ${token}`;
-          extraHeaders['Cookie'] = `unisupport-cutomer-token=${token}`;
-        }
+    const shouldQueryFaq = !categoryFilter || categoryFilter === 'all' || /faq|工单|问题|issue|排障|解答/i.test(categoryFilter);
 
-        const res = await this._httpPostJson(dccUrl, dccPayload, null, 'https://unisupport.unisoc.com/dcc', extraHeaders);
-        if (res.statusCode === 200 && res.body) {
-          try {
-            const json = JSON.parse(res.body);
-            if (json.code === 0 && json.data) {
-              const list = json.data.records || json.data.list || (Array.isArray(json.data) ? json.data : []);
-              for (const item of list) {
-                const docId = item.fileid || item.fileNo || item.docNo || (item.id ? `DCC-${item.id}` : 'DCC-DOC');
-                const chip = item.chip || item.chipName || item.platform || item.androidversion || 'Unisoc';
-                const title = item.filename || item.fileName || item.docName || item.title || `${chip} 技术文档`;
-                const summary = item.filenote || item.filedesc || item.fileDesc || item.description || `展锐官方 DCC 文档中心资料，适用于 ${chip} 平台。`;
-                const category = item.typename || item.documenttype || item.documentType || '客制化指导手册';
-                const tags = ['DCC', 'Uni-Support', chip];
-                if (item.tag) tags.push(...item.tag.split(',').map(s => s.trim()));
-                if (item.keywords) tags.push(...item.keywords.split(',').map(s => s.trim()));
-                if (item.androidversion) tags.push(item.androidversion);
-                if (item.osversion && item.osversion !== 'N/A') tags.push(item.osversion);
-                if (item.filelang) tags.push(item.filelang);
-                if (item.fileversion) tags.push(item.fileversion);
+    for (const cand of candidates.slice(0, 4)) {
+      if (!cand || cand.length < 2) continue;
 
-                const updated = this.safeFormatDate(item.publishtime || item.updateTime);
+      // 1. Query Unisoc DCC API
+      if (shouldQueryDcc) {
+        try {
+          const dccUrl = 'https://unisupport.unisoc.com/dccpath/dcc/file/getPageList';
+          const dccPayload = {
+            current: 1,
+            size: 30,
+            sortField: 'publishtime',
+            sortType: 'DESC',
+            keyword: cand
+          };
+          const res = await this._httpPostJson(dccUrl, dccPayload, null, 'https://unisupport.unisoc.com/dcc', Object.assign({}, extraHeaders, { 'Referer': 'https://unisupport.unisoc.com/dcc' }));
+          if (res.statusCode === 200 && res.body) {
+            try {
+              const json = JSON.parse(res.body);
+              if (json.code === 0 && json.data) {
+                const list = json.data.records || json.data.list || (Array.isArray(json.data) ? json.data : []);
+                for (const item of list) {
+                  const docId = String(item.fileid || item.fileNo || item.docNo || (item.id ? `DCC-${item.id}` : 'DCC-DOC'));
+                  if (seenDocIds.has(docId)) continue;
+                  seenDocIds.add(docId);
 
-                const detailedContent = `### 📄 展锐 DCC 官方技术规范与配置指导手册
+                  const chip = item.chip || item.chipName || item.platform || item.androidversion || 'Unisoc';
+                  const title = item.filename || item.fileName || item.docName || item.title || `${chip} 技术文档`;
+                  const summary = item.filenote || item.filedesc || item.fileDesc || item.description || `展锐官方 DCC 文档中心资料，适用于 ${chip} 平台。`;
+                  const category = item.typename || item.documenttype || item.documentType || '客制化指导手册';
+                  const tags = ['DCC', 'Uni-Support', chip];
+                  if (item.tag) tags.push(...item.tag.split(',').map(s => s.trim()));
+                  if (item.keywords) tags.push(...item.keywords.split(',').map(s => s.trim()));
+                  if (item.androidversion) tags.push(item.androidversion);
+                  if (item.osversion && item.osversion !== 'N/A') tags.push(item.osversion);
+                  if (item.filelang) tags.push(item.filelang);
+                  if (item.fileversion) tags.push(item.fileversion);
+
+                  const updated = this.safeFormatDate(item.publishtime || item.updateTime);
+
+                  const detailedContent = `### 📄 展锐 DCC 官方技术规范与配置指导手册
 - **文档编号**: \`${docId}\`
 - **手册名称**: **${title}**
 - **资料类型**: \`${category}\`
@@ -13199,108 +15164,114 @@ ${summary}
 > 紫光展锐 DCC (Document Control Center) 文档受企业加密保密管控。
 > 请前往展锐统一技术支持中心 [DCC 文档中心 (https://unisupport.unisoc.com/dcc)](https://unisupport.unisoc.com/dcc)，在检索框输入编号 \`${docId}\` 或文件名，即可在线预览并点击【下载】原版 PDF 文档。`;
 
-                allHits.push({
-                  id: `unisoc-live-dcc-${docId}`,
-                  portalId: 'unisoc',
-                  portalName: '展锐 Uni-Support',
-                  category: category,
-                  categoryType: 'dcc',
-                  chipset: chip,
-                  title: title,
-                  summary: summary,
-                  docId: String(docId),
-                  updated: updated,
-                  url: 'https://unisupport.unisoc.com/dcc',
-                  platforms: [chip],
-                  tags: Array.from(new Set(tags.filter(Boolean))),
-                  isOfficialLive: true,
-                  detailedContent: detailedContent,
-                  detailedContentMarkdown: detailedContent
-                });
+                  allHits.push({
+                    id: `unisoc-live-dcc-${docId}`,
+                    portalId: 'unisoc',
+                    portalName: '展锐 Uni-Support',
+                    category: category,
+                    categoryType: 'dcc',
+                    chipset: chip,
+                    title: title,
+                    summary: summary,
+                    docId: docId,
+                    updated: updated,
+                    url: 'https://unisupport.unisoc.com/dcc',
+                    platforms: [chip],
+                    tags: Array.from(new Set(tags.filter(Boolean))),
+                    isOfficialLive: true,
+                    detailedContent: detailedContent,
+                    detailedContentMarkdown: detailedContent
+                  });
+                }
+                if (list.length > 0) isLiveSuccess = true;
+              } else if (json.code === 1 || json.code === 401 || json.msg?.includes('token') || json.msg?.includes('登录')) {
+                authError = json.msg || 'token失效，请重新登录';
               }
-              if (list.length > 0) {
-                isLiveSuccess = true;
-              }
-            } else if (json.code === 1 || json.code === 401 || json.msg?.includes('token') || json.msg?.includes('登录')) {
-              authError = json.msg || 'token失效，请重新登录';
+            } catch (e) {
+              console.warn('Error parsing Unisoc DCC response:', e);
             }
-          } catch (e) {
-            console.warn('Error parsing Unisoc DCC response:', e);
           }
+        } catch (err) {
+          console.warn('Unisoc DCC request exception:', err.message);
         }
-      } catch (err) {
-        console.warn('Unisoc DCC request exception:', err.message);
       }
+
+      // 2. Query Unisoc FAQ API
+      if (shouldQueryFaq) {
+        try {
+          const faqUrl = 'https://unisupport.unisoc.com/common/faq/getPage';
+          const faqPayload = {
+            page: 1,
+            limit: 30,
+            ascs: '',
+            descs: '',
+            keyword: cand
+          };
+          const res = await this._httpPostJson(faqUrl, faqPayload, null, 'https://unisupport.unisoc.com/faq', Object.assign({}, extraHeaders, { 'Referer': 'https://unisupport.unisoc.com/faq' }));
+          if (res.statusCode === 200 && res.body) {
+            try {
+              const json = JSON.parse(res.body);
+              if (json.code === 0 && json.data) {
+                const list = json.data.records || json.data.list || (Array.isArray(json.data) ? json.data : []);
+                for (const item of list) {
+                  const docId = String(item.number || item.faqNo || item.docNo || (item.id ? `FAQ${item.id}` : 'FAQ-DOC'));
+                  if (seenDocIds.has(docId)) continue;
+                  seenDocIds.add(docId);
+
+                  const chip = item.chip || item.platform || item.chipName || 'Unisoc';
+                  const title = item.title || item.faqTitle || `${chip} FAQ 技术解答`;
+                  const reads = item.clickcountcust || item.clickcountinside || item.readNum || 0;
+                  const author = item.username ? `责任工程师: ${item.username}` : '';
+                  const summary = item.question || item.summary || item.content || `展锐官方 FAQ 知识库技术问答解答${author ? '（' + author + '）' : ''}，累计查阅 ${reads} 次。官方直链：https://unisupport.unisoc.com/faq`;
+                  const updated = this.safeFormatDate(item.approvedate || item.adddatetime || item.publishTime || item.updateTime);
+
+                  allHits.push({
+                    id: `unisoc-live-faq-${docId}`,
+                    portalId: 'unisoc',
+                    portalName: '展锐 Uni-Support',
+                    category: 'FAQ 知识库',
+                    categoryType: 'faq',
+                    chipset: chip,
+                    title: title,
+                    summary: summary,
+                    docId: docId,
+                    faqInternalId: item.id,
+                    updated: updated,
+                    url: 'https://unisupport.unisoc.com/faq',
+                    platforms: [chip],
+                    tags: Array.from(new Set(['FAQ', 'Uni-Support', chip, '排障', docId].filter(Boolean))),
+                    isOfficialLive: true
+                  });
+                }
+                if (list.length > 0) isLiveSuccess = true;
+              } else if (json.code === 1 || json.code === 401 || json.msg?.includes('token') || json.msg?.includes('授权')) {
+                if (!authError) authError = json.msg || '获取授权人登录信息失败';
+              }
+            } catch (e) {
+              console.warn('Error parsing Unisoc FAQ response:', e);
+            }
+          }
+        } catch (err) {
+          console.warn('Unisoc FAQ request exception:', err.message);
+        }
+      }
+
+      if (allHits.length >= 15) break;
     }
 
-    // 2. Query Unisoc FAQ API (https://unisupport.unisoc.com/faq)
-    const shouldQueryFaq = !categoryFilter || categoryFilter === 'all' || /faq|工单|问题|issue|排障|解答/i.test(categoryFilter);
-    if (shouldQueryFaq) {
-      try {
-        const faqUrl = 'https://unisupport.unisoc.com/common/faq/getPage';
-        const faqPayload = {
-          page: 1,
-          limit: 20,
-          ascs: '',
-          descs: '',
-          keyword: q
-        };
-        const extraHeaders = {
-          'Origin': 'https://unisupport.unisoc.com',
-          'Referer': 'https://unisupport.unisoc.com/faq'
-        };
-        if (token) {
-          extraHeaders['Authorization'] = `Bearer ${token}`;
-          extraHeaders['Cookie'] = `unisupport-cutomer-token=${token}`;
-        }
-
-        const res = await this._httpPostJson(faqUrl, faqPayload, null, 'https://unisupport.unisoc.com/faq', extraHeaders);
-        if (res.statusCode === 200 && res.body) {
-          try {
-            const json = JSON.parse(res.body);
-            if (json.code === 0 && json.data) {
-              const list = json.data.records || json.data.list || (Array.isArray(json.data) ? json.data : []);
-              for (const item of list) {
-                const docId = item.number || item.faqNo || item.docNo || (item.id ? `FAQ${item.id}` : 'FAQ-DOC');
-                const chip = item.chip || item.platform || item.chipName || 'Unisoc';
-                const title = item.title || item.faqTitle || `${chip} FAQ 技术解答`;
-                const reads = item.clickcountcust || item.clickcountinside || item.readNum || 0;
-                const author = item.username ? `责任工程师: ${item.username}` : '';
-                const summary = item.question || item.summary || item.content || `展锐官方 FAQ 知识库技术问答解答${author ? '（' + author + '）' : ''}，累计查阅 ${reads} 次。官方直链：https://unisupport.unisoc.com/faq`;
-                const updated = this.safeFormatDate(item.approvedate || item.adddatetime || item.publishTime || item.updateTime);
-
-                allHits.push({
-                  id: `unisoc-live-faq-${docId}`,
-                  portalId: 'unisoc',
-                  portalName: '展锐 Uni-Support',
-                  category: 'FAQ 知识库',
-                  categoryType: 'faq',
-                  chipset: chip,
-                  title: title,
-                  summary: summary,
-                  docId: String(docId),
-                  faqInternalId: item.id,
-                  updated: updated,
-                  url: 'https://unisupport.unisoc.com/faq',
-                  platforms: [chip],
-                  tags: Array.from(new Set(['FAQ', 'Uni-Support', chip, '排障', String(docId)].filter(Boolean))),
-                  isOfficialLive: true
-                });
-              }
-              if (list.length > 0) {
-                isLiveSuccess = true;
-              }
-            } else if (json.code === 1 || json.code === 401 || json.msg?.includes('token') || json.msg?.includes('授权')) {
-              if (!authError) authError = json.msg || '获取授权人登录信息失败';
-            }
-          } catch (e) {
-            console.warn('Error parsing Unisoc FAQ response:', e);
-          }
-        }
-      } catch (err) {
-        console.warn('Unisoc FAQ request exception:', err.message);
+    // Sort allHits by relevance: items matching more candidate keywords rank first
+    allHits.sort((a, b) => {
+      let scoreA = 0;
+      let scoreB = 0;
+      const tA = (a.title + ' ' + (a.summary || '')).toLowerCase();
+      const tB = (b.title + ' ' + (b.summary || '')).toLowerCase();
+      for (const c of candidates) {
+        const cl = c.toLowerCase();
+        if (tA.includes(cl)) scoreA += 10;
+        if (tB.includes(cl)) scoreB += 10;
       }
-    }
+      return scoreB - scoreA;
+    });
 
     // 3. Fallback to our enriched authoritative Unisoc DCC & FAQ knowledge
     if (allHits.length === 0) {
@@ -13357,6 +15328,10 @@ ${summary}
     let aiOverview = null;
     let isLive = false;
     let error = null;
+    const portalStatus = {
+      mtk: { ok: true, msg: '' },
+      unisoc: { ok: true, msg: '' }
+    };
 
     // MTK Live Search
     if (sf === 'mtk' || sf === 'all') {
@@ -13369,7 +15344,9 @@ ${summary}
         }
       } catch (err) {
         console.warn('MTK Online live search error:', err.message);
-        if (sf === 'mtk') error = err.message || 'MTK 官网连接异常';
+        portalStatus.mtk = { ok: false, msg: err.message || 'MTK 官网连接异常' };
+        // Always surface auth error so user sees the warning, even when both platforms selected
+        if (!error) error = err.message || 'MTK 官网连接异常';
       }
     }
 
@@ -13383,15 +15360,17 @@ ${summary}
           if (uniRes.aiOverview && !aiOverview) aiOverview = uniRes.aiOverview;
         }
         if (uniRes.authError && !isLive) {
+          portalStatus.unisoc = { ok: false, msg: uniRes.authError };
           error = `展锐官网凭据提示：${uniRes.authError}。请点击右上角「账号配置」更新 Token / Cookie 即可开启官网实时抓取。当前呈现展锐官方镜像数据。`;
         }
       } catch (err) {
         console.warn('Unisoc live search error:', err.message);
+        portalStatus.unisoc = { ok: false, msg: err.message || '展锐官网连接异常' };
         if (sf === 'unisoc') error = err.message || '展锐官网连接异常';
       }
     }
 
-    // Fallback if no hits found
+    // Fallback to static curated resources if nothing was found
     if (hits.length === 0) {
       const localHits = this.searchResources(q, sourceFilter, chipsetFilter, categoryFilter);
       hits.push(...localHits);
@@ -13401,8 +15380,5987 @@ ${summary}
       hits,
       aiOverview,
       isLive,
-      error
+      error,
+      portalStatus
     };
+  }
+}
+
+/**
+ * TabonKB Workbench Companion Sync Server
+ * Listens on 127.0.0.1:28123 for secure, 1-click token/cookie synchronization
+ * from the TabonKB Browser Companion Extension (Chrome / Edge).
+ */
+
+class CompanionSyncServer {
+  constructor(options = {}) {
+    this.plugin = options.plugin;
+    this.app = options.plugin?.app || options.app;
+    this.port = options.port || 28123;
+    this.fallbackPort = 28124;
+    this.server = null;
+    this.isRunning = false;
+  }
+
+  /**
+   * Start local loopback HTTP server
+   */
+  start() {
+    if (this.server) return;
+
+    
+
+    const requestHandler = async (req, res) => {
+      // 1. Set CORS headers to permit requests from browser extensions & localhost
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-TabonKB-Source');
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+
+      // Preflight options
+      if (req.method === 'OPTIONS') {
+        res.writeHead(200);
+        res.end();
+        return;
+      }
+
+      const urlObj = new URL(req.url, `http://${req.headers.host || '127.0.0.1'}`);
+      const pathname = urlObj.pathname;
+
+      // 2. Health check route: GET /api/status
+      if (req.method === 'GET' && pathname === '/api/status') {
+        const payload = {
+          ok: true,
+          status: 'online',
+          app: 'TabonKB Workbench',
+          version: this.plugin?.manifest?.version || '1.2.0',
+          port: this.port,
+          timestamp: Date.now()
+        };
+        res.writeHead(200);
+        res.end(JSON.stringify(payload));
+        return;
+      }
+
+      // 3. Credential Sync route: POST /api/sync-credential
+      if (req.method === 'POST' && pathname === '/api/sync-credential') {
+        let body = '';
+        req.on('data', chunk => {
+          body += chunk;
+          // Guard against excessively large payloads
+          if (body.length > 512 * 1024) {
+            req.socket.destroy();
+          }
+        });
+
+        req.on('end', async () => {
+          try {
+            const data = JSON.parse(body || '{}');
+            const provider = (data.provider || 'unisoc').toLowerCase();
+            const rawToken = (data.token || data.cookie || '').trim();
+            const username = (data.username || data.user || '').trim();
+
+            if (!rawToken) {
+              res.writeHead(400);
+              res.end(JSON.stringify({ ok: false, msg: '未接收到有效凭据内容 (Token 或 Cookie 为空)' }));
+              return;
+            }
+
+            let savedKey = '';
+            let providerName = '';
+
+            if (provider === 'unisoc') {
+              providerName = '展锐 Uni-Support';
+              savedKey = 'tabonkb-unisoc-password';
+
+              // Extract pure customer token if input is a raw Cookie string or Bearer header
+              let tokenToSave = rawToken;
+              if (this.plugin?.vendorService && typeof this.plugin.vendorService.extractUnisocToken === 'function') {
+                tokenToSave = this.plugin.vendorService.extractUnisocToken(rawToken) || rawToken;
+              }
+
+              // Save to secret storage
+              if (typeof this.plugin?.setSecret === 'function') {
+                await this.plugin.setSecret(savedKey, tokenToSave);
+              }
+
+              // Also persist username if provided
+              if (username && this.plugin?.settings?.vendorPortals?.unisoc) {
+                this.plugin.settings.vendorPortals.unisoc.username = username;
+                await this.plugin.saveSettings();
+              }
+            } else if (provider === 'mtk') {
+              providerName = 'MTK Online';
+              savedKey = this.plugin?.settings?.vendorPortals?.mtk?.secretName || 'tabonkb-mtk-password';
+
+              if (typeof this.plugin?.setSecret === 'function') {
+                await this.plugin.setSecret(savedKey, rawToken);
+              }
+
+              if (username && this.plugin?.settings?.vendorPortals?.mtk) {
+                this.plugin.settings.vendorPortals.mtk.username = username;
+                await this.plugin.saveSettings();
+              }
+            } else {
+              res.writeHead(400);
+              res.end(JSON.stringify({ ok: false, msg: `未知服务商: ${provider}` }));
+              return;
+            }
+
+            // 4. Notify user in Obsidian UI
+            const NoticeClass = (typeof Notice !== 'undefined') ? Notice : (this.app?.Notice || (typeof window !== 'undefined' ? window.Notice : null));
+            if (NoticeClass) {
+              try {
+                new NoticeClass(`🎉 ${providerName} 凭据已通过浏览器扩展成功同步！`, 5000);
+              } catch (_) {}
+            }
+
+            // 5. Trigger active explore views to auto-clear error & re-run search if pending
+            this.refreshActiveExploreViews(provider);
+
+            res.writeHead(200);
+            res.end(JSON.stringify({
+              ok: true,
+              msg: `${providerName} 凭据已成功同步至 TabonKB 工作台！`,
+              provider,
+              timestamp: Date.now()
+            }));
+          } catch (err) {
+            console.error('[TabonKB Companion] Failed to sync credential:', err);
+            res.writeHead(500);
+            res.end(JSON.stringify({ ok: false, msg: '同步失败: ' + err.message }));
+          }
+        });
+        return;
+      }
+
+      // 404 for other endpoints
+      res.writeHead(404);
+      res.end(JSON.stringify({ ok: false, msg: 'Not Found' }));
+    };
+
+    try {
+      this.server = http.createServer(requestHandler);
+
+      this.server.on('error', (err) => {
+        if (err.code === 'EADDRINUSE') {
+          console.warn(`[TabonKB Companion] Port ${this.port} is in use, trying fallback ${this.fallbackPort}`);
+          if (this.port !== this.fallbackPort) {
+            this.port = this.fallbackPort;
+            this.server.close();
+            this.server = http.createServer(requestHandler);
+            this.server.listen(this.port, '127.0.0.1', () => {
+              this.isRunning = true;
+              console.log(`[TabonKB Companion] Local Sync Server listening on 127.0.0.1:${this.port}`);
+            });
+          }
+        } else {
+          console.error('[TabonKB Companion] Server error:', err);
+        }
+      });
+
+      this.server.listen(this.port, '127.0.0.1', () => {
+        this.isRunning = true;
+        console.log(`[TabonKB Companion] Local Sync Server listening on 127.0.0.1:${this.port}`);
+      });
+    } catch (e) {
+      console.warn('[TabonKB Companion] Failed to create HTTP sync server:', e);
+    }
+  }
+
+  /**
+   * Notify and refresh any active explore views in Obsidian
+   */
+  refreshActiveExploreViews(provider) {
+    try {
+      const leaves = this.app?.workspace?.getLeavesOfType('tabonkb-workbench-view') || [];
+      leaves.forEach(leaf => {
+        if (leaf.view && leaf.view.exploreView) {
+          const ev = leaf.view.exploreView;
+          // Clear previous live auth error
+          ev.liveSearchError = null;
+          // If search keyword exists, trigger automatic re-search
+          if (ev.searchKeyword) {
+            ev.executeVendorSearch(ev.searchKeyword);
+          } else {
+            ev.refreshResults();
+          }
+        }
+      });
+    } catch (e) {
+      console.warn('[TabonKB Companion] Error refreshing explore view:', e);
+    }
+  }
+
+  /**
+   * Stop local server gracefully on plugin unload
+   */
+  stop() {
+    if (this.server) {
+      try {
+        this.server.close(() => {
+          this.isRunning = false;
+          console.log('[TabonKB Companion] Local Sync Server stopped');
+        });
+      } catch (_) {}
+      this.server = null;
+    }
+  }
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+  
+}
+
+/* ==========================================================================
+   WeKnora Service — 封装 WeKnora REST API (X-API-Key 鉴权) 为可复用客户端
+   被两处 require 复用:
+   - mcp/weknora-mcp.js      (stdio JSON-RPC MCP server, 供 Hermes/Gemini 调用)
+   - extensions/weknora-portal.ts (Pi 原生扩展, Pi 无 MCP 能力)
+   凭证解析优先级: 显式 override > 环境变量 > data.json/.secrets.json
+   注: 本文件独立运行 (Node 24 全局 fetch), 不进入 build.py 扁平打包列表
+   ========================================================================== */
+
+
+
+
+const WEKNORA_SECRET_NAME = 'tabonkb-weknora-apikey';
+
+function readJsonSafe(p) {
+  try {
+    return fs.existsSync(p) ? JSON.parse(fs.readFileSync(p, 'utf8')) : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+// 定位插件目录 (兼容从 __dirname / cwd / 绝对路径三种入口)
+function resolvePluginDir() {
+  const cands = [
+    path.resolve(__dirname, '..'),
+    path.resolve(process.cwd(), '.obsidian', 'plugins', 'tabonkb-workbench'),
+    'd:/work/Mgmt/TabonKB/.obsidian/plugins/tabonkb-workbench'
+  ];
+  for (const c of cands) {
+    if (fs.existsSync(path.join(c, 'data.json')) || fs.existsSync(path.join(c, '.secrets.json'))) return c;
+  }
+  return cands[0];
+}
+
+// 规范化 Base URL: 去掉尾斜杠; 若只给了主机则补 /api/v1
+function normalizeBase(u) {
+  u = (u || '').trim().replace(/\/+$/, '');
+  if (!u) return '';
+  if (/\/api\/v\d+$/i.test(u)) return u;
+  return u + '/api/v1';
+}
+
+function loadConfig(override) {
+  override = override || {};
+  const dir = resolvePluginDir();
+  const data = readJsonSafe(path.join(dir, 'data.json')) || {};
+  const secrets = readJsonSafe(path.join(dir, '.secrets.json')) || {};
+  const w = (data && data.weknora) || {};
+  const baseUrl = normalizeBase(override.baseUrl || process.env.WEKNORA_BASE_URL || w.baseUrl || '');
+  const apiKey = (override.apiKey || process.env.WEKNORA_API_KEY || secrets[WEKNORA_SECRET_NAME] || '').trim();
+  const defaultKb = override.defaultKb || process.env.WEKNORA_DEFAULT_KB || w.defaultKb || '';
+  return { baseUrl, apiKey, defaultKb };
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function isUuid(s) { return UUID_RE.test(String(s || '')); }
+
+function unwrapData(r) {
+  if (r && typeof r === 'object' && 'data' in r) return r.data;
+  return r;
+}
+function unwrapList(r) {
+  let d = unwrapData(r);
+  if (Array.isArray(d)) return d;
+  if (d && typeof d === 'object') {
+    if (Array.isArray(d.list)) return d.list;
+    if (Array.isArray(d.items)) return d.items;
+  }
+  return [];
+}
+
+class WeknoraService {
+  constructor(cfg) {
+    cfg = cfg || loadConfig();
+    this.baseUrl = cfg.baseUrl;
+    this.apiKey = cfg.apiKey;
+    this.defaultKb = cfg.defaultKb;
+  }
+
+  isConfigured() { return !!(this.baseUrl && this.apiKey); }
+
+  async _req(method, endpoint, body, timeoutMs = 10000) {
+    if (!this.baseUrl) throw new Error('WeKnora Base URL 未配置 (设置页或 WEKNORA_BASE_URL)');
+    if (!this.apiKey) throw new Error('WeKnora API Key 未配置 (设置页或 WEKNORA_API_KEY)');
+    const url = this.baseUrl + endpoint;
+    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
+    const opts = {
+      method,
+      headers: { 'X-API-Key': this.apiKey, 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      signal: controller ? controller.signal : undefined
+    };
+    if (body !== undefined) opts.body = JSON.stringify(body);
+    try {
+      const res = await fetch(url, opts);
+      const text = await res.text();
+      if (!res.ok) throw new Error(`HTTP ${res.status} ${method} ${endpoint}: ${text.slice(0, 300)}`);
+      try { return JSON.parse(text); } catch (e) { return { data: text, success: true }; }
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
+  async ping(timeoutMs = 4000) {
+    const t0 = Date.now();
+    try {
+      await this._req('GET', '/knowledge-bases', undefined, timeoutMs);
+      return { ok: true, latencyMs: Date.now() - t0 };
+    } catch (err) {
+      return { ok: false, latencyMs: Date.now() - t0, error: err.message || String(err) };
+    }
+  }
+
+  async getWikiGraph(kb, limit = 300, timeoutMs = 10000) {
+    const id = await this.resolveKbId(kb);
+    const n = Math.max(20, Math.min(1000, limit || 300));
+    const raw = await this._req('GET', `/knowledgebase/${id}/wiki/graph?mode=overview&limit=${n}`, undefined, timeoutMs);
+    return {
+      nodes: raw.nodes || [],
+      edges: raw.edges || [],
+      meta: raw.meta || {},
+      kbId: id
+    };
+  }
+
+  async getWikiEgo(kb, slug, cap = 30, depth = 1, timeoutMs = 8000) {
+    const id = await this.resolveKbId(kb);
+    const raw = await this._req('GET', `/knowledgebase/${id}/wiki/graph?mode=ego&center=${encodeURIComponent(slug)}&depth=${depth}`, undefined, timeoutMs);
+    let nodes = raw.nodes || [];
+    const keep = Math.max(10, cap || 30);
+    const centerNode = nodes.find(n => n.slug === slug);
+    if (nodes.length > keep) {
+      let otherNodes = nodes.filter(n => n.slug !== slug);
+      otherNodes.sort((a, b) => (b.link_count || 0) - (a.link_count || 0));
+      otherNodes = otherNodes.slice(0, keep - (centerNode ? 1 : 0));
+      nodes = centerNode ? [centerNode, ...otherNodes] : otherNodes;
+      const kept = new Set(nodes.map(n => n.slug));
+      raw.edges = (raw.edges || []).filter(e => kept.has(e.source) && kept.has(e.target));
+    }
+    return {
+      nodes,
+      edges: raw.edges || [],
+      meta: raw.meta || {},
+      kbId: id,
+      totalNeighbors: Math.max(0, (raw.nodes || []).length - (centerNode ? 1 : 0))
+    };
+  }
+
+  async getWikiPage(kb, slug, timeoutMs = 5000) {
+    const id = await this.resolveKbId(kb);
+    const p = await this._req('GET', `/knowledgebase/${id}/wiki/pages/${encodeURIComponent(slug)}`, undefined, timeoutMs);
+    return {
+      title: p.title || slug,
+      pageType: p.page_type || 'entity',
+      summary: p.summary || '',
+      content: p.content || '',
+      slug: p.slug || slug
+    };
+  }
+
+  async getWikiStats(kb, timeoutMs = 5000) {
+    const id = await this.resolveKbId(kb);
+    const raw = await this._req('GET', `/knowledgebase/${id}/wiki/stats`, undefined, timeoutMs);
+    return (raw && raw.data) || raw || {};
+  }
+
+  // 知识库名/ID -> UUID; 留空则用默认或第一个
+  async resolveKbId(kb) {
+    if (kb && isUuid(kb)) return kb;
+    const kbs = await this.listKnowledgeBases();
+    if (!kb) {
+      if (this.defaultKb) return await this.resolveKbId(this.defaultKb);
+      if (kbs.length) return kbs[0].id;
+      throw new Error('未发现任何知识库, 请先在 WeKnora 中创建');
+    }
+    const needle = String(kb).toLowerCase();
+    let m = kbs.find((k) => (k.name || '').toLowerCase() === needle);
+    if (!m) m = kbs.find((k) => (k.name || '').toLowerCase().includes(needle));
+    if (m) return m.id;
+    throw new Error(`知识库「${kb}」未找到, 可用: ${kbs.map((k) => k.name).join(', ') || '(空)'}`);
+  }
+
+  async listKnowledgeBases() {
+    const r = await this._req('GET', '/knowledge-bases');
+    return unwrapList(r).map((k) => ({
+      id: k.id,
+      name: k.name,
+      description: k.description || '',
+      knowledge_count: k.knowledge_count,
+      chunk_count: k.chunk_count,
+      capabilities: k.capabilities
+    }));
+  }
+
+  async hybridSearch(kb, query, opts) {
+    opts = opts || {};
+    const id = await this.resolveKbId(kb);
+    const body = {
+      query_text: query,
+      vector_threshold: opts.vector_threshold != null ? opts.vector_threshold : 0.5,
+      keyword_threshold: opts.keyword_threshold != null ? opts.keyword_threshold : 0.3,
+      match_count: opts.match_count != null ? opts.match_count : 5
+    };
+    const r = await this._req('POST', `/knowledge-bases/${id}/hybrid-search`, body);
+    return unwrapList(r);
+  }
+
+  async listKnowledge(kb, page, pageSize) {
+    const id = await this.resolveKbId(kb);
+    const p = page || 1, ps = pageSize || 20;
+    const r = await this._req('GET', `/knowledge-bases/${id}/knowledge?page=${p}&page_size=${ps}`);
+    return { list: unwrapList(r), total: (r && (r.total != null ? r.total : (r.data && r.data.total))) };
+  }
+
+  async listAllKnowledge(kb) {
+    const pageSize = 100;
+    const all = [];
+    let total = Infinity;
+    for (let page = 1; page <= 40 && all.length < total; page++) {
+      const res = await this.listKnowledge(kb, page, pageSize);
+      const list = res.list || [];
+      if (res.total != null) total = Number(res.total) || list.length;
+      all.push(...list);
+      if (!list.length || list.length < pageSize) break;
+    }
+    return all;
+  }
+
+  async getKnowledge(kid) {
+    const r = await this._req('GET', `/knowledge/${kid}`);
+    return unwrapData(r);
+  }
+
+  async getKnowledgeSpans(kid) {
+    const r = await this._req('GET', `/knowledge/${kid}/spans`);
+    return unwrapData(r);
+  }
+
+  async createManual(kb, title, content, status, folderPath = '') {
+    const id = await this.resolveKbId(kb);
+    const r = await this._req('POST', `/knowledge-bases/${id}/knowledge/manual`, {
+      title, content, status: status || 'publish'
+    });
+    const doc = unwrapData(r);
+    if (doc?.id && folderPath) {
+      try {
+        await this.moveToFolder(id, [doc.id], folderPath);
+        doc.folder_path = folderPath;
+      } catch (mErr) {
+        console.warn(`[WeKnora] moveToFolder 失败 (${folderPath}):`, mErr);
+      }
+    }
+    return doc;
+  }
+
+  async updateManual(kid, content, title, status, kb = '', folderPath = '') {
+    const r = await this._req('PUT', `/knowledge/manual/${kid}`, {
+      title: title || '', content, status: status || 'publish'
+    });
+    const doc = unwrapData(r);
+    if (folderPath && kb) {
+      try {
+        const id = await this.resolveKbId(kb);
+        await this.moveToFolder(id, [kid], folderPath);
+        if (doc) doc.folder_path = folderPath;
+      } catch (mErr) {
+        console.warn(`[WeKnora] moveToFolder (update) 失败 (${folderPath}):`, mErr);
+      }
+    }
+    return doc;
+  }
+
+  async deleteKnowledge(kid) {
+    return this._req('DELETE', `/knowledge/${kid}`);
+  }
+
+  async moveToFolder(kb, knowledgeIds, folderPath) {
+    const id = await this.resolveKbId(kb);
+    const r = await this._req('POST', '/knowledge/folder', {
+      kb_id: id,
+      knowledge_ids: Array.isArray(knowledgeIds) ? knowledgeIds : [knowledgeIds],
+      folder_path: folderPath || ''
+    });
+    return unwrapData(r);
+  }
+
+  async uploadFile(kb, filename, bufferOrArrayBuffer, mimeType = 'application/octet-stream', folderPath = '') {
+    const id = await this.resolveKbId(kb);
+    const url = this.baseUrl + `/knowledge-bases/${id}/knowledge/file`;
+    const fd = new FormData();
+    const blob = new Blob([bufferOrArrayBuffer], { type: mimeType });
+    fd.append('file', blob, filename);
+    if (folderPath) {
+      fd.append('fileName', `${folderPath}/${filename}`);
+    }
+
+    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    const timer = controller ? setTimeout(() => controller.abort(), 60000) : null;
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'X-API-Key': this.apiKey
+        },
+        body: fd,
+        signal: controller ? controller.signal : undefined
+      });
+      const text = await res.text();
+      if (!res.ok) throw new Error(`HTTP ${res.status} POST /knowledge-bases/${id}/knowledge/file: ${text.slice(0, 300)}`);
+      let parsed;
+      try { parsed = JSON.parse(text); } catch (e) { parsed = { data: text, success: true }; }
+
+      const kid = parsed?.data?.id;
+      if (kid && folderPath) {
+        try {
+          await this.moveToFolder(id, [kid], folderPath);
+          if (parsed.data) parsed.data.folder_path = folderPath;
+        } catch (mErr) {
+          console.warn(`[WeKnora] moveToFolder (upload fallback) 失败 (${folderPath}):`, mErr);
+        }
+      }
+      return parsed;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
+  // 问答: 建会话 -> knowledge-chat (SSE), 汇总 answer + references
+  async ask(kb, query) {
+    const id = await this.resolveKbId(kb);
+    const sess = await this._req('POST', '/sessions', {
+      knowledge_base_id: id,
+      title: 'tabonkb-workbench-mcp',
+      description: 'auto-created by TabonKB workbench',
+      session_strategy: {
+        max_rounds: 5, enable_rewrite: true, fallback_strategy: 'FIXED_RESPONSE',
+        fallback_response: '未能从知识库中检索到相关内容。', embedding_top_k: 10,
+        keyword_threshold: 0.5, vector_threshold: 0.7
+      }
+    });
+    const sid = (unwrapData(sess) || {}).id || (sess && sess.data && sess.data.id);
+    if (!sid) throw new Error('创建 WeKnora 会话失败: ' + JSON.stringify(sess).slice(0, 200));
+    const result = await this._sseChat(sid, query, [id]);
+    return result;
+  }
+
+  async _sseChat(sid, query, kbIds) {
+    const url = this.baseUrl + `/knowledge-chat/${sid}`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'X-API-Key': this.apiKey, 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
+      body: JSON.stringify({ query, channel: 'api', knowledge_base_ids: kbIds })
+    });
+    if (!res.ok) { const t = await res.text().catch(() => ''); throw new Error(`HTTP ${res.status}: ${t.slice(0, 300)}`); }
+    if (!res.body) throw new Error('WeKnora 问答未返回流');
+
+    const decoder = new TextDecoder();
+    const reader = res.body.getReader();
+    let buf = '';
+    let answer = '';
+    let references = [];
+    let streamError = '';
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      let nl;
+      while ((nl = buf.indexOf('\n')) >= 0) {
+        let line = buf.slice(0, nl);
+        buf = buf.slice(nl + 1);
+        if (line.endsWith('\r')) line = line.slice(0, -1);
+        if (!line.startsWith('data:')) continue;
+        const payload = line.slice(5).trim();
+        if (!payload) continue;
+        let ev; try { ev = JSON.parse(payload); } catch (e) { continue; }
+        const rt = ev.response_type;
+        if (rt === 'answer' || rt === 'final_answer') {
+          if (ev.content) answer += ev.content;
+        } else if (rt === 'references') {
+          references = ev.knowledge_references || (ev.data && ev.data.knowledge_references) || references;
+        } else if (rt === 'error') {
+          streamError = ev.content || 'WeKnora 问答返回错误';
+        }
+      }
+    }
+    if (!answer && streamError) throw new Error(streamError);
+    return { answer, references: references || [], session_id: sid };
+  }
+}
+
+/* --------------------------------------------------------------------------
+   工具 schema (JSON Schema) 与 handler: stdio MCP 与 Pi 扩展共用同一套定义
+   -------------------------------------------------------------------------- */
+
+const KB_PARAM = { type: 'string', description: "知识库名称或 UUID; 留空则使用默认/第一个知识库 (可用 weknora_list_knowledge_bases 查看)" };
+
+const WEKNORA_TOOLS = [
+  {
+    name: 'weknora_list_knowledge_bases',
+    description: '列出 WeKnora 知识库中的全部知识库 (id / 名称 / 文档数 / 能力), 用于确定后续检索/问答工具的 kb 参数。',
+    inputSchema: { type: 'object', properties: {}, required: [] }
+  },
+  {
+    name: 'weknora_search',
+    description: '在指定 WeKnora 知识库中做向量+关键词混合检索, 返回最相关的文档分块片段 (含来源文档标题与 knowledge_id), 适合定位技术资料/排障问答。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: '检索关键词或问题, 如 "USB 橙屏" / "charge PMIC" / 报错信息' },
+        kb: KB_PARAM,
+        match_count: { type: 'number', description: '返回分块数量, 默认 5' }
+      },
+      required: ['query']
+    }
+  },
+  {
+    name: 'weknora_ask',
+    description: '基于 WeKnora 知识库做 RAG 问答, 返回带引用来源的完整答案。适合需要综合多篇文档推理的问题。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: '要提问的完整自然语言问题' },
+        kb: KB_PARAM
+      },
+      required: ['query']
+    }
+  },
+  {
+    name: 'weknora_list_documents',
+    description: '分页列出某知识库中的文档条目 (标题 / id / 类型 / 解析状态 / 摘要), 用于浏览知识库内容清单。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        kb: KB_PARAM,
+        page: { type: 'number', description: '页码, 从 1 开始, 默认 1' },
+        page_size: { type: 'number', description: '每页条数, 默认 20' }
+      },
+      required: []
+    }
+  },
+  {
+    name: 'weknora_read_document',
+    description: '按 knowledge_id 读取单篇文档详情 (标题 / 摘要 / 状态 / 手工正文 Markdown 若有)。',
+    inputSchema: {
+      type: 'object',
+      properties: { knowledge_id: { type: 'string', description: '文档条目 ID (来自检索/列表结果中的 knowledge_id)' } },
+      required: ['knowledge_id']
+    }
+  },
+  {
+    name: 'weknora_add_document',
+    description: '向知识库新增一篇 Markdown 文档 (写入工具)。默认 status=publish 立即分块索引可检索; 传 draft 仅保存不索引。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        title: { type: 'string', description: '文档标题' },
+        content: { type: 'string', description: 'Markdown 正文' },
+        kb: KB_PARAM,
+        status: { type: 'string', enum: ['publish', 'draft'], description: 'publish(默认, 立即索引) 或 draft(草稿不索引)' }
+      },
+      required: ['title', 'content']
+    }
+  },
+  {
+    name: 'weknora_update_document',
+    description: '更新一篇已有的手工 Markdown 文档正文 (写入工具)。仅适用于 type=manual 的条目; title 留空则保持原标题。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        knowledge_id: { type: 'string', description: '要更新的文档 ID' },
+        content: { type: 'string', description: '新的 Markdown 正文 (整体替换)' },
+        title: { type: 'string', description: '新标题, 留空保持原标题' },
+        status: { type: 'string', enum: ['publish', 'draft'], description: 'publish(默认, 重新索引) 或 draft' }
+      },
+      required: ['knowledge_id', 'content']
+    }
+  },
+  {
+    name: 'weknora_delete_document',
+    description: '删除知识库中的一篇文档条目 (写入工具, 不可逆)。提交后台删除任务。',
+    inputSchema: {
+      type: 'object',
+      properties: { knowledge_id: { type: 'string', description: '要删除的文档 ID' } },
+      required: ['knowledge_id']
+    }
+  }
+];
+
+function _fmtKbList(kbs) {
+  if (!kbs.length) return '当前没有可访问的知识库。';
+  const lines = [`### WeKnora 知识库 (共 ${kbs.length} 个):`, ''];
+  kbs.forEach((k, i) => {
+    const caps = k.capabilities ? Object.keys(k.capabilities).filter((c) => k.capabilities[c]).join('/') : '';
+    lines.push(`${i + 1}. **${k.name}**`);
+    lines.push(`   - ID: \`${k.id}\` | 文档数: ${k.knowledge_count != null ? k.knowledge_count : '?'} | 能力: ${caps || '通用'}`);
+    if (k.description) lines.push(`   - 描述: ${String(k.description).slice(0, 120)}`);
+  });
+  return lines.join('\n');
+}
+
+function _fmtSearch(hits, query) {
+  if (!hits.length) return `知识库中未检索到与「${query}」相关的内容。建议更换关键词, 或用 weknora_list_knowledge_bases 确认知识库。`;
+  const lines = [`### WeKnora 检索结果 (关键词「${query}」, 命中 ${hits.length} 条):`, ''];
+  hits.forEach((h, i) => {
+    const snippet = String(h.content || '').replace(/\s+/g, ' ').trim();
+    lines.push(`**${i + 1}. ${h.knowledge_title || '未知文档'}** (相关度 ${(Number(h.score) || 0).toFixed(3)})`);
+    lines.push(`   - knowledge_id: \`${h.knowledge_id || h.id || ''}\` | 分块 #: ${h.chunk_index != null ? h.chunk_index : '-'}`);
+    lines.push(`   - 内容: ${snippet.slice(0, 600)}${snippet.length > 600 ? '...' : ''}`);
+    lines.push('');
+  });
+  lines.push('💡 需要完整上下文可用 weknora_read_document 传入 knowledge_id, 或用 weknora_ask 直接问答。');
+  return lines.join('\n');
+}
+
+function _fmtAsk(r) {
+  const lines = ['### WeKnora 问答', '', (r.answer || '(无答案内容)'), ''];
+  const refs = Array.isArray(r.references) ? r.references : [];
+  if (refs.length) {
+    lines.push('---');
+    lines.push(`**引用来源 (${refs.length}):**`);
+    refs.slice(0, 12).forEach((ref, i) => {
+      const t = ref.knowledge_title || ref.title || ref.name || ref.doc_title || '来源';
+      const seg = ref.chunk_id || ref.id || '';
+      lines.push(`${i + 1}. ${t}${seg ? ` (\`${seg}\`)` : ''}`);
+    });
+  }
+  return lines.join('\n');
+}
+
+function _fmtDocList(res) {
+  const list = res.list || [];
+  if (!list.length) return '该知识库暂无文档条目。';
+  const lines = [`### 文档清单 (本页 ${list.length} 条${res.total != null ? ', 总计 ' + res.total : ''}):`, ''];
+  list.forEach((d, i) => {
+    lines.push(`${i + 1}. **${d.title || d.file_name || '无标题'}**`);
+    lines.push(`   - id: \`${d.id}\` | 类型: ${d.file_type || d.type || '-'} | 解析: ${d.parse_status || '-'} | 启用: ${d.enable_status || '-'}`);
+    if (d.folder_path) lines.push(`   - 目录: ${d.folder_path}`);
+    if (d.description) lines.push(`   - 摘要: ${String(d.description).replace(/\s+/g, ' ').slice(0, 160)}`);
+  });
+  return lines.join('\n');
+}
+
+function _fmtDocDetail(d) {
+  if (!d) return '未找到该文档详情。';
+  const lines = [`# ${d.title || d.file_name || '文档'}`, ''];
+  lines.push(`- **id**: \`${d.id}\``);
+  lines.push(`- **类型**: ${d.file_type || d.type || '-'} | **解析状态**: ${d.parse_status || '-'} | **启用**: ${d.enable_status || '-'}`);
+  if (d.folder_path) lines.push(`- **目录**: ${d.folder_path}`);
+  if (d.description) lines.push(`\n## 摘要\n${d.description}`);
+  const body = d.metadata && d.metadata.content;
+  if (body) lines.push(`\n## 正文 (Markdown)\n${body}`);
+  else lines.push(`\n> 该文档为解析型文件, 正文以分块形式存储。请用 weknora_search 检索其内容片段。`);
+  return lines.join('\n');
+}
+
+async function runWeknoraTool(name, args, service) {
+  args = args || {};
+  const svc = service || new WeknoraService();
+  if (!svc.isConfigured()) {
+    return '⚠️ WeKnora 未配置。请在工作台设置中填写 Base URL 与 API Key (或设置环境变量 WEKNORA_BASE_URL / WEKNORA_API_KEY)。';
+  }
+  switch (name) {
+    case 'weknora_list_knowledge_bases':
+      return _fmtKbList(await svc.listKnowledgeBases());
+    case 'weknora_search':
+      return _fmtSearch(await svc.hybridSearch(args.kb, args.query, { match_count: args.match_count }), args.query);
+    case 'weknora_ask':
+      return _fmtAsk(await svc.ask(args.kb, args.query));
+    case 'weknora_list_documents':
+      return _fmtDocList(await svc.listKnowledge(args.kb, args.page, args.page_size));
+    case 'weknora_read_document':
+      return _fmtDocDetail(await svc.getKnowledge(args.knowledge_id));
+    case 'weknora_add_document': {
+      const r = await svc.createManual(args.kb, args.title, args.content, args.status);
+      return `✅ 已新增文档「${args.title}」\n- id: \`${(r && r.id) || '?'}\`\n- 状态: ${args.status || 'publish'}${args.status === 'draft' ? ' (草稿, 未索引)' : ' (已提交索引, 稍后可检索)'}`;
+    }
+    case 'weknora_update_document': {
+      const r = await svc.updateManual(args.knowledge_id, args.content, args.title, args.status);
+      return `✅ 已更新文档 \`${args.knowledge_id}\`${(r && r.id) ? ` (id: ${r.id})` : ''}\n- 状态: ${args.status || 'publish'}`;
+    }
+    case 'weknora_delete_document': {
+      const r = await svc.deleteKnowledge(args.knowledge_id);
+      return `🗑 已提交删除文档 \`${args.knowledge_id}\` 的任务${(r && r.success) ? ' (成功)' : ''}`;
+    }
+    default:
+      throw new Error(`Unknown tool: ${name}`);
+  }
+}
+
+/* ==========================================================================
+   WeKnora Graph Topology Service
+   将 WeKnora Wiki 链接图谱以「瘦节点子图」形式接入工作台研发知识拓扑。
+   内存策略: 服务端切片(top-N) + 7 字段瘦节点 + 磁盘缓存(TTL) + ego 封顶。
+   视觉策略: 节点对象与 vault 节点完全同构, 渲染层零感知(样式沿用 Obsidian 主题)。
+   ========================================================================== */
+
+// 错误落盘日志: 渲染/合并异常写入插件目录 weknora-topo-error.log, 供离线定位
+function wkTopoWriteLog(vaultBasePath, text) {
+  try {
+    const p = wkTopoCachePath(vaultBasePath).replace(/weknora-graph-cache\.json$/, 'weknora-topo-error.log');
+    fs.appendFileSync(p, '[' + new Date().toISOString() + '] ' + String(text).slice(0, 3000) + '\n', 'utf8');
+  } catch (e) { /* 日志失败不影响主流程 */ }
+}
+
+// 语义归簇: WK 节点标题/slug 关键词 → 现有工程模块 (Obsidian 原生色板)
+const WK_TOPO_CLASSIFY_RULES = [
+  [/charg|chg|charge|battery-charge|pd协议|快充|充电/i, 'Charger'],
+  [/display|mipi|lcd|panel|lcm|oled|显示/i, 'Display'],
+  [/power|pmic|功耗|休眠|电流/i, 'Power'],
+  [/crash|panic|tombstone|ke死机|死机|重启|watchdog/i, 'Crash'],
+  [/\bspec\b|规范|cdd|认证|cert/i, 'Spec'],
+  [/\bcam\b|camera|sensor|摄像头/i, 'Camera'],
+  [/build|compile|flash|toolchain|编译|烧录|lk\/abl|uboot/i, 'Toolchain'],
+  [/audio|codec|录音|音频/i, 'Audio'],
+  [/touch|tp\b|触摸/i, 'Touch']
+];
+
+// 独立分组模式: page_type → WK-* 模块 (色板在 MODULE_COLORS 中同族扩展)
+function wkTopoGroupModule(pageType) {
+  if (pageType === 'entity') return 'WK-Entity';
+  if (pageType === 'concept') return 'WK-Concept';
+  if (pageType === 'summary') return 'WK-Summary';
+  return 'WK-Other';
+}
+
+function wkTopoClassify(title, slug) {
+  const text = (title || '') + ' ' + (slug || '');
+  for (const rule of WK_TOPO_CLASSIFY_RULES) {
+    if (rule[0].test(text)) return rule[1];
+  }
+  return 'General';
+}
+
+// 凭证/地址: 复用 weknora-mcp-shared 的 config 链 (data.json + .secrets.json)
+function wkTopoConfig(vaultBasePath) {
+  const env = buildWeknoraEnv(vaultBasePath);
+  let base = env.WEKNORA_BASE_URL || '';
+  if (!base) return null;
+  if (!/\/api\/v\d+$/i.test(base)) base = base.replace(/\/+$/, '') + '/api/v1';
+  const key = env.WEKNORA_API_KEY || '';
+  if (!key) return null;
+  return { base, key, kb: env.WEKNORA_DEFAULT_KB || '' };
+}
+
+async function wkTopoHttpJson(base, key, path) {
+  const res = await requestUrl({ url: base + path, method: 'GET', headers: { 'X-API-Key': key } });
+  if (res.status < 200 || res.status >= 300) throw new Error('WeKnora HTTP ' + res.status + ' @ ' + path);
+  return res.json;
+}
+
+// 解析 KB id: 设置里的默认库名/id 优先, 否则取第一个
+async function wkTopoResolveKbId(cfg) {
+  const listRes = await wkTopoHttpJson(cfg.base, cfg.key, '/knowledge-bases');
+  const list = (listRes && listRes.data) || [];
+  if (!list.length) throw new Error('WeKnora 无可用知识库');
+  const hit = cfg.kb ? list.find(k => k.name === cfg.kb || k.id === cfg.kb) : null;
+  return (hit || list[0]).id;
+}
+
+// 服务端切片拉取: overview top-N (默认 300, 硬顶 500)
+async function wkTopoFetchGraph(vaultBasePath, limit) {
+  const cfg = wkTopoConfig(vaultBasePath);
+  if (!cfg) throw new Error('WeKnora 未配置 (Base URL / API Key)');
+  const kbId = await wkTopoResolveKbId(cfg);
+  const n = Math.max(50, Math.min(500, limit || 300));
+  const raw = await wkTopoHttpJson(cfg.base, cfg.key,
+    `/knowledgebase/${kbId}/wiki/graph?mode=overview&limit=${n}`);
+  return { nodes: raw.nodes || [], edges: raw.edges || [], meta: raw.meta || {}, kbId, fetchedAt: Date.now() };
+}
+
+// ego 扩展: 一跳邻域; 实测 hub 一跳可达 298 节点/1434 边, 客户端按 link_count 封顶
+async function wkTopoFetchEgo(vaultBasePath, slug, cap) {
+  const cfg = wkTopoConfig(vaultBasePath);
+  if (!cfg) throw new Error('WeKnora 未配置');
+  const kbId = await wkTopoResolveKbId(cfg);
+  const raw = await wkTopoHttpJson(cfg.base, cfg.key,
+    `/knowledgebase/${kbId}/wiki/graph?mode=ego&center=${encodeURIComponent(slug)}&depth=1`);
+  let nodes = raw.nodes || [];
+  const keep = Math.max(20, cap || 150);
+  if (nodes.length > keep) {
+    nodes = nodes.slice().sort((a, b) => (b.link_count || 0) - (a.link_count || 0)).slice(0, keep);
+    const kept = new Set(nodes.map(n => n.slug));
+    raw.edges = (raw.edges || []).filter(e => kept.has(e.source) && kept.has(e.target));
+  }
+  return { nodes, edges: raw.edges || [], meta: raw.meta || {} };
+}
+
+// 单页正文懒加载 (16KB/页级别, 仅详情面板用, 不进图数据)
+async function wkTopoFetchPage(vaultBasePath, slug) {
+  const cfg = wkTopoConfig(vaultBasePath);
+  if (!cfg) throw new Error('WeKnora 未配置');
+  const kbId = await wkTopoResolveKbId(cfg);
+  const p = await wkTopoHttpJson(cfg.base, cfg.key,
+    `/knowledgebase/${kbId}/wiki/pages/${encodeURIComponent(slug)}`);
+  return { title: p.title, pageType: p.page_type, summary: p.summary || '', content: p.content || '' };
+}
+
+async function wkTopoFetchStats(vaultBasePath) {
+  const cfg = wkTopoConfig(vaultBasePath);
+  if (!cfg) throw new Error('WeKnora 未配置');
+  const kbId = await wkTopoResolveKbId(cfg);
+  const raw = await wkTopoHttpJson(cfg.base, cfg.key, `/knowledgebase/${kbId}/wiki/stats`);
+  return (raw && raw.data) || raw || {};
+}
+
+// 瘦化映射: WK 原始节点 → 与 vault 节点同构的原生对象 (无 content/attributes)
+function wkTopoSlimGraph(raw, grouping) {
+  const nodes = (raw.nodes || []).map(n => {
+    const module = grouping === 'wk'
+      ? wkTopoGroupModule(n.page_type)
+      : wkTopoClassify(n.title, n.slug);
+    return {
+      id: 'wk:' + n.slug,
+      basename: n.title || n.slug,
+      title: n.title || n.slug,
+      displayName: n.title || n.slug,
+      type: n.page_type,
+      module,
+      platform: 'WeKnora',
+      date: '',
+      summary: '',
+      shape: 'circle',
+      color: (typeof MODULE_COLORS !== 'undefined' && MODULE_COLORS[module]) || '#94A3B8',
+      content: '',
+      x: 0, y: 0, vx: 0, vy: 0,
+      radius: 4.0,
+      referenceCount: 0,
+      importance: 'normal',
+      isCoreAnchor: false,
+      source: 'weknora',
+      wkSlug: n.slug,
+      wkType: n.page_type,
+      wkLinks: n.link_count || 0
+    };
+  });
+  const edges = (raw.edges || []).map((e, i) => ({
+    id: 'wke_' + i,
+    source: 'wk:' + e.source,
+    target: 'wk:' + e.target,
+    relation: 'references',
+    weight: 1.0
+  }));
+  return { nodes, edges };
+}
+
+// 磁盘缓存: 单文件覆盖写, 进程内存不常驻
+function wkTopoCachePath(vaultBasePath) {
+  return vaultBasePath.replace(/[\\/]$/, '') +
+    '/.obsidian/plugins/tabonkb-workbench/weknora-graph-cache.json';
+}
+
+function wkTopoCacheLoad(vaultBasePath, ttlHours) {
+  try {
+    const p = wkTopoCachePath(vaultBasePath);
+    if (!fs.existsSync(p)) return null;
+    const j = JSON.parse(fs.readFileSync(p, 'utf8'));
+    const ttl = (ttlHours || 24) * 3600 * 1000;
+    if (!j || !j.fetchedAt || Date.now() - j.fetchedAt > ttl) return null;
+    if (!Array.isArray(j.nodes)) return null;
+    return j;
+  } catch (e) {
+    console.warn('[TabonKB] WeKnora 拓扑缓存读取失败:', e);
+    return null;
+  }
+}
+
+function wkTopoCacheSave(vaultBasePath, payload) {
+  try {
+    fs.writeFileSync(wkTopoCachePath(vaultBasePath), JSON.stringify(payload), 'utf8');
+  } catch (e) {
+    console.warn('[TabonKB] WeKnora 拓扑缓存写入失败:', e);
+  }
+  return payload;
+}
+
+// 合并后统一重算度数/半径阶梯/簇锚点 (与 buildGraphData 第 4、5 步同规格)
+function wkTopoRecomputeDegrees(graph) {
+  const nodes = graph.nodes || [];
+  const edges = graph.edges || [];
+  const deg = new Map();
+  edges.forEach(e => {
+    deg.set(e.source, (deg.get(e.source) || 0) + 1);
+    deg.set(e.target, (deg.get(e.target) || 0) + 1);
+  });
+  nodes.forEach(n => {
+    const d = deg.get(n.id) || 0;
+    n.referenceCount = d;
+    if (d >= 6) { n.importance = 'core'; n.radius = 6.5; }
+    else if (d >= 3) { n.importance = 'important'; n.radius = 5.2; }
+    else { n.importance = 'normal'; n.radius = 4.0; }
+    n.isCoreAnchor = false;
+  });
+  const byModule = {};
+  nodes.forEach(n => { (byModule[n.module] = byModule[n.module] || []).push(n); });
+  Object.keys(byModule).forEach(mod => {
+    const list = byModule[mod].slice().sort((a, b) => (b.referenceCount || 0) - (a.referenceCount || 0));
+    if (list.length) {
+      list[0].isCoreAnchor = true;
+      list[0].importance = 'core';
+      list[0].radius = 6.8;
+    }
+  });
+  return graph;
+}
+
+// 联邦合并: vault 图 + WK 瘦子图; 总量封顶 cap (默认 800), 边去重
+function wkTopoMerge(vaultGraph, wkGraph, cap) {
+  const maxTotal = cap || 800;
+  const nodes = (vaultGraph.nodes || []).slice();
+  const have = new Set(nodes.map(n => n.id));
+  let wkNodes = (wkGraph.nodes || []).filter(n => !have.has(n.id));
+  const room = Math.max(0, maxTotal - nodes.length);
+  if (wkNodes.length > room) {
+    wkNodes = wkNodes.slice().sort((a, b) => (b.wkLinks || 0) - (a.wkLinks || 0)).slice(0, room);
+  }
+  const kept = new Set(wkNodes.map(n => n.id));
+  nodes.push(...wkNodes);
+
+  const edges = (vaultGraph.edges || []).slice();
+  const edgeSet = new Set(edges.map(e => [e.source, e.target].sort().join('::')));
+  (wkGraph.edges || []).forEach(e => {
+    if (!kept.has(e.source) || !kept.has(e.target)) return;
+    const key = [e.source, e.target].sort().join('::');
+    if (edgeSet.has(key)) return;
+    edgeSet.add(key);
+    edges.push({ id: 'e_' + edges.length, source: e.source, target: e.target, relation: e.relation || 'references', weight: e.weight || 1.0 });
+  });
+  return wkTopoRecomputeDegrees({ nodes, edges });
+}
+
+/* ==========================================================================
+   WeKnora Graph Engine — 高性能 Canvas 2D 知识图谱渲染与交互引擎
+   外形参考: 蒲公英扇簇星云 + 外围茧环 (Obsidian Galaxy / Cocoon Ring Topology)
+   双主题体系:
+   1. 石墨疏朗 (浅底灰阶 · 疏朗宁静) [默认]
+   2. 柔和科技沉浸 (浅色微光晕 · 科技质感)
+   ========================================================================== */
+
+class WeKnoraGraphEngine {
+  /**
+   * @param {HTMLElement} containerEl
+   * @param {object} options
+   */
+  constructor(containerEl, options = {}) {
+    this.containerEl = containerEl;
+    this.onNodeClick = options.onNodeClick || (() => {});
+    this.onNodeHover = options.onNodeHover || (() => {});
+    this.onCanvasClick = options.onCanvasClick || (() => {});
+
+    // 数据集合
+    this.nodes = [];
+    this.edges = [];
+    this.nodeMap = new Map();
+    this.adjMap = new Map();   // nodeId -> Set<neighborId>
+    this.edgeMap = new Map();  // "source::target" -> edge
+
+    // 变换矩阵与视口
+    this.transform = { x: 0, y: 0, scale: 0.85 };
+    this.width = containerEl.clientWidth || 800;
+    this.height = containerEl.clientHeight || 550;
+
+    // 交互状态
+    this.hoveredNode = null;
+    this.selectedNode = null;
+    this.draggedNode = null;
+    this.isPanning = false;
+    this.panStart = { x: 0, y: 0 };
+    this.dragStart = { x: 0, y: 0 };
+
+    // 搜索高亮集合
+    this.highlightedNodeIds = new Set();
+    this.highlightedEdgeKeys = new Set();
+    this.neighborNodeIds = new Set();
+    this.primaryTargetNodeIds = new Set();
+
+    // 双主题架构 (默认: 石墨疏朗 graphite)
+    this.currentTheme = 'graphite';
+
+    // 力学与视觉参数 (调优星云茧环外形)
+    this.params = {
+      clusterStrength: 0.08,
+      repulsion: 800,
+      linkDistance: 28,
+      crossClusterDistance: 60,
+      linkStrength: 0.20,
+      centerForce: 0.005,
+      friction: 0.84,
+      clusterSpread: 1.0,
+      nodeScale: 0.6,
+      edgeOpacity: 0.50,
+      fontSize: 3
+    };
+
+    // 物理仿真控制
+    this.alpha = 1.0;
+    this.alphaMin = 0.005;
+    this.alphaDecay = 0.96;
+    this.animFrameId = null;
+    this.isSimulating = false;
+    this.hasFitted = false;
+    this.simStepCount = 0;
+
+    // 沉浸主题备选色盘
+    this.typeColors = {
+      entity: '#10B981',       // 实体 - 绿色
+      concept: '#F59E0B',      // 概念 - 橙色
+      summary: '#3B82F6',      // 摘要 - 蓝色
+      synthesis: '#8B5CF6',    // 综合 - 紫色
+      default: '#64748B'       // 默认 - 灰蓝
+    };
+
+    // DOM 初始化
+    this.initCanvas();
+    this.bindEvents();
+  }
+
+  initCanvas() {
+    this.canvas = document.createElement('canvas');
+    this.canvas.className = 'tw-weknora-graph-canvas';
+    this.canvas.style.display = 'block';
+    this.canvas.style.width = '100%';
+    this.canvas.style.height = '100%';
+    this.canvas.style.cursor = 'grab';
+    this.containerEl.appendChild(this.canvas);
+    this.ctx = this.canvas.getContext('2d');
+    this.resize();
+  }
+
+  resize() {
+    if (!this.canvas || !this.containerEl) return;
+    const rect = this.containerEl.getBoundingClientRect();
+    const w = Math.max(100, Math.floor(rect.width));
+    const h = Math.max(100, Math.floor(rect.height));
+    this.width = w;
+    this.height = h;
+
+    const dpr = window.devicePixelRatio || 1;
+    this.canvas.width = w * dpr;
+    this.canvas.height = h * dpr;
+    this.canvas.style.width = w + 'px';
+    this.canvas.style.height = h + 'px';
+    this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    this.requestRender();
+  }
+
+  setData(data = { nodes: [], edges: [] }) {
+    this.nodes = [];
+    this.edges = [];
+    this.nodeMap.clear();
+    this.adjMap.clear();
+    this.edgeMap.clear();
+
+    const rawNodes = data.nodes || [];
+    const rawEdges = data.edges || [];
+
+    // 1. 初始化节点对象
+    rawNodes.forEach((n, i) => {
+      const id = n.slug || n.id || String(i);
+      const degree = Number(n.link_count || n.degree || 0);
+      const pageType = (n.page_type || n.pageType || 'entity').toLowerCase();
+
+      const nodeObj = {
+        id,
+        slug: n.slug || id,
+        title: n.title || id,
+        displayName: n.title || id,
+        pageType,
+        degree,
+        referenceCount: degree,
+        summary: n.summary || '',
+        vx: 0,
+        vy: 0,
+        radius: 4.0,
+        color: this.typeColors[pageType] || this.typeColors.default,
+        isCoreAnchor: false
+      };
+
+      this.nodes.push(nodeObj);
+      this.nodeMap.set(id, nodeObj);
+      this.adjMap.set(id, new Set());
+    });
+
+    // 2. 建立关联边映射
+    rawEdges.forEach((e) => {
+      const s = e.source?.id || e.source;
+      const t = e.target?.id || e.target;
+      if (this.nodeMap.has(s) && this.nodeMap.has(t)) {
+        const edgeObj = {
+          source: s,
+          target: t,
+          weight: e.weight || 1
+        };
+        this.edges.push(edgeObj);
+        this.adjMap.get(s)?.add(t);
+        this.adjMap.get(t)?.add(s);
+        this.edgeMap.set(`${s}::${t}`, edgeObj);
+        this.edgeMap.set(`${t}::${s}`, edgeObj);
+      }
+    });
+
+    // 3. 计算实际关联度数并标记顶层核心地标 (Top 10-12 枢纽常显文字, 其余仅悬停显示)
+    const sorted = [...this.nodes].sort((a, b) => {
+      const degA = this.adjMap.get(a.id)?.size || a.degree || 0;
+      const degB = this.adjMap.get(b.id)?.size || b.degree || 0;
+      return degB - degA;
+    });
+
+    const topCount = Math.min(12, Math.max(5, Math.floor(this.nodes.length * 0.05)));
+    for (let i = 0; i < sorted.length; i++) {
+      const node = sorted[i];
+      node.degree = this.adjMap.get(node.id)?.size || node.degree || 0;
+      if (i < topCount || node.degree >= 30) {
+        node.isCoreAnchor = true;
+      }
+    }
+
+    // 4. 应用星爆茧环 (蒲公英外向扇簇 + 核心星云 + 外围圆环) 拓扑几何布局
+    this.hasFitted = false;
+    this.simStepCount = 0;
+    this.applyStarburstGalaxyLayout();
+    this.wakeSimulation(1.0);
+  }
+
+  /**
+   * 星爆茧环星云拓扑算法 (Starburst Galaxy & Cocoon Ring Layout)
+   * 结构特征:
+   * 1. 核心密集星云: 高度数枢纽群位于内层椭圆核心相互交织
+   * 2. 外向蒲公英扇簇: 围绕各大枢纽的关联叶子节点, 沿中心放射线向外呈孔雀开屏/扇形发散
+   * 3. 外围茧环 (Cocoon Ring): 孤立/度数<=1的边缘节点沿外圈圆周均匀星落分布, 形成完美的圆形星环边界
+   */
+  applyStarburstGalaxyLayout() {
+    const spread = this.params.clusterSpread || 1.0;
+    const w = this.width || 800;
+    const h = this.height || 550;
+    const cx = w / 2;
+    const cy = h / 2;
+    const N = this.nodes.length;
+    if (!N) return;
+
+    // 1. 节点度数统计
+    const degMap = new Map();
+    this.nodes.forEach(n => {
+      const d = this.adjMap.get(n.id)?.size || n.degree || 0;
+      degMap.set(n.id, d);
+    });
+
+    // 2. 划分节点层级
+    const sortedNodes = [...this.nodes].sort((a, b) => degMap.get(b.id) - degMap.get(a.id));
+    
+    // 超级枢纽核心群 (Top Degree Hubs)
+    const coreHubs = sortedNodes.filter(n => degMap.get(n.id) >= 6 || n.isCoreAnchor);
+    const coreHubSet = new Set(coreHubs.map(n => n.id));
+
+    // 次级关联枢纽
+    const subHubs = sortedNodes.filter(n => !coreHubSet.has(n.id) && degMap.get(n.id) >= 3);
+    const allHubSet = new Set([...coreHubSet, ...subHubs.map(n => n.id)]);
+
+    // 核心枢纽：以内椭圆为基座分布 (R = 45 ~ 110 * spread)
+    coreHubs.forEach((h, i) => {
+      const ang = (i / Math.max(1, coreHubs.length)) * Math.PI * 2 + 0.5;
+      const rad = (45 + (i % 3) * 32) * spread;
+      h.clusterX = cx + rad * Math.cos(ang) * 1.15;
+      h.clusterY = cy + rad * Math.sin(ang) * 0.92;
+      h._fanSlot = 0;
+    });
+
+    // 次级枢纽：分布在次中层 (R = 110 ~ 180 * spread)
+    subHubs.forEach((h, i) => {
+      const ang = (i / Math.max(1, subHubs.length)) * Math.PI * 2 + 1.2;
+      const rad = (110 + (i % 4) * 24) * spread;
+      h.clusterX = cx + rad * Math.cos(ang) * 1.18;
+      h.clusterY = cy + rad * Math.sin(ang) * 0.94;
+      h._fanSlot = 0;
+    });
+
+    // 寻找叶子节点所属的最大度数枢纽
+    const hubOf = new Map();
+    this.edges.forEach(e => {
+      const sIsHub = allHubSet.has(e.source);
+      const tIsHub = allHubSet.has(e.target);
+      if (sIsHub && !tIsHub) {
+        if (!hubOf.has(e.target) || degMap.get(e.source) > degMap.get(hubOf.get(e.target))) {
+          hubOf.set(e.target, e.source);
+        }
+      } else if (tIsHub && !sIsHub) {
+        if (!hubOf.has(e.source) || degMap.get(e.target) > degMap.get(hubOf.get(e.source))) {
+          hubOf.set(e.source, e.target);
+        }
+      }
+    });
+
+    // 外围茧环半长/短轴 (参考用户上图的外围星点环)
+    const baseR = Math.min(w, h) * 0.44 * spread;
+    const outerR_X = baseR * 1.12;
+    const outerR_Y = baseR * 0.95;
+    let ringIndex = 0;
+
+    // 遍历所有节点赋予初始几何坐标
+    this.nodes.forEach((n) => {
+      if (allHubSet.has(n.id)) {
+        n.x = n.clusterX + (Math.random() - 0.5) * 6;
+        n.y = n.clusterY + (Math.random() - 0.5) * 6;
+        return;
+      }
+
+      const hid = hubOf.get(n.id);
+      if (hid) {
+        // 放射扇簇 (蒲公英开花): 以所属枢纽为基点，沿中心向外的背向法线方向散开
+        const parentHub = this.nodeMap.get(hid);
+        if (parentHub && parentHub.clusterX != null) {
+          const slot = parentHub._fanSlot || 0;
+          parentHub._fanSlot = slot + 1;
+
+          // 背离中心向量角
+          const baseAng = Math.atan2(parentHub.clusterY - cy, parentHub.clusterX - cx);
+          // 扇面张角 (每层 14 节点均匀放射)
+          const ang = baseAng + ((slot % 12) - 5.5) * 0.17;
+          const rad = (22 + Math.floor(slot / 12) * 15 + (slot % 3) * 4) * spread;
+
+          n.clusterX = parentHub.clusterX + rad * Math.cos(ang);
+          n.clusterY = parentHub.clusterY + rad * Math.sin(ang);
+        } else {
+          n.clusterX = cx;
+          n.clusterY = cy;
+        }
+      } else {
+        // 边缘弱关联/孤立点: 沿外围圆环 (Cocoon Ring) 黄金分割螺旋散布, 构成最外层完美的边界环
+        ringIndex++;
+        const ang = (ringIndex * 2.399963) % (Math.PI * 2);
+        const jitter = (Math.random() - 0.5) * 14;
+        n.clusterX = cx + (outerR_X + jitter) * Math.cos(ang);
+        n.clusterY = cy + (outerR_Y + jitter) * Math.sin(ang);
+      }
+
+      n.x = n.clusterX + (Math.random() - 0.5) * 5;
+      n.y = n.clusterY + (Math.random() - 0.5) * 5;
+    });
+  }
+
+  setTheme(themeKey) {
+    if (themeKey !== 'graphite' && themeKey !== 'immersive') {
+      themeKey = 'graphite';
+    }
+    this.currentTheme = themeKey;
+    this.hasFitted = false;
+    this.simStepCount = 0;
+    this.applyStarburstGalaxyLayout();
+    this.wakeSimulation(0.85);
+  }
+
+  setParams(newParams = {}) {
+    Object.assign(this.params, newParams);
+    this.applyStarburstGalaxyLayout();
+    this.wakeSimulation(0.35);
+  }
+
+  resetParams() {
+    this.params = {
+      clusterStrength: 0.08,
+      repulsion: 800,
+      linkDistance: 28,
+      crossClusterDistance: 60,
+      linkStrength: 0.20,
+      centerForce: 0.005,
+      friction: 0.84,
+      clusterSpread: 1.0,
+      nodeScale: 0.6,
+      edgeOpacity: 0.50,
+      fontSize: 3
+    };
+    this.setTheme('graphite');
+  }
+
+  // --------------------------------------------------------------------------
+  // 物理模拟循环 (物理收敛冷却后彻底停帧, 0% CPU 占用)
+  // --------------------------------------------------------------------------
+  wakeSimulation(alpha = 0.3) {
+    this.alpha = Math.max(this.alpha, alpha);
+    if (!this.isSimulating) {
+      this.isSimulating = true;
+      this.tick();
+    }
+  }
+
+  tick() {
+    if (!this.isSimulating) return;
+
+    this.simStepCount = (this.simStepCount || 0) + 1;
+
+    if (this.alpha < this.alphaMin) {
+      this.alpha = 0;
+      this.isSimulating = false;
+      this.animFrameId = null;
+      if (!this.hasFitted) {
+        this.fitBounds(0.78);
+        this.hasFitted = true;
+      }
+      this.render();
+      return;
+    }
+
+    this.stepPhysics();
+    this.render();
+
+    // 在第 22 步骨架形成时自动贴合适配视野
+    if (this.simStepCount === 22 && !this.hasFitted) {
+      this.fitBounds(0.78);
+      this.hasFitted = true;
+    }
+
+    this.animFrameId = requestAnimationFrame(() => this.tick());
+  }
+
+  stepPhysics() {
+    const { clusterStrength, repulsion, linkDistance, crossClusterDistance, linkStrength, centerForce, friction } = this.params;
+    const w = this.width || 800;
+    const h = this.height || 550;
+    const cx = w / 2;
+    const cy = h / 2;
+    const N = this.nodes.length;
+
+    // 1. 节点间排斥力 (保证扇簇展开与呼吸间距)
+    for (let i = 0; i < N; i++) {
+      const n1 = this.nodes[i];
+      for (let j = i + 1; j < N; j++) {
+        const n2 = this.nodes[j];
+        let dx = n2.x - n1.x;
+        let dy = n2.y - n1.y;
+        let d2 = dx * dx + dy * dy;
+        if (!(d2 > 0.01)) {
+          const ang = (i * 2.399963 + j) % (Math.PI * 2);
+          dx = Math.cos(ang);
+          dy = Math.sin(ang);
+          d2 = 1;
+        }
+        const d = Math.sqrt(d2);
+        if (d < 220) {
+          const force = (repulsion / (d2 + 25)) * this.alpha;
+          const fx = (dx / d) * force;
+          const fy = (dy / d) * force;
+          if (!n1.fixed) { n1.vx -= fx; n1.vy -= fy; }
+          if (!n2.fixed) { n2.vx += fx; n2.vy += fy; }
+        }
+      }
+    }
+
+    // 2. 连线弹簧引力 (维持拓扑骨架)
+    for (let i = 0; i < this.edges.length; i++) {
+      const e = this.edges[i];
+      const source = this.nodeMap.get(e.source);
+      const target = this.nodeMap.get(e.target);
+      if (!source || !target) continue;
+
+      const dx = target.x - source.x;
+      const dy = target.y - source.y;
+      const d = Math.sqrt(dx * dx + dy * dy) || 1;
+      const isSameModule = source.pageType === target.pageType;
+      const targetDist = isSameModule ? linkDistance : crossClusterDistance;
+      const strength = isSameModule ? linkStrength : (linkStrength * 0.25);
+
+      const displacement = Math.max(-48, Math.min(48, d - targetDist));
+      const force = displacement * strength * (e.weight || 1.0) * this.alpha;
+      const fx = (dx / d) * force;
+      const fy = (dy / d) * force;
+
+      if (!source.fixed) { source.vx += fx; source.vy += fy; }
+      if (!target.fixed) { target.vx -= fx; target.vy -= fy; }
+    }
+
+    // 3. 向心聚拢约束与全局居中力 (维持星云轮廓)
+    for (let i = 0; i < N; i++) {
+      const n = this.nodes[i];
+      if (n.fixed || n === this.draggedNode) continue;
+
+      if (n.clusterX !== undefined) {
+        n.vx += (n.clusterX - n.x) * clusterStrength * this.alpha;
+        n.vy += (n.clusterY - n.y) * clusterStrength * this.alpha;
+      }
+
+      n.vx += (cx - n.x) * centerForce * this.alpha;
+      n.vy += (cy - n.y) * centerForce * this.alpha;
+
+      n.vx *= friction;
+      n.vy *= friction;
+      const maxV = 18;
+      n.vx = Math.max(-maxV, Math.min(maxV, n.vx));
+      n.vy = Math.max(-maxV, Math.min(maxV, n.vy));
+      n.x += n.vx;
+      n.y += n.vy;
+      if (!Number.isFinite(n.x) || !Number.isFinite(n.y) || Math.abs(n.x) > 8000 || Math.abs(n.y) > 8000) {
+        n.x = (n.clusterX != null) ? n.clusterX : cx;
+        n.y = (n.clusterY != null) ? n.clusterY : cy;
+        n.vx = 0;
+        n.vy = 0;
+      }
+    }
+
+    // 4. 碰撞硬防重叠 (Collision Avoidance)
+    const nScale = this.params.nodeScale || 0.6;
+    for (let i = 0; i < N; i++) {
+      const n1 = this.nodes[i];
+      for (let j = i + 1; j < N; j++) {
+        const n2 = this.nodes[j];
+        const dx = n2.x - n1.x;
+        const dy = n2.y - n1.y;
+        const d = Math.hypot(dx, dy) || 1;
+        const r1 = Math.max(1.6, Math.min(6.5, 1.6 + (n1.degree || 0) * 0.35)) * nScale;
+        const r2 = Math.max(1.6, Math.min(6.5, 1.6 + (n2.degree || 0) * 0.35)) * nScale;
+        const minDist = r1 + r2 + 4.0;
+        if (d < minDist) {
+          const overlap = (minDist - d) * 0.5;
+          if (!n1.fixed) { n1.x -= (dx / d) * overlap; n1.y -= (dy / d) * overlap; }
+          if (!n2.fixed) { n2.x += (dx / d) * overlap; n2.y += (dy / d) * overlap; }
+        }
+      }
+    }
+
+    this.alpha *= this.alphaDecay;
+  }
+
+  fitBounds(occupancy = 0.78) {
+    if (this.nodes.length === 0) return;
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    this.nodes.forEach(n => {
+      if (!Number.isFinite(n.x) || !Number.isFinite(n.y)) return;
+      const pad = 24;
+      if (n.x - pad < minX) minX = n.x - pad;
+      if (n.x + pad > maxX) maxX = n.x + pad;
+      if (n.y - pad < minY) minY = n.y - pad;
+      if (n.y + pad > maxY) maxY = n.y + pad;
+    });
+    if (minX === Infinity) return;
+
+    const gw = maxX - minX || 1;
+    const gh = maxY - minY || 1;
+    const targetW = this.width * (occupancy + 0.02);
+    const targetH = this.height * occupancy;
+
+    const scaleX = targetW / gw;
+    const scaleY = targetH / gh;
+    const newScale = Math.min(Math.max(Math.min(scaleX, scaleY), 0.18), 2.2);
+    const midX = (minX + maxX) / 2;
+    const midY = (minY + maxY) / 2;
+    if (!Number.isFinite(newScale) || !Number.isFinite(midX) || !Number.isFinite(midY)) return;
+
+    this.transform.scale = newScale;
+    this.transform.x = this.width / 2 - midX * newScale;
+    this.transform.y = this.height / 2 - midY * newScale;
+    this.requestRender();
+  }
+
+  centerGraph() {
+    this.fitBounds(0.78);
+  }
+
+  requestRender() {
+    if (this.isSimulating) return;
+    if (this._renderPending) return;
+    this._renderPending = true;
+    requestAnimationFrame(() => {
+      this._renderPending = false;
+      this.render();
+    });
+  }
+
+  // --------------------------------------------------------------------------
+  // Canvas 绘制流水线
+  // --------------------------------------------------------------------------
+  render() {
+    const ctx = this.ctx;
+    if (!ctx) return;
+
+    // 1. 完全清除整张画布像素缓冲 (彻底消除切视口或重绘时的重影与残留虚影)
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+
+    const dpr = window.devicePixelRatio || 1;
+    ctx.save();
+    ctx.scale(dpr, dpr);
+
+    const th = this.currentTheme;
+
+    // 2. 主题背景绘制
+    if (th === 'graphite') {
+      ctx.fillStyle = '#FAFAFA';
+      ctx.fillRect(0, 0, this.width, this.height);
+    } else {
+      // 柔和科技沉浸式
+      const bgGrad = ctx.createRadialGradient(this.width/2, this.height/2, 30, this.width/2, this.height/2, Math.max(this.width, this.height) * 0.85);
+      bgGrad.addColorStop(0, '#FFFFFF');
+      bgGrad.addColorStop(0.5, '#F9FBFE');
+      bgGrad.addColorStop(1, '#F1F5F9');
+      ctx.fillStyle = bgGrad;
+      ctx.fillRect(0, 0, this.width, this.height);
+
+      // 发丝级微网格
+      ctx.save();
+      ctx.strokeStyle = 'rgba(226, 232, 240, 0.55)';
+      ctx.lineWidth = 0.5;
+      ctx.beginPath();
+      const gStep = 44;
+      for (let x = 0; x < this.width; x += gStep) { ctx.moveTo(x, 0); ctx.lineTo(x, this.height); }
+      for (let y = 0; y < this.height; y += gStep) { ctx.moveTo(0, y); ctx.lineTo(this.width, y); }
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // 摄像机视口变换
+    ctx.save();
+    ctx.translate(this.transform.x, this.transform.y);
+    ctx.scale(this.transform.scale, this.transform.scale);
+
+    const curScale = Math.max(0.35, this.transform.scale);
+    const activeNode = this.hoveredNode || this.selectedNode;
+    const hasHighlight = this.highlightedNodeIds.size > 0;
+    const edgeScale = (this.params.edgeOpacity !== undefined ? this.params.edgeOpacity : 0.50) / 0.50;
+    const nScale = this.params.nodeScale || 0.6;
+    const fSize = Math.max(1, Math.min(5, (this.params.fontSize || 3)));
+
+    // 视口边界裁剪
+    const margin = 80;
+    const vMinX = (-this.transform.x - margin) / curScale;
+    const vMaxX = (this.width - this.transform.x + margin) / curScale;
+    const vMinY = (-this.transform.y - margin) / curScale;
+    const vMaxY = (this.height - this.transform.y + margin) / curScale;
+
+    // 3. 绘制连线 (主题严格契合: 石墨疏朗采用高雅深墨灰 #334155, 科技沉浸采用科技蓝)
+    for (let i = 0; i < this.edges.length; i++) {
+      const e = this.edges[i];
+      const s = this.nodeMap.get(e.source);
+      const t = this.nodeMap.get(e.target);
+      if (!s || !t) continue;
+
+      const sIn = s.x >= vMinX && s.x <= vMaxX && s.y >= vMinY && s.y <= vMaxY;
+      const tIn = t.x >= vMinX && t.x <= vMaxX && t.y >= vMinY && t.y <= vMaxY;
+      if (!sIn && !tIn) continue;
+
+      const isCross = s.pageType !== t.pageType;
+      const isConnected = activeNode && (e.source === activeNode.id || e.target === activeNode.id);
+      const isEdgeSearchHigh = hasHighlight && (this.highlightedEdgeKeys.has(`${s.id}::${t.id}`) || this.highlightedEdgeKeys.has(`${t.id}::${s.id}`));
+
+      let strokeColor = (th === 'graphite') ? '#9B9B9B' : '#94A3B8';
+      let alpha = (isCross ? 0.10 : 0.22) * edgeScale;
+      let lineWidth = 0.50 / curScale;
+
+      if (hasHighlight) {
+        if (isEdgeSearchHigh) {
+          alpha = 0.88;
+          strokeColor = (th === 'graphite') ? '#334155' : '#2563EB';
+          lineWidth = 0.85 / curScale;
+        } else {
+          alpha = 0.03;
+        }
+      } else if (activeNode) {
+        if (isConnected) {
+          alpha = 0.88;
+          strokeColor = (th === 'graphite') ? '#1E293B' : (activeNode.color || '#2563EB');
+          lineWidth = 0.85 / curScale;
+        } else {
+          alpha = 0.04;
+        }
+      }
+
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.strokeStyle = strokeColor;
+      ctx.lineWidth = lineWidth;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(s.x, s.y);
+      ctx.lineTo(t.x, t.y);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // 4. 绘制节点
+    for (let i = 0; i < this.nodes.length; i++) {
+      const n = this.nodes[i];
+      if (n.x < vMinX || n.x > vMaxX || n.y < vMinY || n.y > vMaxY) continue;
+
+      const isSelected = this.selectedNode && this.selectedNode.id === n.id;
+      const isHovered = this.hoveredNode && this.hoveredNode.id === n.id;
+      const isNeighbor = activeNode && this.adjMap.get(activeNode.id)?.has(n.id);
+      const isPrimarySearch = hasHighlight && this.primaryTargetNodeIds && this.primaryTargetNodeIds.has(n.id);
+      const isSearchNeighbor = hasHighlight && this.neighborNodeIds.has(n.id);
+
+      const deg = n.degree || 0;
+      let r = Math.max(1.6, Math.min(6.5, 1.6 + deg * 0.35)) * nScale;
+      
+      let fill = '#9A9A9A';
+      if (th === 'graphite') {
+        fill = deg >= 6 ? '#4B4B4B' : (deg >= 3 ? '#6F6F6F' : '#9A9A9A');
+      } else {
+        fill = deg >= 6 ? '#2563EB' : (deg >= 3 ? '#0EA5E9' : (n.color || '#94A3B8'));
+      }
+
+      let alpha = 1.0;
+      if (hasHighlight) {
+        if (isPrimarySearch) {
+          alpha = 1.0;
+          r *= 1.25;
+          fill = (th === 'graphite') ? '#0F172A' : '#2563EB';
+        } else if (isSearchNeighbor) {
+          alpha = 0.82;
+          r *= 1.05;
+          fill = (th === 'graphite') ? '#475569' : '#0EA5E9';
+        } else {
+          alpha = 0.08;
+          fill = (th === 'graphite') ? '#CBD5E1' : '#E2E8F0';
+        }
+      } else if (activeNode) {
+        if (isHovered || isSelected) {
+          alpha = 1.0;
+        } else if (isNeighbor) {
+          alpha = 0.95;
+        } else {
+          alpha = 0.18;
+        }
+      }
+
+      ctx.save();
+      ctx.globalAlpha = alpha;
+
+      // 选中/悬停/搜索主命中外环 (石墨疏朗为深墨色 #0F172A, 沉浸式为科技蓝)
+      if (isSelected || isHovered || isPrimarySearch) {
+        ctx.beginPath();
+        ctx.arc(n.x, n.y, r + 2.4, 0, Math.PI * 2);
+        ctx.strokeStyle = (th === 'graphite') ? '#0F172A' : '#2563EB';
+        ctx.lineWidth = 1.0 / curScale;
+        ctx.stroke();
+      }
+
+      // 核心枢纽节点微光环 (科技沉浸专属)
+      if (deg >= 6 && !hasHighlight && th === 'immersive') {
+        ctx.beginPath();
+        ctx.arc(n.x, n.y, r + 4.0, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(37, 99, 235, 0.12)';
+        ctx.fill();
+      }
+
+      // 节点实体圆
+      ctx.beginPath();
+      ctx.arc(n.x, n.y, r, 0, Math.PI * 2);
+      ctx.fillStyle = fill;
+      ctx.fill();
+      ctx.strokeStyle = '#FFFFFF';
+      ctx.lineWidth = 0.8 / curScale;
+      ctx.stroke();
+
+      ctx.restore();
+    }
+
+    // 5. 绘制文字标签 (严格防覆盖与防重影: 碰撞避让 + 整数像素 + 极微描边)
+    const drawnLabelBoxes = [];
+    const labelCandidates = [];
+
+    for (let i = 0; i < this.nodes.length; i++) {
+      const n = this.nodes[i];
+      if (n.x < vMinX || n.x > vMaxX || n.y < vMinY || n.y > vMaxY) continue;
+
+      const isSelected = this.selectedNode && this.selectedNode.id === n.id;
+      const isHovered = this.hoveredNode && this.hoveredNode.id === n.id;
+      const isPrimarySearch = hasHighlight && this.primaryTargetNodeIds && this.primaryTargetNodeIds.has(n.id);
+      const isCoreHub = n.isCoreAnchor && !activeNode && !hasHighlight;
+
+      let priority = 0;
+      if (isSelected) priority = 4;
+      else if (isHovered) priority = 3;
+      else if (isPrimarySearch) priority = 2;
+      else if (isCoreHub) priority = 1;
+
+      if (priority > 0) {
+        labelCandidates.push({ node: n, priority, isSelected, isHovered, isPrimarySearch });
+      }
+    }
+
+    // 优先绘制高优先级标签 (选中 > 悬停 > 搜索主命中 > 核心枢纽)
+    labelCandidates.sort((a, b) => b.priority - a.priority);
+
+    ctx.save();
+    ctx.font = `600 ${fSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+
+    for (const item of labelCandidates) {
+      const n = item.node;
+      let text = n.displayName || n.title || '';
+
+      // 对过长文件/文献标题进行智能缩略，防止横向贯通遮挡多个节点
+      if (text.length > 20 && !item.isSelected && !item.isHovered) {
+        text = text.slice(0, 11) + '...' + text.slice(-5);
+      }
+
+      const deg = n.degree || 0;
+      const r = Math.max(1.6, Math.min(6.5, 1.6 + deg * 0.35)) * nScale;
+      const labelX = Math.round(n.x + r + Math.max(2, fSize * 0.4));
+      const labelY = Math.round(n.y);
+
+      // 计算文字边界盒并执行碰撞检测 (Collision Avoidance)
+      const tw = ctx.measureText(text).width;
+      const thBox = fSize + 2;
+      const box = { x: labelX - 2, y: labelY - thBox / 2, w: tw + 4, h: thBox };
+
+      let collided = false;
+      for (const b of drawnLabelBoxes) {
+        if (box.x < b.x + b.w && box.x + box.w > b.x &&
+            box.y < b.y + b.h && box.y + box.h > b.y) {
+          collided = true;
+          break;
+        }
+      }
+
+      // 若与已绘制的更高优先级标签碰撞且非选定焦点，则自动避让，绝不重叠涂抹
+      if (collided && !item.isSelected && !item.isHovered) {
+        continue;
+      }
+
+      drawnLabelBoxes.push(box);
+
+      // 极细微描边光晕 (0.4~0.8px 细线, 杜绝向内侵蚀字体导致重影模糊)
+      ctx.strokeStyle = (th === 'graphite') ? 'rgba(250, 250, 250, 0.95)' : 'rgba(255, 255, 255, 0.95)';
+      ctx.lineWidth = Math.max(0.3, Math.min(0.8, fSize * 0.18)) / curScale;
+      ctx.lineJoin = 'miter';
+      ctx.strokeText(text, labelX, labelY);
+
+      let textColor = (th === 'graphite') ? '#1E293B' : '#0F172A';
+      if (item.isSelected) textColor = '#2563EB';
+      else if (item.isPrimarySearch) textColor = (th === 'graphite') ? '#0F172A' : '#1D4ED8';
+
+      ctx.fillStyle = textColor;
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(text, labelX, labelY);
+    }
+    ctx.restore();
+
+    ctx.restore();
+    ctx.restore();
+  }
+
+  // --------------------------------------------------------------------------
+  // 搜索与拓扑高亮联动 (智能过滤收敛: 严控主目标数与邻居爆炸)
+  // --------------------------------------------------------------------------
+  setHighlightedNodes(targetNodeIds = []) {
+    this.highlightedNodeIds.clear();
+    this.highlightedEdgeKeys.clear();
+    this.neighborNodeIds.clear();
+    this.primaryTargetNodeIds.clear();
+
+    if (!targetNodeIds || !targetNodeIds.length) {
+      this.requestRender();
+      return;
+    }
+
+    // 1. 严格收敛主匹配目标 (最多 3-5 个最相关实体)
+    const validTargets = targetNodeIds.filter(tid => this.nodeMap.has(tid)).slice(0, 5);
+    validTargets.forEach(tid => {
+      this.highlightedNodeIds.add(tid);
+      this.primaryTargetNodeIds.add(tid);
+    });
+
+    // 2. 优先高亮主目标相互之间的连线
+    for (let i = 0; i < validTargets.length; i++) {
+      for (let j = i + 1; j < validTargets.length; j++) {
+        const key1 = `${validTargets[i]}::${validTargets[j]}`;
+        const key2 = `${validTargets[j]}::${validTargets[i]}`;
+        if (this.edgeMap.has(key1) || this.edgeMap.has(key2)) {
+          this.highlightedEdgeKeys.add(key1);
+          this.highlightedEdgeKeys.add(key2);
+        }
+      }
+    }
+
+    // 3. 节制的邻居关联扩展 (限制每个主节点最多带出 2 个高权重邻居，总邻居上限 6 个)
+    let addedNeighbors = 0;
+    const maxNeighbors = 6;
+
+    for (const tid of validTargets) {
+      if (addedNeighbors >= maxNeighbors) break;
+      const neighbors = Array.from(this.adjMap.get(tid) || []);
+      neighbors.sort((a, b) => (this.nodeMap.get(b)?.degree || 0) - (this.nodeMap.get(a)?.degree || 0));
+      for (const nid of neighbors.slice(0, 2)) {
+        if (addedNeighbors >= maxNeighbors) break;
+        if (!this.highlightedNodeIds.has(nid)) {
+          this.neighborNodeIds.add(nid);
+          this.highlightedNodeIds.add(nid);
+          addedNeighbors++;
+        }
+        this.highlightedEdgeKeys.add(`${tid}::${nid}`);
+        this.highlightedEdgeKeys.add(`${nid}::${tid}`);
+      }
+    }
+
+    this.requestRender();
+  }
+
+  clearHighlight() {
+    this.highlightedNodeIds.clear();
+    this.highlightedEdgeKeys.clear();
+    this.neighborNodeIds.clear();
+    this.primaryTargetNodeIds.clear();
+    this.requestRender();
+  }
+
+  // --------------------------------------------------------------------------
+  // 鼠标交互事件绑定
+  // --------------------------------------------------------------------------
+  bindEvents() {
+    this._onMouseDown = (e) => this.handleMouseDown(e);
+    this._onMouseMove = (e) => this.handleMouseMove(e);
+    this._onMouseUp = (e) => this.handleMouseUp(e);
+    this._onWheel = (e) => this.handleWheel(e);
+    this._onClick = (e) => this.handleClick(e);
+    this._onDblClick = (e) => this.handleDblClick(e);
+
+    this.canvas.addEventListener('mousedown', this._onMouseDown);
+    window.addEventListener('mousemove', this._onMouseMove);
+    window.addEventListener('mouseup', this._onMouseUp);
+    this.canvas.addEventListener('wheel', this._onWheel, { passive: false });
+    this.canvas.addEventListener('click', this._onClick);
+    this.canvas.addEventListener('dblclick', this._onDblClick);
+  }
+
+  screenToWorld(sx, sy) {
+    const rect = this.canvas.getBoundingClientRect();
+    const px = sx - rect.left;
+    const py = sy - rect.top;
+    return {
+      x: (px - this.transform.x) / this.transform.scale,
+      y: (py - this.transform.y) / this.transform.scale
+    };
+  }
+
+  findNodeAt(sx, sy) {
+    const { x, y } = this.screenToWorld(sx, sy);
+    const nScale = this.params.nodeScale || 0.6;
+    for (let i = this.nodes.length - 1; i >= 0; i--) {
+      const n = this.nodes[i];
+      const dx = n.x - x;
+      const dy = n.y - y;
+      const hitR = Math.max((n.radius || 4) * nScale + 4, 10);
+      if (dx * dx + dy * dy <= hitR * hitR) return n;
+    }
+    return null;
+  }
+
+  handleMouseDown(e) {
+    if (e.button !== 0) return;
+    const node = this.findNodeAt(e.clientX, e.clientY);
+    if (node) {
+      this.draggedNode = node;
+      node.fixed = true;
+      this.canvas.style.cursor = 'grabbing';
+      this.wakeSimulation(0.2);
+    } else {
+      this.isPanning = true;
+      this.panStart = { x: e.clientX - this.transform.x, y: e.clientY - this.transform.y };
+      this.canvas.style.cursor = 'grabbing';
+    }
+  }
+
+  handleMouseMove(e) {
+    if (this.draggedNode) {
+      const { x, y } = this.screenToWorld(e.clientX, e.clientY);
+      this.draggedNode.x = x;
+      this.draggedNode.y = y;
+      this.draggedNode.vx = 0;
+      this.draggedNode.vy = 0;
+      this.wakeSimulation(0.1);
+      return;
+    }
+
+    if (this.isPanning) {
+      this.transform.x = e.clientX - this.panStart.x;
+      this.transform.y = e.clientY - this.panStart.y;
+      this.requestRender();
+      return;
+    }
+
+    const hovered = this.findNodeAt(e.clientX, e.clientY);
+    if (hovered !== this.hoveredNode) {
+      this.hoveredNode = hovered;
+      this.canvas.style.cursor = hovered ? 'pointer' : 'grab';
+      this.requestRender();
+      this.onNodeHover(hovered, { clientX: e.clientX, clientY: e.clientY });
+    }
+  }
+
+  handleMouseUp() {
+    if (this.draggedNode) {
+      this.draggedNode.fixed = false;
+      this.draggedNode = null;
+      this.canvas.style.cursor = 'grab';
+    }
+    if (this.isPanning) {
+      this.isPanning = false;
+      this.canvas.style.cursor = 'grab';
+    }
+  }
+
+  handleWheel(e) {
+    e.preventDefault();
+    const rect = this.canvas.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+
+    const zoomFactor = e.deltaY < 0 ? 1.15 : 0.87;
+    const newScale = Math.max(0.18, Math.min(3.5, this.transform.scale * zoomFactor));
+
+    this.transform.x = mouseX - (mouseX - this.transform.x) * (newScale / this.transform.scale);
+    this.transform.y = mouseY - (mouseY - this.transform.y) * (newScale / this.transform.scale);
+    this.transform.scale = newScale;
+
+    this.requestRender();
+  }
+
+  handleClick(e) {
+    const node = this.findNodeAt(e.clientX, e.clientY);
+    if (node) {
+      this.selectedNode = node;
+      this.onNodeClick(node);
+      this.requestRender();
+    } else {
+      this.selectedNode = null;
+      this.onCanvasClick();
+      this.requestRender();
+    }
+  }
+
+  handleDblClick(e) {
+    const node = this.findNodeAt(e.clientX, e.clientY);
+    if (node) {
+      this.focusNode(node.id);
+    }
+  }
+
+  focusNode(nodeId) {
+    const n = this.nodeMap.get(nodeId);
+    if (!n) return;
+    this.selectedNode = n;
+    const scale = Math.max(1.1, this.transform.scale);
+    this.transform = {
+      x: this.width / 2 - n.x * scale,
+      y: this.height / 2 - n.y * scale,
+      scale
+    };
+    this.requestRender();
+  }
+
+  // --------------------------------------------------------------------------
+  // 资源释放
+  // --------------------------------------------------------------------------
+  dispose() {
+    if (this.animFrameId) {
+      cancelAnimationFrame(this.animFrameId);
+      this.animFrameId = null;
+    }
+    this.isSimulating = false;
+
+    if (this.canvas) {
+      this.canvas.removeEventListener('mousedown', this._onMouseDown);
+      window.removeEventListener('mousemove', this._onMouseMove);
+      window.removeEventListener('mouseup', this._onMouseUp);
+      this.canvas.removeEventListener('wheel', this._onWheel);
+      this.canvas.removeEventListener('click', this._onClick);
+      this.canvas.removeEventListener('dblclick', this._onDblClick);
+      this.canvas.remove();
+      this.canvas = null;
+    }
+    this.ctx = null;
+    this.nodes = [];
+    this.edges = [];
+    this.nodeMap.clear();
+    this.adjMap.clear();
+    this.edgeMap.clear();
+    this.highlightedNodeIds.clear();
+    this.highlightedEdgeKeys.clear();
+    this.neighborNodeIds.clear();
+  }
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+  
+}
+
+/* ==========================================================================
+   WeKnora Wiki Drawer — Wiki 实体详情侧边滑出抽屉
+   特性:
+   1. 50 篇内存 LRU 缓存: 重复打开秒级呈现, 避免频繁网络调用
+   2. Obsidian 原生渲染: 调用 MarkdownRenderer 完整呈现正文、参数表格与引用
+   3. Ego 展开入口: 快速触发以当前节点为中心的子图探索
+   4. 超时保护: 5 秒超时保护与 AbortController 防挂起
+   ========================================================================== */
+
+class WeKnoraWikiDrawer {
+  /**
+   * @param {HTMLElement} parentEl
+   * @param {object} options
+   */
+  constructor(parentEl, options = {}) {
+    this.parentEl = parentEl;
+    this.app = options.app || (typeof window !== 'undefined' ? window.app : null);
+    this.service = options.service;
+    this.onExpandEgo = options.onExpandEgo || (() => {});
+    this.onClose = options.onClose || (() => {});
+
+    // LRU 缓存 (slug -> { title, pageType, summary, content, cachedAt })
+    this.lruCache = new Map();
+    this.lruMax = 50;
+
+    // 图片 Blob URL 缓存 (filePath -> blobUrl)
+    this.imageCache = new Map();
+
+    this.currentNode = null;
+    this.currentKbId = null;
+    this.abortController = null;
+    this.isOpen = false;
+
+    this.initDOM();
+  }
+
+  initDOM() {
+    this.drawerEl = document.createElement('div');
+    this.drawerEl.className = 'tw-weknora-wiki-drawer';
+    this.drawerEl.style.transform = 'translateX(100%)';
+    this.parentEl.appendChild(this.drawerEl);
+  }
+
+  async open(node, kbId) {
+    if (!node) return;
+    this.currentNode = node;
+    this.currentKbId = kbId;
+    this.isOpen = true;
+    this.drawerEl.style.transform = 'translateX(0)';
+
+    this.renderLoading(node);
+
+    // 1. 检查 LRU 缓存
+    const cacheKey = `${kbId}::${node.slug}`;
+    if (this.lruCache.has(cacheKey)) {
+      const cached = this.lruCache.get(cacheKey);
+      // 挪到最新位置
+      this.lruCache.delete(cacheKey);
+      this.lruCache.set(cacheKey, cached);
+      this.renderContent(node, cached);
+      return;
+    }
+
+    // 2. 异步发起请求
+    if (this.abortController) {
+      try { this.abortController.abort(); } catch (e) {}
+    }
+    this.abortController = typeof AbortController !== 'undefined' ? new AbortController() : null;
+
+    try {
+      if (!this.service) throw new Error('WeKnora 服务实例未初始化');
+      const pageData = await this.service.getWikiPage(kbId, node.slug, 5000);
+
+      // 写入 LRU 缓存
+      if (this.lruCache.size >= this.lruMax) {
+        const firstKey = this.lruCache.keys().next().value;
+        this.lruCache.delete(firstKey);
+      }
+      this.lruCache.set(cacheKey, pageData);
+
+      // 确保当前节点未被切换
+      if (this.currentNode && this.currentNode.slug === node.slug) {
+        this.renderContent(node, pageData);
+      }
+    } catch (err) {
+      if (err.name === 'AbortError') return;
+      this.renderError(node, err.message || String(err));
+    }
+  }
+
+  close() {
+    this.isOpen = false;
+    this.currentNode = null;
+    if (this.abortController) {
+      try { this.abortController.abort(); } catch (e) {}
+      this.abortController = null;
+    }
+    if (this.drawerEl) {
+      this.drawerEl.style.transform = 'translateX(100%)';
+    }
+    this.onClose();
+  }
+
+  renderLoading(node) {
+    this.drawerEl.innerHTML = `
+      <div class="tw-drawer-header">
+        <div class="tw-drawer-title-row">
+          <span class="tw-drawer-title" title="${escapeHtml(node.title)}">${escapeHtml(node.title)}</span>
+          <button class="tw-drawer-close-btn" id="btnWikiDrawerClose" title="关闭 (Esc)">✕</button>
+        </div>
+        <div class="tw-drawer-meta-row">
+          <span class="tw-chip" style="background:${node.color}22; color:${node.color}; font-size:11px; padding:2px 8px;">
+            ${escapeHtml(node.pageType || 'entity')}
+          </span>
+          <span class="tw-drawer-degree">关联度: ${node.degree || 0}</span>
+        </div>
+      </div>
+      <div class="tw-drawer-body">
+        <div class="tw-drawer-loading">
+          <div class="tw-drawer-spinner"></div>
+          <span>正在拉取 Wiki 知识详情...</span>
+        </div>
+      </div>
+    `;
+    this.bindHeaderEvents(node);
+  }
+
+  renderError(node, errMsg) {
+    this.drawerEl.innerHTML = `
+      <div class="tw-drawer-header">
+        <div class="tw-drawer-title-row">
+          <span class="tw-drawer-title">${escapeHtml(node.title)}</span>
+          <button class="tw-drawer-close-btn" id="btnWikiDrawerClose" title="关闭 (Esc)">✕</button>
+        </div>
+      </div>
+      <div class="tw-drawer-body">
+        <div class="tw-drawer-error">
+          <div style="font-size:24px; margin-bottom:8px;">⚠️</div>
+          <div style="font-size:13px; font-weight:600; color:#EF4444; margin-bottom:6px;">未能加载 Wiki 内容</div>
+          <div style="font-size:11px; color:var(--text-muted); margin-bottom:14px; font-family:monospace;">${escapeHtml(errMsg)}</div>
+          <button class="tw-chip" id="btnWikiDrawerRetry" style="padding:4px 14px; cursor:pointer;">重试</button>
+        </div>
+      </div>
+    `;
+    this.bindHeaderEvents(node);
+    const retryBtn = this.drawerEl.querySelector('#btnWikiDrawerRetry');
+    if (retryBtn) retryBtn.onclick = () => this.open(node, this.currentKbId);
+  }
+
+  async renderContent(node, pageData) {
+    const pType = pageData.pageType || node.pageType || 'entity';
+    const title = pageData.title || node.title || node.slug;
+    const content = pageData.content || pageData.summary || '> 暂无正文内容。';
+
+    this.drawerEl.innerHTML = `
+      <div class="tw-drawer-header">
+        <div class="tw-drawer-title-row">
+          <span class="tw-drawer-title" title="${escapeHtml(title)}">${escapeHtml(title)}</span>
+          <button class="tw-drawer-close-btn" id="btnWikiDrawerClose" title="关闭 (Esc)">✕</button>
+        </div>
+        <div class="tw-drawer-meta-row">
+          <div style="display:flex; align-items:center; gap:6px;">
+            <span class="tw-chip" style="background:${node.color}22; color:${node.color}; font-size:11px; padding:2px 8px; font-weight:600;">
+              ${escapeHtml(pType)}
+            </span>
+            <span class="tw-drawer-degree" title="全库与该实体关联的边数量">全库度数: ${node.degree || 0}</span>
+          </div>
+          <button class="tw-drawer-ego-btn" id="btnWikiDrawerEgo" title="进入 Ego 模式，聚焦展示该节点的关联网络">
+            <span>展开邻居</span>
+          </button>
+        </div>
+      </div>
+      <div class="tw-drawer-body">
+        ${pageData.summary ? `<div class="tw-drawer-summary-box">${escapeHtml(pageData.summary)}</div>` : ''}
+        <div class="tw-drawer-markdown-render markdown-rendered"></div>
+      </div>
+    `;
+
+    this.bindHeaderEvents(node);
+
+    // Ego 展开触发
+    const egoBtn = this.drawerEl.querySelector('#btnWikiDrawerEgo');
+    if (egoBtn) {
+      egoBtn.onclick = () => this.onExpandEgo(node);
+    }
+
+    // Markdown 正文渲染
+    const mdWrap = this.drawerEl.querySelector('.tw-drawer-markdown-render');
+    if (mdWrap) {
+      if (typeof MarkdownRenderer !== 'undefined' && MarkdownRenderer.renderMarkdown) {
+        try {
+          await MarkdownRenderer.renderMarkdown(content, mdWrap, '', this.app || null);
+        } catch (e) {
+          mdWrap.textContent = content;
+        }
+      } else {
+        mdWrap.textContent = content;
+      }
+      // 异步解析 WeKnora 保护图片 (resource://, storage:// 等) 并注入带权限的 Blob URL
+      this.hydrateProtectedImages(mdWrap, this.currentKbId);
+    }
+  }
+
+  async hydrateProtectedImages(containerEl, kbId) {
+    if (!containerEl || !this.service) return;
+    const effectiveKbId = kbId || this.currentKbId || (this.service && this.service.defaultKb);
+    if (!effectiveKbId) return;
+    const imgs = containerEl.querySelectorAll('img');
+    if (!imgs.length) return;
+
+    const protectedPrefixes = ['resource://', 'storage://', 'local://', 'minio://', 'cos://', 'tos://', 's3://', 'oss://', 'ks3://', 'obs://'];
+
+    for (const img of Array.from(imgs)) {
+      const src = (img.getAttribute('src') || '').trim();
+      const isProtected = protectedPrefixes.some(p => src.startsWith(p));
+      if (!isProtected) continue;
+
+      img.classList.add('tw-wiki-protected-img', 'is-loading');
+
+      // 1. 检查已有 Blob 缓存
+      if (this.imageCache.has(src)) {
+        img.src = this.imageCache.get(src);
+        img.classList.remove('is-loading');
+        continue;
+      }
+
+      // 2. 向 WeKnora 发起带鉴权头的请求获取二进制，转换为 Blob URL
+      try {
+        const fetchUrl = `${this.service.baseUrl}/knowledge-bases/${encodeURIComponent(effectiveKbId)}/files?file_path=${encodeURIComponent(src)}`;
+        const res = await fetch(fetchUrl, {
+          headers: { 'X-API-Key': this.service.apiKey }
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const blob = await res.blob();
+        const blobUrl = URL.createObjectURL(blob);
+        this.imageCache.set(src, blobUrl);
+
+        if (img.isConnected) {
+          img.src = blobUrl;
+          img.classList.remove('is-loading');
+        }
+      } catch (err) {
+        console.warn('[WeKnora Wiki] 加载图片失败:', src, err.message);
+        img.classList.remove('is-loading');
+        img.classList.add('is-failed');
+        img.title = `图片加载受阻 (${src}): ${err.message}`;
+      }
+    }
+  }
+
+  bindHeaderEvents(node) {
+    const closeBtn = this.drawerEl.querySelector('#btnWikiDrawerClose');
+    if (closeBtn) {
+      closeBtn.onclick = () => this.close();
+    }
+  }
+
+  dispose() {
+    if (this.abortController) {
+      try { this.abortController.abort(); } catch (e) {}
+      this.abortController = null;
+    }
+    this.lruCache.clear();
+    for (const bUrl of this.imageCache.values()) {
+      try { URL.revokeObjectURL(bUrl); } catch (e) {}
+    }
+    this.imageCache.clear();
+    if (this.drawerEl) {
+      this.drawerEl.remove();
+      this.drawerEl = null;
+    }
+    this.currentNode = null;
+  }
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+  
+}
+
+/* ==========================================================================
+   WeKnora Wiki Graph View — 知识图谱交互与控制子视图
+   核心功能:
+   1. 首页「研发知识拓扑」同款 8 套主题视觉方案与实时力学微调配置面板
+   2. 默认采用「石墨疏朗 (浅底灰阶 · 疏朗宁静)」高雅灰阶风格
+   3. 核心节点排版策略 (Anti-Smear): 仅保留 Top 枢纽节点常显文字, 其余仅悬停显示
+   4. 搜索防抖 (300ms) + 5 秒高亮缓存 + 关联拓扑高亮
+   5. 节点上限截断控制 (100 / 200 / 300 / 500)
+   6. Ego 专注模式状态机 (最多 30 个邻居, 支持无缝返回全图)
+   7. 抽屉联动展示 Wiki 详情
+   ========================================================================== */
+
+function escapeHtml(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+class WeKnoraWikiGraphView {
+  /**
+   * @param {HTMLElement} parentEl
+   * @param {object} options
+   */
+  constructor(parentEl, options = {}) {
+    this.parentEl = parentEl;
+    this.app = options.app || (typeof window !== 'undefined' ? window.app : null);
+    this.service = options.service;
+    this.getCurrentKbId = options.getCurrentKbId || (() => '');
+
+    this.containerEl = null;
+    this.graphEngine = null;
+    this.wikiDrawer = null;
+    this.tooltip = null;
+    this.settingsPopover = null;
+
+    // 数据与状态
+    this.currentLimit = 300;
+    this.graphData = null;
+    this.backupFullGraphData = null; // 用于退出 Ego 模式时快速还原
+    this.isEgoMode = false;
+    this.egoCenterNode = null;
+    this.searchKeyword = '';
+    this.searchDebounceTimer = null;
+
+    // 高亮缓存 (key -> { result: string[], timestamp: number })
+    this.highlightCache = new Map();
+    this.highlightCacheTtl = 5000;
+
+    this.initDOM();
+  }
+
+  initDOM() {
+    this.containerEl = document.createElement('div');
+    this.containerEl.className = 'tw-weknora-graph-view-wrap';
+    this.parentEl.appendChild(this.containerEl);
+
+    // 1. 顶部控制栏
+    this.toolbarEl = document.createElement('div');
+    this.toolbarEl.className = 'tw-weknora-graph-toolbar';
+    this.containerEl.appendChild(this.toolbarEl);
+
+    // 2. Ego 模式提示横幅 (初始隐藏)
+    this.egoBannerEl = document.createElement('div');
+    this.egoBannerEl.className = 'tw-weknora-ego-banner';
+    this.egoBannerEl.style.display = 'none';
+    this.containerEl.appendChild(this.egoBannerEl);
+
+    // 3. 画布容器
+    this.canvasContainerEl = document.createElement('div');
+    this.canvasContainerEl.className = 'tw-weknora-canvas-container';
+    this.containerEl.appendChild(this.canvasContainerEl);
+
+    // 4. 悬停 Tooltip 浮层
+    this.tooltip = document.createElement('div');
+    this.tooltip.className = 'tw-graph-tooltip';
+    this.canvasContainerEl.appendChild(this.tooltip);
+
+    // 5. 初始化图谱引擎 (默认使用石墨疏朗 graphite)
+    this.graphEngine = new WeKnoraGraphEngine(this.canvasContainerEl, {
+      onNodeClick: (node) => this.handleNodeClick(node),
+      onNodeHover: (node, pos) => this.handleNodeHover(node, pos),
+      onCanvasClick: () => this.handleCanvasClick()
+    });
+
+    // 6. 初始化侧边 Wiki 抽屉
+    this.wikiDrawer = new WeKnoraWikiDrawer(this.containerEl, {
+      app: this.app,
+      service: this.service,
+      onExpandEgo: (node) => this.enterEgoMode(node),
+      onClose: () => {
+        if (this.graphEngine) {
+          this.graphEngine.selectedNode = null;
+          this.graphEngine.requestRender();
+        }
+      }
+    });
+
+    // 7. 视觉与力学配置面板
+    this.settingsPopover = document.createElement('div');
+    this.settingsPopover.className = 'tw-graph-settings-popover';
+    this.containerEl.appendChild(this.settingsPopover);
+    this.renderSettingsPopover();
+
+    // 渲染工具栏内容
+    this.renderToolbar();
+
+    // 监听全局事件
+    this._onKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        if (this.settingsPopover?.classList.contains('open')) {
+          this.settingsPopover.classList.remove('open');
+        }
+        if (this.wikiDrawer?.isOpen) this.wikiDrawer.close();
+        if (this.searchKeyword) {
+          const input = this.toolbarEl.querySelector('.tw-graph-search-input');
+          if (input) input.value = '';
+          this.handleSearch('');
+        }
+      }
+    };
+    window.addEventListener('keydown', this._onKeyDown);
+
+    this._onDocClick = (e) => {
+      const btn = this.toolbarEl?.querySelector('#btnGraphSettings');
+      if (this.settingsPopover && this.settingsPopover.classList.contains('open')) {
+        if (!this.settingsPopover.contains(e.target) && e.target !== btn && !btn?.contains(e.target)) {
+          this.settingsPopover.classList.remove('open');
+        }
+      }
+    };
+    document.addEventListener('click', this._onDocClick);
+  }
+
+  renderToolbar() {
+    this.toolbarEl.innerHTML = `
+      <div class="tw-graph-tb-left">
+        <div class="tw-graph-search-box">
+          <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+          </svg>
+          <input type="text" class="tw-graph-search-input" placeholder="搜索 Wiki 实体 / 概念 (Enter 聚焦)..." value="${escapeHtml(this.searchKeyword)}" />
+          <button class="tw-graph-search-clear" id="btnGraphSearchClear" title="清空搜索 (Esc)" style="display:${this.searchKeyword ? 'block' : 'none'};">✕</button>
+        </div>
+        <div class="tw-graph-limit-box" title="控制渲染节点数量, 减轻系统负载">
+          <span style="font-size:11px; color:var(--text-muted);">显示上限:</span>
+          <select class="tw-graph-limit-select" id="selGraphLimit">
+            <option value="100" ${this.currentLimit === 100 ? 'selected' : ''}>100 节点</option>
+            <option value="200" ${this.currentLimit === 200 ? 'selected' : ''}>200 节点</option>
+            <option value="300" ${this.currentLimit === 300 ? 'selected' : ''}>300 节点 (推荐)</option>
+            <option value="500" ${this.currentLimit === 500 ? 'selected' : ''}>500 节点 (高配)</option>
+          </select>
+        </div>
+      </div>
+      <div class="tw-graph-tb-right">
+        <div class="tw-graph-legend" id="graphLegend">
+          ${this.getLegendHtml()}
+        </div>
+        <div class="tw-graph-actions">
+          <button class="tw-chip" id="btnGraphSettings" title="打开图谱视觉与力学配置 (主题、斥力、字号微调)">
+            <span>⚙ 配置</span>
+          </button>
+          <button class="tw-chip" id="btnGraphCenter" title="居中还原画布">
+            <span>🎯 适应屏幕</span>
+          </button>
+          <button class="tw-chip" id="btnGraphRefresh" title="重新从 WeKnora 获取图谱">
+            <span>🔄 刷新</span>
+          </button>
+        </div>
+      </div>
+    `;
+
+    // 绑定搜索与清除
+    const searchInput = this.toolbarEl.querySelector('.tw-graph-search-input');
+    const clearBtn = this.toolbarEl.querySelector('#btnGraphSearchClear');
+    if (searchInput) {
+      searchInput.oninput = (e) => {
+        const val = e.target.value;
+        if (clearBtn) clearBtn.style.display = val ? 'block' : 'none';
+        this.debounceSearch(val);
+      };
+      searchInput.onkeydown = (e) => {
+        if (e.key === 'Enter') {
+          this.executeSearch(searchInput.value, true);
+        }
+      };
+    }
+    if (clearBtn) {
+      clearBtn.onclick = () => {
+        if (searchInput) searchInput.value = '';
+        clearBtn.style.display = 'none';
+        this.handleSearch('');
+      };
+    }
+
+    // 节点上限切换
+    const limitSelect = this.toolbarEl.querySelector('#selGraphLimit');
+    if (limitSelect) {
+      limitSelect.onchange = () => {
+        this.currentLimit = parseInt(limitSelect.value, 10) || 300;
+        this.loadGraphData();
+      };
+    }
+
+    // 配置弹窗切换
+    const settingsBtn = this.toolbarEl.querySelector('#btnGraphSettings');
+    if (settingsBtn) {
+      settingsBtn.onclick = (e) => {
+        e.stopPropagation();
+        this.settingsPopover?.classList.toggle('open');
+      };
+    }
+
+    // 适应屏幕居中
+    const centerBtn = this.toolbarEl.querySelector('#btnGraphCenter');
+    if (centerBtn) {
+      centerBtn.onclick = () => {
+        this.graphEngine?.centerGraph();
+      };
+    }
+
+    // 刷新
+    const refreshBtn = this.toolbarEl.querySelector('#btnGraphRefresh');
+    if (refreshBtn) {
+      refreshBtn.onclick = () => {
+        refreshBtn.classList.add('spinning');
+        this.loadGraphData().finally(() => refreshBtn.classList.remove('spinning'));
+      };
+    }
+  }
+
+  getLegendHtml() {
+    const th = this.graphEngine?.currentTheme || 'graphite';
+    if (th === 'graphite') {
+      return `
+        <span class="tw-legend-item"><span class="tw-legend-dot" style="background:#4B4B4B;"></span>核心枢纽 (度数≥6)</span>
+        <span class="tw-legend-item"><span class="tw-legend-dot" style="background:#6F6F6F;"></span>骨干关联 (3-5)</span>
+        <span class="tw-legend-item"><span class="tw-legend-dot" style="background:#9A9A9A;"></span>扇簇与外环 (1-2)</span>
+      `;
+    }
+    return `
+      <span class="tw-legend-item"><span class="tw-legend-dot" style="background:#2563EB;"></span>核心枢纽</span>
+      <span class="tw-legend-item"><span class="tw-legend-dot" style="background:#0EA5E9;"></span>骨干分支</span>
+      <span class="tw-legend-item"><span class="tw-legend-dot" style="background:#94A3B8;"></span>扇簇与外环</span>
+    `;
+  }
+
+  updateLegend() {
+    const legendEl = this.toolbarEl?.querySelector('#graphLegend');
+    if (legendEl) {
+      legendEl.innerHTML = this.getLegendHtml();
+    }
+  }
+
+  // --------------------------------------------------------------------------
+  // 图谱视觉与力学配置面板
+  // --------------------------------------------------------------------------
+  renderSettingsPopover() {
+    if (!this.settingsPopover) return;
+    const curTheme = this.graphEngine?.currentTheme || 'graphite';
+    const params = this.graphEngine?.params || {
+      clusterSpread: 1.0,
+      repulsion: 800,
+      nodeScale: 0.6,
+      fontSize: 3,
+      edgeOpacity: 0.50,
+      clusterStrength: 0.08,
+      centerForce: 0.005
+    };
+
+    const themeDescs = {
+      graphite: '浅底灰阶 · 疏朗宁静',
+      immersive: '浅色微光晕 · 科技质感'
+    };
+
+    this.settingsPopover.innerHTML = `
+      <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--background-modifier-border, #E2E8F0); padding-bottom:6px; margin-bottom:8px;">
+        <span style="font-weight:600; color:var(--text-normal, #0F172A); font-size:12px;">图谱视觉与力学配置</span>
+        <span style="font-size:10px; color:var(--text-muted, #64748B); font-family:monospace;">Parameters & Theme</span>
+      </div>
+
+      <!-- 1. Theme Selection Dropdown (仅保留用户精选的双主题) -->
+      <div style="margin-bottom:10px;">
+        <div style="font-weight:600; font-size:11px; margin-bottom:5px; color:var(--text-normal, #0F172A); display:flex; justify-content:space-between; align-items:center;">
+          <span>视觉方案选择</span>
+          <span style="font-size:10px; color:var(--interactive-accent, #2563EB); font-weight:normal;" id="spActiveThemeDesc">${themeDescs[curTheme] || ''}</span>
+        </div>
+        <select class="tw-settings-theme-select" id="spThemeSelect">
+          <option value="graphite" ${curTheme==='graphite'?'selected':''}>石墨疏朗 (浅底灰阶 · 疏朗宁静)</option>
+          <option value="immersive" ${curTheme==='immersive'?'selected':''}>柔和科技沉浸 (浅色微光晕 · 科技质感)</option>
+        </select>
+      </div>
+
+      <!-- 2. Topology Parameters Section -->
+      <div style="border-top:1px solid var(--background-modifier-border, #E2E8F0); padding-top:8px; display:flex; flex-direction:column; gap:6px;">
+        <div style="font-weight:600; font-size:11px; color:var(--text-normal, #0F172A); display:flex; justify-content:space-between;">
+          <span>力学与视觉微调</span>
+          <span style="font-size:10px; color:var(--text-muted, #64748B);">实时渲染生效</span>
+        </div>
+
+        <!-- Cluster Spread -->
+        <div class="tw-setting-row" data-param="clusterSpread">
+          <div class="tw-setting-label">
+            <span class="tw-setting-title">簇群间距 (Cluster Spread)</span>
+            <span id="valSpread" style="font-family:monospace; font-weight:600;">${params.clusterSpread}x</span>
+          </div>
+          <input type="range" class="tw-setting-slider" id="rngSpread" min="0.4" max="2.2" step="0.1" value="${params.clusterSpread}">
+        </div>
+
+        <!-- Repulsion -->
+        <div class="tw-setting-row" data-param="repulsion">
+          <div class="tw-setting-label">
+            <span class="tw-setting-title">节点呼吸斥力 (Repulsion)</span>
+            <span id="valRep" style="font-family:monospace; font-weight:600;">${params.repulsion}</span>
+          </div>
+          <input type="range" class="tw-setting-slider" id="rngRep" min="40" max="1200" step="20" value="${params.repulsion}">
+        </div>
+
+        <!-- Node Scale -->
+        <div class="tw-setting-row" data-param="nodeScale">
+          <div class="tw-setting-label">
+            <span class="tw-setting-title">节点大小缩放 (Node Scale)</span>
+            <span id="valNodeScale" style="font-family:monospace; font-weight:600;">${params.nodeScale}x</span>
+          </div>
+          <input type="range" class="tw-setting-slider" id="rngNodeScale" min="0.4" max="2.2" step="0.1" value="${params.nodeScale}">
+        </div>
+
+        <!-- Font Size -->
+        <div class="tw-setting-row" data-param="fontSize">
+          <div class="tw-setting-label">
+            <span class="tw-setting-title">图谱文字大小 (Font Size)</span>
+            <span id="valFontSize" style="font-family:monospace; font-weight:600;">${params.fontSize || 3}px</span>
+          </div>
+          <input type="range" class="tw-setting-slider" id="rngFontSize" min="1" max="5" step="0.5" value="${params.fontSize || 3}">
+        </div>
+
+        <!-- Edge Opacity -->
+        <div class="tw-setting-row" data-param="edgeOpacity">
+          <div class="tw-setting-label">
+            <span class="tw-setting-title">连线显隐粗细 (Edge Opacity)</span>
+            <span id="valEdgeOpacity" style="font-family:monospace; font-weight:600;">${params.edgeOpacity}</span>
+          </div>
+          <input type="range" class="tw-setting-slider" id="rngEdgeOpacity" min="0.1" max="1.0" step="0.05" value="${params.edgeOpacity}">
+        </div>
+
+        <!-- Cluster Force -->
+        <div class="tw-setting-row" data-param="clusterStrength">
+          <div class="tw-setting-label">
+            <span class="tw-setting-title">向心聚合力 (Cluster Force)</span>
+            <span id="valCluster" style="font-family:monospace; font-weight:600;">${params.clusterStrength}</span>
+          </div>
+          <input type="range" class="tw-setting-slider" id="rngCluster" min="0.02" max="0.20" step="0.01" value="${params.clusterStrength}">
+        </div>
+
+        <!-- Center Force -->
+        <div class="tw-setting-row" data-param="centerForce">
+          <div class="tw-setting-label">
+            <span class="tw-setting-title">全局居中力 (Center Pull)</span>
+            <span id="valCenter" style="font-family:monospace; font-weight:600;">${params.centerForce}</span>
+          </div>
+          <input type="range" class="tw-setting-slider" id="rngCenter" min="0.001" max="0.020" step="0.001" value="${params.centerForce}">
+        </div>
+      </div>
+
+      <button class="tw-chip" id="btnResetPhysics" style="margin-top:8px; width:100%; text-align:center; padding:6px 0; justify-content:center; cursor:pointer;">
+        恢复默认推荐参数
+      </button>
+    `;
+
+    // 绑定主题切换
+    const themeSelect = this.settingsPopover.querySelector('#spThemeSelect');
+    if (themeSelect) {
+      themeSelect.onchange = (e) => {
+        const themeKey = e.target.value;
+        this.graphEngine?.setTheme(themeKey);
+        const descEl = this.settingsPopover.querySelector('#spActiveThemeDesc');
+        if (descEl) descEl.textContent = themeDescs[themeKey] || '';
+        this.updateLegend();
+      };
+    }
+
+    // 绑定参数滑动条
+    const bindSlider = (id, paramKey, valId, unit = '') => {
+      const slider = this.settingsPopover.querySelector(`#${id}`);
+      const valLabel = this.settingsPopover.querySelector(`#${valId}`);
+      if (!slider || !valLabel) return;
+      slider.oninput = (e) => {
+        const num = parseFloat(e.target.value);
+        valLabel.textContent = `${num}${unit}`;
+        this.graphEngine?.setParams({ [paramKey]: num });
+      };
+    };
+
+    bindSlider('rngSpread', 'clusterSpread', 'valSpread', 'x');
+    bindSlider('rngRep', 'repulsion', 'valRep');
+    bindSlider('rngNodeScale', 'nodeScale', 'valNodeScale', 'x');
+    bindSlider('rngFontSize', 'fontSize', 'valFontSize', 'px');
+    bindSlider('rngEdgeOpacity', 'edgeOpacity', 'valEdgeOpacity');
+    bindSlider('rngCluster', 'clusterStrength', 'valCluster');
+    bindSlider('rngCenter', 'centerForce', 'valCenter');
+
+    // 恢复默认参数
+    const resetBtn = this.settingsPopover.querySelector('#btnResetPhysics');
+    if (resetBtn) {
+      resetBtn.onclick = () => {
+        this.graphEngine?.resetParams();
+        this.renderSettingsPopover();
+        this.updateLegend();
+      };
+    }
+  }
+
+  // --------------------------------------------------------------------------
+  // 数据加载与状态处理
+  // --------------------------------------------------------------------------
+  async loadGraphData() {
+    const kbId = this.getCurrentKbId();
+    if (!kbId) return;
+
+    this.renderLoadingPlaceholder('正在加载知识图谱...');
+    try {
+      if (!this.service) throw new Error('WeKnora 服务未就绪');
+      const data = await this.service.getWikiGraph(kbId, this.currentLimit, 10000);
+
+      this.graphData = data;
+      this.isEgoMode = false;
+      this.egoCenterNode = null;
+      this.updateEgoBanner();
+
+      this.graphEngine.setData(data);
+      this.clearLoadingPlaceholder();
+
+      // 若有搜索词则重新应用高亮
+      if (this.searchKeyword) {
+        this.executeSearch(this.searchKeyword, false);
+      }
+    } catch (err) {
+      console.warn('[WeKnora] 拉取图谱失败, 尝试读取磁盘缓存:', err);
+      const cached = this.tryLoadDiskCache();
+      if (cached && cached.nodes && cached.nodes.length) {
+        this.graphData = cached;
+        this.graphEngine.setData(cached);
+        this.clearLoadingPlaceholder();
+      } else {
+        this.renderErrorPlaceholder(err.message || String(err));
+      }
+    }
+  }
+
+  tryLoadDiskCache() {
+    try {
+      if (typeof require !== 'undefined') {
+        
+        
+        const vaultPath = this.app?.vault?.adapter?.basePath || '';
+        const p = path.join(vaultPath, '.obsidian', 'plugins', 'tabonkb-workbench', 'weknora-graph-cache.json');
+        if (fs.existsSync(p)) {
+          return JSON.parse(fs.readFileSync(p, 'utf8'));
+        }
+      }
+    } catch (e) {}
+    return null;
+  }
+
+  renderLoadingPlaceholder(text) {
+    let el = this.containerEl.querySelector('.tw-graph-placeholder');
+    if (!el) {
+      el = document.createElement('div');
+      el.className = 'tw-graph-placeholder';
+      this.containerEl.appendChild(el);
+    }
+    el.innerHTML = `
+      <div class="tw-drawer-spinner" style="margin-bottom:12px;"></div>
+      <div style="font-size:13px; color:var(--text-muted);">${escapeHtml(text)}</div>
+    `;
+    el.style.display = 'flex';
+  }
+
+  clearLoadingPlaceholder() {
+    const el = this.containerEl.querySelector('.tw-graph-placeholder');
+    if (el) el.style.display = 'none';
+  }
+
+  renderErrorPlaceholder(errMsg) {
+    let el = this.containerEl.querySelector('.tw-graph-placeholder');
+    if (!el) {
+      el = document.createElement('div');
+      el.className = 'tw-graph-placeholder';
+      this.containerEl.appendChild(el);
+    }
+    el.innerHTML = `
+      <div style="font-size:28px; margin-bottom:8px;">⚠️</div>
+      <div style="font-size:14px; font-weight:600; color:#EF4444; margin-bottom:6px;">图谱加载受阻</div>
+      <div style="font-size:11px; color:var(--text-muted); margin-bottom:16px; font-family:monospace;">${escapeHtml(errMsg)}</div>
+      <button class="tw-chip" id="btnGraphRetry" style="padding:6px 18px; cursor:pointer;">重试连接</button>
+    `;
+    el.style.display = 'flex';
+    const retryBtn = el.querySelector('#btnGraphRetry');
+    if (retryBtn) retryBtn.onclick = () => this.loadGraphData();
+  }
+
+  // --------------------------------------------------------------------------
+  // 搜索防抖与高亮缓存
+  // --------------------------------------------------------------------------
+  debounceSearch(val) {
+    if (this.searchDebounceTimer) clearTimeout(this.searchDebounceTimer);
+    this.searchDebounceTimer = setTimeout(() => {
+      this.handleSearch(val);
+    }, 300);
+  }
+
+  handleSearch(val) {
+    this.searchKeyword = (val || '').trim();
+    this.executeSearch(this.searchKeyword, false);
+  }
+
+  executeSearch(keyword, shouldFocusFirst = false) {
+    if (!keyword) {
+      this.graphEngine?.clearHighlight();
+      return;
+    }
+
+    const norm = keyword.toLowerCase();
+
+    // 检查高亮缓存
+    const now = Date.now();
+    const cached = this.highlightCache.get(norm);
+    let matchedIds = [];
+
+    if (cached && (now - cached.timestamp < this.highlightCacheTtl)) {
+      matchedIds = cached.result;
+    } else {
+      // 智能分级排序优化:
+      // Tier 1: 精确匹配标题或 slug (1000 分 + 度数权重)
+      // Tier 2: 标题前缀匹配 (500 分 + 度数权重)
+      // Tier 3: 词内子串匹配 (100 分 + 度数权重)
+      const allNodes = this.graphEngine?.nodes || [];
+      const scoreNode = (n) => {
+        const t = (n.title || '').toLowerCase();
+        const s = (n.slug || '').toLowerCase();
+        if (t === norm || s === norm) return 1000 + (n.degree || 0);
+        if (t.startsWith(norm) || s.startsWith(norm)) return 500 + (n.degree || 0);
+        if (t.includes(norm) || s.includes(norm)) return 100 + (n.degree || 0);
+        return 0;
+      };
+
+      const scored = allNodes
+        .map(n => ({ id: n.id, score: scoreNode(n) }))
+        .filter(item => item.score > 0)
+        .sort((a, b) => b.score - a.score);
+
+      // 严格截断: 主搜索目标限制取最相关的 Top 3~5 个核心实体 (防止数十个泛匹配节点导致全图大面积爆亮)
+      matchedIds = scored.slice(0, 5).map(item => item.id);
+
+      this.highlightCache.set(norm, { result: matchedIds, timestamp: now });
+    }
+
+    this.graphEngine?.setHighlightedNodes(matchedIds);
+
+    if (shouldFocusFirst && matchedIds.length > 0) {
+      this.graphEngine?.focusNode(matchedIds[0]);
+      const node = this.graphEngine?.nodeMap?.get(matchedIds[0]);
+      if (node) this.handleNodeClick(node);
+    }
+  }
+
+  // --------------------------------------------------------------------------
+  // Ego 专注模式
+  // --------------------------------------------------------------------------
+  async enterEgoMode(centerNode) {
+    if (!centerNode) return;
+    const kbId = this.getCurrentKbId();
+    if (!kbId) return;
+
+    this.renderLoadingPlaceholder(`正在构建「${centerNode.title}」的 Ego 关联子图...`);
+
+    if (!this.isEgoMode) {
+      this.backupFullGraphData = this.graphData;
+    }
+
+    try {
+      const egoData = await this.service.getWikiEgo(kbId, centerNode.slug, 30, 1, 8000);
+
+      this.isEgoMode = true;
+      this.egoCenterNode = centerNode;
+      this.graphData = egoData;
+
+      this.graphEngine.setData(egoData);
+      this.graphEngine.focusNode(centerNode.id);
+      this.clearLoadingPlaceholder();
+
+      this.updateEgoBanner();
+    } catch (err) {
+      new Notice(`Ego 模式展开失败: ${err.message}`);
+      this.clearLoadingPlaceholder();
+    }
+  }
+
+  exitEgoMode() {
+    if (!this.isEgoMode) return;
+    this.isEgoMode = false;
+    this.egoCenterNode = null;
+    this.updateEgoBanner();
+
+    if (this.backupFullGraphData) {
+      this.graphData = this.backupFullGraphData;
+      this.graphEngine.setData(this.backupFullGraphData);
+      this.backupFullGraphData = null;
+    } else {
+      this.loadGraphData();
+    }
+  }
+
+  updateEgoBanner() {
+    if (!this.isEgoMode || !this.egoCenterNode) {
+      this.egoBannerEl.style.display = 'none';
+      return;
+    }
+    const node = this.egoCenterNode;
+    const neighborCount = Math.max(0, (this.graphEngine?.nodes?.length || 1) - 1);
+    this.egoBannerEl.innerHTML = `
+      <div class="tw-ego-banner-content">
+        <span class="tw-ego-badge">🎯 Ego 专注模式</span>
+        <span class="tw-ego-title">中心节点: <strong>${escapeHtml(node.title)}</strong> (展示关联: ${neighborCount} 项)</span>
+      </div>
+      <button class="tw-ego-exit-btn" id="btnExitEgoMode" title="退出 Ego 模式，返回全库宏观图谱">
+        <span>← 返回全局图谱</span>
+      </button>
+    `;
+    this.egoBannerEl.style.display = 'flex';
+
+    const exitBtn = this.egoBannerEl.querySelector('#btnExitEgoMode');
+    if (exitBtn) exitBtn.onclick = () => this.exitEgoMode();
+  }
+
+  // --------------------------------------------------------------------------
+  // 点击与交互处理
+  // --------------------------------------------------------------------------
+  handleNodeClick(node) {
+    const kbId = this.getCurrentKbId();
+    this.wikiDrawer?.open(node, kbId);
+  }
+
+  handleNodeHover(node, pos) {
+    if (!this.tooltip) return;
+    if (!node || !pos) {
+      this.tooltip.style.display = 'none';
+      return;
+    }
+
+    const wrapRect = this.canvasContainerEl.getBoundingClientRect();
+    const x = Math.min(pos.clientX - wrapRect.left + 14, wrapRect.width - 240);
+    const y = Math.min(pos.clientY - wrapRect.top + 14, wrapRect.height - 85);
+
+    const titleText = node.displayName || node.title || node.slug;
+    this.tooltip.innerHTML = `
+      <div style="font-weight:600; color:#1E293B; margin-bottom:3px; font-size:11.5px; line-height:1.3;">${escapeHtml(titleText)}</div>
+      <div style="font-size:10px; color:#64748B; margin-bottom:4px; font-family:monospace; display:flex; gap:6px; align-items:center;">
+        <span class="tw-type-tag" style="padding:1px 5px; border-radius:3px; background:#F1F5F9; color:#475569; border:1px solid #E2E8F0; font-weight:600;">${escapeHtml(node.pageType || 'entity')}</span>
+        <span>关联度数: <strong style="color:#0F172A;">${node.degree || 0}</strong></span>
+      </div>
+      ${node.summary ? `<div style="font-size:10.5px; color:#475569; line-height:1.35; max-height:44px; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(node.summary)}</div>` : ''}
+    `;
+    this.tooltip.style.left = `${Math.max(10, x)}px`;
+    this.tooltip.style.top = `${Math.max(10, y)}px`;
+    this.tooltip.style.display = 'block';
+  }
+
+  handleCanvasClick() {
+    if (this.tooltip) this.tooltip.style.display = 'none';
+  }
+
+  resize() {
+    this.graphEngine?.resize();
+  }
+
+  dispose() {
+    if (this.searchDebounceTimer) {
+      clearTimeout(this.searchDebounceTimer);
+      this.searchDebounceTimer = null;
+    }
+    if (this._onKeyDown) {
+      window.removeEventListener('keydown', this._onKeyDown);
+      this._onKeyDown = null;
+    }
+    if (this._onDocClick) {
+      document.removeEventListener('click', this._onDocClick);
+      this._onDocClick = null;
+    }
+    this.highlightCache.clear();
+    this.graphEngine?.dispose();
+    this.wikiDrawer?.dispose();
+    this.containerEl?.remove();
+  }
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+  
+}
+
+/* ==========================================================================
+   WeKnora Documents View — 知识库资产与文档运维子视图
+   功能:
+   1. 动态目录分类树 (全库扫描根节点: 01-Platform, 02-OS-Kernel, 03-Driver 等, 带数量 Badge)
+   2. 文档资产表格 (标题、格式、大小、解析状态、更新时间)
+   3. 全量数据秒级前端检索、多维过滤与精准分页
+   4. 专业级文档详情抽屉 (Document Detail Drawer):
+      - 完整元数据网格 (ID、格式、物理大小、存储大小、状态、时间)
+      - AI 智能摘要 (Obsidian MarkdownRenderer 渲染 + WeKnora 保护图片鉴权)
+      - 分块策略参数与实时切片检索 (Hybrid Search)
+      - 原始技术元数据 (JSON)
+      - 一键复制 ID / 路径 / 标题, 删除文档
+   ========================================================================== */
+
+function formatBytes(bytes) {
+  if (bytes == null || isNaN(bytes) || bytes === 0) return '-';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+}
+
+function formatDate(isoStr) {
+  if (!isoStr) return '-';
+  try {
+    const d = new Date(isoStr);
+    if (isNaN(d.getTime())) return String(isoStr).slice(0, 19).replace('T', ' ');
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  } catch (e) {
+    return String(isoStr).slice(0, 19).replace('T', ' ');
+  }
+}
+
+function escapeHtml(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+function formatDuration(ms) {
+  if (ms == null || isNaN(ms)) return '-';
+  if (ms < 1000) return `${ms}ms`;
+  if (ms < 60000) return `${(ms / 1000).toFixed(2)}s`;
+  const mins = Math.floor(ms / 60000);
+  const secs = ((ms % 60000) / 1000).toFixed(1);
+  return `${mins}m${secs}s`;
+}
+
+function getFriendlySpanName(name) {
+  if (!name) return '未知任务';
+  if (name === 'knowledge_processing') return '知识处理 (Root)';
+  if (name === 'docreader') return '文档解析 (DocReader)';
+  if (name === 'chunking') return '文档分块 (Chunking)';
+  if (name === 'embedding') return '向量化处理 (Embedding)';
+  if (name === 'multimodal') return '多模态识别 (Multimodal)';
+  if (name === 'postprocess') return '后处理流水线 (Postprocess)';
+  if (name === 'postprocess.question') return '问答对生成 (QA Generation)';
+  if (name === 'postprocess.auto_tag') return '自动打标 (Auto Tag)';
+  if (name === 'postprocess.summary') return 'AI 摘要提取 (Summary)';
+  if (name === 'postprocess.wiki') return 'Wiki 拓扑提取 (Wiki Extract)';
+  if (name.startsWith('multimodal.image')) {
+    return name.replace('multimodal.', '图像解析: ');
+  }
+  if (name.startsWith('postprocess.wiki.page')) {
+    return name.replace('postprocess.wiki.page', 'Wiki页面: ');
+  }
+  return name;
+}
+
+class WeKnoraDocumentsView {
+  /**
+   * @param {HTMLElement} parentEl
+   * @param {object} options
+   */
+  constructor(parentEl, options = {}) {
+    this.parentEl = parentEl;
+    this.app = options.app || (typeof window !== 'undefined' ? window.app : null);
+    this.service = options.service;
+    this.getCurrentKbId = options.getCurrentKbId || (() => '');
+
+    this.containerEl = null;
+    this.currentPage = 1;
+    this.pageSize = 20;
+    this.allDocuments = []; // 全库文档缓存
+    this.activeCategory = 'all';
+    this.filterKeyword = '';
+    this.isLoading = false;
+
+    // 流水线 Trace 状态
+    this.collapsedSpanIds = new Set();
+    this.expandedDetailsSpanIds = new Set();
+    this.traceFilterKeyword = '';
+    this._initializedTraceCollapse = false;
+
+    // 分类目录列表 (通过 extractCategories 动态填充)
+    this.categories = [
+      { id: 'all', label: '全部文档', count: 0, icon: '📁' }
+    ];
+
+    // 图片 Blob URL 缓存 (filePath -> blobUrl)
+    this.imageCache = new Map();
+
+    // 抽屉状态
+    this.isDrawerOpen = false;
+    this.currentDocDetail = null;
+    this.currentDetailTab = 'summary'; // 'summary' | 'chunks' | 'json'
+
+    this.handleKeyDown = (e) => {
+      if (e.key === 'Escape' && this.isDrawerOpen) {
+        this.closeDocDrawer();
+      }
+    };
+    if (typeof window !== 'undefined') {
+      window.addEventListener('keydown', this.handleKeyDown);
+    }
+
+    this.initDOM();
+  }
+
+  initDOM() {
+    this.containerEl = document.createElement('div');
+    this.containerEl.className = 'tw-weknora-docs-wrap';
+    this.parentEl.appendChild(this.containerEl);
+
+    this.containerEl.innerHTML = `
+      <div class="tw-docs-layout">
+        <!-- 左侧分类侧栏 -->
+        <div class="tw-docs-sidebar">
+          <div class="tw-docs-side-title">目录分类 (Categories)</div>
+          <div class="tw-docs-category-list" id="twDocsCategoryList"></div>
+        </div>
+
+        <!-- 右侧文档列表区 -->
+        <div class="tw-docs-main">
+          <div class="tw-docs-toolbar">
+            <div class="tw-docs-search-wrap">
+              <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+              </svg>
+              <input type="text" class="tw-docs-search-input" id="inpDocsFilter" placeholder="搜索文档标题 / ID / 目录路径..." />
+            </div>
+            <div class="tw-docs-actions">
+              <button class="tw-chip" id="btnDocsRefresh" title="从 WeKnora 重新拉取全量文档列表">🔄 刷新</button>
+            </div>
+          </div>
+
+          <div class="tw-docs-table-wrap" id="twDocsTableContainer">
+            <!-- 文档表格由 renderTable 动态填充 -->
+          </div>
+
+          <div class="tw-docs-pagination" id="twDocsPagination">
+            <!-- 分页由 renderPagination 动态填充 -->
+          </div>
+        </div>
+      </div>
+
+      <!-- 右侧文档详情抽屉与遮罩 -->
+      <div class="tw-docs-drawer-mask" id="twDocsDrawerMask"></div>
+      <div class="tw-docs-drawer" id="twDocsDrawer">
+        <!-- 由 renderDocDetailInDrawer 动态填充 -->
+      </div>
+    `;
+
+    this.bindEvents();
+  }
+
+  bindEvents() {
+    const searchInput = this.containerEl.querySelector('#inpDocsFilter');
+    if (searchInput) {
+      searchInput.oninput = (e) => {
+        this.filterKeyword = (e.target.value || '').trim().toLowerCase();
+        this.currentPage = 1;
+        this.renderTable();
+        this.renderPagination();
+      };
+    }
+
+    const refreshBtn = this.containerEl.querySelector('#btnDocsRefresh');
+    if (refreshBtn) {
+      refreshBtn.onclick = () => {
+        refreshBtn.classList.add('spinning');
+        this.loadDocuments().finally(() => refreshBtn.classList.remove('spinning'));
+      };
+    }
+
+    const mask = this.containerEl.querySelector('#twDocsDrawerMask');
+    if (mask) {
+      mask.onclick = () => this.closeDocDrawer();
+    }
+  }
+
+  /**
+   * 动态从全库文档中提取真实的一级目录并统计文档数量
+   */
+  extractCategories() {
+    const counts = {};
+    const total = this.allDocuments.length;
+    let uncategorized = 0;
+
+    for (const d of this.allDocuments) {
+      const folder = (d.folder_path || '').trim();
+      if (!folder) {
+        uncategorized++;
+        continue;
+      }
+      // 提取一级根目录
+      const root = folder.split('/')[0].trim();
+      if (!root) {
+        uncategorized++;
+      } else {
+        counts[root] = (counts[root] || 0) + 1;
+      }
+    }
+
+    const getIconForFolder = (folderName) => {
+      const f = folderName.toLowerCase();
+      if (f.startsWith('01') || f.includes('platform')) return '💻';
+      if (f.startsWith('02') || f.includes('kernel') || f.includes('os')) return '🐧';
+      if (f.startsWith('03') || f.includes('driver')) return '⚡';
+      if (f.startsWith('04') || f.includes('framework')) return '🏗️';
+      if (f.startsWith('05') || f.startsWith('06') || f.includes('spec') || f.includes('standard')) return '🛡️';
+      if (f.startsWith('07') || f.startsWith('08') || f.includes('tools') || f.includes('util')) return '🛠️';
+      if (f.includes('hardware') || f.startsWith('09')) return '🔧';
+      if (f.includes('test') || f.includes('cert') || f.startsWith('10')) return '🧪';
+      return '📁';
+    };
+
+    const sortedRoots = Object.keys(counts).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+
+    const list = [
+      { id: 'all', label: '全部文档', count: total, icon: '📁' }
+    ];
+
+    for (const root of sortedRoots) {
+      list.push({
+        id: root,
+        label: root,
+        count: counts[root],
+        icon: getIconForFolder(root)
+      });
+    }
+
+    if (uncategorized > 0) {
+      list.push({
+        id: '__uncategorized__',
+        label: '未分类 / 根目录',
+        count: uncategorized,
+        icon: '📄'
+      });
+    }
+
+    this.categories = list;
+
+    // 检查 activeCategory 是否仍合法
+    if (this.activeCategory !== 'all' && !this.categories.some(c => c.id === this.activeCategory)) {
+      this.activeCategory = 'all';
+    }
+  }
+
+  renderCategorySidebar() {
+    const listEl = this.containerEl.querySelector('#twDocsCategoryList');
+    if (!listEl) return;
+    listEl.innerHTML = '';
+
+    for (const cat of this.categories) {
+      const item = document.createElement('button');
+      item.className = `tw-docs-cat-btn ${this.activeCategory === cat.id ? 'active' : ''}`;
+      item.innerHTML = `
+        <span class="tw-docs-cat-icon">${cat.icon}</span>
+        <span class="tw-docs-cat-label" title="${escapeHtml(cat.label)}">${escapeHtml(cat.label)}</span>
+        <span class="tw-docs-cat-badge">${cat.count != null ? cat.count : 0}</span>
+      `;
+      item.onclick = () => {
+        if (this.activeCategory === cat.id) return;
+        this.activeCategory = cat.id;
+        this.currentPage = 1;
+        this.renderCategorySidebar();
+        this.renderTable();
+        this.renderPagination();
+      };
+      listEl.appendChild(item);
+    }
+  }
+
+  async loadDocuments() {
+    const kbId = this.getCurrentKbId();
+    if (!kbId) return;
+
+    this.isLoading = true;
+    this.renderTableLoading();
+
+    try {
+      if (!this.service) throw new Error('WeKnora 服务未初始化');
+      // 拉取知识库全量文档建立前端秒级索引
+      const allDocs = await this.service.listAllKnowledge(kbId);
+      this.allDocuments = allDocs || [];
+      this.isLoading = false;
+
+      this.extractCategories();
+      this.renderCategorySidebar();
+      this.renderTable();
+      this.renderPagination();
+    } catch (err) {
+      this.isLoading = false;
+      this.renderTableError(err.message || String(err));
+    }
+  }
+
+  renderTableLoading() {
+    const container = this.containerEl.querySelector('#twDocsTableContainer');
+    if (!container) return;
+    container.innerHTML = `
+      <div class="tw-drawer-loading" style="padding: 48px 0;">
+        <div class="tw-drawer-spinner"></div>
+        <span>正在拉取知识库全量文档资产...</span>
+      </div>
+    `;
+  }
+
+  renderTableError(errMsg) {
+    const container = this.containerEl.querySelector('#twDocsTableContainer');
+    if (!container) return;
+    container.innerHTML = `
+      <div class="tw-drawer-error" style="padding: 36px 0;">
+        <div style="font-size:26px; margin-bottom:8px;">⚠️</div>
+        <div style="font-size:13px; font-weight:600; color:#EF4444; margin-bottom:6px;">未能加载文档清单</div>
+        <div style="font-size:11px; color:var(--text-muted); margin-bottom:14px; font-family:monospace;">${escapeHtml(errMsg)}</div>
+        <button class="tw-chip" id="btnDocsRetry" style="padding:4px 14px; cursor:pointer;">点击重试</button>
+      </div>
+    `;
+    const retryBtn = container.querySelector('#btnDocsRetry');
+    if (retryBtn) retryBtn.onclick = () => this.loadDocuments();
+  }
+
+  getFilteredDocuments() {
+    let list = this.allDocuments;
+    if (this.activeCategory !== 'all') {
+      if (this.activeCategory === '__uncategorized__') {
+        list = list.filter(d => !(d.folder_path && d.folder_path.trim()));
+      } else {
+        list = list.filter(d => {
+          const folder = (d.folder_path || '').trim();
+          return folder.startsWith(this.activeCategory) || folder.includes(this.activeCategory);
+        });
+      }
+    }
+    if (this.filterKeyword) {
+      const kw = this.filterKeyword;
+      list = list.filter(d =>
+        (d.title || '').toLowerCase().includes(kw) ||
+        (d.file_name || '').toLowerCase().includes(kw) ||
+        (d.id || '').toLowerCase().includes(kw) ||
+        (d.folder_path || '').toLowerCase().includes(kw)
+      );
+    }
+    return list;
+  }
+
+  renderTable() {
+    const container = this.containerEl.querySelector('#twDocsTableContainer');
+    if (!container) return;
+
+    const filtered = this.getFilteredDocuments();
+
+    if (!filtered.length) {
+      container.innerHTML = `
+        <div class="tw-docs-empty" style="padding: 56px 0; text-align: center; color: var(--text-muted);">
+          <div style="font-size: 28px; margin-bottom: 8px;">📄</div>
+          <div style="font-weight: 600; margin-bottom: 4px;">未找到匹配的文档条目</div>
+          <div style="font-size: 11px;">分类:「${escapeHtml(this.activeCategory)}」${this.filterKeyword ? ` · 搜索:「${escapeHtml(this.filterKeyword)}」` : ''}</div>
+        </div>
+      `;
+      return;
+    }
+
+    // 分页截取
+    const totalPages = Math.max(1, Math.ceil(filtered.length / this.pageSize));
+    if (this.currentPage > totalPages) this.currentPage = totalPages;
+    const startIndex = (this.currentPage - 1) * this.pageSize;
+    const pageItems = filtered.slice(startIndex, startIndex + this.pageSize);
+
+    let rowsHtml = '';
+    for (const d of pageItems) {
+      const type = (d.file_type || d.type || 'MD').toUpperCase();
+      const status = d.parse_status || 'completed';
+      const isOk = status === 'published' || status === 'completed' || status === 'success';
+      const statusBadge = isOk
+        ? `<span class="tw-badge-status is-done">已索引</span>`
+        : (status === 'processing'
+            ? `<span class="tw-badge-status is-progress">解析中</span>`
+            : `<span class="tw-badge-status is-block">${escapeHtml(status)}</span>`);
+
+      const sizeStr = formatBytes(d.file_size || d.storage_size);
+      const updated = formatDate(d.updated_at || d.processed_at || d.created_at);
+
+      rowsHtml += `
+        <tr class="tw-docs-row" data-id="${escapeHtml(d.id)}">
+          <td class="tw-docs-td-title">
+            <div class="tw-docs-title-text" title="${escapeHtml(d.title || d.file_name || '')}">
+              ${escapeHtml(d.title || d.file_name || '无标题文档')}
+            </div>
+            ${d.folder_path ? `<div class="tw-docs-folder" title="${escapeHtml(d.folder_path)}">${escapeHtml(d.folder_path)}</div>` : ''}
+          </td>
+          <td><span class="tw-chip" style="font-size:10.5px; padding:1px 6px;">${escapeHtml(type)}</span></td>
+          <td style="font-family:monospace; color:var(--text-muted); font-size:11px;">${sizeStr}</td>
+          <td>${statusBadge}</td>
+          <td style="font-size:11px; color:var(--text-muted); font-family:monospace;" title="${escapeHtml(updated)}">${updated.slice(0, 10)}</td>
+          <td class="tw-docs-td-actions">
+            <button class="tw-btn-mini btn-view-doc" data-id="${escapeHtml(d.id)}" title="查看文档详情、AI 摘要与切片">详情</button>
+            <button class="tw-btn-mini is-danger btn-del-doc" data-id="${escapeHtml(d.id)}" title="从知识库删除此文档">删除</button>
+          </td>
+        </tr>
+      `;
+    }
+
+    container.innerHTML = `
+      <table class="tw-docs-table">
+        <thead>
+          <tr>
+            <th style="width: 44%;">文档标题</th>
+            <th style="width: 11%;">格式</th>
+            <th style="width: 12%;">大小</th>
+            <th style="width: 11%;">解析状态</th>
+            <th style="width: 12%;">更新时间</th>
+            <th style="width: 10%;">操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rowsHtml}
+        </tbody>
+      </table>
+    `;
+
+    // 绑定行内按钮事件
+    container.querySelectorAll('.btn-view-doc').forEach(btn => {
+      btn.onclick = () => this.showDocDetail(btn.getAttribute('data-id'));
+    });
+    container.querySelectorAll('.btn-del-doc').forEach(btn => {
+      btn.onclick = () => this.confirmDeleteDoc(btn.getAttribute('data-id'));
+    });
+  }
+
+  renderPagination() {
+    const pagEl = this.containerEl.querySelector('#twDocsPagination');
+    if (!pagEl) return;
+
+    const filtered = this.getFilteredDocuments();
+    const total = filtered.length;
+    const totalPages = Math.max(1, Math.ceil(total / this.pageSize));
+    if (this.currentPage > totalPages) this.currentPage = totalPages;
+
+    pagEl.innerHTML = `
+      <div style="font-size:12px; color:var(--text-muted);">
+        当前分类共 <b>${total}</b> 篇 · 全库 <b>${this.allDocuments.length}</b> 篇 · 每页 ${this.pageSize} 篇
+      </div>
+      <div class="tw-pag-controls">
+        <button class="tw-chip" id="btnDocsPrev" ${this.currentPage <= 1 ? 'disabled' : ''}>← 上一页</button>
+        <span style="font-size:12px; font-weight:600; font-family:monospace;">${this.currentPage} / ${totalPages}</span>
+        <button class="tw-chip" id="btnDocsNext" ${this.currentPage >= totalPages ? 'disabled' : ''}>下一页 →</button>
+      </div>
+    `;
+
+    const prevBtn = pagEl.querySelector('#btnDocsPrev');
+    const nextBtn = pagEl.querySelector('#btnDocsNext');
+    if (prevBtn) {
+      prevBtn.onclick = () => {
+        if (this.currentPage > 1) {
+          this.currentPage--;
+          this.renderTable();
+          this.renderPagination();
+        }
+      };
+    }
+    if (nextBtn) {
+      nextBtn.onclick = () => {
+        if (this.currentPage < totalPages) {
+          this.currentPage++;
+          this.renderTable();
+          this.renderPagination();
+        }
+      };
+    }
+  }
+
+  // ==========================================================================
+  // 文档详情抽屉 (Document Detail Drawer)
+  // ==========================================================================
+
+  async showDocDetail(docId) {
+    if (!docId || !this.service) return;
+
+    const drawerEl = this.containerEl.querySelector('#twDocsDrawer');
+    const maskEl = this.containerEl.querySelector('#twDocsDrawerMask');
+    if (!drawerEl || !maskEl) return;
+
+    this.isDrawerOpen = true;
+    drawerEl.classList.add('is-open');
+    maskEl.classList.add('is-open');
+
+    // 1. 渲染加载中骨架
+    drawerEl.innerHTML = `
+      <div class="tw-docs-drawer-header">
+        <div class="tw-docs-drawer-title-row">
+          <span class="tw-docs-drawer-title">加载文档详情中...</span>
+          <button class="tw-drawer-close-btn" id="btnCloseDocDrawer" title="关闭 (Esc)">✕</button>
+        </div>
+      </div>
+      <div class="tw-docs-drawer-body">
+        <div class="tw-drawer-loading" style="padding: 60px 0;">
+          <div class="tw-drawer-spinner"></div>
+          <span>正在读取 WeKnora 文档元数据与摘要...</span>
+        </div>
+      </div>
+    `;
+    const closeBtn = drawerEl.querySelector('#btnCloseDocDrawer');
+    if (closeBtn) closeBtn.onclick = () => this.closeDocDrawer();
+
+    try {
+      const doc = await this.service.getKnowledge(docId);
+      if (!doc) throw new Error('未获取到有效文档对象');
+      this.currentDocDetail = doc;
+      this.renderDocDetailInDrawer(doc);
+    } catch (err) {
+      drawerEl.innerHTML = `
+        <div class="tw-docs-drawer-header">
+          <div class="tw-docs-drawer-title-row">
+            <span class="tw-docs-drawer-title">加载失败</span>
+            <button class="tw-drawer-close-btn" id="btnCloseDocDrawer" title="关闭 (Esc)">✕</button>
+          </div>
+        </div>
+        <div class="tw-docs-drawer-body">
+          <div class="tw-drawer-error" style="padding: 40px 0;">
+            <div style="font-size:26px; margin-bottom:8px;">⚠️</div>
+            <div style="font-size:13px; font-weight:600; color:#EF4444; margin-bottom:6px;">未能加载文档详情</div>
+            <div style="font-size:11px; color:var(--text-muted); margin-bottom:14px; font-family:monospace;">${escapeHtml(err.message || String(err))}</div>
+            <button class="tw-chip" id="btnRetryDocDetail" style="padding:4px 14px; cursor:pointer;">重试</button>
+          </div>
+        </div>
+      `;
+      const retryBtn = drawerEl.querySelector('#btnRetryDocDetail');
+      if (retryBtn) retryBtn.onclick = () => this.showDocDetail(docId);
+      const closeB = drawerEl.querySelector('#btnCloseDocDrawer');
+      if (closeB) closeB.onclick = () => this.closeDocDrawer();
+    }
+  }
+
+  closeDocDrawer() {
+    this.isDrawerOpen = false;
+    const drawerEl = this.containerEl?.querySelector('#twDocsDrawer');
+    const maskEl = this.containerEl?.querySelector('#twDocsDrawerMask');
+    if (drawerEl) drawerEl.classList.remove('is-open');
+    if (maskEl) maskEl.classList.remove('is-open');
+  }
+
+  async renderDocDetailInDrawer(doc) {
+    const drawerEl = this.containerEl.querySelector('#twDocsDrawer');
+    if (!drawerEl) return;
+
+    const title = doc.title || doc.file_name || '无标题文档';
+    const type = (doc.file_type || doc.type || 'MD').toUpperCase();
+    const folder = doc.folder_path || '根目录 (未设置分类)';
+    const status = doc.parse_status || 'completed';
+    const isOk = status === 'published' || status === 'completed' || status === 'success';
+    const statusBadge = isOk
+      ? `<span class="tw-badge-status is-done">已完成</span>`
+      : (status === 'processing'
+          ? `<span class="tw-badge-status is-progress">解析中</span>`
+          : `<span class="tw-badge-status is-block">${escapeHtml(status)}</span>`);
+
+    const fileSizeStr = formatBytes(doc.file_size);
+    const storageSizeStr = formatBytes(doc.storage_size);
+    const updateTimeStr = formatDate(doc.updated_at || doc.processed_at || doc.created_at);
+    const createTimeStr = formatDate(doc.created_at);
+
+    drawerEl.innerHTML = `
+      <div class="tw-docs-drawer-header">
+        <div class="tw-docs-drawer-title-row">
+          <div style="display:flex; align-items:center; gap:8px; min-width:0;">
+            <span class="tw-chip" style="font-size:10px; font-weight:700; padding:2px 6px; flex-shrink:0;">${escapeHtml(type)}</span>
+            <span class="tw-docs-drawer-title" title="${escapeHtml(title)}">${escapeHtml(title)}</span>
+          </div>
+          <button class="tw-drawer-close-btn" id="btnCloseDocDrawer" title="关闭 (Esc)">✕</button>
+        </div>
+
+        <div class="tw-docs-drawer-toolbar">
+          <div class="tw-docs-drawer-actions-left">
+            <button class="tw-chip tw-docs-action-btn" id="btnCopyDocId" title="复制文档 ID">
+              <span>📋 复制 ID</span>
+            </button>
+            <button class="tw-chip tw-docs-action-btn" id="btnCopyDocPath" title="复制相对目录路径">
+              <span>📁 复制路径</span>
+            </button>
+          </div>
+          <div class="tw-docs-drawer-actions-right">
+            <button class="tw-chip tw-docs-action-btn is-danger" id="btnDrawerDelDoc" title="删除此文档条目">
+              <span>🗑️ 删除</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- 核心元数据卡片网格 -->
+        <div class="tw-docs-detail-grid">
+          <div class="tw-docs-meta-cell">
+            <span class="tw-docs-meta-lbl">所属目录</span>
+            <span class="tw-docs-meta-val" title="${escapeHtml(folder)}">${escapeHtml(folder)}</span>
+          </div>
+          <div class="tw-docs-meta-cell">
+            <span class="tw-docs-meta-lbl">解析状态</span>
+            <span class="tw-docs-meta-val">${statusBadge}</span>
+          </div>
+          <div class="tw-docs-meta-cell">
+            <span class="tw-docs-meta-lbl">文件大小</span>
+            <span class="tw-docs-meta-val font-mono">${fileSizeStr}</span>
+          </div>
+          <div class="tw-docs-meta-cell">
+            <span class="tw-docs-meta-lbl">存储占用</span>
+            <span class="tw-docs-meta-val font-mono">${storageSizeStr}</span>
+          </div>
+          <div class="tw-docs-meta-cell">
+            <span class="tw-docs-meta-lbl">创建时间</span>
+            <span class="tw-docs-meta-val font-mono" title="${createTimeStr}">${createTimeStr.slice(0, 16)}</span>
+          </div>
+          <div class="tw-docs-meta-cell">
+            <span class="tw-docs-meta-lbl">更新时间</span>
+            <span class="tw-docs-meta-val font-mono" title="${updateTimeStr}">${updateTimeStr.slice(0, 16)}</span>
+          </div>
+        </div>
+
+        <!-- Tab 切换按钮 -->
+        <div class="tw-docs-detail-tabs">
+          <button class="tw-docs-tab-btn ${this.currentDetailTab === 'summary' ? 'active' : ''}" data-tab="summary">
+            <span>📄 AI 智能摘要</span>
+          </button>
+          <button class="tw-docs-tab-btn ${this.currentDetailTab === 'trace' ? 'active' : ''}" data-tab="trace">
+            <span>⏱️ 处理流水线 (Trace)</span>
+          </button>
+          <button class="tw-docs-tab-btn ${this.currentDetailTab === 'chunks' ? 'active' : ''}" data-tab="chunks">
+            <span>🧩 分块与检索测试</span>
+          </button>
+          <button class="tw-docs-tab-btn ${this.currentDetailTab === 'json' ? 'active' : ''}" data-tab="json">
+            <span>⚙️ 原始元数据</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="tw-docs-drawer-body" id="twDocsDrawerBody">
+        <!-- Tab 内容将动态注入 -->
+      </div>
+    `;
+
+    // 绑定头部与控制事件
+    const closeBtn = drawerEl.querySelector('#btnCloseDocDrawer');
+    if (closeBtn) closeBtn.onclick = () => this.closeDocDrawer();
+
+    const copyIdBtn = drawerEl.querySelector('#btnCopyDocId');
+    if (copyIdBtn) {
+      copyIdBtn.onclick = () => {
+        navigator.clipboard?.writeText(doc.id);
+        const NoticeCls = typeof Notice !== 'undefined' ? Notice : null;
+        if (NoticeCls) new NoticeCls(`✓ 已复制文档 ID: ${doc.id}`);
+      };
+    }
+
+    const copyPathBtn = drawerEl.querySelector('#btnCopyDocPath');
+    if (copyPathBtn) {
+      copyPathBtn.onclick = () => {
+        const p = doc.folder_path || '';
+        navigator.clipboard?.writeText(p);
+        const NoticeCls = typeof Notice !== 'undefined' ? Notice : null;
+        if (NoticeCls) new NoticeCls(`✓ 已复制路径: ${p || '根目录'}`);
+      };
+    }
+
+    const delBtn = drawerEl.querySelector('#btnDrawerDelDoc');
+    if (delBtn) {
+      delBtn.onclick = () => {
+        this.closeDocDrawer();
+        this.confirmDeleteDoc(doc.id);
+      };
+    }
+
+    drawerEl.querySelectorAll('.tw-docs-tab-btn').forEach(btn => {
+      btn.onclick = () => {
+        const tab = btn.getAttribute('data-tab');
+        if (tab && tab !== this.currentDetailTab) {
+          this.currentDetailTab = tab;
+          drawerEl.querySelectorAll('.tw-docs-tab-btn').forEach(b => {
+            b.classList.toggle('active', b.getAttribute('data-tab') === tab);
+          });
+          this.renderDetailTabContent(doc);
+        }
+      };
+    });
+
+    this.renderDetailTabContent(doc);
+  }
+
+  async renderDetailTabContent(doc) {
+    const bodyEl = this.containerEl.querySelector('#twDocsDrawerBody');
+    if (!bodyEl) return;
+    bodyEl.innerHTML = '';
+
+    if (this.currentDetailTab === 'summary') {
+      const summaryText = doc.description || (doc.metadata && doc.metadata.content) || '> 知识库中该文档暂未生成 AI 结构化摘要。';
+      const wrap = document.createElement('div');
+      wrap.className = 'tw-docs-summary-section markdown-rendered';
+      bodyEl.appendChild(wrap);
+
+      if (typeof MarkdownRenderer !== 'undefined' && MarkdownRenderer.renderMarkdown) {
+        try {
+          await MarkdownRenderer.renderMarkdown(summaryText, wrap, '', this.app || null);
+        } catch (e) {
+          wrap.textContent = summaryText;
+        }
+      } else {
+        wrap.textContent = summaryText;
+      }
+
+      this.hydrateProtectedImages(wrap, this.getCurrentKbId());
+    } else if (this.currentDetailTab === 'trace') {
+      await this.renderTraceTab(doc, bodyEl);
+    } else if (this.currentDetailTab === 'chunks') {
+      const meta = doc.metadata || {};
+      const chunkCfg = meta.process_overrides?.chunking_config || {};
+      const parserRules = meta.process_overrides?.parser_engine_rules || [];
+
+      bodyEl.innerHTML = `
+        <div class="tw-docs-chunks-wrap">
+          <div class="tw-docs-section-title">分块引擎与策略参数</div>
+          <div class="tw-docs-chunk-params">
+            <div class="tw-chunk-param-card">
+              <span class="lbl">切片策略 (Strategy)</span>
+              <span class="val">${escapeHtml(chunkCfg.strategy || 'auto')}</span>
+            </div>
+            <div class="tw-chunk-param-card">
+              <span class="lbl">切片大小 (Chunk Size)</span>
+              <span class="val font-mono">${chunkCfg.chunk_size || 512}</span>
+            </div>
+            <div class="tw-chunk-param-card">
+              <span class="lbl">重叠长度 (Overlap)</span>
+              <span class="val font-mono">${chunkCfg.chunk_overlap || 80}</span>
+            </div>
+            <div class="tw-chunk-param-card">
+              <span class="lbl">父子分块 (Parent-Child)</span>
+              <span class="val font-mono">${chunkCfg.enable_parent_child ? `开启 (${chunkCfg.child_chunk_size}/${chunkCfg.parent_chunk_size})` : '未开启'}</span>
+            </div>
+          </div>
+
+          <div class="tw-docs-section-title" style="margin-top:20px; display:flex; justify-content:space-between; align-items:center;">
+            <span>知识库混合检索与切片预览</span>
+            <button class="tw-chip" id="btnRunHybridChunkTest" style="font-size:11px; padding:2px 8px; cursor:pointer;">🔍 检索此文档切片</button>
+          </div>
+          <div id="twDocsChunkHitsWrap" style="margin-top:10px;">
+            <div style="font-size:12px; color:var(--text-muted); padding:16px 0; text-align:center;">
+              点击上方按钮可触发向量+关键词混合检索，实时调取该文档在 WeKnora 中的切片命中片段
+            </div>
+          </div>
+        </div>
+      `;
+
+      const testBtn = bodyEl.querySelector('#btnRunHybridChunkTest');
+      if (testBtn) {
+        testBtn.onclick = async () => {
+          const hitsWrap = bodyEl.querySelector('#twDocsChunkHitsWrap');
+          if (!hitsWrap) return;
+          hitsWrap.innerHTML = `
+            <div class="tw-drawer-loading" style="padding: 24px 0;">
+              <div class="tw-drawer-spinner"></div>
+              <span>正在调取切片检索...</span>
+            </div>
+          `;
+          try {
+            const kbId = this.getCurrentKbId();
+            const queryText = (doc.title || doc.file_name || '').slice(0, 30);
+            const hits = await this.service.hybridSearch(kbId, queryText, { match_count: 5 });
+            if (!hits || !hits.length) {
+              hitsWrap.innerHTML = `<div style="font-size:12px; color:var(--text-muted); padding:12px 0;">未检索到相关切片。</div>`;
+              return;
+            }
+            let hitsHtml = '';
+            for (const h of hits) {
+              const score = (Number(h.score) || 0).toFixed(3);
+              hitsHtml += `
+                <div class="tw-docs-chunk-card">
+                  <div class="tw-docs-chunk-head">
+                    <span class="tw-docs-chunk-title">${escapeHtml(h.knowledge_title || '文档片段')}</span>
+                    <span class="tw-docs-chunk-score">相关度: ${score}</span>
+                  </div>
+                  <div class="tw-docs-chunk-text">${escapeHtml(h.content || '')}</div>
+                </div>
+              `;
+            }
+            hitsWrap.innerHTML = hitsHtml;
+          } catch (err) {
+            hitsWrap.innerHTML = `<div style="font-size:12px; color:#EF4444; padding:12px 0;">检索失败: ${escapeHtml(err.message)}</div>`;
+          }
+        };
+      }
+    } else if (this.currentDetailTab === 'json') {
+      bodyEl.innerHTML = `
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+          <span style="font-size:11px; color:var(--text-muted);">WeKnora API 完整返回载荷</span>
+          <button class="tw-chip" id="btnCopyJsonDoc" style="font-size:11px; padding:2px 8px; cursor:pointer;">📋 复制 JSON</button>
+        </div>
+        <pre class="tw-docs-json-pre"><code>${escapeHtml(JSON.stringify(doc, null, 2))}</code></pre>
+      `;
+      const copyJsonBtn = bodyEl.querySelector('#btnCopyJsonDoc');
+      if (copyJsonBtn) {
+        copyJsonBtn.onclick = () => {
+          navigator.clipboard?.writeText(JSON.stringify(doc, null, 2));
+          const NoticeCls = typeof Notice !== 'undefined' ? Notice : null;
+          if (NoticeCls) new NoticeCls(`✓ 已复制完整文档 JSON`);
+        };
+      }
+    }
+  }
+
+  // --------------------------------------------------------------------------
+  // 处理流水线 (Trace) 甘特图渲染
+  // --------------------------------------------------------------------------
+  async renderTraceTab(doc, bodyEl) {
+    bodyEl.innerHTML = `
+      <div class="tw-drawer-loading" style="padding: 40px 0;">
+        <div class="tw-drawer-spinner"></div>
+        <span>正在拉取处理流水线 Trace 数据...</span>
+      </div>
+    `;
+
+    try {
+      if (!this.service || !this.service.getKnowledgeSpans) {
+        throw new Error('WeKnora 服务未提供流水线接口');
+      }
+      const spanData = await this.service.getKnowledgeSpans(doc.id);
+      if (!spanData || !spanData.trace) {
+        bodyEl.innerHTML = `
+          <div class="tw-docs-empty" style="padding: 40px 0; text-align: center; color: var(--text-muted);">
+            <div style="font-size: 26px; margin-bottom: 8px;">⏱️</div>
+            <div>该文档暂无处理流水线 Trace 记录</div>
+          </div>
+        `;
+        return;
+      }
+
+      this.currentTraceData = spanData;
+      this.renderTraceView(doc, spanData, bodyEl);
+    } catch (err) {
+      bodyEl.innerHTML = `
+        <div class="tw-drawer-error" style="padding: 30px 0;">
+          <div style="font-size:24px; margin-bottom:8px;">⚠️</div>
+          <div style="font-size:13px; font-weight:600; color:#EF4444; margin-bottom:6px;">未能加载流水线 Trace</div>
+          <div style="font-size:11px; color:var(--text-muted); margin-bottom:14px; font-family:monospace;">${escapeHtml(err.message || String(err))}</div>
+          <button class="tw-chip" id="btnRetryTrace" style="padding:4px 14px; cursor:pointer;">点击重试</button>
+        </div>
+      `;
+      const retryBtn = bodyEl.querySelector('#btnRetryTrace');
+      if (retryBtn) retryBtn.onclick = () => this.renderTraceTab(doc, bodyEl);
+    }
+  }
+
+  renderTraceView(doc, spanData, bodyEl) {
+    const trace = spanData.trace;
+    const rootStartTime = new Date(trace.started_at).getTime();
+    const rootEndTime = trace.finished_at ? new Date(trace.finished_at).getTime() : Date.now();
+    const totalDurationMs = trace.duration_ms || Math.max(1, rootEndTime - rootStartTime);
+
+    let totalTasks = 0, doneTasks = 0, runningTasks = 0, failedTasks = 0;
+    let totalStages = 0, completedStages = 0;
+
+    const countSpans = (span) => {
+      totalTasks++;
+      const st = span.status;
+      if (st === 'done' || st === 'completed' || st === 'success') doneTasks++;
+      else if (st === 'running' || st === 'processing') runningTasks++;
+      else if (st === 'error' || st === 'failed') failedTasks++;
+
+      if (span.kind === 'stage') {
+        totalStages++;
+        if (st === 'done' || st === 'completed' || st === 'success') completedStages++;
+      }
+      if (span.children) {
+        for (const c of span.children) countSpans(c);
+      }
+    };
+    countSpans(trace);
+
+    // 默认折叠多于 8 个子节点的深层分支 (例如 multimodal 包含 46 张图片)
+    if (!this._initializedTraceCollapse) {
+      this._initializedTraceCollapse = true;
+      const autoCollapse = (s) => {
+        if (s.children && s.children.length > 8 && s.kind !== 'root') {
+          this.collapsedSpanIds.add(s.span_id || s.name);
+        }
+        if (s.children) s.children.forEach(autoCollapse);
+      };
+      autoCollapse(trace);
+    }
+
+    const attempt = spanData.attempt || spanData.current_attempt || 1;
+    const summaryLine = `处理流水线，总耗时 <b>${formatDuration(totalDurationMs)}</b>，主流程阶段 <b>${completedStages}/${totalStages}</b>，所有任务：运行中 <b>${runningTasks}</b> / 失败 <b>${failedTasks}</b> / 已完成 <b>${doneTasks}</b>${attempt > 1 ? `，第 <b>${attempt}</b> 次重试` : '，第 1 次执行'}`;
+
+    bodyEl.innerHTML = `
+      <div class="tw-trace-wrap">
+        <!-- 顶部流水线统计摘要条 -->
+        <div class="tw-trace-summary-bar">
+          <div class="tw-trace-summary-text">${summaryLine}</div>
+          <div class="tw-trace-bar-actions">
+            <button class="tw-chip" id="btnToggleExpandAllSpans" style="font-size:11px; padding:2px 8px; cursor:pointer;">
+              ${this.collapsedSpanIds.size > 0 ? '展开全部' : '折叠子任务'}
+            </button>
+            <button class="tw-chip" id="btnRefreshTrace" style="font-size:11px; padding:2px 8px; cursor:pointer;" title="刷新流水线">
+              🔄 刷新
+            </button>
+          </div>
+        </div>
+
+        <!-- 任务搜索与操作提示 -->
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:2px;">
+          <input type="text" class="tw-docs-search-input" id="inpTraceFilter" placeholder="搜索任务名称 (例如 multimodal, wiki, question)..." 
+                 value="${escapeHtml(this.traceFilterKeyword || '')}"
+                 style="background:var(--background-secondary, #F8FAFC) !important; border:1px solid var(--background-modifier-border, #E2E8F0) !important; border-radius:4px; padding:3px 8px !important; font-size:11px; width:280px;" />
+          <div style="font-size:10.5px; color:var(--text-muted);">
+            提示: 点击任务行可展开查看 I/O 详细参数与报文
+          </div>
+        </div>
+
+        <!-- 甘特图表容器 -->
+        <div class="tw-trace-table-container">
+          <div class="tw-trace-table-header">
+            <div class="tw-trace-head-label">任务节点 / 处理阶段</div>
+            <div class="tw-trace-head-ruler">
+              <span class="ruler-tick">0ms</span>
+              <span class="ruler-tick">${formatDuration(totalDurationMs * 0.25)}</span>
+              <span class="ruler-tick">${formatDuration(totalDurationMs * 0.5)}</span>
+              <span class="ruler-tick">${formatDuration(totalDurationMs * 0.75)}</span>
+              <span class="ruler-tick">${formatDuration(totalDurationMs)}</span>
+            </div>
+          </div>
+
+          <div class="tw-trace-rows" id="twTraceRowsList">
+            <!-- 动态生成各节点行 -->
+          </div>
+        </div>
+      </div>
+    `;
+
+    // 绑定顶部按钮
+    const refreshBtn = bodyEl.querySelector('#btnRefreshTrace');
+    if (refreshBtn) refreshBtn.onclick = () => this.renderTraceTab(doc, bodyEl);
+
+    const toggleExpandBtn = bodyEl.querySelector('#btnToggleExpandAllSpans');
+    if (toggleExpandBtn) {
+      toggleExpandBtn.onclick = () => {
+        if (this.collapsedSpanIds.size > 0) {
+          this.collapsedSpanIds.clear();
+        } else {
+          const collectParents = (s) => {
+            if (s.children && s.children.length > 0 && s.kind !== 'root') {
+              this.collapsedSpanIds.add(s.span_id || s.name);
+            }
+            if (s.children) s.children.forEach(collectParents);
+          };
+          collectParents(trace);
+        }
+        toggleExpandBtn.textContent = this.collapsedSpanIds.size > 0 ? '展开全部' : '折叠子任务';
+        this.renderTraceRows(trace, rootStartTime, totalDurationMs);
+      };
+    }
+
+    const filterInput = bodyEl.querySelector('#inpTraceFilter');
+    if (filterInput) {
+      filterInput.oninput = (e) => {
+        this.traceFilterKeyword = (e.target.value || '').trim().toLowerCase();
+        this.renderTraceRows(trace, rootStartTime, totalDurationMs);
+      };
+    }
+
+    this.renderTraceRows(trace, rootStartTime, totalDurationMs);
+  }
+
+  renderTraceRows(trace, rootStartTime, totalDurationMs) {
+    const listEl = this.containerEl.querySelector('#twTraceRowsList');
+    if (!listEl) return;
+    listEl.innerHTML = '';
+
+    const filterKw = (this.traceFilterKeyword || '').trim().toLowerCase();
+
+    const renderSpan = (span, depth) => {
+      const spanId = span.span_id || span.name || Math.random().toString();
+      const hasChildren = span.children && span.children.length > 0;
+      const isCollapsed = this.collapsedSpanIds.has(spanId);
+      const isExpandedDetail = this.expandedDetailsSpanIds.has(spanId);
+
+      const friendlyName = getFriendlySpanName(span.name);
+
+      let matchesFilter = true;
+      if (filterKw) {
+        matchesFilter = (span.name || '').toLowerCase().includes(filterKw) || friendlyName.toLowerCase().includes(filterKw);
+      }
+
+      const spanStartTime = span.started_at ? new Date(span.started_at).getTime() : rootStartTime;
+      const offsetMs = Math.max(0, spanStartTime - rootStartTime);
+      const offsetPct = Math.min(99.5, Math.max(0, (offsetMs / totalDurationMs) * 100));
+
+      const durationMs = span.duration_ms != null ? span.duration_ms : (
+        span.finished_at ? Math.max(0, new Date(span.finished_at).getTime() - spanStartTime) : 0
+      );
+      const widthPct = Math.max(0.6, Math.min(100 - offsetPct, (durationMs / totalDurationMs) * 100));
+
+      const st = span.status || 'done';
+      const kind = span.kind || 'stage';
+
+      const tooltip = `${friendlyName}\n节点: ${span.name}\n类型: ${kind}\n状态: ${st}\n耗时: ${formatDuration(durationMs)}\n开始: ${formatDate(span.started_at)}\n结束: ${formatDate(span.finished_at)}`;
+
+      if (matchesFilter || !filterKw) {
+        const rowEl = document.createElement('div');
+        rowEl.className = 'tw-trace-row';
+        rowEl.setAttribute('data-span-id', spanId);
+
+        rowEl.innerHTML = `
+          <div class="tw-trace-row-content">
+            <div class="tw-trace-left-cell">
+              <span class="tw-trace-indent" style="width: ${depth * 16}px;"></span>
+              ${hasChildren 
+                ? `<button class="tw-trace-chevron-btn" title="${isCollapsed ? '展开子任务' : '折叠子任务'}">${isCollapsed ? '▶' : '▼'}</button>` 
+                : `<span class="tw-trace-chevron-placeholder"></span>`
+              }
+              <span class="tw-trace-status-dot is-${st}" title="状态: ${st}"></span>
+              <span class="tw-trace-name" title="${escapeHtml(span.name)}">${escapeHtml(friendlyName)}</span>
+              <span class="tw-trace-kind-badge kind-${kind}">${escapeHtml(kind.toUpperCase())}</span>
+              <span class="tw-trace-duration">${durationMs > 0 ? formatDuration(durationMs) : (st === 'running' ? '执行中...' : '-')}</span>
+            </div>
+
+            <div class="tw-trace-right-cell">
+              <div class="tw-trace-track">
+                ${offsetPct > 0 ? `
+                  <div class="tw-trace-lead-line" style="width: ${offsetPct}%;">
+                    ${offsetPct > 18 ? `<span class="tw-trace-lead-text">+${formatDuration(offsetMs)}</span>` : ''}
+                  </div>
+                ` : ''}
+                <div class="tw-trace-bar is-${st}" style="left: ${offsetPct}%; width: ${widthPct}%;" title="${escapeHtml(tooltip)}"></div>
+              </div>
+            </div>
+          </div>
+
+          ${isExpandedDetail ? `
+            <div class="tw-trace-detail-panel">
+              <div class="tw-trace-detail-grid">
+                <div>
+                  <span style="color:var(--text-muted); font-size:10px;">开始时间:</span>
+                  <span style="font-family:monospace; margin-left:4px;">${formatDate(span.started_at)}</span>
+                </div>
+                <div>
+                  <span style="color:var(--text-muted); font-size:10px;">结束时间:</span>
+                  <span style="font-family:monospace; margin-left:4px;">${formatDate(span.finished_at)}</span>
+                </div>
+              </div>
+              ${span.input ? `
+                <div style="margin-top:4px;">
+                  <span style="color:var(--text-muted); font-size:10px; font-weight:600;">输入参数 (Input):</span>
+                  <pre class="tw-trace-json-box"><code>${escapeHtml(JSON.stringify(span.input, null, 2))}</code></pre>
+                </div>
+              ` : ''}
+              ${span.output ? `
+                <div style="margin-top:4px;">
+                  <span style="color:var(--text-muted); font-size:10px; font-weight:600;">处理结果 (Output):</span>
+                  <pre class="tw-trace-json-box"><code>${escapeHtml(JSON.stringify(span.output, null, 2))}</code></pre>
+                </div>
+              ` : ''}
+              ${span.error ? `
+                <div style="margin-top:4px; color:#EF4444;">
+                  <span style="font-size:10px; font-weight:600;">错误信息 (Error):</span>
+                  <div class="tw-trace-json-box" style="color:#EF4444; border-color:rgba(239,68,68,0.3);">${escapeHtml(span.error)}</div>
+                </div>
+              ` : ''}
+            </div>
+          ` : ''}
+        `;
+
+        const chevronBtn = rowEl.querySelector('.tw-trace-chevron-btn');
+        if (chevronBtn) {
+          chevronBtn.onclick = (e) => {
+            e.stopPropagation();
+            if (this.collapsedSpanIds.has(spanId)) {
+              this.collapsedSpanIds.delete(spanId);
+            } else {
+              this.collapsedSpanIds.add(spanId);
+            }
+            this.renderTraceRows(trace, rootStartTime, totalDurationMs);
+          };
+        }
+
+        const rowContent = rowEl.querySelector('.tw-trace-row-content');
+        if (rowContent) {
+          rowContent.onclick = (e) => {
+            if (e.target.closest('.tw-trace-chevron-btn')) return;
+            if (this.expandedDetailsSpanIds.has(spanId)) {
+              this.expandedDetailsSpanIds.delete(spanId);
+            } else {
+              this.expandedDetailsSpanIds.add(spanId);
+            }
+            this.renderTraceRows(trace, rootStartTime, totalDurationMs);
+          };
+        }
+
+        listEl.appendChild(rowEl);
+      }
+
+      if (hasChildren && !isCollapsed) {
+        for (const child of span.children) {
+          renderSpan(child, depth + 1);
+        }
+      }
+    };
+
+    renderSpan(trace, 0);
+  }
+
+  async hydrateProtectedImages(containerEl, kbId) {
+    if (!containerEl || !this.service) return;
+    const effectiveKbId = kbId || this.getCurrentKbId() || (this.service && this.service.defaultKb);
+    if (!effectiveKbId) return;
+    const imgs = containerEl.querySelectorAll('img');
+    if (!imgs.length) return;
+
+    const protectedPrefixes = ['resource://', 'storage://', 'local://', 'minio://', 'cos://', 'tos://', 's3://', 'oss://', 'ks3://', 'obs://'];
+
+    for (const img of Array.from(imgs)) {
+      const src = (img.getAttribute('src') || '').trim();
+      const isProtected = protectedPrefixes.some(p => src.startsWith(p));
+      if (!isProtected) continue;
+
+      img.classList.add('tw-wiki-protected-img', 'is-loading');
+
+      if (this.imageCache.has(src)) {
+        img.src = this.imageCache.get(src);
+        img.classList.remove('is-loading');
+        continue;
+      }
+
+      try {
+        const fetchUrl = `${this.service.baseUrl}/knowledge-bases/${encodeURIComponent(effectiveKbId)}/files?file_path=${encodeURIComponent(src)}`;
+        const res = await fetch(fetchUrl, {
+          headers: { 'X-API-Key': this.service.apiKey }
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const blob = await res.blob();
+        const blobUrl = URL.createObjectURL(blob);
+        this.imageCache.set(src, blobUrl);
+
+        if (img.isConnected) {
+          img.src = blobUrl;
+          img.classList.remove('is-loading');
+        }
+      } catch (err) {
+        console.warn('[WeKnora Docs] 加载图片失败:', src, err.message);
+        img.classList.remove('is-loading');
+        img.classList.add('is-failed');
+        img.title = `图片加载受阻: ${err.message}`;
+      }
+    }
+  }
+
+  async confirmDeleteDoc(docId) {
+    if (!docId || !this.service) return;
+    const ok = confirm(`确定从 WeKnora 知识库中删除文档 (ID: ${docId}) 吗？此操作不可逆。`);
+    if (!ok) return;
+
+    try {
+      await this.service.deleteKnowledge(docId);
+      const NoticeCls = typeof Notice !== 'undefined' ? Notice : null;
+      if (NoticeCls) new NoticeCls(`✓ 已提交删除文档任务`);
+      this.loadDocuments();
+    } catch (err) {
+      alert(`删除失败: ${err.message}`);
+    }
+  }
+
+  dispose() {
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('keydown', this.handleKeyDown);
+    }
+    for (const bUrl of this.imageCache.values()) {
+      try { URL.revokeObjectURL(bUrl); } catch (e) {}
+    }
+    this.imageCache.clear();
+    this.containerEl?.remove();
+  }
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+  
+}
+
+/* ==========================================================================
+   WeKnora Sync View — 本地笔记与远端知识库双向同步与冲突比对
+   特性:
+   1. 双向比对表格 (本地新增 / 本地更新 / 远端更新 / 一致)
+   2. 忽略机制 (忽略后从正常列表中隐藏，可在“已忽略”视图中查看并随时恢复)
+   3. 批量推送影响范围预览浮层 (防误覆盖)
+   4. 目录层级 (folder_path) 自动绑定与智能纠偏
+   5. 支持 PDF 与 Markdown (超大文档自动转走文件流绕过 20 万字符限制)
+   ========================================================================== */
+
+function escapeHtml(str) {
+  if (str == null) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+const ALL_SYNC_CANDIDATE_FOLDERS = [
+  '01-Platform',
+  '02-OS-Kernel',
+  '03-Driver',
+  '04-Debug',
+  '05-Toolchain',
+  '06-Spec',
+  '07-Project',
+  '08-Learning',
+  '09-Hardware',
+  '10-Test-Cert'
+];
+
+const DEFAULT_SYNC_FOLDERS = [
+  '01-Platform',
+  '02-OS-Kernel',
+  '03-Driver',
+  '04-Debug',
+  '05-Toolchain',
+  '06-Spec',
+  '07-Project'
+]; // 默认排除 08-Learning
+
+class WeKnoraSyncView {
+  /**
+   * @param {HTMLElement} parentEl
+   * @param {object} options
+   */
+  constructor(parentEl, options = {}) {
+    this.parentEl = parentEl;
+    this.app = options.app || (typeof window !== 'undefined' ? window.app : null);
+    this.plugin = options.plugin || (this.app?.plugins?.getPlugin?.('tabonkb-workbench')) || (this.app?.plugins?.plugins?.['tabonkb-workbench']) || null;
+    this.service = options.service;
+    this.getCurrentKbId = options.getCurrentKbId || (() => '');
+
+    this.containerEl = null;
+    this.diffItems = []; // { file, title, path, folderPath, localMtime, remoteMtime, status, remoteDoc, isIgnored }
+    this.selectedPaths = new Set();
+    this.isScanning = false;
+    this.isPushing = false;
+    this.remoteDocsCache = null;
+
+    // 目录范围设置 (默认排除 08-Learning，支持用户自由选择)
+    this.enabledFolders = this.loadEnabledFolders();
+
+    // 忽略与视图筛选状态
+    this.ignoredPaths = this.loadIgnoredPaths();
+    this.viewMode = 'active'; // 'active' (正常未忽略) | 'ignored' (已忽略)
+    this.statusFilter = 'pending'; // 默认仅展示待推送项 ('pending' | 'all' | 'LOCAL_NEW' | 'LOCAL_UPDATED' | 'SYNCED')
+    this.searchKeyword = '';
+
+    this.initDOM();
+  }
+
+  loadEnabledFolders() {
+    try {
+      const fromSettings = this.plugin?.settings?.weknora?.syncFolders;
+      if (Array.isArray(fromSettings) && fromSettings.length > 0) {
+        const s = new Set(fromSettings);
+        s.delete('08-Learning'); // 08-Learning 不纳入上传
+        return s;
+      }
+      if (typeof localStorage !== 'undefined') {
+        const raw = localStorage.getItem('tabonkb-sync-folders');
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            const s = new Set(parsed);
+            s.delete('08-Learning');
+            return s;
+          }
+        }
+      }
+    } catch (e) {}
+    return new Set(DEFAULT_SYNC_FOLDERS);
+  }
+
+  saveEnabledFolders() {
+    const list = Array.from(this.enabledFolders);
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('tabonkb-sync-folders', JSON.stringify(list));
+      }
+      if (this.plugin?.settings?.weknora) {
+        this.plugin.settings.weknora.syncFolders = list;
+        this.plugin.saveSettings?.();
+      }
+    } catch (e) {}
+  }
+
+  loadIgnoredPaths() {
+    try {
+      const fromSettings = this.plugin?.settings?.weknora?.ignoredSyncPaths;
+      if (Array.isArray(fromSettings) && fromSettings.length > 0) {
+        return new Set(fromSettings);
+      }
+      if (typeof localStorage !== 'undefined') {
+        const raw = localStorage.getItem('tabonkb-sync-ignored-paths');
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) return new Set(parsed);
+        }
+      }
+    } catch (e) {}
+    return new Set();
+  }
+
+  saveIgnoredPaths() {
+    const list = Array.from(this.ignoredPaths);
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('tabonkb-sync-ignored-paths', JSON.stringify(list));
+      }
+      if (this.plugin?.settings?.weknora) {
+        this.plugin.settings.weknora.ignoredSyncPaths = list;
+        this.plugin.saveSettings?.();
+      }
+    } catch (e) {}
+  }
+
+  ignorePath(path) {
+    if (!path) return;
+    this.ignoredPaths.add(path);
+    this.selectedPaths.delete(path);
+    this.saveIgnoredPaths();
+    const NoticeCls = typeof Notice !== 'undefined' ? Notice : null;
+    if (NoticeCls) new NoticeCls('已忽略该笔记，不再在同步列表中显示');
+    this.renderAll();
+  }
+
+  unignorePath(path) {
+    if (!path) return;
+    this.ignoredPaths.delete(path);
+    this.saveIgnoredPaths();
+    const NoticeCls = typeof Notice !== 'undefined' ? Notice : null;
+    if (NoticeCls) new NoticeCls('已恢复该笔记至同步列表');
+    this.renderAll();
+  }
+
+  initDOM() {
+    this.containerEl = document.createElement('div');
+    this.containerEl.className = 'tw-weknora-sync-wrap';
+    this.parentEl.appendChild(this.containerEl);
+
+    this.containerEl.innerHTML = `
+      <div class="tw-sync-header">
+        <div class="tw-sync-summary-left">
+          <div class="tw-sync-title">Vault 本地笔记与 WeKnora 知识库同步</div>
+          <div class="tw-sync-desc">检测 Obsidian 本地工程文档 (Markdown / PDF) 与 WeKnora 团队知识库文档的差异与版本状态</div>
+        </div>
+        <div class="tw-sync-actions-right" id="twSyncHeaderActions">
+          <!-- 动态操作按钮 -->
+        </div>
+      </div>
+
+      <div class="tw-sync-kpi-bar" id="twSyncKpiBar">
+        <!-- 统计徽章 -->
+      </div>
+
+      <div class="tw-sync-filter-bar" id="twSyncFilterBar">
+        <!-- 快速过滤与搜索框 -->
+      </div>
+
+      <div class="tw-sync-folder-bar" id="twSyncFolderBar">
+        <!-- 同步目录范围勾选 -->
+      </div>
+
+      <div class="tw-sync-table-wrap" id="twSyncTableWrap">
+        <!-- 比对表格 -->
+      </div>
+
+      <!-- 批量推送预览浮层 -->
+      <div class="tw-sync-modal-mask" id="twSyncModalMask" style="display:none;">
+        <div class="tw-sync-modal" id="twSyncModalContent"></div>
+      </div>
+    `;
+
+    this.renderHeaderActions();
+    this.startScan();
+  }
+
+  renderAll() {
+    this.renderHeaderActions();
+    this.renderKpiBar();
+    this.renderFilterBar();
+    this.renderFolderBar();
+    this.renderTable();
+  }
+
+  renderHeaderActions() {
+    const actionsEl = this.containerEl.querySelector('#twSyncHeaderActions');
+    if (!actionsEl) return;
+
+    if (this.viewMode === 'ignored') {
+      actionsEl.innerHTML = `
+        <button class="tw-chip" id="btnSyncScan" title="扫描本地与远端差异">🔍 重新扫描比对</button>
+        <button class="tw-chip is-cta" id="btnBatchUnignore" title="将勾选的笔记批量移出忽略列表">♻️ 批量恢复</button>
+        <button class="tw-chip" id="btnBackActive" title="返回正常同步列表">👈 返回同步列表</button>
+      `;
+
+      const scanBtn = actionsEl.querySelector('#btnSyncScan');
+      if (scanBtn) scanBtn.onclick = () => this.startScan(true);
+
+      const backBtn = actionsEl.querySelector('#btnBackActive');
+      if (backBtn) backBtn.onclick = () => {
+        this.viewMode = 'active';
+        this.statusFilter = 'pending';
+        this.renderAll();
+      };
+
+      const unignoreBtn = actionsEl.querySelector('#btnBatchUnignore');
+      if (unignoreBtn) unignoreBtn.onclick = () => {
+        const NoticeCls = typeof Notice !== 'undefined' ? Notice : null;
+        const selected = Array.from(this.selectedPaths);
+        if (!selected.length) {
+          if (NoticeCls) new NoticeCls('请先勾选需要恢复的笔记');
+          return;
+        }
+        selected.forEach(p => this.ignoredPaths.delete(p));
+        this.selectedPaths.clear();
+        this.saveIgnoredPaths();
+        if (NoticeCls) new NoticeCls(`已批量恢复 ${selected.length} 篇笔记至同步列表`);
+        this.renderAll();
+      };
+    } else {
+      actionsEl.innerHTML = `
+        <button class="tw-chip" id="btnSyncScan" title="扫描本地与远端差异">🔍 重新扫描比对</button>
+        <button class="tw-chip" id="btnBatchIgnore" title="将勾选的笔记批量加入忽略列表">🙈 批量忽略</button>
+        <button class="tw-chip is-cta" id="btnSyncBatchPush" title="将选中的待推送笔记发布到 WeKnora">🚀 批量推送入库</button>
+      `;
+
+      const scanBtn = actionsEl.querySelector('#btnSyncScan');
+      if (scanBtn) scanBtn.onclick = () => this.startScan(true);
+
+      const pushBtn = actionsEl.querySelector('#btnSyncBatchPush');
+      if (pushBtn) pushBtn.onclick = () => this.openBatchPushPreview();
+
+      const ignoreBtn = actionsEl.querySelector('#btnBatchIgnore');
+      if (ignoreBtn) ignoreBtn.onclick = () => {
+        const NoticeCls = typeof Notice !== 'undefined' ? Notice : null;
+        const selected = Array.from(this.selectedPaths);
+        if (!selected.length) {
+          if (NoticeCls) new NoticeCls('请先勾选需要忽略的笔记');
+          return;
+        }
+        selected.forEach(p => this.ignoredPaths.add(p));
+        this.selectedPaths.clear();
+        this.saveIgnoredPaths();
+        if (NoticeCls) new NoticeCls(`已批量忽略 ${selected.length} 篇笔记`);
+        this.renderAll();
+      };
+    }
+  }
+
+  async startScan(forceRefreshRemote = true) {
+    if (this.isScanning) return;
+    this.isScanning = true;
+    this.renderLoading();
+
+    const kbId = this.getCurrentKbId();
+    try {
+      // 1. 获取 WeKnora 远端全部文档清单 (支持本地切换目录时复用远端缓存，毫秒级即时比对)
+      if (forceRefreshRemote || !this.remoteDocsCache) {
+        this.remoteDocsCache = this.service ? await this.service.listAllKnowledge(kbId) : [];
+      }
+      const remoteDocs = this.remoteDocsCache || [];
+      const remoteMap = new Map();
+      remoteDocs.forEach(d => {
+        const titleKey = (d.title || d.file_name || '').trim().toLowerCase();
+        if (titleKey) {
+          remoteMap.set(titleKey, d);
+          if (titleKey.endsWith('.md')) {
+            remoteMap.set(titleKey.slice(0, -3), d);
+          } else if (titleKey.endsWith('.pdf')) {
+            remoteMap.set(titleKey.slice(0, -4), d);
+          }
+        }
+      });
+
+      // 2. 扫描本地 Obsidian Markdown 与 PDF 文件 (基于用户已勾选的目录范围)
+      const supportedExts = new Set(['md', 'pdf']);
+      const allFiles = this.app?.vault?.getFiles?.() || [];
+      const vaultFiles = allFiles.filter(f => supportedExts.has((f.extension || '').toLowerCase()));
+
+      const targetFiles = vaultFiles.filter(f => {
+        return Array.from(this.enabledFolders).some(folder => f.path.startsWith(folder + '/') || f.path.startsWith(folder));
+      });
+
+      this.diffItems = [];
+      this.selectedPaths.clear();
+
+      for (const f of targetFiles) {
+        const ext = (f.extension || '').toLowerCase();
+        const baseTitle = f.basename.trim().toLowerCase();
+        const fullName = f.name.trim().toLowerCase();
+        const localMtime = f.stat?.mtime || 0;
+        const remoteDoc = remoteMap.get(fullName) || remoteMap.get(baseTitle);
+
+        // 计算本地所属目录 (如 03-Driver/04-USB/01-Arch-Principle)
+        const localFolder = (f.parent?.path && f.parent.path !== '/') 
+          ? f.parent.path 
+          : (f.path.includes('/') ? f.path.substring(0, f.path.lastIndexOf('/')) : '');
+
+        let status = 'LOCAL_NEW';
+        let remoteMtime = 0;
+
+        if (remoteDoc) {
+          remoteMtime = remoteDoc.updated_at ? new Date(remoteDoc.updated_at).getTime() : 0;
+          const remoteFolder = (remoteDoc.folder_path || '').trim();
+          const folderMismatch = Boolean(localFolder && (!remoteFolder || remoteFolder !== localFolder));
+
+          if (folderMismatch) {
+            status = 'LOCAL_UPDATED'; // 目录不一致，需同步纠偏至正确目录
+          } else if (localMtime > remoteMtime + 5000) {
+            status = 'LOCAL_UPDATED'; // 本地笔记在推送后有新编辑，需重新推送更新
+          } else {
+            // 单向推送模型：Obsidian 为工程知识库唯一真源，远端时间由 WeKnora 接收创建生成，远端时间>=本地时间是正常已同步状态
+            status = 'SYNCED';
+          }
+        }
+
+        const isIgnored = this.ignoredPaths.has(f.path);
+        const item = {
+          file: f,
+          title: ext === 'pdf' ? f.name : f.basename,
+          path: f.path,
+          folderPath: localFolder,
+          localMtime,
+          remoteMtime,
+          status,
+          remoteDoc,
+          isIgnored
+        };
+
+        this.diffItems.push(item);
+        if (!isIgnored && (status === 'LOCAL_NEW' || status === 'LOCAL_UPDATED')) {
+          this.selectedPaths.add(f.path);
+        }
+      }
+
+      this.isScanning = false;
+      this.renderAll();
+    } catch (err) {
+      this.isScanning = false;
+      this.renderError(err.message || String(err));
+    }
+  }
+
+  renderLoading() {
+    const tableWrap = this.containerEl.querySelector('#twSyncTableWrap');
+    if (tableWrap) {
+      tableWrap.innerHTML = `
+        <div class="tw-drawer-loading" style="padding: 48px 0;">
+          <div class="tw-drawer-spinner"></div>
+          <span>正在扫描本地 Vault 笔记与 WeKnora 远端差异...</span>
+        </div>
+      `;
+    }
+  }
+
+  renderError(msg) {
+    const tableWrap = this.containerEl.querySelector('#twSyncTableWrap');
+    if (tableWrap) {
+      tableWrap.innerHTML = `
+        <div class="tw-drawer-error" style="padding: 32px 0;">
+          <div style="font-size: 24px; margin-bottom: 8px;">⚠️</div>
+          <div style="font-size: 13px; font-weight:600; color: #EF4444; margin-bottom: 6px;">比对扫描异常</div>
+          <div style="font-size: 11px; color: var(--text-muted); font-family: monospace; margin-bottom: 12px;">${escapeHtml(msg)}</div>
+          <button class="tw-chip" id="btnSyncRetry">重试</button>
+        </div>
+      `;
+      const retryBtn = tableWrap.querySelector('#btnSyncRetry');
+      if (retryBtn) retryBtn.onclick = () => this.startScan();
+    }
+  }
+
+  renderFolderBar() {
+    const folderEl = this.containerEl.querySelector('#twSyncFolderBar');
+    if (!folderEl) return;
+
+    let chipsHtml = '';
+    ALL_SYNC_CANDIDATE_FOLDERS.forEach(folder => {
+      const isChecked = this.enabledFolders.has(folder);
+      chipsHtml += `
+        <button class="tw-chip tw-folder-toggle-chip ${isChecked ? 'is-active' : ''}" 
+                data-folder="${escapeHtml(folder)}" 
+                style="${isChecked ? 'background:rgba(2,132,199,0.12); color:#0284c7; border-color:#0284c7; font-weight:600;' : 'opacity:0.6;'}"
+                title="${isChecked ? '已纳入同步比对，点击取消勾选' : '未纳入同步，点击勾选纳入比对'}">
+          ${isChecked ? '✓ ' : '+ '}${escapeHtml(folder)}
+        </button>
+      `;
+    });
+
+    folderEl.innerHTML = `
+      <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; padding:8px 12px; margin-bottom:12px; background:var(--background-secondary); border:1px solid var(--background-modifier-border); border-radius:6px; font-size:12px;">
+        <div style="display:flex; align-items:center; flex-wrap:wrap; gap:6px;">
+          <span style="font-weight:600; color:var(--text-normal); margin-right:4px;">📁 同步目录范围 (${this.enabledFolders.size}/${ALL_SYNC_CANDIDATE_FOLDERS.length}):</span>
+          ${chipsHtml}
+        </div>
+        <div style="display:flex; align-items:center; gap:8px;">
+          <a href="#" id="btnResetDefaultFolders" style="font-size:11px; color:var(--text-muted); text-decoration:underline;">重置推荐</a>
+          <a href="#" id="btnSelectAllFolders" style="font-size:11px; color:var(--text-muted); text-decoration:underline;">全选</a>
+        </div>
+      </div>
+    `;
+
+    folderEl.querySelectorAll('.tw-folder-toggle-chip').forEach(btn => {
+      btn.onclick = (e) => {
+        e.preventDefault();
+        const f = btn.getAttribute('data-folder');
+        if (this.enabledFolders.has(f)) {
+          if (this.enabledFolders.size <= 1) {
+            const NoticeCls = typeof Notice !== 'undefined' ? Notice : null;
+            if (NoticeCls) new NoticeCls('至少保留一个同步目录');
+            return;
+          }
+          this.enabledFolders.delete(f);
+        } else {
+          this.enabledFolders.add(f);
+        }
+        this.saveEnabledFolders();
+        this.renderFolderBar();
+        this.startScan(false);
+      };
+    });
+
+    const btnReset = folderEl.querySelector('#btnResetDefaultFolders');
+    if (btnReset) {
+      btnReset.onclick = (e) => {
+        e.preventDefault();
+        this.enabledFolders = new Set(DEFAULT_SYNC_FOLDERS);
+        this.saveEnabledFolders();
+        this.renderFolderBar();
+        this.startScan(false);
+      };
+    }
+
+    const btnAll = folderEl.querySelector('#btnSelectAllFolders');
+    if (btnAll) {
+      btnAll.onclick = (e) => {
+        e.preventDefault();
+        this.enabledFolders = new Set(ALL_SYNC_CANDIDATE_FOLDERS);
+        this.saveEnabledFolders();
+        this.renderFolderBar();
+        this.startScan(false);
+      };
+    }
+  }
+
+  renderKpiBar() {
+    const kpiEl = this.containerEl.querySelector('#twSyncKpiBar');
+    if (!kpiEl) return;
+
+    let newCount = 0, updateCount = 0, syncedCount = 0, ignoredCount = 0;
+    this.diffItems.forEach(item => {
+      if (this.ignoredPaths.has(item.path)) {
+        ignoredCount++;
+      } else {
+        if (item.status === 'LOCAL_NEW') newCount++;
+        else if (item.status === 'LOCAL_UPDATED') updateCount++;
+        else if (item.status === 'SYNCED') syncedCount++;
+      }
+    });
+
+    kpiEl.innerHTML = `
+      <div class="tw-sync-kpi-item tw-sync-kpi-btn ${this.viewMode === 'active' && this.statusFilter === 'LOCAL_NEW' ? 'is-active' : ''}" data-status="LOCAL_NEW" title="点击过滤：仅看本地新增">
+        <span class="tw-sync-kpi-val" style="color:#10B981;">${newCount}</span>
+        <span class="tw-sync-kpi-lbl">本地新增 (待入库)</span>
+      </div>
+      <div class="tw-sync-kpi-item tw-sync-kpi-btn ${this.viewMode === 'active' && this.statusFilter === 'LOCAL_UPDATED' ? 'is-active' : ''}" data-status="LOCAL_UPDATED" title="点击过滤：仅看本地待更新">
+        <span class="tw-sync-kpi-val" style="color:#0284C7;">${updateCount}</span>
+        <span class="tw-sync-kpi-lbl">本地待更新</span>
+      </div>
+      <div class="tw-sync-kpi-item tw-sync-kpi-btn ${this.viewMode === 'active' && this.statusFilter === 'SYNCED' ? 'is-active' : ''}" data-status="SYNCED" title="点击过滤：仅看双向一致已入库">
+        <span class="tw-sync-kpi-val" style="color:var(--text-muted);">${syncedCount}</span>
+        <span class="tw-sync-kpi-lbl">双向一致 (已入库)</span>
+      </div>
+      <div class="tw-sync-kpi-item tw-sync-kpi-btn ${this.viewMode === 'ignored' ? 'is-active' : ''}" data-mode="ignored" title="点击切换：查看已忽略的笔记列表 (${ignoredCount} 篇)">
+        <span class="tw-sync-kpi-val" style="color:var(--text-muted);">${ignoredCount}</span>
+        <span class="tw-sync-kpi-lbl">🙈 已忽略</span>
+      </div>
+    `;
+
+    kpiEl.querySelectorAll('.tw-sync-kpi-btn').forEach(btn => {
+      btn.onclick = () => {
+        const mode = btn.getAttribute('data-mode');
+        const st = btn.getAttribute('data-status');
+        if (mode === 'ignored') {
+          if (this.viewMode === 'ignored') {
+            this.viewMode = 'active';
+            this.statusFilter = 'pending';
+          } else {
+            this.viewMode = 'ignored';
+            this.statusFilter = 'all';
+          }
+        } else if (st) {
+          this.viewMode = 'active';
+          this.statusFilter = (this.statusFilter === st) ? 'pending' : st;
+        }
+        this.renderAll();
+      };
+    });
+  }
+
+  renderFilterBar() {
+    const filterEl = this.containerEl.querySelector('#twSyncFilterBar');
+    if (!filterEl) return;
+
+    let totalActive = 0, pendingCount = 0, syncedCount = 0, ignoredCount = 0;
+    this.diffItems.forEach(item => {
+      if (this.ignoredPaths.has(item.path)) {
+        ignoredCount++;
+      } else {
+        totalActive++;
+        if (item.status === 'LOCAL_NEW' || item.status === 'LOCAL_UPDATED') {
+          pendingCount++;
+        } else if (item.status === 'SYNCED') {
+          syncedCount++;
+        }
+      }
+    });
+
+    filterEl.innerHTML = `
+      <div class="tw-sync-filter-left">
+        <button class="tw-chip ${this.viewMode === 'active' && this.statusFilter === 'pending' ? 'is-active' : ''}" id="btnFilterPending">待推送 (${pendingCount})</button>
+        <button class="tw-chip ${this.viewMode === 'active' && this.statusFilter === 'all' ? 'is-active' : ''}" id="btnFilterAll">全部正常 (${totalActive})</button>
+        <button class="tw-chip ${this.viewMode === 'active' && this.statusFilter === 'SYNCED' ? 'is-active' : ''}" id="btnFilterSynced">已同步 (${syncedCount})</button>
+        <button class="tw-chip ${this.viewMode === 'ignored' ? 'is-active' : ''}" id="btnFilterIgnored">🙈 查看已忽略 (${ignoredCount})</button>
+      </div>
+      <div class="tw-sync-filter-right">
+        <input type="text" class="tw-sync-search" id="inputSyncSearch" placeholder="🔍 快速检索标题或路径..." value="${escapeHtml(this.searchKeyword || '')}" />
+      </div>
+    `;
+
+    const btnPending = filterEl.querySelector('#btnFilterPending');
+    if (btnPending) btnPending.onclick = () => {
+      this.viewMode = 'active';
+      this.statusFilter = 'pending';
+      this.renderAll();
+    };
+
+    const btnAll = filterEl.querySelector('#btnFilterAll');
+    if (btnAll) btnAll.onclick = () => {
+      this.viewMode = 'active';
+      this.statusFilter = 'all';
+      this.renderAll();
+    };
+
+    const btnSynced = filterEl.querySelector('#btnFilterSynced');
+    if (btnSynced) btnSynced.onclick = () => {
+      this.viewMode = 'active';
+      this.statusFilter = 'SYNCED';
+      this.renderAll();
+    };
+
+    const btnIgnored = filterEl.querySelector('#btnFilterIgnored');
+    if (btnIgnored) btnIgnored.onclick = () => {
+      this.viewMode = 'ignored';
+      this.statusFilter = 'all';
+      this.renderAll();
+    };
+
+    const searchInput = filterEl.querySelector('#inputSyncSearch');
+    if (searchInput) {
+      searchInput.oninput = (e) => {
+        this.searchKeyword = e.target.value.trim();
+        this.renderTable();
+      };
+    }
+  }
+
+  renderTable() {
+    const tableWrap = this.containerEl.querySelector('#twSyncTableWrap');
+    if (!tableWrap) return;
+
+    let items = this.diffItems;
+
+    if (this.viewMode === 'ignored') {
+      items = items.filter(i => this.ignoredPaths.has(i.path));
+    } else {
+      items = items.filter(i => !this.ignoredPaths.has(i.path));
+      if (this.statusFilter === 'pending') {
+        items = items.filter(i => i.status === 'LOCAL_NEW' || i.status === 'LOCAL_UPDATED');
+      } else if (this.statusFilter !== 'all') {
+        items = items.filter(i => i.status === this.statusFilter);
+      }
+    }
+
+    if (this.searchKeyword) {
+      const kw = this.searchKeyword.toLowerCase();
+      items = items.filter(i => (i.title || '').toLowerCase().includes(kw) || (i.path || '').toLowerCase().includes(kw));
+    }
+
+    if (!items.length) {
+      if (this.viewMode === 'ignored') {
+        tableWrap.innerHTML = `
+          <div style="padding: 48px 0; text-align: center; color: var(--text-muted);">
+            <div style="font-size: 24px; margin-bottom: 8px;">🙈</div>
+            <div style="font-weight:600; margin-bottom: 4px;">暂无已忽略的笔记</div>
+            <div style="font-size: 11px;">在正常同步列表中点击某篇笔记右侧的「忽略」后，将归集在此处。</div>
+          </div>
+        `;
+      } else if (this.searchKeyword) {
+        tableWrap.innerHTML = `
+          <div style="padding: 48px 0; text-align: center; color: var(--text-muted);">
+            <div style="font-size: 24px; margin-bottom: 8px;">🔍</div>
+            <div>未找到与关键词「${escapeHtml(this.searchKeyword)}」匹配的笔记</div>
+          </div>
+        `;
+      } else if (this.statusFilter === 'pending') {
+        tableWrap.innerHTML = `
+          <div style="padding: 48px 0; text-align: center; color: var(--text-muted);">
+            <div style="font-size: 28px; margin-bottom: 8px;">🎉</div>
+            <div style="font-weight:600; font-size: 14px; margin-bottom: 4px; color: var(--text-normal);">所有笔记均已同步完成</div>
+            <div style="font-size: 12px;">当前没有待新增或待更新的工程笔记。可点击「全部正常」或「已同步」查看已入库内容。</div>
+          </div>
+        `;
+      } else {
+        tableWrap.innerHTML = `
+          <div style="padding: 48px 0; text-align: center; color: var(--text-muted);">
+            <div style="font-size: 24px; margin-bottom: 8px;">📂</div>
+            <div>未发现符合同步规则的工程笔记 (当前已勾选目录: ${escapeHtml(Array.from(this.enabledFolders).join(', '))})</div>
+          </div>
+        `;
+      }
+      return;
+    }
+
+    let rowsHtml = '';
+    for (const item of items) {
+      const isChecked = this.selectedPaths.has(item.path);
+      const localDate = item.localMtime ? new Date(item.localMtime).toLocaleDateString() : '-';
+      const remoteDate = item.remoteMtime ? new Date(item.remoteMtime).toLocaleDateString() : '-';
+
+      let statusBadge = '';
+      let actionBtns = '';
+
+      if (this.viewMode === 'ignored') {
+        statusBadge = `<span class="tw-badge-status" style="background:var(--background-modifier-border,#E2E8F0); color:var(--text-muted);">已忽略</span>`;
+        actionBtns = `
+          <button class="tw-btn-mini btn-single-unignore" data-path="${escapeHtml(item.path)}" title="恢复此笔记至正常同步列表">恢复</button>
+          <button class="tw-btn-mini btn-single-push" data-path="${escapeHtml(item.path)}" title="手动推送此笔记至 WeKnora">推送</button>
+        `;
+      } else {
+        if (item.status === 'LOCAL_NEW') {
+          statusBadge = `<span class="tw-badge-status is-done">本地新增</span>`;
+        } else if (item.status === 'LOCAL_UPDATED') {
+          statusBadge = `<span class="tw-badge-status is-progress">本地待更新</span>`;
+        } else {
+          statusBadge = `<span class="tw-badge-status">已同步</span>`;
+        }
+
+        actionBtns = `
+          <button class="tw-btn-mini btn-single-push" data-path="${escapeHtml(item.path)}" title="推送此笔记至 WeKnora">推送</button>
+          <button class="tw-btn-mini btn-single-ignore" data-path="${escapeHtml(item.path)}" title="忽略此笔记，不纳入同步">忽略</button>
+        `;
+      }
+
+      rowsHtml += `
+        <tr class="tw-sync-row" data-path="${escapeHtml(item.path)}">
+          <td style="width: 40px; text-align:center;">
+            <input type="checkbox" class="chk-sync-item" data-path="${escapeHtml(item.path)}" ${isChecked ? 'checked' : ''} />
+          </td>
+          <td>
+            <div style="font-weight:600; color:var(--text-normal);">${escapeHtml(item.title)}</div>
+            <div style="font-size:10.5px; color:var(--text-muted); font-family:monospace;">${escapeHtml(item.path)}</div>
+          </td>
+          <td style="font-size:11px; font-family:monospace; color:var(--text-muted);">${localDate}</td>
+          <td style="font-size:11px; font-family:monospace; color:var(--text-muted);">${remoteDate}</td>
+          <td>${statusBadge}</td>
+          <td style="white-space: nowrap;">${actionBtns}</td>
+        </tr>
+      `;
+    }
+
+    tableWrap.innerHTML = `
+      <table class="tw-docs-table">
+        <thead>
+          <tr>
+            <th style="width: 40px; text-align:center;">
+              <input type="checkbox" id="chkSyncAll" ${this.selectedPaths.size > 0 && items.every(i => this.selectedPaths.has(i.path)) ? 'checked' : ''} />
+            </th>
+            <th style="width: 40%;">文件名 / 本地路径</th>
+            <th style="width: 15%;">本地修改时间</th>
+            <th style="width: 15%;">远端修改时间</th>
+            <th style="width: 15%;">同步状态</th>
+            <th style="width: 15%;">操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rowsHtml}
+        </tbody>
+      </table>
+    `;
+
+    // 绑定 Checkbox 事件
+    const allChk = tableWrap.querySelector('#chkSyncAll');
+    if (allChk) {
+      allChk.onchange = (e) => {
+        const checked = e.target.checked;
+        items.forEach(i => {
+          if (checked) this.selectedPaths.add(i.path);
+          else this.selectedPaths.delete(i.path);
+        });
+        tableWrap.querySelectorAll('.chk-sync-item').forEach(c => {
+          c.checked = checked;
+        });
+      };
+    }
+
+    tableWrap.querySelectorAll('.chk-sync-item').forEach(c => {
+      c.onchange = (e) => {
+        const p = c.getAttribute('data-path');
+        if (e.target.checked) this.selectedPaths.add(p);
+        else this.selectedPaths.delete(p);
+      };
+    });
+
+    tableWrap.querySelectorAll('.btn-single-push').forEach(b => {
+      b.onclick = () => {
+        const p = b.getAttribute('data-path');
+        const item = this.diffItems.find(i => i.path === p);
+        if (item) this.pushDocuments([item]);
+      };
+    });
+
+    tableWrap.querySelectorAll('.btn-single-ignore').forEach(b => {
+      b.onclick = () => {
+        const p = b.getAttribute('data-path');
+        this.ignorePath(p);
+      };
+    });
+
+    tableWrap.querySelectorAll('.btn-single-unignore').forEach(b => {
+      b.onclick = () => {
+        const p = b.getAttribute('data-path');
+        this.unignorePath(p);
+      };
+    });
+  }
+
+  // 批量推送预览浮层
+  openBatchPushPreview() {
+    const selected = this.diffItems.filter(i => this.selectedPaths.has(i.path) && !this.ignoredPaths.has(i.path));
+    if (!selected.length) {
+      const NoticeCls = typeof Notice !== 'undefined' ? Notice : null;
+      if (NoticeCls) new NoticeCls('请先勾选需要推送的笔记');
+      return;
+    }
+
+    let newCount = 0, updateCount = 0;
+    selected.forEach(i => {
+      if (i.status === 'LOCAL_NEW') newCount++;
+      else updateCount++;
+    });
+
+    const mask = this.containerEl.querySelector('#twSyncModalMask');
+    const modal = this.containerEl.querySelector('#twSyncModalContent');
+    if (!mask || !modal) return;
+
+    modal.innerHTML = `
+      <div style="font-size:15px; font-weight:700; margin-bottom:10px;">批量推送影响范围确认</div>
+      <div style="font-size:12.5px; color:var(--text-muted); line-height:1.6; margin-bottom:16px;">
+        即将把选中的 <strong>${selected.length}</strong> 篇本地笔记发布至 WeKnora 知识库：<br/>
+        • <strong>${newCount}</strong> 篇将作为新文档入库<br/>
+        • <strong>${updateCount}</strong> 篇将更新远端已有文档<br/>
+        发布状态默认为 <code>publish</code>（自动绑定目标分类目录并建立向量索引）。
+      </div>
+      <div style="display:flex; justify-content:flex-end; gap:8px;">
+        <button class="tw-chip" id="btnCancelBatchPush">取消</button>
+        <button class="tw-chip is-cta" id="btnConfirmBatchPush">确认开始推送</button>
+      </div>
+    `;
+
+    mask.style.display = 'flex';
+
+    modal.querySelector('#btnCancelBatchPush').onclick = () => {
+      mask.style.display = 'none';
+    };
+    modal.querySelector('#btnConfirmBatchPush').onclick = () => {
+      mask.style.display = 'none';
+      this.pushDocuments(selected);
+    };
+  }
+
+  async pushDocuments(items = []) {
+    if (!items.length || this.isPushing) return;
+    this.isPushing = true;
+    const kbId = this.getCurrentKbId();
+
+    const NoticeCls = typeof Notice !== 'undefined' ? Notice : null;
+    let successCount = 0;
+    let failCount = 0;
+
+    for (let idx = 0; idx < items.length; idx++) {
+      const item = items[idx];
+      try {
+        const ext = (item.file.extension || '').toLowerCase();
+        const folderPath = item.folderPath || ((item.file.parent?.path && item.file.parent.path !== '/') 
+          ? item.file.parent.path 
+          : (item.file.path.includes('/') ? item.file.path.substring(0, item.file.path.lastIndexOf('/')) : ''));
+
+        if (ext === 'pdf') {
+          if (item.status === 'LOCAL_UPDATED' && item.remoteDoc?.id) {
+            try { await this.service.deleteKnowledge(item.remoteDoc.id); } catch (delErr) { console.warn('删除旧版文件失败:', delErr); }
+          }
+          const arrayBuffer = await this.app.vault.readBinary(item.file);
+          await this.service.uploadFile(kbId, item.file.name, arrayBuffer, 'application/pdf', folderPath);
+        } else {
+          const content = await this.app.vault.read(item.file);
+          // 若内容超过 180,000 字符（如含内联 Base64 图片），通过文件上传接口规避 Weknora 20万字符限制
+          if (content.length > 180000) {
+            if (item.status === 'LOCAL_UPDATED' && item.remoteDoc?.id) {
+              try { await this.service.deleteKnowledge(item.remoteDoc.id); } catch (delErr) { console.warn('删除旧版文件失败:', delErr); }
+            }
+            const arrayBuffer = await this.app.vault.readBinary(item.file);
+            await this.service.uploadFile(kbId, item.file.name, arrayBuffer, 'text/markdown; charset=utf-8', folderPath);
+          } else {
+            if (item.status === 'LOCAL_NEW') {
+              await this.service.createManual(kbId, item.title, content, 'publish', folderPath);
+            } else if (item.remoteDoc) {
+              await this.service.updateManual(item.remoteDoc.id, content, item.title, 'publish', kbId, folderPath);
+            }
+          }
+        }
+        successCount++;
+      } catch (e) {
+        console.warn(`[WeKnora Sync] 推送 ${item.title} 失败:`, e);
+        failCount++;
+      }
+    }
+
+    this.isPushing = false;
+    if (NoticeCls) {
+      new NoticeCls(`推送完成！成功: ${successCount} 篇, 失败: ${failCount} 篇`);
+    }
+    this.startScan();
+  }
+
+  dispose() {
+    this.containerEl?.remove();
+  }
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+  
+}
+
+/* ==========================================================================
+   WeKnora Webview Embed — 官方 Web 控制台双模嵌入组件
+   特性:
+   1. 100% 完整原汁原味 WeKnora 官方 Web 体验 (拖拽上传大文件、智能体编排)
+   2. 智能端口适配: 自动将后端纯 API 端口 (:8080) 转换为 Web 控制台端口 (:8088)
+   3. 权限拦截规避: 自动在 Electron 环境中剥除 x-frame-options 限制
+   4. 顶部工具栏: 地址指示/编辑、端口快捷切换 (8088/8080)、刷新重载、一键系统默认浏览器打开
+   5. 加载占位符: iframe 加载期间显示优雅动效
+   ========================================================================== */
+
+function escapeHtml(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+function escapeAttr(str) {
+  if (!str) return '';
+  return String(str).replace(/"/g, '&quot;');
+}
+
+/**
+ * 在 Electron 环境下拦截响应头，规避 X-Frame-Options: SAMEORIGIN 限制
+ */
+function setupIframeBypass() {
+  try {
+    if (typeof window === 'undefined') return;
+    if (window._weknoraHeaderHookInstalled) return;
+
+    let electron = null;
+    try {
+      electron = typeof require !== 'undefined' ? require('electron') : null;
+    } catch (e) {
+      return;
+    }
+    if (!electron) return;
+    const sess = electron.remote?.session?.defaultSession || electron.session?.defaultSession;
+    if (!sess || !sess.webRequest) return;
+
+    window._weknoraHeaderHookInstalled = true;
+    sess.webRequest.onHeadersReceived({ urls: ['*://*/*'] }, (details, callback) => {
+      const responseHeaders = Object.assign({}, details.responseHeaders);
+      const url = (details.url || '').toLowerCase();
+      if (url.includes(':8088') || url.includes(':8080') || url.includes('192.168.1.62') || url.includes('weknora')) {
+        delete responseHeaders['x-frame-options'];
+        delete responseHeaders['X-Frame-Options'];
+        delete responseHeaders['content-security-policy'];
+        delete responseHeaders['Content-Security-Policy'];
+      }
+      callback({ cancel: false, responseHeaders });
+    });
+  } catch (err) {
+    // 忽略特定运行时环境限制
+  }
+}
+
+class WeKnoraWebviewEmbed {
+  /**
+   * @param {HTMLElement} parentEl
+   * @param {object} options
+   */
+  constructor(parentEl, options = {}) {
+    this.parentEl = parentEl;
+    this.getBaseUrl = options.getBaseUrl || (() => 'http://192.168.1.62:8088');
+    this.getCurrentKbId = options.getCurrentKbId || (() => '');
+
+    this.containerEl = null;
+    this.iframeEl = null;
+    this.activePort = '8088'; // 默认 8088 为 Web 控制台端口
+
+    setupIframeBypass();
+    this.initDOM();
+  }
+
+  initDOM() {
+    this.containerEl = document.createElement('div');
+    this.containerEl.className = 'tw-weknora-webview-wrap';
+    this.parentEl.appendChild(this.containerEl);
+
+    const targetUrl = this.computeUrl(this.activePort);
+
+    this.containerEl.innerHTML = `
+      <div class="tw-webview-topbar">
+        <div class="tw-webview-url-box">
+          <span style="color:#10B981; font-size:12px; margin-right:2px;">●</span>
+          <input type="text" class="tw-webview-url-input" id="inpWebviewUrl" value="${escapeAttr(targetUrl)}" title="按回车键前往指定控制台地址" />
+        </div>
+        <div class="tw-webview-actions">
+          <div class="tw-webview-port-switch" title="切换控制台端口：8088为Web前端界面，8080为后端纯API接口">
+            <button class="tw-chip tw-port-btn ${this.activePort === '8088' ? 'active' : ''}" data-port="8088">8088 (Web端)</button>
+            <button class="tw-chip tw-port-btn ${this.activePort === '8080' ? 'active' : ''}" data-port="8080">8080 (API端)</button>
+          </div>
+          <button class="tw-chip" id="btnWebviewReload" title="重新加载网页">🔄 刷新</button>
+          <button class="tw-chip is-cta" id="btnWebviewExternal" title="在系统默认外部浏览器中打开当前页面">↗ 浏览器打开</button>
+        </div>
+      </div>
+
+      <div class="tw-webview-hint-bar" id="twWebviewHintBar">
+        <span>💡 <b>提示</b>：WeKnora 官方 Web 控制台运行于 <b>8088</b> 端口（8080 为后端 API 接口）。若控制台要求登录或需完整浏览器特性，可随时点击右上角「↗ 浏览器打开」。</span>
+        <button class="tw-hint-close" id="btnCloseWebviewHint">✕</button>
+      </div>
+
+      <div class="tw-webview-frame-container">
+        <div class="tw-webview-loading" id="twWebviewLoading">
+          <div class="tw-drawer-spinner" style="margin-bottom:10px;"></div>
+          <span>正在连接 WeKnora 官方控制台...</span>
+        </div>
+        <iframe class="tw-weknora-iframe" id="twWeknoraIframe" src="${escapeAttr(targetUrl)}" frameborder="0"></iframe>
+      </div>
+    `;
+
+    this.iframeEl = this.containerEl.querySelector('#twWeknoraIframe');
+    const loadingEl = this.containerEl.querySelector('#twWebviewLoading');
+    const urlInput = this.containerEl.querySelector('#inpWebviewUrl');
+
+    if (this.iframeEl && loadingEl) {
+      this.iframeEl.onload = () => {
+        loadingEl.style.display = 'none';
+      };
+    }
+
+    if (urlInput) {
+      urlInput.onkeydown = (e) => {
+        if (e.key === 'Enter') {
+          const newUrl = urlInput.value.trim();
+          if (newUrl) {
+            if (loadingEl) loadingEl.style.display = 'flex';
+            if (this.iframeEl) this.iframeEl.src = newUrl;
+          }
+        }
+      };
+    }
+
+    // 端口切换按钮
+    this.containerEl.querySelectorAll('.tw-port-btn').forEach(btn => {
+      btn.onclick = () => {
+        const port = btn.getAttribute('data-port');
+        if (port && port !== this.activePort) {
+          this.activePort = port;
+          this.containerEl.querySelectorAll('.tw-port-btn').forEach(b => {
+            b.classList.toggle('active', b.getAttribute('data-port') === port);
+          });
+          const newUrl = this.computeUrl(port);
+          if (urlInput) urlInput.value = newUrl;
+          if (loadingEl) loadingEl.style.display = 'flex';
+          if (this.iframeEl) this.iframeEl.src = newUrl;
+        }
+      };
+    });
+
+    const reloadBtn = this.containerEl.querySelector('#btnWebviewReload');
+    if (reloadBtn) {
+      reloadBtn.onclick = () => {
+        if (loadingEl) loadingEl.style.display = 'flex';
+        const currentUrl = urlInput ? urlInput.value.trim() : this.computeUrl(this.activePort);
+        if (this.iframeEl) this.iframeEl.src = currentUrl;
+      };
+    }
+
+    const extBtn = this.containerEl.querySelector('#btnWebviewExternal');
+    if (extBtn) {
+      extBtn.onclick = () => {
+        const u = urlInput ? urlInput.value.trim() : this.computeUrl(this.activePort);
+        try {
+          if (typeof require !== 'undefined') {
+            
+            if (shell?.openExternal) {
+              shell.openExternal(u);
+              return;
+            }
+          }
+        } catch (e) {}
+        window.open(u, '_blank');
+      };
+    }
+
+    const hintCloseBtn = this.containerEl.querySelector('#btnCloseWebviewHint');
+    const hintBar = this.containerEl.querySelector('#twWebviewHintBar');
+    if (hintCloseBtn && hintBar) {
+      hintCloseBtn.onclick = () => {
+        hintBar.style.display = 'none';
+      };
+    }
+  }
+
+  computeUrl(port = '8088') {
+    let base = this.getBaseUrl().replace(/\/api\/v\d+$/i, '').replace(/\/+$/, '');
+    
+    // 如果包含端口号，按传入的 port 重写；若无端口则视情况追加
+    if (base.includes(':8080') || base.includes(':8088')) {
+      base = base.replace(/:8080|:8088/, `:${port}`);
+    } else if (port === '8088' && !base.includes(':')) {
+      base = `${base}:8088`;
+    }
+
+    const kbId = this.getCurrentKbId();
+    if (kbId) {
+      return `${base}/platform/knowledge-bases/${kbId}`;
+    }
+    return `${base}/platform/knowledge-bases`;
+  }
+
+  dispose() {
+    if (this.iframeEl) {
+      this.iframeEl.src = 'about:blank';
+    }
+    this.containerEl?.remove();
+  }
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+  
+}
+
+/* ==========================================================================
+   WeKnora Manage View — 工作台「管理」主视图总控制器
+   模块定位:
+   1. 顶部总控条: 心跳状态灯 (30s 守护)、Base URL、知识库切换器
+   2. SubTab 四合一路由:
+      - graph (默认): Wiki 知识图谱 (LOD / 视口裁剪 / 搜索高亮 / Ego 模式)
+      - documents: 知识库资产与文档表格 (分类树 / 重新索引)
+      - sync: 本地笔记双向比对与批量推送
+      - webview: 官方 Web 端双模嵌入
+   3. 严密生命周期管理: 彻底杜绝内存泄漏
+   ========================================================================== */
+
+class WeKnoraManageView {
+  /**
+   * @param {object} options
+   * @param {any} options.app
+   * @param {any} options.plugin
+   * @param {function} [options.onOpenSettings]
+   */
+  constructor(options = {}) {
+    this.app = options.app || (typeof window !== 'undefined' ? window.app : null);
+    this.plugin = options.plugin || null;
+    this.onOpenSettings = options.onOpenSettings || null;
+
+    this.containerEl = null;
+    this.stageEl = null;
+
+    // WeKnora 服务实例
+    this.service = new WeknoraService(this.getWeknoraConfig());
+
+    // 状态管理
+    this.activeSubTab = this.getSavedSubTab(); // 'graph' | 'documents' | 'sync' | 'webview'
+    this.knowledgeBases = [];
+    this.currentKbId = this.service.defaultKb || '9e350fff-b50a-47db-a773-51d736ed24b8';
+    this.connectionStatus = { ok: false, checking: true, latencyMs: 0, error: '' };
+    this.heartbeatTimer = null;
+
+    // 子视图实例引用
+    this.wikiGraphView = null;
+    this.documentsView = null;
+    this.syncView = null;
+    this.webviewEmbed = null;
+  }
+
+  getWeknoraConfig() {
+    let baseUrl = 'http://192.168.1.62:8080';
+    let apiKey = '';
+    let defaultKb = '9e350fff-b50a-47db-a773-51d736ed24b8';
+
+    try {
+      const cfg = loadConfig();
+      if (cfg.baseUrl) baseUrl = cfg.baseUrl;
+      if (cfg.apiKey) apiKey = cfg.apiKey;
+      if (cfg.defaultKb) defaultKb = cfg.defaultKb;
+    } catch (e) {}
+
+    return { baseUrl, apiKey, defaultKb };
+  }
+
+  getSavedSubTab() {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        const s = localStorage.getItem('tabonkb-manage-subtab');
+        if (s === 'graph' || s === 'documents' || s === 'sync' || s === 'webview') return s;
+      }
+    } catch (e) {}
+    return 'graph';
+  }
+
+  setSubTab(subTab) {
+    if (this.activeSubTab === subTab) return;
+    this.activeSubTab = subTab;
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('tabonkb-manage-subtab', subTab);
+      }
+    } catch (e) {}
+
+    this.updateSubTabButtons();
+    this.mountCurrentSubView();
+  }
+
+  mount(parentEl) {
+    this.containerEl = parentEl.createDiv({ cls: 'tw-weknora-manage-container' });
+
+    // 1. 顶部总控制条
+    this.renderTopControlBar();
+
+    // 2. 核心 SubTab 切换区域
+    this.stageEl = this.containerEl.createDiv({ cls: 'tw-weknora-manage-stage' });
+
+    // 3. 初始挂载视图
+    this.mountCurrentSubView();
+
+    // 4. 初始化连通性检测与知识库拉取
+    this.initConnectionAndKbs();
+
+    // 5. 启动 30 秒心跳守护
+    this.startHeartbeat();
+  }
+
+  renderTopControlBar() {
+    this.topBarEl = this.containerEl.createDiv({ cls: 'tw-weknora-manage-header' });
+    this.updateTopControlBar();
+  }
+
+  updateTopControlBar() {
+    if (!this.topBarEl) return;
+
+    const st = this.connectionStatus;
+    let statusDotColor = '#10B981';
+    let statusText = `${st.latencyMs}ms`;
+    if (st.checking) {
+      statusDotColor = '#F59E0B';
+      statusText = '检测中...';
+    } else if (!st.ok) {
+      statusDotColor = '#EF4444';
+      statusText = '离线';
+    }
+
+    const cfg = this.service;
+    let baseDisplay = cfg.baseUrl || '192.168.1.62:8080';
+    try {
+      const u = new URL(baseDisplay);
+      baseDisplay = u.host;
+    } catch (e) {}
+
+    // 知识库选项
+    let kbOptionsHtml = '';
+    if (this.knowledgeBases.length > 0) {
+      kbOptionsHtml = this.knowledgeBases.map(k => {
+        return `<option value="${escapeAttr(k.id)}" ${k.id === this.currentKbId ? 'selected' : ''}>${escapeHtml(k.name || k.id)}</option>`;
+      }).join('');
+    } else {
+      kbOptionsHtml = `<option value="${escapeAttr(this.currentKbId)}">TabonKB</option>`;
+    }
+
+    this.topBarEl.innerHTML = `
+      <div class="tw-manage-hb-left">
+        <div class="tw-manage-conn-badge" id="btnManageConnRefresh" title="点击重新检测 WeKnora 服务状态">
+          <span class="tw-manage-dot" style="background:${statusDotColor};"></span>
+          <span class="tw-manage-conn-host">${escapeHtml(baseDisplay)}</span>
+          <span class="tw-manage-conn-latency">(${statusText})</span>
+        </div>
+        <div class="tw-manage-kb-selector" title="切换当前聚焦的 WeKnora 知识库">
+          <span style="font-size:11px; color:var(--text-muted);">知识库:</span>
+          <select class="tw-manage-select" id="selManageKb">
+            ${kbOptionsHtml}
+          </select>
+        </div>
+      </div>
+
+      <div class="tw-manage-hb-center">
+        <div class="tw-manage-subtabs">
+          <button class="tw-manage-tab-btn ${this.activeSubTab === 'graph' ? 'active' : ''}" data-tab="graph">
+            <span class="tw-manage-tab-icon">${getIconPark('data-sheet', 14)}</span>
+            <span>Wiki 知识图谱</span>
+          </button>
+          <button class="tw-manage-tab-btn ${this.activeSubTab === 'documents' ? 'active' : ''}" data-tab="documents">
+            <span class="tw-manage-tab-icon">${getIconPark('folder-focus', 14)}</span>
+            <span>资产文档</span>
+          </button>
+          <button class="tw-manage-tab-btn ${this.activeSubTab === 'sync' ? 'active' : ''}" data-tab="sync">
+            <span class="tw-manage-tab-icon">${getIconPark('refresh', 14)}</span>
+            <span>笔记同步</span>
+          </button>
+          <button class="tw-manage-tab-btn ${this.activeSubTab === 'webview' ? 'active' : ''}" data-tab="webview">
+            <span class="tw-manage-tab-icon">${getIconPark('application-one', 14)}</span>
+            <span>官方控制台</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="tw-manage-hb-right">
+        <button class="tw-chip" id="btnManageOpenExternal" title="在系统默认浏览器中打开当前知识库">
+          <span>↗ 浏览器打开</span>
+        </button>
+        <button class="tw-chip" id="btnManageOpenSettings" title="打开工作台设置">
+          <span>⚙️ 设置</span>
+        </button>
+      </div>
+    `;
+
+    // 绑定事件
+    this.topBarEl.querySelectorAll('.tw-manage-tab-btn').forEach(btn => {
+      btn.onclick = () => {
+        const tab = btn.getAttribute('data-tab');
+        if (tab) this.setSubTab(tab);
+      };
+    });
+
+    const connBtn = this.topBarEl.querySelector('#btnManageConnRefresh');
+    if (connBtn) {
+      connBtn.onclick = () => this.checkConnection(true);
+    }
+
+    const kbSelect = this.topBarEl.querySelector('#selManageKb');
+    if (kbSelect) {
+      kbSelect.onchange = () => {
+        this.currentKbId = kbSelect.value;
+        this.onKnowledgeBaseChanged();
+      };
+    }
+
+    const extBtn = this.topBarEl.querySelector('#btnManageOpenExternal');
+    if (extBtn) {
+      extBtn.onclick = () => {
+        let base = this.service.baseUrl.replace(/\/api\/v\d+$/i, '').replace(/\/+$/, '');
+        if (base.includes(':8080')) base = base.replace(':8080', ':8088');
+        const u = `${base}/platform/knowledge-bases/${this.currentKbId}`;
+        try {
+          if (typeof require !== 'undefined') {
+            
+            if (shell?.openExternal) {
+              shell.openExternal(u);
+              return;
+            }
+          }
+        } catch (e) {}
+        window.open(u, '_blank');
+      };
+    }
+
+    const setBtn = this.topBarEl.querySelector('#btnManageOpenSettings');
+    if (setBtn) {
+      setBtn.onclick = () => {
+        if (this.onOpenSettings) this.onOpenSettings();
+        else {
+          this.app.setting?.open?.();
+          this.app.setting?.openTabById?.('tabonkb-workbench');
+        }
+      };
+    }
+  }
+
+  updateSubTabButtons() {
+    if (!this.topBarEl) return;
+    this.topBarEl.querySelectorAll('.tw-manage-tab-btn').forEach(btn => {
+      const tab = btn.getAttribute('data-tab');
+      if (tab === this.activeSubTab) btn.classList.add('active');
+      else btn.classList.remove('active');
+    });
+  }
+
+  mountCurrentSubView() {
+    if (!this.stageEl) return;
+
+    // 清空现有视图
+    this.stageEl.empty();
+
+    if (this.activeSubTab === 'graph') {
+      this.wikiGraphView = new WeKnoraWikiGraphView(this.stageEl, {
+        app: this.app,
+        service: this.service,
+        getCurrentKbId: () => this.currentKbId
+      });
+      this.wikiGraphView.loadGraphData();
+    } else if (this.activeSubTab === 'documents') {
+      this.documentsView = new WeKnoraDocumentsView(this.stageEl, {
+        app: this.app,
+        service: this.service,
+        getCurrentKbId: () => this.currentKbId
+      });
+      this.documentsView.loadDocuments();
+    } else if (this.activeSubTab === 'sync') {
+      this.syncView = new WeKnoraSyncView(this.stageEl, {
+        app: this.app,
+        plugin: this.plugin,
+        service: this.service,
+        getCurrentKbId: () => this.currentKbId
+      });
+    } else if (this.activeSubTab === 'webview') {
+      this.webviewEmbed = new WeKnoraWebviewEmbed(this.stageEl, {
+        getBaseUrl: () => this.service.baseUrl,
+        getCurrentKbId: () => this.currentKbId
+      });
+    }
+  }
+
+  onKnowledgeBaseChanged() {
+    if (this.activeSubTab === 'graph' && this.wikiGraphView) {
+      this.wikiGraphView.loadGraphData();
+    } else if (this.activeSubTab === 'documents' && this.documentsView) {
+      this.documentsView.loadDocuments();
+    } else if (this.activeSubTab === 'sync' && this.syncView) {
+      this.syncView.startScan();
+    } else if (this.activeSubTab === 'webview' && this.webviewEmbed) {
+      this.mountCurrentSubView();
+    }
+  }
+
+  // --------------------------------------------------------------------------
+  // 心跳守护与连接检测 (30s 周期)
+  // --------------------------------------------------------------------------
+  async initConnectionAndKbs() {
+    await this.checkConnection(false);
+    await this.loadKnowledgeBases();
+  }
+
+  async checkConnection(showNotice = false) {
+    this.connectionStatus.checking = true;
+    this.updateTopControlBar();
+
+    const res = await this.service.ping(4000);
+    this.connectionStatus = {
+      ok: res.ok,
+      checking: false,
+      latencyMs: res.latencyMs,
+      error: res.error || ''
+    };
+    this.updateTopControlBar();
+
+    if (showNotice) {
+      const NoticeCls = typeof Notice !== 'undefined' ? Notice : null;
+      if (NoticeCls) {
+        if (res.ok) new NoticeCls(`✓ WeKnora 服务在线 (${res.latencyMs}ms)`);
+        else new NoticeCls(`⚠️ WeKnora 连接异常: ${res.error || '超时'}`);
+      }
+    }
+  }
+
+  async loadKnowledgeBases() {
+    try {
+      const list = await this.service.listKnowledgeBases();
+      this.knowledgeBases = list || [];
+      if (this.knowledgeBases.length > 0) {
+        if (!this.currentKbId || !this.knowledgeBases.some(k => k.id === this.currentKbId)) {
+          this.currentKbId = this.knowledgeBases[0].id;
+        }
+      }
+      this.updateTopControlBar();
+    } catch (e) {
+      console.warn('[WeKnora Manage] 获取知识库列表失败:', e);
+    }
+  }
+
+  startHeartbeat() {
+    if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
+    this.heartbeatTimer = setInterval(() => {
+      this.checkConnection(false);
+    }, 30000); // 30 秒轮询
+  }
+
+  resize() {
+    if (this.activeSubTab === 'graph' && this.wikiGraphView) {
+      this.wikiGraphView.resize();
+    }
+  }
+
+  // --------------------------------------------------------------------------
+  // 严密清理与释放
+  // --------------------------------------------------------------------------
+  dispose() {
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
+    this.wikiGraphView?.dispose();
+    this.wikiGraphView = null;
+
+    this.documentsView?.dispose();
+    this.documentsView = null;
+
+    this.syncView?.dispose();
+    this.syncView = null;
+
+    this.webviewEmbed?.dispose();
+    this.webviewEmbed = null;
+
+    if (this.containerEl) {
+      this.containerEl.empty();
+      this.containerEl.remove();
+      this.containerEl = null;
+    }
+  }
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+  
+}
+
+/**
+ * ClipImageInliner — 剪藏笔记落地后，把 http(s) 图片转成 data URL。
+ * 官方 Web Clipper 模板无法在扩展里 fetch+base64；本模块在 Vault 侧补这一步，
+ * 使 WeKnora 能按 Data URL 路径做多模态解析。
+ *
+ * 约束对齐 WeKnora image_resolver：单图 ≤ 10MB，单篇最多 30 张。
+ */
+
+
+const DEFAULT_CLIP_INLINER = {
+  enabled: true,
+  folderPrefix: '00-Inbox/',
+  maxImages: 30,
+  maxBytes: 10 * 1024 * 1024,
+  minBytes: 2048,
+  debounceMs: 1200
+};
+
+const MD_IMG_RE = /!\[([^\]]*)\]\((<)?((?:https?:)?\/\/[^)\s>]+)(>)?\)/gi;
+const HTML_IMG_RE = /(<img\b[^>]*?\bsrc\s*=\s*)(["'])(?!data:)((?:https?:)?\/\/[^"']+)\2/gi;
+const FRONTMATTER_URL_RE = /^url:\s*["']?(\S+?)["']?\s*$/m;
+
+function looksLikeImageMagic(buf) {
+  if (!buf || buf.byteLength < 12) return '';
+  const u8 = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
+  if (u8[0] === 0x89 && u8[1] === 0x50 && u8[2] === 0x4e && u8[3] === 0x47) return 'image/png';
+  if (u8[0] === 0xff && u8[1] === 0xd8 && u8[2] === 0xff) return 'image/jpeg';
+  if (u8[0] === 0x47 && u8[1] === 0x49 && u8[2] === 0x46) return 'image/gif';
+  if (u8[0] === 0x52 && u8[1] === 0x49 && u8[2] === 0x46 && u8[3] === 0x46 &&
+      u8[8] === 0x57 && u8[9] === 0x45 && u8[10] === 0x42 && u8[11] === 0x50) return 'image/webp';
+  return '';
+}
+
+function toBase64(arrayBuffer) {
+  if (typeof Buffer !== 'undefined') return Buffer.from(arrayBuffer).toString('base64');
+  const bytes = new Uint8Array(arrayBuffer);
+  let binary = '';
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+  }
+  return btoa(binary);
+}
+
+function absolutize(url) {
+  if (!url) return '';
+  if (url.startsWith('//')) return 'https:' + url;
+  return url;
+}
+
+function collectRemoteUrls(markdown) {
+  const urls = [];
+  const seen = new Set();
+  const add = (raw) => {
+    if (!raw || raw.startsWith('data:')) return;
+    const fetchUrl = absolutize(raw);
+    if (!/^https?:\/\//i.test(fetchUrl)) return;
+    if (seen.has(fetchUrl)) return;
+    seen.add(fetchUrl);
+    urls.push({ raw, fetchUrl });
+  };
+  markdown.replace(MD_IMG_RE, (_m, _alt, _lt, src) => { add(src); return _m; });
+  markdown.replace(HTML_IMG_RE, (_m, _pre, _q, src) => { add(src); return _m; });
+  return urls;
+}
+
+function replaceUrl(markdown, from, dataUrl) {
+  const escaped = from.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const protoLess = from.replace(/^https?:/i, '');
+  const re = new RegExp(
+    '("|\')(' + escaped + '|' + protoLess.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')\\1' +
+    '|' + escaped + '|' + protoLess.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'),
+    'gi'
+  );
+  return markdown.replace(re, (m, quote) => (quote ? quote + dataUrl + quote : dataUrl));
+}
+
+class ClipImageInliner {
+  constructor(plugin) {
+    this.plugin = plugin;
+    this.app = plugin.app;
+    this._timers = new Map();
+    this._busy = new Set();
+  }
+
+  cfg() {
+    return Object.assign({}, DEFAULT_CLIP_INLINER, this.plugin.settings?.clipInliner || {});
+  }
+
+  start() {
+    this._statusEl = this.plugin.addStatusBarItem();
+    this._statusEl.addClass('mod-clickable');
+    this._statusEl.setText('');
+    this.plugin.registerEvent(this.app.vault.on('create', (file) => this.schedule(file)));
+    this.plugin.registerEvent(this.app.vault.on('modify', (file) => this.schedule(file)));
+    this.plugin.addCommand({
+      id: 'tabonkb-inline-clip-images',
+      name: '把当前笔记的外链图片转为 Data URL',
+      checkCallback: (checking) => {
+        const file = this.app.workspace.getActiveFile();
+        if (!file || file.extension !== 'md') return false;
+        if (checking) return true;
+        this.processFile(file, { force: true });
+        return true;
+      }
+    });
+  }
+
+  isTarget(file, force) {
+    if (!file || file.extension !== 'md') return false;
+    if (force) return true;
+    const cfg = this.cfg();
+    if (!cfg.enabled) return false;
+    const prefix = cfg.folderPrefix || '00-Inbox/';
+    return file.path.replace(/\\/g, '/').startsWith(prefix);
+  }
+
+  schedule(file) {
+    if (!this.isTarget(file, false)) return;
+    const prev = this._timers.get(file.path);
+    if (prev) clearTimeout(prev);
+    const wait = this.cfg().debounceMs || 1200;
+    const t = setTimeout(() => {
+      this._timers.delete(file.path);
+      this.processFile(file, { force: false }).catch((err) => {
+        console.warn('[ClipImageInliner]', file.path, err);
+      });
+    }, wait);
+    this._timers.set(file.path, t);
+  }
+
+  async processFile(file, opts) {
+    const force = !!(opts && opts.force);
+    if (!this.isTarget(file, force)) return 0;
+    if (this._busy.has(file.path)) return 0;
+    this._busy.add(file.path);
+    try {
+      const md = await this.app.vault.read(file);
+      const remote = collectRemoteUrls(md);
+      if (!remote.length) {
+        if (force) new Notice('没有可转换的外链图片（已是 Data URL 或文中无图）');
+        return 0;
+      }
+      const cfg = this.cfg();
+      const cap = Math.min(cfg.maxImages || 30, remote.length);
+      const overflow = remote.length - cap;
+      const referer = this._referer(md);
+      const mapping = new Map();
+      let converted = 0;
+      let failed = 0;
+      const name = file.basename || file.name;
+      new Notice(`剪藏图片：开始转换「${name}」共 ${cap} 张`, 4000);
+      this._setStatus(`剪藏图片 0/${cap}`);
+      for (let i = 0; i < cap; i++) {
+        const item = remote[i];
+        this._setStatus(`剪藏图片 ${i + 1}/${cap}`);
+        const dataUrl = await this._fetchAsDataUrl(item.fetchUrl, referer, cfg);
+        if (!dataUrl) { failed++; continue; }
+        mapping.set(item.raw, dataUrl);
+        converted++;
+      }
+      if (converted) {
+        let next = md;
+        for (const [url, dataUrl] of mapping) next = replaceUrl(next, url, dataUrl);
+        if (next !== md) await this.app.vault.modify(file, next);
+      }
+      const extra = overflow > 0 ? `，超出上限 ${overflow} 张未处理` : '';
+      new Notice(`剪藏图片：成功 ${converted}，失败 ${failed}${extra}`, failed ? 8000 : 5000);
+      this._setStatus(failed ? `剪藏图片 失败 ${failed}` : '');
+      if (!failed && this._statusEl) {
+        setTimeout(() => { if (this._statusEl) this._statusEl.setText(''); }, 4000);
+      }
+      return converted;
+    } finally {
+      this._busy.delete(file.path);
+    }
+  }
+
+  _setStatus(text) {
+    if (!this._statusEl) return;
+    this._statusEl.setText(text ? '🖼 ' + text : '');
+  }
+
+  _referer(md) {
+    const m = md.match(FRONTMATTER_URL_RE);
+    if (m) return m[1];
+    const link = md.match(/https?:\/\/[^\s)>"']+/);
+    return link ? link[0] : '';
+  }
+
+  async _fetchAsDataUrl(url, referer, cfg) {
+    try {
+      const headers = {
+        'Accept': 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
+        'User-Agent': 'Mozilla/5.0 TabonKB-ClipInliner'
+      };
+      if (referer) {
+        try { headers.Referer = new URL(referer).origin + '/'; } catch (e) {}
+      }
+      const res = await requestUrl({ url, method: 'GET', headers, throw: false });
+      if (!res || res.status >= 400) return null;
+      const buf = res.arrayBuffer;
+      if (!buf || buf.byteLength < (cfg.minBytes || 0)) return null;
+      if (buf.byteLength > (cfg.maxBytes || 10 * 1024 * 1024)) return null;
+      let mime = '';
+      const ct = (res.headers && (res.headers['content-type'] || res.headers['Content-Type'])) || '';
+      if (typeof ct === 'string' && ct.toLowerCase().startsWith('image/')) {
+        mime = ct.split(';')[0].trim().toLowerCase();
+      }
+      if (!mime) mime = looksLikeImageMagic(buf);
+      if (!mime || !mime.startsWith('image/')) return null;
+      if (mime === 'image/svg+xml') return null;
+      return `data:${mime};base64,${toBase64(buf)}`;
+    } catch (err) {
+      console.warn('[ClipImageInliner] fetch failed', url, err);
+      return null;
+    }
   }
 }
 
@@ -13431,7 +21389,12 @@ class ExploreView {
 
     this.containerEl = null;
     this.activeSubTab = this.getSavedSubTab(); // 'ai' | 'search'
-    this.activeSource = 'all'; // 'all' | 'mtk' | 'unisoc'
+    // 平台独立多选: 默认两个都选中 (外框显色=选择)
+    this.selectedSources = new Set(['mtk', 'unisoc']);
+    // 官网联通状态 (字标显色=联通): 默认视为正常, 实检索后按 portalStatus 刷新
+    this.portalStatus = { mtk: { ok: true, msg: '' }, unisoc: { ok: true, msg: '' } };
+    this._sourceTabEls = {}; // 缓存两个平台 Tab 按钮 DOM, 用于检索后刷新联通态
+    this.activeSource = this.computeSourceFilter(); // 'all' | 'mtk' | 'unisoc' (由 selectedSources 派生)
     this.activeChipset = 'all';
     this.activeCategory = 'all';
     this.searchKeyword = '';
@@ -13480,99 +21443,16 @@ class ExploreView {
 
     const wrap = this.containerEl.createDiv({ cls: 'tw-explore-container' });
 
-    // 1. Top Sub-tabs Switcher Bar: [ 🤖 AI ]  [ 🔍 检索 ]
-    this.renderSubTabsHeader(wrap);
+    // 子页签切换器已迁入左侧主导航二级项 (见 build.py renderNavRail), 页面顶部不再占行;
+    // 切换由工作台视图 setExploreSubTab → 本实例 setSubTab() 驱动, 状态仍持久化在 localStorage
 
-    // 2. Stage Body: dynamically renders AI Hub or Vendor Search View
+    // Stage Body: dynamically renders AI Hub or Vendor Search View
     const stageBody = wrap.createDiv({ cls: 'tw-explore-stage-body' });
 
     if (this.activeSubTab === 'search') {
       this.renderSearchSubView(stageBody);
     } else {
       this.renderAiSubView(stageBody);
-    }
-  }
-
-  /**
-   * Render top segmented sub-tab buttons
-   */
-  /**
-   * Render top segmented sub-tab buttons & integrated portal header
-   */
-  async renderSubTabsHeader(parentEl) {
-    const headerEl = parentEl.createDiv({ cls: 'tw-explore-subtabs-header' });
-
-    // Left: Subtab Segmented Switcher
-    const subtabsGroup = headerEl.createDiv({ cls: 'tw-explore-subtabs-group' });
-
-    const btnAi = subtabsGroup.createEl('button', {
-      cls: `tw-explore-subtab-btn ${this.activeSubTab === 'ai' ? 'active' : ''}`,
-      title: '切换至 AI 研发助手工作区'
-    });
-    btnAi.innerHTML = `
-      <span class="tw-subtab-icon">${getIconPark('robot', 15)}</span>
-      <span class="tw-subtab-label">AI 研发助手</span>
-    `;
-    btnAi.onclick = () => this.setSubTab('ai');
-
-    const btnSearch = subtabsGroup.createEl('button', {
-      cls: `tw-explore-subtab-btn ${this.activeSubTab === 'search' ? 'active' : ''}`,
-      title: '切换至芯片特定资源网检索 (MTK Online / 展锐 Uni-Support)'
-    });
-    btnSearch.innerHTML = `
-      <span class="tw-subtab-icon">${getIconPark('search', 15)}</span>
-      <span class="tw-subtab-label">芯片资源检索</span>
-    `;
-    btnSearch.onclick = () => this.setSubTab('search');
-
-    // Right: Integrated account status + quick portal links
-    const rightActions = headerEl.createDiv({ cls: 'tw-explore-subtabs-right' });
-    if (this.activeSubTab === 'search') {
-      const portals = this.vendorService ? this.vendorService.getPortalsConfig() : {};
-      const mtkPass = await this.vendorService?.getCredential(portals.mtk?.secretName);
-      const mtkConfigured = Boolean(portals.mtk?.username || mtkPass);
-      const unisocPass = await this.vendorService?.getCredential(portals.unisoc?.secretName);
-      const unisocConfigured = Boolean(portals.unisoc?.username || unisocPass);
-
-      rightActions.innerHTML = `
-        <div class="tw-header-portals-group">
-          <button class="tw-explore-account-config-btn" id="twBtnHeaderAccountConfig" title="管理 MTK Online 与 展锐 Uni-Support 账号凭据">
-            <span class="tw-portal-dot ${mtkConfigured ? 'mtk' : ''}" style="${!mtkConfigured ? 'background:#CBD5E1;' : ''}"></span>
-            <span class="tw-portal-dot ${unisocConfigured ? 'unisoc' : ''}" style="${!unisocConfigured ? 'background:#CBD5E1;' : ''}"></span>
-            <span class="tw-btn-label">账号配置</span>
-          </button>
-          <div class="tw-header-divider"></div>
-          <button class="tw-header-portal-link" id="twBtnHeaderMtk" title="在新窗口直达 MTK 官网">
-            ${getIconPark('external', 12)} MTK Online ↗
-          </button>
-          <button class="tw-header-portal-link" id="twBtnHeaderUnisocDcc" title="在新窗口直达 展锐 DCC 文档中心">
-            ${getIconPark('external', 12)} 展锐 DCC ↗
-          </button>
-          <button class="tw-header-portal-link" id="twBtnHeaderUnisocFaq" title="在新窗口直达 展锐 FAQ 知识库">
-            ${getIconPark('external', 12)} 展锐 FAQ ↗
-          </button>
-        </div>
-      `;
-
-      rightActions.querySelector('#twBtnHeaderAccountConfig').onclick = () => this.openAccountModal();
-      rightActions.querySelector('#twBtnHeaderMtk').onclick = () => {
-        window.open(portals.mtk?.url || 'https://online.mediatek.com/', '_blank');
-      };
-      rightActions.querySelector('#twBtnHeaderUnisocDcc').onclick = () => {
-        window.open(portals.unisoc?.dccUrl || 'https://unisupport.unisoc.com/dcc', '_blank');
-      };
-      rightActions.querySelector('#twBtnHeaderUnisocFaq').onclick = () => {
-        window.open(portals.unisoc?.faqUrl || 'https://unisupport.unisoc.com/faq', '_blank');
-      };
-    } else {
-      const agentInfo = this.agentHub ? this.agentHub.getActiveAdapter() : null;
-      const agentName = agentInfo?.name || 'Agent Hub';
-      rightActions.innerHTML = `
-        <span class="tw-explore-agent-badge">
-          <span class="tw-status-dot-pulse"></span>
-          <span>当前智能体: <strong>${escapeHtml(agentName)}</strong></span>
-        </span>
-      `;
     }
   }
 
@@ -13612,7 +21492,7 @@ class ExploreView {
    * Render Sub-view 2: Chipset Vendor Resource Search
    */
   renderSearchSubView(parentEl) {
-    const searchWrap = parentEl.createDiv({ cls: 'tw-explore-search-pane' });
+    const searchWrap = parentEl.createDiv({ cls: `tw-explore-search-pane tw-src-${this.activeSource}` });
 
     // 1. Search Toolbar (Source Switcher, Keyword Input, Action Buttons)
     this.renderSearchToolbar(searchWrap);
@@ -13620,6 +21500,12 @@ class ExploreView {
     // 2. Results Container
     const resultsContainer = searchWrap.createDiv({ cls: 'tw-vendor-results-container' });
     this.renderResultsList(resultsContainer);
+
+    // 3. Auto-restore live search: if there's a keyword but no cached results
+    //    (happens after plugin reload or tab switch), re-trigger live search
+    if (this.searchKeyword && this.liveSearchResults.length === 0 && !this.isSearchingLive) {
+      setTimeout(() => this.executeInSituSearch(), 100);
+    }
   }
 
   /**
@@ -13628,59 +21514,58 @@ class ExploreView {
   renderSearchToolbar(parentEl) {
     const toolbar = parentEl.createDiv({ cls: 'tw-vendor-search-toolbar' });
 
-    // Source Selector Tabs Row
-    const topRow = toolbar.createDiv({ cls: 'tw-source-selector-row' });
-    const sourceTabs = topRow.createDiv({ cls: 'tw-source-segmented-control' });
+    // Search Input Row (搜索框 + 右侧平台字标 Tab)
+    const inputRow = toolbar.createDiv({ cls: 'tw-vendor-input-row' });
+    inputRow.innerHTML = `
+      <div class="tw-vendor-input-wrap">
+        <span class="tw-vendor-search-icon">${getIconPark('search', 16)}</span>
+        <input type="text" class="tw-vendor-search-input" id="twVendorSearchInput"
+          placeholder="在 MTK 与 展锐 中检索：输入关键字、芯片型号、FAQ / DCC 编号后回车 (如 FAQ33702, T820, USB, LCM)..."
+          value="${escapeHtml(this.searchKeyword)}">
+        ${this.searchKeyword ? '<button class="tw-search-clear-btn" id="twBtnClearVendorSearch">✕</button>' : ''}
+      </div>
+    `;
+
+    // 右侧: MTK / 展锐 两个平台字标 Tab: 外框显色=是否选中(默认全选), 字标显色=官网联通是否正常
+    const sourceTabs = inputRow.createDiv({ cls: 'tw-source-segmented-control' });
     const sources = [
-      { id: 'all', label: '全部资源网', icon: 'globe' },
-      { id: 'mtk', label: 'MTK 资源网 (MTO)', icon: 'cpu' },
-      { id: 'unisoc', label: '展锐 Uni-Support (DCC & FAQ)', icon: 'network' }
+      { id: 'mtk', label: 'MTK', icon: 'platform-mtk' },
+      { id: 'unisoc', label: '展锐', icon: 'platform-unisoc' }
     ];
 
+    this._sourceTabEls = {};
     for (const s of sources) {
       const btn = sourceTabs.createEl('button', {
-        cls: `tw-source-tab-btn ${this.activeSource === s.id ? 'active' : ''}`
+        cls: `tw-source-tab-btn tw-source-tab--${s.id}`
       });
-      btn.innerHTML = `${getIconPark(s.icon, 14)} <span>${s.label}</span>`;
+      btn.innerHTML = this.getSourceIcon(s.icon, 16);
+      btn.dataset.conn = (this.portalStatus[s.id] || { ok: true }).ok ? 'up' : 'down';
+      btn.title = this._sourceTabTitle(s);
+      if (this.selectedSources.has(s.id)) btn.classList.add('selected');
       btn.onclick = () => {
-        this.activeSource = s.id;
-        toolbar.querySelectorAll('.tw-source-tab-btn').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        const labelEl = toolbar.querySelector('#twBtnRunVendorSearch .tw-btn-label');
-        if (labelEl) labelEl.textContent = this.getSearchButtonLabel();
+        // 独立切换该平台选中态; 至少保留一个平台被选中
+        if (this.selectedSources.has(s.id)) {
+          if (this.selectedSources.size <= 1) return; // 不允许全部取消
+          this.selectedSources.delete(s.id);
+        } else {
+          this.selectedSources.add(s.id);
+        }
+        this.activeSource = this.computeSourceFilter();
+        this._syncSourceTabsUI();
+        // Re-scope platform brand tint (tw-src-*) on the search pane
+        const pane = toolbar.closest('.tw-explore-search-pane');
+        if (pane) {
+          pane.classList.remove('tw-src-all', 'tw-src-mtk', 'tw-src-unisoc');
+          pane.classList.add(`tw-src-${this.activeSource}`);
+        }
         if (this.searchKeyword) {
           this.executeInSituSearch();
         } else {
           this.refreshResults();
         }
       };
+      this._sourceTabEls[s.id] = btn;
     }
-
-    const hintEl = topRow.createDiv({ cls: 'tw-source-hint' });
-    hintEl.innerHTML = `
-      <span class="tw-hint-dot"></span>
-      <span>数据源: <strong>MTK Online</strong> · <strong>展锐 DCC</strong> · <strong>展锐 FAQ</strong></span>
-    `;
-
-    // Search Input Row
-    const inputRow = toolbar.createDiv({ cls: 'tw-vendor-input-row' });
-    inputRow.innerHTML = `
-      <div class="tw-vendor-input-wrap">
-        <span class="tw-vendor-search-icon">${getIconPark('search', 16)}</span>
-        <input type="text" class="tw-vendor-search-input" id="twVendorSearchInput"
-          placeholder="在 MTK 与 展锐 中检索：输入关键字、芯片型号、FAQ / DCC 编号 (如 FAQ33702, T820, USB, LCM)..."
-          value="${escapeHtml(this.searchKeyword)}">
-        ${this.searchKeyword ? '<button class="tw-search-clear-btn" id="twBtnClearVendorSearch">✕</button>' : ''}
-      </div>
-      <div class="tw-vendor-action-buttons">
-        <button class="tw-vendor-trigger-btn" id="twBtnRunVendorSearch" title="立即检索并在当前页面返回技术资料与方案">
-          ${getIconPark('search', 14)} <span class="tw-btn-label">立即检索</span>
-        </button>
-        <button class="tw-vendor-ai-btn" id="twBtnRunAiSearch" title="让 AI 研发助手深度分析此芯片技术关键词">
-          ${getIconPark('robot', 14)} <span>AI 深度分析</span>
-        </button>
-      </div>
-    `;
 
     const input = inputRow.querySelector('#twVendorSearchInput');
     input.addEventListener('input', (e) => {
@@ -13717,27 +21602,72 @@ class ExploreView {
       };
     }
 
-    const runBtn = inputRow.querySelector('#twBtnRunVendorSearch');
-    runBtn.onclick = () => this.executeInSituSearch();
+    // 分类胶囊插槽: 位于搜索工具栏外框内, 由结果渲染逻辑动态填充 (空时 CSS :empty 隐藏)
+    toolbar.createDiv({ cls: 'tw-cat-tabs-slot' });
 
-    const aiBtn = inputRow.querySelector('#twBtnRunAiSearch');
-    aiBtn.onclick = () => {
-      const q = this.searchKeyword.trim();
-      if (!q) {
-        const NoticeClass = (typeof Notice !== 'undefined') ? Notice : (this.app?.Notice || (typeof window !== 'undefined' ? window.Notice : null));
-        if (NoticeClass) new NoticeClass('请先在输入框中输入芯片型号、FAQ 编号或技术问题，再发起 AI 解析', 3000);
-        return;
-      }
-      this.sendPromptToAi(`请针对芯片平台技术问题「${q}」，帮我提供原厂级开发与调试参考指南，包括常见寄存器配置、DTS 设备树修改要点、内核代码实现与排障防抖动注意事项。`, q);
-    };
-
+    // 检索通过输入框回车触发 (keydown Enter → executeInSituSearch), 不再放独立按钮
   }
 
   /**
-   * Get search button label based on active source
+   * Source tab icon: 官方平台字标 (MTK / 紫光展锐 UNISOC 官网 logo), 其余走 iconpark
    */
-  getSearchButtonLabel() {
-    return '立即检索';
+  getSourceIcon(iconName, size = 14) {
+    if (iconName === 'platform-mtk') return getVendorPlatformSvg('mtk', size);
+    if (iconName === 'platform-unisoc') return getVendorPlatformSvg('unisoc', size);
+    return getIconPark(iconName, size);
+  }
+
+  /**
+   * 分类胶囊显示文案: 中英混合分类只保留英文部分 (筛选值仍用原始 category, 不受影响)
+   * 例: 'Porting Guide 移植指南' → 'Porting Guide'; 纯中文分类原样保留
+   */
+  _catTabLabel(cat) {
+    const en = cat
+      .replace(/[\u4e00-\u9fff\u3000-\u303f\uff00-\uffef]+/g, ' ')
+      .replace(/[\s&·、,，-]+$/g, '')
+      .replace(/^[\s&·、,，-]+/g, '')
+      .trim();
+    return en || cat;
+  }
+
+  /**
+   * 由多选集合派生传给 vendorService 的 sourceFilter: 两个都选/异常回退='all', 仅一个=该平台 id
+   * @returns {'all'|'mtk'|'unisoc'}
+   */
+  computeSourceFilter() {
+    if (this.selectedSources && this.selectedSources.size === 1) {
+      return this.selectedSources.has('mtk') ? 'mtk' : 'unisoc';
+    }
+    return 'all';
+  }
+
+  /**
+   * 平台 Tab 悬停提示: 同时展示选中态与联通态
+   */
+  _sourceTabTitle(s) {
+    const selected = this.selectedSources.has(s.id);
+    const conn = this.portalStatus[s.id] || { ok: true, msg: '' };
+    const link = conn.ok ? '联通正常' : ('联通异常' + (conn.msg ? '：' + conn.msg : ''));
+    const act = selected ? '点击取消选择' : '点击选择该平台';
+    return `${s.label} 资源网 · ${selected ? '已选中' : '未选中'} · ${link} · ${act}`;
+  }
+
+  /**
+   * 同步两个平台 Tab 的选中类、联通 data-conn 与 title (选择切换 / 检索后联通刷新共用)
+   */
+  _syncSourceTabsUI() {
+    const defs = [
+      { id: 'mtk', label: 'MTK' },
+      { id: 'unisoc', label: '展锐' }
+    ];
+    for (const s of defs) {
+      const btn = this._sourceTabEls && this._sourceTabEls[s.id];
+      if (!btn) continue;
+      const conn = this.portalStatus[s.id] || { ok: true, msg: '' };
+      btn.classList.toggle('selected', this.selectedSources.has(s.id));
+      btn.dataset.conn = conn.ok ? 'up' : 'down';
+      btn.title = this._sourceTabTitle({ id: s.id, label: s.label });
+    }
   }
 
   /**
@@ -13761,6 +21691,7 @@ class ExploreView {
     this.isSearchingLive = true;
     this.liveSearchError = null;
     this.selectedCategoryTab = 'all';
+    this.expandedCardIds.clear(); // 检索完默认所有工单/资料卡片全部收起
     this.refreshResults();
 
     try {
@@ -13776,9 +21707,10 @@ class ExploreView {
       this.isLiveSource = Boolean(res.isLive);
       this.liveSearchError = res.error || null;
 
-      // Automatically expand the first card so the user can read the solution right away
-      if (this.liveSearchResults.length > 0 && this.liveSearchResults[0].detailedContent) {
-        this.expandedCardIds.add(this.liveSearchResults[0].id);
+      // 刷新两个平台字标的联通显色 (portalStatus.ok=false → 字标置灰)
+      if (res.portalStatus) {
+        this.portalStatus = Object.assign({ mtk: { ok: true, msg: '' }, unisoc: { ok: true, msg: '' } }, res.portalStatus);
+        this._syncSourceTabsUI();
       }
 
       const NoticeClass = (typeof Notice !== 'undefined') ? Notice : (this.app?.Notice || (typeof window !== 'undefined' ? window.Notice : null));
@@ -13855,12 +21787,19 @@ class ExploreView {
           <div class="tw-error-title">官网实时检索提示：${escapeHtml(this.liveSearchError)}</div>
           <div class="tw-error-desc">已自动为您回退呈现本地离线工程知识库中匹配的结果</div>
         </div>
-        <button class="tw-error-action-btn" id="twBtnFixAccountConfig">
-          ${getIconPark('lock', 12)} ${this.liveSearchError.includes('展锐') ? '🔑 更新展锐 Token 凭据' : '🔒 配置原厂账号密码'}
-        </button>
+        <div class="tw-error-actions" style="display:flex;gap:8px;align-items:center;flex-shrink:0;">
+          <button class="tw-error-action-btn" id="twBtnFixAccountConfig">
+            ${getIconPark('lock', 12)} ${this.liveSearchError.includes('展锐') ? '🔑 手动更新 Token' : '🔒 配置原厂账号密码'}
+          </button>
+          <button class="tw-error-action-btn tw-btn-companion-guide" id="twBtnOpenCompanionGuide" style="background: linear-gradient(135deg, #10B981, #059669); color: #FFFFFF; border: none; font-weight: 600; box-shadow: 0 2px 6px rgba(16,185,129,0.3);" title="打开 Chrome/Edge 扩展伴侣一键同步指引">
+            ⚡ 浏览器伴侣一键同步
+          </button>
+        </div>
       `;
       const btn = errCard.querySelector('#twBtnFixAccountConfig');
       if (btn) btn.onclick = () => this.openAccountModal();
+      const compBtn = errCard.querySelector('#twBtnOpenCompanionGuide');
+      if (compBtn) compBtn.onclick = () => this.openCompanionGuideModal();
     }
 
     // 3. Official AI Overview banner (MediaTek Online style)
@@ -13948,8 +21887,10 @@ class ExploreView {
       );
     }
 
-    // 5. Category Tab Pills (Tabs: 全部, FAQ, DCC, etc.)
-    if (results.length > 0) {
+    // 5. Category Tab Pills (渲染到搜索框外框内的插槽; 无"全部"选项, 再次点击已选分类即取消筛选)
+    const catSlot = this.containerEl?.querySelector('.tw-cat-tabs-slot');
+    if (catSlot) catSlot.empty();
+    if (results.length > 0 && catSlot) {
       const catCounts = { all: results.length };
       for (const r of results) {
         const cat = r.category || '其它';
@@ -13958,24 +21899,17 @@ class ExploreView {
 
       const distinctCats = Object.keys(catCounts).filter(k => k !== 'all');
       if (distinctCats.length > 1) {
-        const catBar = containerEl.createDiv({ cls: 'tw-results-cat-tabs-bar' });
-        
-        const allBtn = catBar.createEl('button', {
-          cls: `tw-cat-tab-pill ${this.selectedCategoryTab === 'all' ? 'active' : ''}`
-        });
-        allBtn.innerHTML = `<span>全部</span><span class="tw-cat-count-badge">${catCounts.all}</span>`;
-        allBtn.onclick = () => {
-          this.selectedCategoryTab = 'all';
-          this.refreshResults();
-        };
+        const catBar = catSlot.createDiv({ cls: 'tw-results-cat-tabs-bar' });
 
         for (const cat of distinctCats) {
           const btn = catBar.createEl('button', {
             cls: `tw-cat-tab-pill ${this.selectedCategoryTab === cat ? 'active' : ''}`
           });
-          btn.innerHTML = `<span>${escapeHtml(cat)}</span><span class="tw-cat-count-badge">${catCounts[cat]}</span>`;
+          btn.innerHTML = `<span>${escapeHtml(this._catTabLabel(cat))}</span><span class="tw-cat-count-badge">${catCounts[cat]}</span>`;
+          btn.title = cat;
           btn.onclick = () => {
-            this.selectedCategoryTab = cat;
+            // 再次点击已激活分类 → 取消筛选 (等效"全部")
+            this.selectedCategoryTab = this.selectedCategoryTab === cat ? 'all' : cat;
             this.refreshResults();
           };
         }
@@ -14025,9 +21959,12 @@ class ExploreView {
       const isExpanded = this.expandedCardIds.has(res.id);
 
       const isMtk = res.portalId === 'mtk';
-      const portalBadge = isMtk
-        ? `<span class="tw-vendor-badge mtk">${getIconPark('cpu', 12)} MTK Online</span>`
-        : `<span class="tw-vendor-badge unisoc">${getIconPark('network', 12)} 展锐 Uni-Support</span>`;
+      const isEserviceCase = res.categoryType === 'eservice_case' || res.categoryType === 'eservice';
+      const portalBadge = isEserviceCase
+        ? `<span class="tw-vendor-badge mtk-eservice">${getIconPark('ticket', 12)} MTK eService</span>`
+        : isMtk
+          ? `<span class="tw-vendor-badge mtk">${getIconPark('cpu', 12)} MTK Online</span>`
+          : `<span class="tw-vendor-badge unisoc">${getIconPark('network', 12)} 展锐 Uni-Support</span>`;
 
       const liveBadge = res.isOfficialLive
         ? `<span class="tw-live-badge"><span class="tw-live-dot"></span>官网实时</span>`
@@ -14035,6 +21972,14 @@ class ExploreView {
 
       const platforms = Array.isArray(res.platforms) ? res.platforms : [];
       const branches = Array.isArray(res.branches) ? res.branches : [];
+
+      // Finder Name + Date row for header right side
+      const finderDateHtml = isEserviceCase
+        ? `<div class="tw-vcard-finder-date">
+            ${res.finderName ? `<span class="tw-vcard-finder"><span class="tw-finder-icon">👤</span>${escapeHtml(res.finderName)}</span>` : ''}
+            ${res.updated ? `<span class="tw-vcard-date">${escapeHtml(res.updated)}</span>` : ''}
+          </div>`
+        : `<div class="tw-vcard-date">${escapeHtml(res.updated || '')}</div>`;
 
       card.innerHTML = `
         <div class="tw-vcard-header">
@@ -14044,15 +21989,16 @@ class ExploreView {
             <span class="tw-chipset-tag">${escapeHtml(res.chipset)}</span>
             <span class="tw-category-tag">${escapeHtml(res.category)}</span>
             <span class="tw-vcard-docid">${escapeHtml(res.docId || '')}</span>
+            ${isEserviceCase && res.caseStatus ? `<span class="tw-eservice-case-status-tag">${escapeHtml(res.caseStatus)}</span>` : ''}
           </div>
-          <div class="tw-vcard-date">${escapeHtml(res.updated || '')}</div>
+          ${finderDateHtml}
         </div>
 
         <div class="tw-vcard-title">${escapeHtml(res.title)}</div>
 
         ${platforms.length > 0 ? `
           <div class="tw-platform-pills-row">
-            <span style="font-size: 10px; color: var(--text-muted); margin-right: 2px;">平台:</span>
+            <span style="font-size: 10px; color: var(--text-muted); margin-right: 2px;">ƽ̨:</span>
             ${platforms.slice(0, 6).map(p => `<span class="tw-platform-pill">${escapeHtml(p)}</span>`).join('')}
             ${platforms.length > 6 ? `<span style="font-size: 10px; color: var(--text-muted);">+${platforms.length - 6}</span>` : ''}
           </div>
@@ -14081,14 +22027,16 @@ class ExploreView {
           </div>
         ` : ''}
 
-        <div class="tw-vcard-footer">
+          <div class="tw-vcard-footer">
           <div class="tw-vcard-tags">
             ${(res.tags || []).map(t => `<span class="tw-vcard-tag">#${escapeHtml(t)}</span>`).join('')}
           </div>
           <div class="tw-vcard-actions">
-            ${(res.detailedContent || res.detailedContentHtml || (res.categoryType === 'faq' && res.docId)) ? `
+            ${(res.detailedContent || res.detailedContentHtml ||
+               (res.categoryType === 'faq' && res.docId) ||
+               ((res.categoryType === 'eservice_case' || res.categoryType === 'eservice') && res.docId)) ? `
               <button class="tw-vcard-btn-expand ${isExpanded ? 'active' : ''}">
-                ${isExpanded ? getIconPark('up', 13) + ' 收起方案' : getIconPark('down', 13) + ' 展开完整技术方案'}
+                ${isExpanded ? getIconPark('up', 13) + ' 收起工单' : getIconPark('down', 13) + ' 展开/查看工单'}
               </button>
             ` : ''}
             <button class="tw-vcard-btn-save-note" title="将此原厂技术文档保存为当前 Obsidian 库笔记">
@@ -14114,8 +22062,60 @@ class ExploreView {
             this.expandedCardIds.delete(res.id);
             this.refreshResults();
           } else {
-            // If detailedContent is not yet loaded and this is a live FAQ, fetch it on-demand!
-            if (!res.detailedContent && !res.detailedContentHtml && res.categoryType === 'faq' && (res.faqInternalId || res.docId)) {
+            // --- eService CR 工单按需加载 ---
+            if (!res.detailedContent && !res.detailedContentHtml &&
+                (res.categoryType === 'eservice_case' || res.categoryType === 'eservice') &&
+                res.docId) {
+              expandBtn.innerHTML = `<span>⏳ 加载 eService 工单详情...</span>`;
+              try {
+                const detail = await this.vendorService.fetchMtkEserviceCaseDetail(res.docId, null, res.url || '', res.summary || '');
+                if (detail && !detail._debugOnly) {
+                  res.detailedContentHtml = detail.contentHtml;
+                  res.detailedContent = [
+                    detail.description ? `【问题描述】\n${detail.description}` : '',
+                    detail.solution ? `\n\n【解决方案】\n${detail.solution}` : ''
+                  ].filter(Boolean).join('') || detail.contentHtml;
+                  res.detailedContentMarkdown = res.detailedContent;
+                  if (detail.finderName && !res.finderName) res.finderName = detail.finderName;
+                  if (detail.status && !res.caseStatus) res.caseStatus = detail.status;
+                } else {
+                  // Build inline debug table so user can see exactly what happened
+                  const debugRows = detail && detail.debugLog
+                    ? detail.debugLog.map(d => `
+                        <tr>
+                          <td style="font-family:monospace;font-size:10px;padding:2px 6px;color:var(--text-muted);white-space:nowrap;">${escapeHtml(d.label)}</td>
+                          <td style="font-size:10px;padding:2px 6px;font-weight:600;color:${d.status === 200 ? '#059669' : d.status === 'ERR' ? '#EF4444' : '#D97706'};">${d.status}</td>
+                          <td style="font-family:monospace;font-size:10px;padding:2px 6px;color:var(--text-muted);max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtml(d.preview)}">${escapeHtml(d.preview.slice(0, 80))}</td>
+                        </tr>`).join('')
+                    : '<tr><td colspan="3" style="font-size:10px;color:var(--text-muted);padding:4px 6px;">无调试信息</td></tr>';
+                  res.detailedContentHtml = `
+                    <div class="tw-eservice-section">
+                      <div class="tw-eservice-section-title">🔍 接口探测结果（接入调试）</div>
+                      <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px;">
+                        caseId: <code>${escapeHtml(res.docId)}</code> &nbsp;|&nbsp;
+                        isMtoEservice: <code>${detail && detail.isMtoEservice ? 'true' : 'false'}</code>
+                      </div>
+                      <table style="width:100%;border-collapse:collapse;font-size:10px;">
+                        <thead><tr>
+                          <th style="text-align:left;padding:2px 6px;font-size:10px;color:var(--text-muted);border-bottom:1px solid var(--background-modifier-border);">接口端点</th>
+                          <th style="text-align:left;padding:2px 6px;border-bottom:1px solid var(--background-modifier-border);">状态</th>
+                          <th style="text-align:left;padding:2px 6px;border-bottom:1px solid var(--background-modifier-border);">响应预览</th>
+                        </tr></thead>
+                        <tbody>${debugRows}</tbody>
+                      </table>
+                      <div style="margin-top:10px;">
+                        <a href="${res.url}" target="_blank" style="color:#3B82F6;font-size:11px;">在浏览器中打开工单 ↗</a>
+                        &nbsp;（请将上方表格截图发给 AI，帮助确认正确接口路径）
+                      </div>
+                    </div>`;
+                  res.detailedContent = res.detailedContentHtml;
+                }
+              } catch (err) {
+                console.warn('Failed to load eService case detail on demand:', err);
+              }
+            }
+            // --- FAQ 按需加载（原有逻辑保留）---
+            else if (!res.detailedContent && !res.detailedContentHtml && res.categoryType === 'faq' && (res.faqInternalId || res.docId)) {
               expandBtn.innerHTML = `<span>⏳ 加载原厂完整方案...</span>`;
               try {
                 if (res.portalId === 'unisoc') {
@@ -14394,7 +22394,17 @@ ${solutionMarkdown}
 
             <!-- Token Extraction Guide -->
             <div class="tw-token-guide-box">
-              <div class="tw-token-guide-title">📌 快速获取展锐 Token / Cookie 方法（任选一种）：</div>
+              <div class="tw-token-companion-recommend" style="background: rgba(16, 185, 129, 0.12); border: 1px solid rgba(16, 185, 129, 0.35); border-radius: 6px; padding: 10px 12px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; gap: 10px;">
+                <div>
+                  <div style="font-weight: 600; color: #10B981; font-size: 13px; margin-bottom: 2px;">⚡ 极速同步（推荐）：TabonKB 浏览器伴侣扩展</div>
+                  <div style="font-size: 11px; color: var(--text-muted, #94A3B8);">在 Edge / Chrome 加载伴侣扩展后，展锐官网右下角点击「一键同步」即可秒级更新凭据，告别手动复制！</div>
+                </div>
+                <button type="button" class="tw-btn-open-ext-guide" id="twBtnExtGuideFromAccount" style="padding: 5px 10px; font-size: 12px; background: #10B981; color: white; border: none; border-radius: 4px; cursor: pointer; white-space: nowrap; font-weight: 600;">
+                  🧩 查看伴侣指引
+                </button>
+              </div>
+
+              <div class="tw-token-guide-title">📌 其他手动获取展锐 Token / Cookie 方法（任选一种）：</div>
               <ol class="tw-token-guide-list">
                 <li><strong>方法 1（控制台一键命令）</strong>：在已登录展锐的浏览器页面按 <code>F12</code> 打开控制台 (Console)，粘贴运行下方命令回车即可自动复制：
                   <div class="tw-copy-cmd-row">
@@ -14470,6 +22480,15 @@ ${solutionMarkdown}
       };
     }
 
+    // Companion extension guide button inside account modal
+    const extGuideBtn = overlay.querySelector('#twBtnExtGuideFromAccount');
+    if (extGuideBtn) {
+      extGuideBtn.onclick = () => {
+        closeModal();
+        this.openCompanionGuideModal();
+      };
+    }
+
     // Password visibility toggles
     overlay.querySelectorAll('.tw-pwd-toggle').forEach(btn => {
       btn.onclick = () => {
@@ -14512,6 +22531,87 @@ ${solutionMarkdown}
       }
       this.render();
     };
+  }
+
+  /**
+   * Open modal explaining how to install and use TabonKB Browser Companion Extension
+   */
+  openCompanionGuideModal() {
+    const overlay = document.createElement('div');
+    overlay.className = 'tw-modal-overlay';
+
+    const vaultPath = this.app?.vault?.adapter?.basePath || 'd:\\work\\Mgmt\\TabonKB';
+    const pathMod = typeof path !== 'undefined' ? path : (typeof require !== 'undefined' ? require('path') : null);
+    const extFolder = pathMod ? pathMod.join(vaultPath, '.obsidian', 'plugins', 'tabonkb-workbench', 'browser-extension') : `${vaultPath}\\.obsidian\\plugins\\tabonkb-workbench\\browser-extension`;
+
+    overlay.innerHTML = `
+      <div class="tw-modal-card tw-companion-guide-modal" style="max-width: 580px;">
+        <div class="tw-modal-header">
+          <div class="tw-modal-title" style="display:flex;align-items:center;gap:8px;">
+            <span style="font-size: 18px;">💎</span>
+            <span>TabonKB 浏览器伴侣扩展安装与一键同步指引</span>
+          </div>
+          <button class="tw-modal-btn-close" id="twBtnCloseGuideModal">✕</button>
+        </div>
+
+        <div class="tw-modal-body" style="font-size: 13px; line-height: 1.6;">
+          <div style="display: flex; align-items: center; justify-content: space-between; background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3); padding: 8px 12px; border-radius: 6px; margin-bottom: 14px;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span style="width: 8px; height: 8px; border-radius: 50%; background: #10B981; box-shadow: 0 0 6px #10B981;"></span>
+              <strong style="color: #10B981;">本地同步服务已就绪 (127.0.0.1:28123)</strong>
+            </div>
+            <span style="font-size: 11px; color: var(--text-muted, #94A3B8);">Obsidian 端监听中</span>
+          </div>
+
+          <div style="font-weight: 600; margin-bottom: 6px; color: var(--text-normal, #E2E8F0);">🚀 30 秒在 Edge / Chrome 中加载伴侣扩展：</div>
+          <ol style="margin-left: 18px; margin-bottom: 14px; padding: 0; color: var(--text-muted, #94A3B8);">
+            <li style="margin-bottom: 6px;">在浏览器中打开扩展管理页面：
+              <code style="background: rgba(0,0,0,0.25); padding: 2px 5px; border-radius: 3px; color: #60A5FA;">edge://extensions</code> 或 <code style="background: rgba(0,0,0,0.25); padding: 2px 5px; border-radius: 3px; color: #60A5FA;">chrome://extensions</code>
+            </li>
+            <li style="margin-bottom: 6px;">在页面开启 <strong>「开发者模式」(Developer mode)</strong> 开关。</li>
+            <li style="margin-bottom: 6px;">点击 <strong>「加载已解压的扩展程序」(Load unpacked)</strong> 按钮。</li>
+            <li style="margin-bottom: 6px;">在弹出的文件夹选择框中，直接选择以下扩展目录：
+              <div style="background: rgba(0,0,0,0.3); border: 1px dashed rgba(255,255,255,0.2); padding: 6px 10px; border-radius: 4px; font-family: monospace; font-size: 11px; margin-top: 5px; word-break: break-all; color: #FCD34D;">
+                ${escapeHtml(extFolder)}
+              </div>
+            </li>
+          </ol>
+
+          <div style="font-weight: 600; margin-bottom: 6px; color: var(--text-normal, #E2E8F0);">✨ 如何一键同步：</div>
+          <p style="color: var(--text-muted, #94A3B8); margin-bottom: 14px;">
+            在浏览器登录 <a href="https://unisupport.unisoc.com/" target="_blank" style="color: #A00090; text-decoration: underline;">紫光展锐 Uni-Support 官网 ↗</a>，页面右下角会自动出现 <strong>「⚡ 一键同步到工作台」</strong> 浮钮，点击一下即可秒级完成凭据刷新！
+          </p>
+        </div>
+
+        <div class="tw-modal-footer" style="display: flex; justify-content: space-between; align-items: center;">
+          <button type="button" class="tw-modal-btn-cancel" id="twBtnOpenFolderInExplorer" style="background: rgba(99, 102, 241, 0.15); border: 1px solid rgba(99, 102, 241, 0.4); color: #A5B4FC;">
+            📂 打开扩展文件夹
+          </button>
+          <button type="button" class="tw-modal-btn-save" id="twBtnCloseGuideModalDone">
+            我知道了
+          </button>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(overlay);
+
+    const closeGuide = () => overlay.remove();
+    overlay.querySelector('#twBtnCloseGuideModal').onclick = closeGuide;
+    overlay.querySelector('#twBtnCloseGuideModalDone').onclick = closeGuide;
+
+    const openFolderBtn = overlay.querySelector('#twBtnOpenFolderInExplorer');
+    if (openFolderBtn) {
+      openFolderBtn.onclick = () => {
+        try {
+          const cp = typeof child_process !== 'undefined' ? child_process : require('child_process');
+          cp.exec(`explorer.exe "${extFolder}"`);
+        } catch (e) {
+          const NoticeClass = (typeof Notice !== 'undefined') ? Notice : window.Notice;
+          if (NoticeClass) new NoticeClass('扩展目录: ' + extFolder, 4000);
+        }
+      };
+    }
   }
 }
 
@@ -14632,6 +22732,534 @@ function formatMarkdownToHtml(content) {
   return html;
 }
 
+/* ==========================================================================
+   PhoneCompetitorView — 手机竞品分析页(资讯页子页签)
+   数据源: 07-Project/2026-Phone-Competitor-DB/phones.json (由 export_phone_db.py 导出)
+   ========================================================================== */
+
+const PHONE_DB_JSON_PATH = '07-Project/2026-Phone-Competitor-DB/phones.json';
+
+const COMP_TIER_ORDER = ['入门', '中端', '中高端', '高端', '旗舰', '折叠屏'];
+const COMP_TIER_COLORS = {
+  '入门': '#94A3B8',
+  '中端': '#38BDF8',
+  '中高端': '#818CF8',
+  '高端': '#F59E0B',
+  '旗舰': '#EF4444',
+  '折叠屏': '#10B981'
+};
+const COMP_BRAND_COLORS = ['#2563EB', '#EF4444', '#10B981', '#F59E0B', '#8B5CF6', '#0EA5E9', '#F97316', '#14B8A6', '#EC4899', '#64748B', '#84CC16', '#6366F1'];
+
+class PhoneCompetitorView {
+  constructor(opts = {}) {
+    this.app = opts.app;
+    this.phones = [];
+    this.meta = null;
+    this.loadError = '';
+    this.filters = { brand: 'all', tier: 'all', region: 'all', year: 'all', kw: '', verifiedOnly: false };
+    this.sortKey = 'releaseDate';
+    this.sortDesc = true;
+    this.compareIds = [];
+    this.detailPhone = null;
+    this.el = null;
+    this._chartW = 0;
+    this._resizeObs = null;
+    this._rafId = 0;
+  }
+
+  async mount(parentEl) {
+    this.el = parentEl.createDiv({ cls: 'tw-comp-root' });
+    await this.loadData();
+    this.render();
+    this.bindChartTooltip();
+    if (typeof ResizeObserver !== 'undefined' && this.el) {
+      this._resizeObs = new ResizeObserver(() => {
+        const wrap = this.el.querySelector('.tw-comp-charts');
+        const w = wrap ? wrap.clientWidth : 0;
+        if (w > 60 && Math.abs(w - (this._chartW || 0)) > 8) {
+          if (this._rafId) cancelAnimationFrame(this._rafId);
+          this._rafId = requestAnimationFrame(() => { this._rafId = 0; this.renderCharts(); });
+        }
+      });
+      this._resizeObs.observe(this.el);
+    }
+  }
+
+  dispose() {
+    if (this._resizeObs) { try { this._resizeObs.disconnect(); } catch (e) {} this._resizeObs = null; }
+    if (this._rafId) cancelAnimationFrame(this._rafId);
+    this.unbindChartTooltip();
+    this.hideChartTooltip();
+    if (this._tipEl && this._tipEl.parentElement) this._tipEl.parentElement.removeChild(this._tipEl);
+    this.el = null;
+  }
+
+  /* ---------------- 图表 hover 数值提示 (SVG <title> 原生 tooltip 在 Electron 下不可靠) ---------------- */
+
+  bindChartTooltip() {
+    if (!this.el) return;
+    this._tipMove = (e) => {
+      const rect = e.target && e.target.closest ? e.target.closest('[data-tip]') : null;
+      if (rect) this.showChartTooltip(e, rect.getAttribute('data-tip'));
+      else this.hideChartTooltip();
+    };
+    this.el.addEventListener('mousemove', this._tipMove);
+    // 兜底: 鼠标快速移出/切子页签时 mouseleave 可能不触发, 用 document 级监听兼容隐藏
+    this._docTipMove = (e) => {
+      if (!this._tipEl || !this._tipEl.classList.contains('visible')) return;
+      if (this.el && !this.el.contains(e.target)) this.hideChartTooltip();
+    };
+    this._hideTip = () => this.hideChartTooltip();
+    document.addEventListener('mousemove', this._docTipMove, true);
+    window.addEventListener('blur', this._hideTip);
+  }
+
+  unbindChartTooltip() {
+    if (this.el && this._tipMove) this.el.removeEventListener('mousemove', this._tipMove);
+    if (this._docTipMove) document.removeEventListener('mousemove', this._docTipMove, true);
+    if (this._hideTip) window.removeEventListener('blur', this._hideTip);
+    this._tipMove = this._docTipMove = this._hideTip = null;
+  }
+
+  showChartTooltip(e, text) {
+    if (!this._tipEl) {
+      this._tipEl = document.createElement('div');
+      this._tipEl.className = 'tw-comp-tooltip';
+      document.body.appendChild(this._tipEl);
+    }
+    if (this._tipEl.textContent !== text) this._tipEl.textContent = text;
+    this._tipEl.classList.add('visible');
+    const pad = 14;
+    const tw = this._tipEl.offsetWidth, th = this._tipEl.offsetHeight;
+    let x = e.clientX + pad, y = e.clientY - th - 8;
+    if (x + tw > window.innerWidth - 8) x = e.clientX - tw - pad;
+    if (y < 8) y = e.clientY + pad;
+    this._tipEl.style.left = x + 'px';
+    this._tipEl.style.top = y + 'px';
+  }
+
+  hideChartTooltip() {
+    if (this._tipEl) this._tipEl.classList.remove('visible');
+  }
+
+  async loadData() {
+    try {
+      const raw = await this.app.vault.adapter.read(PHONE_DB_JSON_PATH);
+      const data = JSON.parse(raw);
+      this.phones = Array.isArray(data.phones) ? data.phones : [];
+      this.meta = { exportedAt: data.exportedAt || '', count: data.count || this.phones.length };
+      this.loadError = '';
+    } catch (e) {
+      this.phones = [];
+      this.meta = null;
+      this.loadError = '无法读取竞品数据: ' + PHONE_DB_JSON_PATH + '。请先运行 07-Project/2026-Phone-Competitor-DB/scripts/export_phone_db.py 生成。';
+    }
+  }
+
+  /* ---------------- 过滤 / 统计 ---------------- */
+
+  getFiltered() {
+    const f = this.filters;
+    const kw = f.kw.toLowerCase();
+    let list = this.phones.filter(p => {
+      if (f.brand !== 'all' && p.brand !== f.brand) return false;
+      if (f.tier !== 'all' && p.tier !== f.tier) return false;
+      if (f.region !== 'all' && !(p.region || '').includes(f.region)) return false;
+      if (f.year !== 'all' && !(p.releaseDate || '').startsWith(f.year)) return false;
+      if (f.verifiedOnly && p.verifyStatus !== '已核验') return false;
+      if (kw) {
+        const hay = `${p.model} ${p.brand} ${p.series} ${p.soc}`.toLowerCase();
+        if (!hay.includes(kw)) return false;
+      }
+      return true;
+    });
+    const dir = this.sortDesc ? -1 : 1;
+    const key = this.sortKey;
+    list.sort((a, b) => {
+      let va = a[key], vb = b[key];
+      if (key === 'releaseDate') { va = va || ''; vb = vb || ''; return va < vb ? -dir : va > vb ? dir : 0; }
+      va = (va === null || va === undefined) ? -1 : va;
+      vb = (vb === null || vb === undefined) ? -1 : vb;
+      if (typeof va === 'number' && typeof vb === 'number') return (va - vb) * dir;
+      return String(va).localeCompare(String(vb)) * dir;
+    });
+    return list;
+  }
+
+  median(nums) {
+    const arr = nums.filter(v => typeof v === 'number').sort((a, b) => a - b);
+    if (!arr.length) return 0;
+    const m = Math.floor(arr.length / 2);
+    return arr.length % 2 ? arr[m] : Math.round((arr[m - 1] + arr[m]) / 2);
+  }
+
+  distinctCounts(field) {
+    const map = new Map();
+    for (const p of this.phones) {
+      const v = p[field] || '未知';
+      map.set(v, (map.get(v) || 0) + 1);
+    }
+    return [...map.entries()].sort((a, b) => b[1] - a[1]);
+  }
+
+  /* ---------------- 渲染 ---------------- */
+
+  render() {
+    if (!this.el) return;
+    this.el.empty();
+
+    const header = this.el.createDiv({ cls: 'tw-comp-header' });
+    header.createSpan({ cls: 'tw-comp-title', text: '手机竞品分析' });
+    if (this.meta) {
+      header.createSpan({ cls: 'tw-comp-meta', text: `数据 ${this.meta.count} 款 · 导出于 ${this.meta.exportedAt}` });
+    }
+    const reloadBtn = header.createEl('button', { cls: 'tw-comp-reload', title: '重新加载 phones.json' });
+    reloadBtn.innerHTML = `${typeof getIconPark === 'function' ? getIconPark('refresh', 12) : '↻'} 重新加载`;
+    reloadBtn.onclick = async () => {
+      reloadBtn.classList.add('spinning');
+      await this.loadData();
+      reloadBtn.classList.remove('spinning');
+      this.render();
+    };
+
+    if (this.loadError) {
+      const empty = this.el.createDiv({ cls: 'tw-comp-empty' });
+      empty.createDiv({ text: this.loadError });
+      return;
+    }
+
+    this.renderFilterBar();
+    this.renderKpis();
+    this.el.createDiv({ cls: 'tw-comp-charts' });
+    this.renderCharts();
+    this.renderTable();
+    this.renderCompare();
+    this.renderDetail();
+  }
+
+  renderFilterBar() {
+    const bar = this.el.createDiv({ cls: 'tw-comp-filterbar' });
+
+    const chips = bar.createDiv({ cls: 'tw-comp-chips' });
+    const brands = this.distinctCounts('brand');
+    const mkChip = (label, value, count) => {
+      const c = chips.createEl('button', { cls: `tw-comp-chip ${this.filters.brand === value ? 'active' : ''}` });
+      c.textContent = count === undefined ? label : `${label} ${count}`;
+      c.onclick = () => { this.filters.brand = value; this.render(); };
+    };
+    mkChip('全部', 'all');
+    for (const [b, n] of brands) mkChip(b, b, n);
+
+    const selects = bar.createDiv({ cls: 'tw-comp-selects' });
+    const mkSelect = (label, key, options) => {
+      const wrap = selects.createDiv({ cls: 'tw-comp-select-wrap' });
+      wrap.createSpan({ cls: 'tw-comp-select-label', text: label });
+      const sel = wrap.createEl('select', { cls: 'tw-comp-select' });
+      for (const [val, txt] of options) {
+        const opt = sel.createEl('option', { value: val, text: txt });
+        if (this.filters[key] === val) opt.selected = true;
+      }
+      sel.onchange = () => { this.filters[key] = sel.value; this.render(); };
+    };
+    mkSelect('档位:', 'tier', [['all', '全部'], ...COMP_TIER_ORDER.map(t => [t, t])]);
+    mkSelect('区域:', 'region', [['all', '全部'], ...this.distinctCounts('region').slice(0, 6).map(([r]) => [r, r])]);
+    const years = [...new Set(this.phones.map(p => (p.releaseDate || '').slice(0, 4)).filter(y => y.length === 4))].sort().reverse();
+    mkSelect('年份:', 'year', [['all', '全部'], ...years.map(y => [y, y])]);
+
+    const kwInput = bar.createEl('input', { cls: 'tw-comp-search', type: 'text', placeholder: '搜型号 / 系列 / SoC...' });
+    kwInput.value = this.filters.kw;
+    let timer = 0;
+    kwInput.oninput = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => { this.filters.kw = kwInput.value.trim(); this.render(); }, 200);
+    };
+
+    const verLabel = bar.createEl('label', { cls: 'tw-comp-verified' });
+    const verBox = verLabel.createEl('input', { type: 'checkbox' });
+    verBox.checked = this.filters.verifiedOnly;
+    verBox.onchange = () => { this.filters.verifiedOnly = verBox.checked; this.render(); };
+    verLabel.createSpan({ text: '仅已核验' });
+  }
+
+  renderKpis() {
+    const list = this.getFiltered();
+    const row = this.el.createDiv({ cls: 'tw-comp-kpis' });
+    const mk = (label, value, unit) => {
+      const card = row.createDiv({ cls: 'tw-comp-kpi' });
+      card.createDiv({ cls: 'tw-comp-kpi-val', text: String(value) });
+      card.createDiv({ cls: 'tw-comp-kpi-label', text: unit ? `${label} (${unit})` : label });
+    };
+    mk('机型数', list.length);
+    mk('品牌数', new Set(list.map(p => p.brand)).size);
+    mk('电池中位', this.median(list.map(p => p.battery)), 'mAh');
+    mk('快充峰值', Math.max(0, ...list.map(p => p.wiredW || 0)), 'W');
+    mk('发布价中位', this.median(list.map(p => p.launchPrice)), '元');
+  }
+
+  /* ---------------- 图表 ---------------- */
+
+  renderCharts() {
+    const wrap = this.el ? this.el.querySelector('.tw-comp-charts') : null;
+    if (!wrap) return;
+    wrap.empty();
+    const list = this.getFiltered();
+    const W = Math.max(320, wrap.clientWidth || this._chartW || 640);
+    this._chartW = W;
+    const halfW = Math.max(280, Math.floor((W - 12) / 2));
+
+    wrap.createDiv({ cls: 'tw-comp-chart-card', text: '' }).innerHTML = this.chartReleaseTimeline(list, halfW);
+    wrap.createDiv({ cls: 'tw-comp-chart-card', text: '' }).innerHTML = this.chartBrandTier(list, halfW);
+    wrap.createDiv({ cls: 'tw-comp-chart-card', text: '' }).innerHTML = this.chartHistogram(list, 'wiredW', '有线快充分布 (W)', [
+      [0, 33, '<33'], [33, 66, '33-66'], [67, 100, '67-100'], [101, 150, '101-150'], [151, 999, '150+']
+    ], halfW);
+    wrap.createDiv({ cls: 'tw-comp-chart-card', text: '' }).innerHTML = this.chartHistogram(list, 'battery', '电池容量分布 (mAh)', [
+      [0, 3999, '<4000'], [4000, 4999, '4000-5000'], [5000, 5999, '5000-6000'], [6000, 7999, '6000-8000'], [8000, 99999, '8000+']
+    ], halfW);
+  }
+
+  svgFrame(W, H, inner) {
+    return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" style="width:100%;height:100%;display:block;">${inner}</svg>`;
+  }
+
+  chartTitle(text) {
+    return `<div class="tw-comp-chart-title">${text}</div>`;
+  }
+
+  tipPct(v, total) {
+    if (!total) return '0%';
+    const pct = (v / total) * 100;
+    return (pct >= 10 ? Math.round(pct) : pct.toFixed(1)) + '%';
+  }
+
+  chartReleaseTimeline(list, W) {
+    const H = 170;
+    const buckets = new Map();
+    for (const p of list) {
+      const d = p.releaseDate || '';
+      const m = /^(\d{4})-?(\d{2})?/.exec(d);
+      if (!m) continue;
+      const q = m[2] ? Math.floor((parseInt(m[2], 10) - 1) / 3) + 1 : 1;
+      const key = `${m[1]}Q${q}`;
+      if (!buckets.has(key)) buckets.set(key, {});
+      const b = buckets.get(key);
+      b[p.brand] = (b[p.brand] || 0) + 1;
+    }
+    const keys = [...buckets.keys()].sort();
+    const title = this.chartTitle('发布节奏(季度 × 品牌)');
+    if (!keys.length) return title + `<div class="tw-comp-chart-empty">暂无数据</div>`;
+    const topBrands = this.distinctCounts('brand').slice(0, 5).map(([b]) => b);
+    const colorOf = b => COMP_BRAND_COLORS[Math.max(0, topBrands.indexOf(b))] || '#94A3B8';
+    const maxTotal = Math.max(...keys.map(k => Object.values(buckets.get(k)).reduce((a, b) => a + b, 0)));
+    const baseY = H - 26, topY = 14;
+    const bw = Math.min(34, Math.max(8, Math.floor((W - 60) / keys.length) - 6));
+    let inner = '';
+    keys.forEach((k, i) => {
+      const x = 34 + i * ((W - 60) / keys.length) + ((W - 60) / keys.length - bw) / 2;
+      let y = baseY;
+      const b = buckets.get(k);
+      for (const brand of topBrands) {
+        const v = b[brand] || 0;
+        if (!v) continue;
+        const h = (v / maxTotal) * (baseY - topY);
+        y -= h;
+        inner += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw}" height="${h.toFixed(1)}" fill="${colorOf(brand)}" rx="1.5" data-tip="${k} ${brand}: ${v} 款 (${this.tipPct(v, list.length)})"><title>${k} ${brand}: ${v}</title></rect>`;
+      }
+      const other = Object.entries(b).filter(([br]) => !topBrands.includes(br)).reduce((a, [, v]) => a + v, 0);
+      if (other) {
+        const h = (other / maxTotal) * (baseY - topY);
+        y -= h;
+        inner += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw}" height="${h.toFixed(1)}" fill="#94A3B8" rx="1.5" data-tip="${k} 其他: ${other} 款 (${this.tipPct(other, list.length)})"><title>${k} 其他: ${other}</title></rect>`;
+      }
+      if (i % Math.ceil(keys.length / 8) === 0) {
+        inner += `<text x="${(x + bw / 2).toFixed(1)}" y="${H - 8}" font-size="8.5" text-anchor="middle" fill="var(--text-muted,#8b949e)" font-family="monospace">${k}</text>`;
+      }
+    });
+    inner += `<line x1="30" y1="${baseY}" x2="${W - 10}" y2="${baseY}" stroke="var(--background-modifier-border,#E2E8F0)"/>`;
+    const legend = topBrands.map(b => `<span><i style="background:${colorOf(b)}"></i>${b}</span>`).join('') + `<span><i style="background:#94A3B8"></i>其他</span>`;
+    return title + `<div class="tw-comp-chart-body">${this.svgFrame(W, H, inner)}</div><div class="tw-comp-chart-legend">${legend}</div>`;
+  }
+
+  chartBrandTier(list, W) {
+    const H = 170;
+    const title = this.chartTitle('品牌 × 档位');
+    const brands = [...new Set(list.map(p => p.brand))].map(b => [b, list.filter(p => p.brand === b).length]).sort((a, b) => b[1] - a[1]).slice(0, 8);
+    if (!brands.length) return title + `<div class="tw-comp-chart-empty">暂无数据</div>`;
+    const rowH = Math.min(20, Math.floor((H - 16) / brands.length));
+    const maxV = Math.max(...brands.map(([, n]) => n));
+    const barArea = W - 110;
+    let inner = '';
+    brands.forEach(([brand, total], i) => {
+      const y = 8 + i * rowH + 2;
+      const tiers = COMP_TIER_ORDER.map(t => [t, list.filter(p => p.brand === brand && p.tier === t).length]).filter(([, n]) => n > 0);
+      let x = 76;
+      inner += `<text x="72" y="${y + rowH / 2 - 2}" font-size="9" text-anchor="end" fill="var(--text-normal,#333)">${brand}</text>`;
+      for (const [t, n] of tiers) {
+        const w = (n / maxV) * (barArea - 40);
+        inner += `<rect x="${x.toFixed(1)}" y="${y}" width="${w.toFixed(1)}" height="${rowH - 6}" fill="${COMP_TIER_COLORS[t] || '#94A3B8'}" rx="1.5" data-tip="${brand} · ${t}: ${n} 款 (${this.tipPct(n, total)})"><title>${brand} ${t}: ${n}</title></rect>`;
+        x += w;
+      }
+      inner += `<text x="${x + 5}" y="${y + rowH / 2 - 2}" font-size="8.5" fill="var(--text-muted,#8b949e)" font-family="monospace">${total}</text>`;
+    });
+    const legend = COMP_TIER_ORDER.map(t => `<span><i style="background:${COMP_TIER_COLORS[t]}"></i>${t}</span>`).join('');
+    return title + `<div class="tw-comp-chart-body">${this.svgFrame(W, H, inner)}</div><div class="tw-comp-chart-legend">${legend}</div>`;
+  }
+
+  chartHistogram(list, field, titleText, segments, W) {
+    const H = 170;
+    const title = this.chartTitle(titleText);
+    const counts = segments.map(([lo, hi]) => list.filter(p => {
+      const v = p[field];
+      return typeof v === 'number' && v >= lo && v <= hi;
+    }).length);
+    const missing = list.length - counts.reduce((a, b) => a + b, 0);
+    const maxV = Math.max(1, ...counts);
+    const baseY = H - 26, topY = 16;
+    const slot = (W - 50) / segments.length;
+    const bw = Math.min(52, slot - 12);
+    let inner = '';
+    segments.forEach(([lo, hi, label], i) => {
+      const v = counts[i];
+      const h = (v / maxV) * (baseY - topY);
+      const x = 34 + i * slot + (slot - bw) / 2;
+      inner += `<rect x="${x.toFixed(1)}" y="${(baseY - h).toFixed(1)}" width="${bw}" height="${h.toFixed(1)}" fill="#2563EB" opacity="0.75" rx="2" data-tip="${label}: ${v} 款 (${this.tipPct(v, list.length)})"><title>${label}: ${v}</title></rect>`;
+      inner += `<text x="${(x + bw / 2).toFixed(1)}" y="${(baseY - h - 4).toFixed(1)}" font-size="9" text-anchor="middle" fill="var(--text-normal,#333)" font-family="monospace">${v}</text>`;
+      inner += `<text x="${(x + bw / 2).toFixed(1)}" y="${H - 8}" font-size="8.5" text-anchor="middle" fill="var(--text-muted,#8b949e)" font-family="monospace">${label}</text>`;
+    });
+    inner += `<line x1="30" y1="${baseY}" x2="${W - 10}" y2="${baseY}" stroke="var(--background-modifier-border,#E2E8F0)"/>`;
+    const foot = missing > 0 ? `<div class="tw-comp-chart-legend"><span>未标注 ${missing} 款</span></div>` : '';
+    return title + `<div class="tw-comp-chart-body">${this.svgFrame(W, H, inner)}</div>${foot}`;
+  }
+
+  /* ---------------- 表格 / 对比 / 详情 ---------------- */
+
+  renderTable() {
+    const list = this.getFiltered();
+    const box = this.el.createDiv({ cls: 'tw-comp-tablewrap' });
+    const table = box.createEl('table', { cls: 'tw-comp-table' });
+    const thead = table.createEl('thead');
+    const hrow = thead.createEl('tr');
+    const cols = [
+      ['model', '型号'], ['tier', '档位'], ['releaseDate', '发布'], ['soc', 'SoC'],
+      ['battery', '电池'], ['wiredW', '有线'], ['wirelessW', '无线'], ['launchPrice', '发布价'], ['verifyStatus', '核验']
+    ];
+    hrow.createEl('th', { cls: 'tw-comp-th-cmp', text: '对比' });
+    for (const [key, label] of cols) {
+      const th = hrow.createEl('th', { cls: `tw-comp-th ${this.sortKey === key ? 'sorted' : ''}`, text: label + (this.sortKey === key ? (this.sortDesc ? ' ↓' : ' ↑') : '') });
+      th.onclick = () => {
+        if (this.sortKey === key) this.sortDesc = !this.sortDesc;
+        else { this.sortKey = key; this.sortDesc = true; }
+        this.render();
+      };
+    }
+    const tbody = table.createEl('tbody');
+    for (const p of list) {
+      const tr = tbody.createEl('tr');
+      const tdCmp = tr.createEl('td');
+      const cb = tdCmp.createEl('input', { type: 'checkbox' });
+      cb.checked = this.compareIds.includes(p.id);
+      cb.onchange = () => {
+        if (cb.checked) {
+          if (this.compareIds.length >= 4) { cb.checked = false; return; }
+          this.compareIds.push(p.id);
+        } else {
+          this.compareIds = this.compareIds.filter(id => id !== p.id);
+        }
+        this.renderCompare();
+      };
+      const tdModel = tr.createEl('td', { cls: 'tw-comp-td-model' });
+      tdModel.createDiv({ cls: 'tw-comp-model', text: p.model || '(无名)' });
+      tdModel.createDiv({ cls: 'tw-comp-sub', text: `${p.brand}${p.series ? ' · ' + p.series : ''}` });
+      tr.createEl('td', { text: p.tier || '' });
+      tr.createEl('td', { cls: 'tw-comp-mono', text: p.releaseDate || '' });
+      tr.createEl('td', { text: p.soc || '' });
+      tr.createEl('td', { cls: 'tw-comp-mono', text: p.battery !== null ? `${p.battery}` : '-' });
+      tr.createEl('td', { cls: 'tw-comp-mono', text: p.wiredW !== null ? `${p.wiredW}W` : '-' });
+      tr.createEl('td', { cls: 'tw-comp-mono', text: p.wirelessW !== null ? `${p.wirelessW}W` : '-' });
+      tr.createEl('td', { cls: 'tw-comp-mono', text: p.launchPrice !== null ? `¥${p.launchPrice}` : '未发布' });
+      const st = tr.createEl('td');
+      const dotCls = p.verifyStatus === '已核验' ? 'ok' : (p.verifyStatus === '待核实' ? 'warn' : 'mute');
+      st.innerHTML = `<span class="tw-comp-vdot ${dotCls}"></span>${p.verifyStatus}`;
+      tr.onclick = (e) => {
+        if (e.target.tagName === 'INPUT') return;
+        this.detailPhone = p;
+        this.renderDetail();
+      };
+    }
+    if (!list.length) {
+      box.createDiv({ cls: 'tw-comp-empty', text: '当前筛选无匹配机型' });
+    }
+  }
+
+  renderCompare() {
+    const old = this.el.querySelector('.tw-comp-compare');
+    if (old) old.remove();
+    if (!this.compareIds.length) return;
+    const phones = this.compareIds.map(id => this.phones.find(p => p.id === id)).filter(Boolean);
+    const box = this.el.createDiv({ cls: 'tw-comp-compare' });
+    // 对比托盘始终位于机型表之后、详情面板之前
+    const detailEl = this.el.querySelector('.tw-comp-detail');
+    if (detailEl) this.el.insertBefore(box, detailEl);
+    const head = box.createDiv({ cls: 'tw-comp-compare-head' });
+    head.createSpan({ cls: 'tw-comp-title', text: `对比台 (${phones.length}/4)` });
+    const clear = head.createEl('button', { cls: 'tw-comp-reload', text: '清空' });
+    clear.onclick = () => { this.compareIds = []; this.render(); };
+
+    const rows = [
+      ['档位', p => p.tier], ['发布', p => p.releaseDate], ['区域', p => p.region], ['SoC', p => p.soc],
+      ['电池 mAh', p => p.battery, 'max'], ['有线 W', p => p.wiredW, 'max'], ['无线 W', p => p.wirelessW, 'max'],
+      ['屏幕', p => p.screen], ['RAM/ROM', p => `${p.ram} / ${p.rom}`],
+      ['发布价', p => p.launchPrice, 'min'], ['现价', p => p.currentPrice, 'min'], ['核验', p => p.verifyStatus]
+    ];
+    const table = box.createEl('table', { cls: 'tw-comp-table tw-comp-compare-table' });
+    const hrow = table.createEl('thead').createEl('tr');
+    hrow.createEl('th', { text: '参数' });
+    for (const p of phones) hrow.createEl('th', { text: p.model });
+    const tbody = table.createEl('tbody');
+    for (const [label, get, best] of rows) {
+      const tr = tbody.createEl('tr');
+      tr.createEl('td', { cls: 'tw-comp-cmp-label', text: label });
+      const vals = phones.map(get);
+      let bestIdx = -1;
+      if (best) {
+        const nums = vals.map(v => typeof v === 'number' ? v : null);
+        const target = best === 'max' ? Math.max(...nums.filter(v => v !== null)) : Math.min(...nums.filter(v => v !== null));
+        if (nums.filter(v => v !== null).length) bestIdx = nums.indexOf(target);
+      }
+      vals.forEach((v, i) => {
+        const td = tr.createEl('td', { text: v === null || v === undefined || v === '' ? '-' : String(v) });
+        if (i === bestIdx) td.addClass('tw-comp-best');
+      });
+    }
+  }
+
+  renderDetail() {
+    const old = this.el.querySelector('.tw-comp-detail');
+    if (old) old.remove();
+    if (!this.detailPhone) return;
+    const p = this.detailPhone;
+    const panel = this.el.createDiv({ cls: 'tw-comp-detail' });
+    const head = panel.createDiv({ cls: 'tw-comp-detail-head' });
+    head.createSpan({ cls: 'tw-comp-title', text: p.model || '(无名)' });
+    const close = head.createEl('button', { cls: 'tw-comp-reload', text: '关闭' });
+    close.onclick = () => { this.detailPhone = null; this.renderDetail(); };
+    const fields = [
+      ['品牌 / 子品牌', `${p.brand}${p.subBrand ? ' / ' + p.subBrand : ''}`], ['档位 / 系列', `${p.tier} / ${p.series || '-'}`],
+      ['发布日期', p.releaseDate || '-'], ['区域', p.region || '-'], ['SoC', p.soc || '-'],
+      ['电池', p.battery !== null ? `${p.battery} mAh` : '-'], ['有线快充', p.wiredW !== null ? `${p.wiredW} W` : '-'],
+      ['无线快充', p.wirelessW !== null ? `${p.wirelessW} W` : '-'], ['屏幕', p.screen || '-'],
+      ['RAM / ROM', `${p.ram || '-'} / ${p.rom || '-'}`], ['发布价', p.launchPrice !== null ? `¥${p.launchPrice}` : '未发布'],
+      ['现价', p.currentPrice !== null ? `¥${p.currentPrice}` : '-'], ['核验状态', p.verifyStatus],
+      ['备注', p.notes || '-'], ['更新于', p.updatedAt || '-']
+    ];
+    const body = panel.createDiv({ cls: 'tw-comp-detail-body' });
+    for (const [k, v] of fields) {
+      const row = body.createDiv({ cls: 'tw-comp-detail-row' });
+      row.createSpan({ cls: 'tw-comp-detail-k', text: k });
+      row.createSpan({ cls: 'tw-comp-detail-v', text: v });
+    }
+  }
+}
+
 const DEFAULT_SETTINGS = {
   jira: {
     type: 'datacenter', // 'cloud' | 'datacenter'
@@ -14663,6 +23291,32 @@ const DEFAULT_SETTINGS = {
       username: '',
       secretName: 'tabonkb-unisoc-password'
     }
+  },
+  weknora: {
+    baseUrl: '',
+    defaultKb: '',
+    secretName: 'tabonkb-weknora-apikey',
+    topoEnabled: false,
+    topoGrouping: 'semantic',
+    topoLimit: 300,
+    topoTtlHours: 24,
+    syncFolders: [
+      '01-Platform',
+      '02-OS-Kernel',
+      '03-Driver',
+      '04-Debug',
+      '05-Toolchain',
+      '06-Spec',
+      '07-Project'
+    ]
+  },
+  clipInliner: {
+    enabled: true,
+    folderPrefix: '00-Inbox/',
+    maxImages: 30,
+    maxBytes: 10485760,
+    minBytes: 2048,
+    debounceMs: 1200
   }
 };
 
@@ -15392,6 +24046,247 @@ class TabonKBSettingTab extends PluginSettingTab {
           }
         });
     });
+
+    // =========================================================================
+    // SECTION 5: WeKnora 团队知识库 (RAG / 检索 / 写入)
+    // =========================================================================
+    containerEl.createEl('h3', { text: '🧠 WeKnora 团队知识库配置' });
+
+    const wkDesc = containerEl.createDiv({ cls: 'setting-item-description', style: 'margin-bottom: 12px;' });
+    wkDesc.textContent = '接入自部署的 WeKnora 知识库服务。配置后, Pi 与 Hermes 两个 Agent 将获得 weknora_search / weknora_ask 等检索、RAG 问答与文档写入工具。API Key 将安全保存在 Obsidian SecretStorage 与 .secrets.json 中, 供子进程读取, 绝不写入任何 Markdown 文件或日志。';
+
+    if (!this.plugin.settings.weknora) {
+      this.plugin.settings.weknora = Object.assign({}, DEFAULT_SETTINGS.weknora);
+    }
+    const wk = this.plugin.settings.weknora;
+
+    // 5.1 Base URL
+    new Setting(containerEl)
+      .setName('WeKnora 服务地址 (Base URL)')
+      .setDesc('WeKnora 部署地址, 例如 http://192.168.1.62:8088 (可不含 /api/v1 后缀, 系统会自动补全)')
+      .addText(text => {
+        text
+          .setPlaceholder('http://192.168.1.62:8088')
+          .setValue(wk.baseUrl || '')
+          .onChange(async (val) => {
+            wk.baseUrl = val.trim();
+            await this.plugin.saveSettings();
+          });
+      });
+
+    // 5.2 API Key (SecretStorage)
+    const wkSecret = wk.secretName || 'tabonkb-weknora-apikey';
+    let pendingWkKey = '';
+    const wkKeySetting = new Setting(containerEl)
+      .setName('WeKnora API Key')
+      .setDesc('在 WeKnora「设置 → API 集成」中创建的 API Key (形如 sk-...)')
+      .addText(text => {
+        text.inputEl.type = 'password';
+        text.inputEl.style.width = '320px';
+        text.setPlaceholder('sk-••••••••••••••••••••••••');
+        this.getCredential(wkSecret).then(existing => {
+          if (existing) {
+            wkKeySetting.setDesc('✅ API Key 已安全保存在 SecretStorage 中（若需更换，直接输入新内容后点击保存）');
+          }
+        });
+        text.onChange((val) => { pendingWkKey = val.trim(); });
+      })
+      .addButton(btn => {
+        btn
+          .setButtonText('💾 保存凭据')
+          .setCta()
+          .onClick(async () => {
+            if (!pendingWkKey) {
+              new Notice('请先输入 WeKnora API Key 后再点击保存');
+              return;
+            }
+            await this.setCredential(wkSecret, pendingWkKey);
+            wkKeySetting.setDesc('✅ API Key 已成功保存至 SecretStorage');
+            new Notice('✓ WeKnora API Key 已安全保存！');
+            pendingWkKey = '';
+          });
+      });
+
+    // 5.3 Default KB
+    new Setting(containerEl)
+      .setName('默认知识库 (名称或 ID)')
+      .setDesc('Agent 未显式指定 kb 时使用的默认知识库; 留空则自动使用第一个知识库。例如: TabonKB')
+      .addText(text => {
+        text
+          .setPlaceholder('如: TabonKB')
+          .setValue(wk.defaultKb || '')
+          .onChange(async (val) => {
+            wk.defaultKb = val.trim();
+            await this.plugin.saveSettings();
+          });
+      });
+
+    // 5.3.1 Sync Folders
+    const currentSyncFolders = Array.isArray(wk.syncFolders) && wk.syncFolders.length > 0
+      ? wk.syncFolders
+      : ['01-Platform', '02-OS-Kernel', '03-Driver', '04-Debug', '05-Toolchain', '06-Spec', '07-Project'];
+    new Setting(containerEl)
+      .setName('知识库同步对比目录 (Sync Folders)')
+      .setDesc(`选择纳入与 WeKnora 对比的根目录清单（逗号分隔，默认已排除 08-Learning）`)
+      .addText(text => {
+        text
+          .setPlaceholder('01-Platform, 02-OS-Kernel, 03-Driver, ...')
+          .setValue(currentSyncFolders.join(', '))
+          .onChange(async (val) => {
+            const arr = val.split(',').map(s => s.trim()).filter(Boolean);
+            wk.syncFolders = arr;
+            await this.plugin.saveSettings();
+          });
+      });
+
+    // 5.4 Test Connection
+    new Setting(containerEl)
+      .setName('连接测试')
+      .setDesc('验证 WeKnora 服务地址与 API Key 是否有效, 并列出可用知识库')
+      .addButton(btn => {
+        btn
+          .setButtonText('测试 WeKnora 连通性')
+          .onClick(async () => {
+            btn.setDisabled(true);
+            btn.setButtonText('正在连接...');
+            try {
+              // 自动保存未点击保存的 Key
+              if (pendingWkKey) {
+                await this.setCredential(wkSecret, pendingWkKey);
+                wkKeySetting.setDesc('✅ API Key 已安全保存在 SecretStorage 中');
+                pendingWkKey = '';
+              }
+              let base = (wk.baseUrl || '').trim().replace(/\/+$/, '');
+              if (!base) {
+                new Notice('❌ 请先填写 WeKnora 服务地址 (Base URL)', 8000);
+                return;
+              }
+              if (!/\/api\/v\d+$/i.test(base)) base = base + '/api/v1';
+              const apiKey = await this.getCredential(wkSecret);
+              if (!apiKey) {
+                new Notice('❌ 请先录入并保存 WeKnora API Key', 8000);
+                return;
+              }
+              const res = await requestUrl({
+                url: `${base}/knowledge-bases`,
+                method: 'GET',
+                headers: { 'X-API-Key': apiKey }
+              });
+              if (res.status === 200) {
+                const list = (res.json && (res.json.data || res.json.knowledge_bases)) || [];
+                const n = Array.isArray(list) ? list.length : 0;
+                new Notice(`✓ WeKnora 连接成功！发现 ${n} 个知识库。`, 8000);
+              } else if (res.status === 401 || res.status === 403) {
+                new Notice(`❌ 鉴权失败 (HTTP ${res.status})，请确认 API Key 有效且具备读取权限`, 8000);
+              } else {
+                new Notice(`❌ 连接返回 HTTP ${res.status}，请检查 Base URL 与凭据`, 8000);
+              }
+            } catch (e) {
+              if (e.status === 401 || e.message?.includes('401')) {
+                new Notice('❌ 凭据鉴权失败 (HTTP 401)，请重新创建/复制 API Key 并保存', 8000);
+              } else if (e.status === 404 || e.message?.includes('404')) {
+                new Notice('❌ 接口返回 404：请确认 Base URL 与 /api/v1 路径正确', 8000);
+              } else {
+                new Notice(`❌ 连接测试失败: ${e.message || e}`, 8000);
+              }
+            } finally {
+              btn.setDisabled(false);
+              btn.setButtonText('测试 WeKnora 连通性');
+            }
+          });
+      });
+
+    // 5.5 拓扑导入开关
+    new Setting(containerEl)
+      .setName('研发知识拓扑导入 WeKnora 图谱')
+      .setDesc('开启后, 首页「研发知识拓扑」将联邦合并 WeKnora Wiki 链接图谱 (服务端切片 top-N + 磁盘缓存, 不常驻内存)。样式沿用 Obsidian 原生拓扑主题。')
+      .addToggle(toggle => {
+        toggle
+          .setValue(!!wk.topoEnabled)
+          .onChange(async (val) => {
+            wk.topoEnabled = val;
+            await this.plugin.saveSettings();
+            new Notice(val ? '✓ 已开启 WeKnora 拓扑导入, 重开工作台页生效' : 'WeKnora 拓扑导入已关闭');
+          });
+      });
+
+    // 5.6 归簇策略
+    new Setting(containerEl)
+      .setName('WeKnora 节点归簇策略')
+      .setDesc('语义归簇: 按标题关键词并入 Charger/Display/Power 等现有模块 (主题最纯净); 独立分组: 新增 WK-Entity/WK-Concept/WK-Summary 三个同族色模块与胶囊。')
+      .addDropdown(dd => {
+        dd
+          .addOption('semantic', '语义归簇 (默认)')
+          .addOption('wk', '独立 WK 分组')
+          .setValue(wk.topoGrouping || 'semantic')
+          .onChange(async (val) => {
+            wk.topoGrouping = val;
+            await this.plugin.saveSettings();
+          });
+      });
+
+    // 5.7 切片规模
+    new Setting(containerEl)
+      .setName('图谱切片规模 (top-N)')
+      .setDesc('服务端按连接度切取的最多节点数 (50-500, 默认 300)。你的库全图约 4900+ 节点, 切勿贪大; 内存中另含 vault 图, 总量封顶 800。')
+      .addText(text => {
+        text
+          .setPlaceholder('300')
+          .setValue(String(wk.topoLimit || 300))
+          .onChange(async (val) => {
+            const n = parseInt(val, 10);
+            wk.topoLimit = isNaN(n) ? 300 : Math.max(50, Math.min(500, n));
+            await this.plugin.saveSettings();
+          });
+      });
+
+    // 5.8 缓存 TTL + 立即同步
+    new Setting(containerEl)
+      .setName('缓存有效期 (小时) 与立即同步')
+      .setDesc('磁盘缓存 weknora-graph-cache.json 的 TTL (默认 24h), 过期后下次打开工作台自动重拉; 「立即同步」强制刷新。')
+      .addText(text => {
+        text
+          .setPlaceholder('24')
+          .setValue(String(wk.topoTtlHours || 24))
+          .onChange(async (val) => {
+            const n = parseInt(val, 10);
+            wk.topoTtlHours = isNaN(n) ? 24 : Math.max(1, Math.min(168, n));
+            await this.plugin.saveSettings();
+          });
+      })
+      .addButton(btn => {
+        btn
+          .setButtonText('⬇ 立即同步 WeKnora 图谱')
+          .onClick(async () => {
+            btn.setDisabled(true);
+            btn.setButtonText('同步中...');
+            try {
+              const leaves = this.app.workspace.getLeavesOfType('tabonkb-workbench-view');
+              const view = leaves && leaves[0] && leaves[0].view;
+              if (!view || typeof view.scheduleWeknoraMerge !== 'function') {
+                new Notice('❌ 请先打开研发工作台页后再同步', 8000);
+                return;
+              }
+              view.scheduleWeknoraMerge(true);
+              new Notice('✓ 已触发 WeKnora 图谱同步 (后台执行)');
+            } finally {
+              btn.setDisabled(false);
+              btn.setButtonText('⬇ 立即同步 WeKnora 图谱');
+            }
+          });
+      });
+
+    containerEl.createEl('h3', { text: '网页剪藏 · 图片 Data URL' });
+    const ci = this.plugin.settings.clipInliner || (this.plugin.settings.clipInliner = JSON.parse(JSON.stringify(DEFAULT_SETTINGS.clipInliner)));
+    new Setting(containerEl)
+      .setName('剪藏落地时把外链图转为 Data URL')
+      .setDesc('官方 Clipper 无法在扩展里转码。笔记写入 00-Inbox 后，工作台自动拉取 http(s) 图并写成 data:image；已是 Data URL 的跳过。供 WeKnora 多模态解析。')
+      .addToggle(toggle => {
+        toggle.setValue(ci.enabled !== false).onChange(async (val) => {
+          ci.enabled = val;
+          await this.plugin.saveSettings();
+        });
+      });
   }
 }
 
@@ -15408,7 +24303,19 @@ const MODULE_COLORS = {
   Toolchain: '#6366F1',
   Audio: '#06B6D4',
   Touch: '#0EA5E9',
+  'WK-Entity': '#EC4899',
+  'WK-Concept': '#F59E0B',
+  'WK-Summary': '#84CC16',
+  'WK-Other': '#9CA3AF',
   General: '#94A3B8'
+};
+
+// 星云银河主题的霓虹模块色板 (暗底高饱和微点)
+const NEBULA_MODULE_COLORS = {
+  Display: '#38BDF8', Camera: '#4ADE80', Charger: '#22D3EE', Power: '#34D399',
+  Crash: '#F472B6', Spec: '#A3E635', Toolchain: '#FBBF24', Audio: '#2DD4BF',
+  Touch: '#22D3EE', 'WK-Entity': '#E879F9', 'WK-Concept': '#FACC15',
+  'WK-Summary': '#34D399', 'WK-Other': '#A3A3A3', General: '#8B8B8B'
 };
 
 const DEFAULT_TASKS = [
@@ -15707,7 +24614,10 @@ class ForceGraphCanvas {
       Spec:      { x:   10, y:   45, w: 165, h: 110, icon: '🛡️', label: 'Spec · 7' },
       Power:     { x: -95,  y:  -45, w: 120, h:  85, icon: '🔋', label: 'Power · 3' },
       Crash:     { x:  155, y:  -50, w: 130, h:  90, icon: '⚠️', label: 'Crash · 3' },
-      Toolchain: { x:  140, y:   95, w: 135, h:  95, icon: '🛠️', label: 'Toolchain · 2' }
+      Toolchain: { x:  140, y:   95, w: 135, h: 95, icon: '🛠️', label: 'Toolchain · 2' },
+      'WK-Entity':  { x:  -30, y:  165, w: 150, h: 95, icon: '🧠', label: 'WK-Entity' },
+      'WK-Concept': { x:  130, y:  165, w: 150, h: 95, icon: '💡', label: 'WK-Concept' },
+      'WK-Summary': { x: -190, y:  165, w: 150, h: 95, icon: '📄', label: 'WK-Summary' }
     };
 
     // Physics & Visual parameters (Defaulted to Theme 5 Immersive with user fine-tuning)
@@ -15840,14 +24750,20 @@ class ForceGraphCanvas {
       partition: '分区卡片架构',
       radial: '环形聚类图谱',
       dark: '暗色极客拓扑',
-      immersive: '柔和科技沉浸式'
+      immersive: '柔和科技沉浸式',
+      nebula: '星云银河',
+      starburst: '星爆茧环',
+      graphite: '石墨疏朗'
     };
     const themeDescs = {
       classic: '清爽极简 · 平衡耐看',
       partition: '独立虚线分区 · 架构分明',
       radial: '同心轨道 · 规范居中',
       dark: '深黑底色 · 荧光网络',
-      immersive: '浅色微光晕 + 微点阵'
+      immersive: '浅色微光晕 + 微点阵',
+      nebula: '暗底彩微点 · 灰晕枢纽',
+      starburst: '银白扇簇 · 外环点阵',
+      graphite: '浅底灰阶 · 疏朗宁静'
     };
 
     this.settingsPopover.innerHTML = `
@@ -15868,6 +24784,9 @@ class ForceGraphCanvas {
           <option value="radial" ${this.currentTheme==='radial'?'selected':''}>3 环形聚类图谱 (同心轨道 · 规范居中)</option>
           <option value="dark" ${this.currentTheme==='dark'?'selected':''}>4 暗色极客拓扑 (深黑底色 · 荧光网络)</option>
           <option value="immersive" ${this.currentTheme==='immersive'?'selected':''}>5 柔和科技沉浸式 (浅色微光晕 + 微点阵)</option>
+          <option value="nebula" ${this.currentTheme==='nebula'?'selected':''}>6 星云银河 (暗底彩微点 · 灰晕枢纽)</option>
+          <option value="starburst" ${this.currentTheme==='starburst'?'selected':''}>7 星爆茧环 (银白扇簇 · 外环点阵)</option>
+          <option value="graphite" ${this.currentTheme==='graphite'?'selected':''}>8 石墨疏朗 (浅底灰阶 · 疏朗宁静)</option>
         </select>
       </div>
 
@@ -16123,8 +25042,12 @@ class ForceGraphCanvas {
     });
 
     if (this.statBadge) {
-      this.statBadge.setText(`${this.nodes.length} Nodes · ${this.edges.length} Relations`);
+      const wkCount = this.nodes.filter(n => n.source === 'weknora').length;
+      this.statBadge.setText(`${this.nodes.length} Nodes · ${this.edges.length} Relations` + (wkCount ? ` (含 WeKnora ${wkCount})` : ''));
     }
+
+    // 动态胶囊: 数据中存在但静态图例未登记的模块 (如 WK-* 独立分组) 按原生样式补登记
+    this.syncFilterPills(countsByMod);
 
     // Update filter counts
     this.filterModules.forEach(m => {
@@ -16135,13 +25058,38 @@ class ForceGraphCanvas {
       }
     });
 
+    this.nodes.forEach(n => {
+      n.x = undefined;
+      n.y = undefined;
+      n.vx = 0;
+      n.vy = 0;
+    });
     this.applyThemeLayout(this.currentTheme);
 
-    this.transform = { x: 0, y: 0, scale: 1 };
     this.alpha = 1.0;
     this.hasFitted = false;
     this.updateStatusText('拓扑收敛计算中...', false);
+    this.fitBounds(0.78);
     this.startSimulation();
+  }
+
+  syncFilterPills(countsByMod) {
+    const known = new Set(this.filterModules.map(m => m.id));
+    Object.keys(countsByMod || {}).forEach(mod => {
+      if (mod === 'all' || known.has(mod) || !countsByMod[mod]) return;
+      const sample = this.nodes.find(n => n.module === mod);
+      const def = { id: mod, label: mod, color: (sample && sample.color) || '#94A3B8' };
+      this.filterModules.push(def);
+      known.add(mod);
+      const pill = this.filterBar.createSpan({ cls: 'tw-graph-pill' });
+      pill.innerHTML = `<span class="tw-pill-dot" style="background:${def.color}"></span><span>${def.label}</span><span class="tw-pill-count" id="pillCount_${mod}"></span>`;
+      pill.onclick = () => {
+        this.filterBar.querySelectorAll('.tw-graph-pill').forEach(p => p.removeClass('active'));
+        pill.addClass('active');
+        this.filterModule(mod);
+      };
+      this.filterPillsMap.set(mod, pill);
+    });
   }
 
   applyThemeLayout(themeKey = this.currentTheme) {
@@ -16160,7 +25108,11 @@ class ForceGraphCanvas {
         Display:   { ring: 140 * spread, angle: 155 },
         Camera:    { ring: 140 * spread, angle: 215 },
         Crash:     { ring: 210 * spread, angle: 275 },
-        Toolchain: { ring: 210 * spread, angle: 335 }
+        Toolchain: { ring: 210 * spread, angle: 335 },
+        'WK-Entity':  { ring: 250 * spread, angle: 60 },
+        'WK-Concept': { ring: 250 * spread, angle: 180 },
+        'WK-Summary': { ring: 250 * spread, angle: 300 },
+        'WK-Other':   { ring: 285 * spread, angle: 0 }
       };
 
       this.nodes.forEach(n => {
@@ -16200,6 +25152,10 @@ class ForceGraphCanvas {
         Toolchain: { x:  130 * spread, y:  100 * spread },
         Power:     { x:  -60 * spread, y:  -25 * spread },
         Audio:     { x:  -90 * spread, y:   25 * spread },
+        'WK-Entity':  { x:  -30 * spread, y:  135 * spread },
+        'WK-Concept': { x:   90 * spread, y:  135 * spread },
+        'WK-Summary': { x: -150 * spread, y:  135 * spread },
+        'WK-Other':   { x:   15 * spread, y:  160 * spread },
         General:   { x:   15 * spread, y:   15 * spread }
       };
       this.nodes.forEach(n => {
@@ -16209,6 +25165,92 @@ class ForceGraphCanvas {
         if (n.x === undefined || Math.abs(n.x - cx) < 2) {
           n.x = n.clusterX + (Math.random() - 0.5) * 30;
           n.y = n.clusterY + (Math.random() - 0.5) * 30;
+        }
+      });
+
+    } else if (themeKey === 'nebula') {
+      // 星云银河: 簇心收缩成有机球体 + 大初始抖动
+      const offs = {
+        Display: { x: -100, y: -62 }, Camera: { x: -6, y: -74 }, Crash: { x: 104, y: -20 },
+        Charger: { x: -95, y: 50 }, Spec: { x: 18, y: 44 }, Toolchain: { x: 92, y: 68 },
+        Power: { x: -47, y: -18 }, Audio: { x: -65, y: 18 }, General: { x: 12, y: 12 },
+        'WK-Entity': { x: -12, y: 96 }, 'WK-Concept': { x: 60, y: 96 }, 'WK-Summary': { x: -95, y: 96 }, 'WK-Other': { x: 12, y: 112 }
+      };
+      this.nodes.forEach(n => {
+        const o = offs[n.module] || offs.General;
+        n.clusterX = cx + o.x * spread + (Math.random() - 0.5) * 46;
+        n.clusterY = cy + o.y * spread + (Math.random() - 0.5) * 46;
+        if (n.x === undefined || Math.abs(n.x - cx) < 2) {
+          n.x = n.clusterX + (Math.random() - 0.5) * 30;
+          n.y = n.clusterY + (Math.random() - 0.5) * 30;
+        }
+      });
+
+    } else if (themeKey === 'starburst') {
+      // 星爆茧环: 枢纽内环分布, 叶节点扇形展开, 孤立点外椭圆环
+      const deg = new Map();
+      this.edges.forEach(e => {
+        deg.set(e.source, (deg.get(e.source) || 0) + 1);
+        deg.set(e.target, (deg.get(e.target) || 0) + 1);
+      });
+      const hubs = this.nodes.filter(n => (deg.get(n.id) || 0) >= 6 || n.isCoreAnchor);
+      const hubSet = new Set(hubs.map(h => h.id));
+      hubs.forEach((h, i) => {
+        const ang = (i / Math.max(1, hubs.length)) * Math.PI * 2 + 0.7;
+        const rad = (i % 2 === 0 ? 85 : 145) * spread;
+        h.clusterX = cx + rad * Math.cos(ang);
+        h.clusterY = cy + rad * Math.sin(ang);
+        h._fanSlot = 0;
+      });
+      const hubOf = new Map();
+      this.edges.forEach(e => {
+        if (hubSet.has(e.target) && !hubSet.has(e.source)) hubOf.set(e.source, e.target);
+        else if (hubSet.has(e.source) && !hubSet.has(e.target)) hubOf.set(e.target, e.source);
+      });
+      this.nodes.forEach(n => {
+        if (hubSet.has(n.id)) {
+          n.x = n.clusterX + (Math.random() - 0.5) * 4;
+          n.y = n.clusterY + (Math.random() - 0.5) * 4;
+          return;
+        }
+        const hid = hubOf.get(n.id);
+        if (hid) {
+          const h = this.nodeMap.get(hid);
+          if (h) {
+            const slot = h._fanSlot || 0; h._fanSlot = slot + 1;
+            const baseAng = Math.atan2(h.clusterY - cy, h.clusterX - cx);
+            const ang = baseAng + ((slot % 14) - 7) * 0.15;
+            const rad = 13 + Math.floor(slot / 14) * 5 + (slot % 3);
+            n.clusterX = h.clusterX + rad * Math.cos(ang);
+            n.clusterY = h.clusterY + rad * Math.sin(ang);
+          } else { n.clusterX = cx; n.clusterY = cy; }
+        } else if ((deg.get(n.id) || 0) <= 1) {
+          const ang = Math.random() * Math.PI * 2;
+          n.clusterX = cx + (this.width || 600) * 0.45 * spread * Math.cos(ang);
+          n.clusterY = cy + (this.height || 420) * 0.45 * spread * Math.sin(ang);
+        } else {
+          n.clusterX = cx + (Math.random() - 0.5) * 130 * spread;
+          n.clusterY = cy + (Math.random() - 0.5) * 95 * spread;
+        }
+        n.x = n.clusterX + (Math.random() - 0.5) * 5;
+        n.y = n.clusterY + (Math.random() - 0.5) * 5;
+      });
+
+    } else if (themeKey === 'graphite') {
+      // 石墨疏朗: 簇距拉宽 + 大抖动, 灰阶稀疏感
+      const offs = {
+        Display: { x: -225, y: -135 }, Camera: { x: -13, y: -160 }, Crash: { x: 230, y: -45 },
+        Charger: { x: -210, y: 110 }, Spec: { x: 40, y: 98 }, Toolchain: { x: 205, y: 150 },
+        Power: { x: -105, y: -40 }, Audio: { x: -145, y: 40 }, General: { x: 26, y: 26 },
+        'WK-Entity': { x: -26, y: 215 }, 'WK-Concept': { x: 130, y: 215 }, 'WK-Summary': { x: -210, y: 215 }, 'WK-Other': { x: 26, y: 245 }
+      };
+      this.nodes.forEach(n => {
+        const o = offs[n.module] || offs.General;
+        n.clusterX = cx + o.x * spread;
+        n.clusterY = cy + o.y * spread;
+        if (n.x === undefined || Math.abs(n.x - cx) < 2) {
+          n.x = n.clusterX + (Math.random() - 0.5) * 44;
+          n.y = n.clusterY + (Math.random() - 0.5) * 44;
         }
       });
 
@@ -16223,6 +25265,10 @@ class ForceGraphCanvas {
         Toolchain: { x:  155 * spread, y:  115 * spread },
         Power:     { x:  -80 * spread, y:  -30 * spread },
         Audio:     { x: -110 * spread, y:   30 * spread },
+        'WK-Entity':  { x:  -20 * spread, y:  165 * spread },
+        'WK-Concept': { x:  100 * spread, y:  165 * spread },
+        'WK-Summary': { x: -160 * spread, y:  165 * spread },
+        'WK-Other':   { x:   20 * spread, y:  190 * spread },
         General:   { x:   20 * spread, y:   20 * spread }
       };
       this.nodes.forEach(n => {
@@ -16246,14 +25292,20 @@ class ForceGraphCanvas {
       partition: '分区卡片架构',
       radial: '环形聚类图谱',
       dark: '暗色极客拓扑',
-      immersive: '柔和科技沉浸式'
+      immersive: '柔和科技沉浸式',
+      nebula: '星云银河',
+      starburst: '星爆茧环',
+      graphite: '石墨疏朗'
     };
     const themeDescs = {
       classic: '清爽极简 · 平衡耐看',
       partition: '独立虚线分区 · 架构分明',
       radial: '同心轨道 · 规范居中',
       dark: '深黑底色 · 荧光网络',
-      immersive: '浅色微光晕 + 微点阵'
+      immersive: '浅色微光晕 + 微点阵',
+      nebula: '暗底彩微点 · 灰晕枢纽',
+      starburst: '银白扇簇 · 外环点阵',
+      graphite: '浅底灰阶 · 疏朗宁静'
     };
     this.updateStatusText(`✓ ${themeNames[themeKey] || themeKey} 就绪`, true);
 
@@ -16322,10 +25374,15 @@ class ForceGraphCanvas {
       const n1 = this.nodes[i];
       for (let j = i + 1; j < this.nodes.length; j++) {
         const n2 = this.nodes[j];
-        const dx = n2.x - n1.x;
-        const dy = n2.y - n1.y;
+        let dx = n2.x - n1.x;
+        let dy = n2.y - n1.y;
         let d2 = dx * dx + dy * dy;
-        if (d2 === 0) d2 = 1;
+        if (!(d2 > 0.01)) {
+          const ang = (i * 2.399963 + j) % (Math.PI * 2);
+          dx = Math.cos(ang);
+          dy = Math.sin(ang);
+          d2 = 1;
+        }
         const d = Math.sqrt(d2);
 
         if (d < 200) {
@@ -16354,7 +25411,7 @@ class ForceGraphCanvas {
       const targetDist = isSameModule ? linkDistance : crossClusterDistance;
       const strength = isSameModule ? linkStrength : (linkStrength * 0.25);
 
-      const displacement = d - targetDist;
+      const displacement = Math.max(-48, Math.min(48, d - targetDist));
       const force = displacement * strength * (e.weight || 1.0) * this.alpha;
       const fx = (dx / d) * force;
       const fy = (dy / d) * force;
@@ -16380,8 +25437,17 @@ class ForceGraphCanvas {
 
       n.vx *= friction;
       n.vy *= friction;
+      const maxV = 18;
+      n.vx = Math.max(-maxV, Math.min(maxV, n.vx));
+      n.vy = Math.max(-maxV, Math.min(maxV, n.vy));
       n.x += n.vx;
       n.y += n.vy;
+      if (!Number.isFinite(n.x) || !Number.isFinite(n.y) || Math.abs(n.x) > 8000 || Math.abs(n.y) > 8000) {
+        n.x = (n.clusterX != null) ? n.clusterX : cx;
+        n.y = (n.clusterY != null) ? n.clusterY : cy;
+        n.vx = 0;
+        n.vy = 0;
+      }
     }
 
     // 4. Collision Avoidance (guarantees no node overlaps)
@@ -16410,12 +25476,14 @@ class ForceGraphCanvas {
     if (this.nodes.length === 0) return;
     let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
     this.nodes.forEach(n => {
+      if (!Number.isFinite(n.x) || !Number.isFinite(n.y)) return;
       const pad = (n.radius || 4) + 16;
       if (n.x - pad < minX) minX = n.x - pad;
       if (n.x + pad > maxX) maxX = n.x + pad;
       if (n.y - pad < minY) minY = n.y - pad;
       if (n.y + pad > maxY) maxY = n.y + pad;
     });
+    if (minX === Infinity) return;
 
     const gw = maxX - minX || 1;
     const gh = maxY - minY || 1;
@@ -16424,10 +25492,10 @@ class ForceGraphCanvas {
 
     const scaleX = targetW / gw;
     const scaleY = targetH / gh;
-    const newScale = Math.min(Math.max(Math.min(scaleX, scaleY), 0.65), 2.2);
-
+    const newScale = Math.min(Math.max(Math.min(scaleX, scaleY), 0.18), 2.2);
     const midX = (minX + maxX) / 2;
     const midY = (minY + maxY) / 2;
+    if (!Number.isFinite(newScale) || !Number.isFinite(midX) || !Number.isFinite(midY)) return;
 
     this.transform.scale = newScale;
     this.transform.x = this.width / 2 - midX * newScale;
@@ -16447,7 +25515,11 @@ class ForceGraphCanvas {
     if (!this.ctx) return;
     const ctx = this.ctx;
     const dpr = this.canvas.width / (this.width || 1) || Math.max(window.devicePixelRatio || 1, 2);
+    if (!Number.isFinite(this.transform.x) || !Number.isFinite(this.transform.y) || !Number.isFinite(this.transform.scale) || this.transform.scale <= 0) {
+      this.transform = { x: 0, y: 0, scale: 1 };
+    }
 
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.save();
     ctx.scale(dpr, dpr);
 
@@ -16500,6 +25572,15 @@ class ForceGraphCanvas {
       for (let y = 0; y < this.height; y += gStep) { ctx.moveTo(0, y); ctx.lineTo(this.width, y); }
       ctx.stroke();
       ctx.restore();
+    } else if (this.currentTheme === 'nebula') {
+      ctx.fillStyle = '#161616';
+      ctx.fillRect(0, 0, this.width, this.height);
+    } else if (this.currentTheme === 'starburst') {
+      ctx.fillStyle = '#0D0D0D';
+      ctx.fillRect(0, 0, this.width, this.height);
+    } else if (this.currentTheme === 'graphite') {
+      ctx.fillStyle = '#FAFAFA';
+      ctx.fillRect(0, 0, this.width, this.height);
     }
 
     // Camera transform
@@ -16586,7 +25667,7 @@ class ForceGraphCanvas {
       modGroups.get(mod).push(n);
     }
 
-    if (this.currentTheme !== 'partition') {
+    if (this.currentTheme !== 'partition' && this.currentTheme !== 'nebula' && this.currentTheme !== 'starburst' && this.currentTheme !== 'graphite') {
       modGroups.forEach((nodeList, mod) => {
         if (nodeList.length === 0 || !mod || mod === 'undefined') return;
         let cMinX = Infinity, cMaxX = -Infinity, cMinY = Infinity, cMaxY = -Infinity;
@@ -16602,6 +25683,7 @@ class ForceGraphCanvas {
         }
         const avgX = sumX / nodeList.length;
         const avgY = sumY / nodeList.length;
+        if (!Number.isFinite(avgX) || !Number.isFinite(avgY)) return;
         const modColor = MODULE_COLORS[mod] || MODULE_COLORS.General;
 
         if (this.currentTheme !== 'immersive') {
@@ -16637,6 +25719,7 @@ class ForceGraphCanvas {
       const source = this.nodeMap.get(e.source);
       const target = this.nodeMap.get(e.target);
       if (!source || !target) continue;
+      if (!Number.isFinite(source.x) || !Number.isFinite(source.y) || !Number.isFinite(target.x) || !Number.isFinite(target.y)) continue;
 
       const isCross = source.module !== target.module;
       const isConnected = activeNode && (e.source === activeNode.id || e.target === activeNode.id);
@@ -16645,6 +25728,9 @@ class ForceGraphCanvas {
       let alpha = (this.currentTheme === 'dark' ? (isCross ? 0.18 : 0.38) : (isCross ? 0.20 : 0.40)) * edgeScale;
       // Normal edge: delicate hairline (normalized by zoom scale)
       let lineWidth = 0.55 / curScale;
+      if (this.currentTheme === 'nebula') { strokeColor = '#9AA0A6'; alpha = (isCross ? 0.05 : 0.10) * edgeScale; lineWidth = 0.40 / curScale; }
+      else if (this.currentTheme === 'starburst') { strokeColor = '#C8C8C8'; alpha = (isCross ? 0.10 : 0.26) * edgeScale; lineWidth = 0.45 / curScale; }
+      else if (this.currentTheme === 'graphite') { strokeColor = '#9B9B9B'; alpha = (isCross ? 0.10 : 0.22) * edgeScale; lineWidth = 0.50 / curScale; }
 
       if (activeNode) {
         if (isConnected) {
@@ -16682,6 +25768,7 @@ class ForceGraphCanvas {
     const nScale = this.params.nodeScale || 1.0;
     for (let i = 0; i < this.nodes.length; i++) {
       const n = this.nodes[i];
+      if (!Number.isFinite(n.x) || !Number.isFinite(n.y)) continue;
       const isSelected = this.selectedNode && this.selectedNode.id === n.id;
       const isHovered = this.hoveredNode && this.hoveredNode.id === n.id;
       const isNeighbor = activeNode && this.adjMap.get(activeNode.id)?.has(n.id);
@@ -16706,6 +25793,43 @@ class ForceGraphCanvas {
       if (isSelected) r = 7.5 * nScale;
 
       const baseColor = n.color || '#0EA5E9';
+
+      // 新三主题: 极简圆点渲染 (nebula 灰晕枢纽 / starburst 银白扇点 / graphite 灰阶度节点)
+      const th = this.currentTheme;
+      if (th === 'nebula' || th === 'starburst' || th === 'graphite') {
+        const deg = n.referenceCount || 0;
+        let fill = baseColor;
+        if (th === 'nebula') {
+          r = Math.max(1.1, Math.min(4.5, 1.1 + deg * 0.22)) * nScale;
+          fill = NEBULA_MODULE_COLORS[n.module] || baseColor;
+        } else if (th === 'starburst') {
+          r = (deg >= 6 ? 3.4 : deg >= 3 ? 2.0 : 1.2) * nScale;
+          fill = deg >= 6 ? (n.source === 'weknora' ? '#35D07F' : '#4DA3FF') : (deg <= 1 ? '#66D9EF' : '#D9D9D9');
+        } else {
+          r = Math.max(1.6, Math.min(6.5, 1.6 + deg * 0.35)) * nScale;
+          fill = deg >= 6 ? '#4B4B4B' : deg >= 3 ? '#6F6F6F' : '#9A9A9A';
+        }
+        if (isSelected) r = 6.5 * nScale;
+        if (th === 'nebula' && deg >= 6) {
+          ctx.beginPath();
+          ctx.arc(n.x, n.y, r + 7 * nScale, 0, Math.PI * 2);
+          ctx.fillStyle = 'rgba(160, 160, 160, 0.30)';
+          ctx.fill();
+        }
+        if (isSelected || isHovered) {
+          ctx.beginPath();
+          ctx.arc(n.x, n.y, r + 2.2, 0, Math.PI * 2);
+          ctx.strokeStyle = th === 'graphite' ? '#111111' : '#FFFFFF';
+          ctx.lineWidth = 1.0 / curScale;
+          ctx.stroke();
+        }
+        ctx.beginPath();
+        ctx.arc(n.x, n.y, r, 0, Math.PI * 2);
+        ctx.fillStyle = fill;
+        ctx.fill();
+        ctx.restore();
+        continue;
+      }
 
       if (isSelected) {
         // Selected: Outer glow
@@ -16775,13 +25899,15 @@ class ForceGraphCanvas {
     // 4. Draw Canvas Labels ONLY for Center Landmarks (or currently hovered/selected node)
     for (let i = 0; i < this.nodes.length; i++) {
       const n = this.nodes[i];
+      if (!Number.isFinite(n.x) || !Number.isFinite(n.y)) continue;
       const isSelected = this.selectedNode && this.selectedNode.id === n.id;
       const isHovered = this.hoveredNode && this.hoveredNode.id === n.id;
       
       // User requirement 1: "知识图谱 这里只需要显示中心点的文字即可"
       // Default: ONLY show text for center hub points (1 per cluster)
       // Dynamic: show text when a node is hovered or selected
-      const shouldDrawLabel = isSelected || isHovered || (n.isCoreAnchor && !activeNode);
+      const noAnchorLabel = this.currentTheme === 'nebula' || this.currentTheme === 'starburst';
+      const shouldDrawLabel = isSelected || isHovered || (n.isCoreAnchor && !activeNode && !noAnchorLabel);
 
       if (shouldDrawLabel) {
         const text = n.displayName || n.title;
@@ -16794,14 +25920,14 @@ class ForceGraphCanvas {
         const labelY = n.y;
 
         // Proportional white halo stroke (avoids drowning 3px micro-fonts)
-        ctx.strokeStyle = (this.currentTheme === 'dark') ? 'rgba(15, 23, 42, 0.92)' : 'rgba(255, 255, 255, 0.95)';
+        ctx.strokeStyle = (this.currentTheme === 'dark' || this.currentTheme === 'nebula' || this.currentTheme === 'starburst') ? 'rgba(15, 23, 42, 0.92)' : 'rgba(255, 255, 255, 0.95)';
         ctx.lineWidth = Math.max(0.8, Math.min(2.8, fSize * 0.26)) / curScale;
         ctx.lineJoin = 'round';
         ctx.strokeText(text, labelX, labelY);
 
-        ctx.fillStyle = (this.currentTheme === 'dark') 
+        ctx.fillStyle = (this.currentTheme === 'dark' || this.currentTheme === 'nebula' || this.currentTheme === 'starburst') 
           ? (isSelected ? '#38BDF8' : '#F1F5F9')
-          : (isSelected ? '#1D4ED8' : '#0F172A');
+          : (this.currentTheme === 'graphite' ? (isSelected ? '#1D4ED8' : '#5A5A5A') : (isSelected ? '#1D4ED8' : '#0F172A'));
         ctx.textAlign = 'left';
         ctx.textBaseline = 'middle';
         ctx.fillText(text, labelX, labelY);
@@ -16965,6 +26091,7 @@ class ForceGraphCanvas {
       <div style="font-size:10px; color:#64748B; margin-bottom:4px; font-family:monospace; display:flex; gap:4px; align-items:center;">
         <span class="tw-type-tag ${node.type}" style="padding:1px 4px; border-radius:3px; background:#F1F5F9; color:#475569; border:1px solid #E2E8F0;">${escapeHtml(node.type)}</span> · <span>${escapeHtml(node.platform)}</span> · <span style="color:${node.color || '#2563EB'}; font-weight:600;">${escapeHtml(node.module)}</span>
       </div>
+      ${node.source === 'weknora' ? `<div style="font-size:10px; color:#64748B; margin-bottom:3px;">来源 WeKnora · ${escapeHtml(node.wkType || '')} · 图内链接 ${node.wkLinks || 0}</div>` : ''}
       <div style="font-size:10px; color:#2563EB; font-family:monospace;">
         🔗 ${node.referenceCount || 0} 个知识关联 (单击下钻, 双击打开)
       </div>
@@ -17020,6 +26147,7 @@ class TabonKBWorkbenchView extends ItemView {
     this.activeTab = this.getSavedActiveTab();
     this.currentTab = 'tasks';
     this.keyword = '';
+    this.tabKeywords = {}; // 各 tab 独立缓存搜索词，切换页面时互不带入
     this.statusFilter = 'all';
     this.moduleFilter = '';
     this.platformFilter = '';
@@ -17041,15 +26169,17 @@ class TabonKBWorkbenchView extends ItemView {
     this.rssCenter = null;
     this.jiraCard = null;
     this.rssCard = null;
+    this.weknoraManage = null;
 
     // Home Tab Trend Analytics
     this.homeTrendIssues = null;
     this.homeTrendCardEl = null;
     this.homeTrendTimeRange = this.getHomeTrendTimeRange();
 
-    // Multi-Agent Hub Integration (Pi, Codex, Gemini)
+    // Multi-Agent Hub Integration (Pi, Hermes, Gemini)
     const vaultPath = this.app?.vault?.adapter?.basePath || 'd:\\work\\Mgmt\\TabonKB';
     const plugin = this.app.plugins?.getPlugin?.('tabonkb-workbench') || this.app.plugins?.plugins?.['tabonkb-workbench'];
+    this.plugin = plugin || null;
     this.contextProvider = plugin?.contextProvider || new AgentContextProvider(this.app);
     this.agentBridge = plugin?.agentBridge || new PiAgentBridge({ vaultBasePath: vaultPath, plugin: plugin });
     this.agentHub = plugin?.agentHub || new AgentHub({
@@ -17074,7 +26204,7 @@ class TabonKBWorkbenchView extends ItemView {
     try {
       if (typeof localStorage !== 'undefined') {
         const t = localStorage.getItem('tabonkb-active-tab');
-        if (t === 'home' || t === 'tasks' || t === 'news' || t === 'explore') return t;
+        if (t === 'home' || t === 'tasks' || t === 'news' || t === 'explore' || t === 'manage') return t;
       }
     } catch (e) {}
     return 'home';
@@ -17082,7 +26212,11 @@ class TabonKBWorkbenchView extends ItemView {
 
   setActiveTab(tab) {
     if (this.activeTab === tab) return;
+    // 离开的页面记住自己的搜索词，进入的页面恢复各自缓存，互不串页
+    if (this.activeTab) this.tabKeywords[this.activeTab] = this.keyword || '';
     this.activeTab = tab;
+    this.keyword = this.tabKeywords[tab] || '';
+    clearTimeout(this.searchDebounceTimer);
     try {
       if (typeof localStorage !== 'undefined') {
         localStorage.setItem('tabonkb-active-tab', tab);
@@ -17111,18 +26245,30 @@ class TabonKBWorkbenchView extends ItemView {
   }
 
   getHomeTrendIssues() {
+    const plugin = this.app?.plugins?.getPlugin?.('tabonkb-workbench') || this.app?.plugins?.plugins?.['tabonkb-workbench'];
+    const js = plugin?.jiraService;
+    // 与任务页同源：优先直接复用任务页当前加载的数据集，两页统计保证完全一致
+    const jpIssues = this.jiraPlatform?.issues;
+    if (Array.isArray(jpIssues) && jpIssues.length > 0) {
+      this.homeTrendIssues = jpIssues;
+      return this.homeTrendIssues;
+    }
+    // 任务页尚未加载时读主缓存，任务页刷新后首页走势图实时对应
+    if (js?._cache?.issues?.length) {
+      this.homeTrendIssues = js._cache.issues;
+      return this.homeTrendIssues;
+    }
     if (this.homeTrendIssues && this.homeTrendIssues.length > 0) {
       return this.homeTrendIssues;
     }
-    const plugin = this.app?.plugins?.getPlugin?.('tabonkb-workbench') || this.app?.plugins?.plugins?.['tabonkb-workbench'];
-    const js = plugin?.jiraService;
     if (js?._trendCache?.issues?.length) {
       this.homeTrendIssues = js._trendCache.issues;
       return this.homeTrendIssues;
     }
     try {
       if (typeof localStorage !== 'undefined') {
-        const raw = localStorage.getItem('tabonkb-jira-trend-cache') || localStorage.getItem('tabonkb-jira-cache-v1');
+        const cacheKeys = js?.getTrendCacheKeys ? js.getTrendCacheKeys() : null;
+        const raw = cacheKeys ? localStorage.getItem(cacheKeys.data) : null;
         if (raw) {
           const parsed = JSON.parse(raw);
           if (Array.isArray(parsed) && parsed.length > 0) {
@@ -17132,89 +26278,17 @@ class TabonKBWorkbenchView extends ItemView {
         }
       }
     } catch (e) {}
-    if (js?._cache?.issues?.length) {
-      return js._cache.issues;
-    }
     return [];
   }
 
-  smoothConvergenceSeries(totalCount, doneCount, rawCreated, rawDone, nPoints) {
-    if (totalCount <= 0) {
-      return {
-        created: new Array(nPoints).fill(0),
-        done: new Array(nPoints).fill(0)
-      };
-    }
-
-    const smoothedCreated = [];
-    const smoothedDone = [];
-
-    let cStart = rawCreated[0] > 0 ? rawCreated[0] : Math.max(1, Math.round(totalCount * 0.82));
-    if (totalCount - cStart < 4 && totalCount >= 8) {
-      cStart = Math.max(1, totalCount - Math.max(4, Math.round(totalCount * 0.16)));
-    }
-    const cEnd = totalCount;
-
-    let dStart = rawDone[0] > 0 ? rawDone[0] : Math.max(0, Math.round(doneCount * 0.16));
-    const dEnd = doneCount;
-
-    for (let i = 0; i < nPoints; i++) {
-      const t = nPoints > 1 ? i / (nPoints - 1) : 1;
-      const ease = 3 * (t * t) - 2 * (t * t * t);
-
-      const cIdeal = cStart + (cEnd - cStart) * (0.35 * t + 0.65 * ease);
-      const rawC = rawCreated[i] !== undefined ? rawCreated[i] : cEnd;
-      let cVal = Math.round(0.68 * cIdeal + 0.32 * rawC);
-      cVal = Math.min(cEnd, Math.max(cStart, cVal));
-
-      const dIdeal = dStart + (dEnd - dStart) * ease;
-      const rawD = rawDone[i] !== undefined ? rawDone[i] : dEnd;
-      let dVal = Math.round(0.68 * dIdeal + 0.32 * rawD);
-      dVal = Math.min(dEnd, Math.max(0, dVal));
-      dVal = Math.min(dVal, cVal);
-
-      if (i === nPoints - 1) {
-        cVal = cEnd;
-        dVal = dEnd;
-      }
-
-      smoothedCreated.push(cVal);
-      smoothedDone.push(dVal);
-    }
-
-    return { created: smoothedCreated, done: smoothedDone };
-  }
-
-  pointsToSmoothPath(points, minY = 15, maxY = 92) {
+  pointsToLinePath(points) {
     if (!points || points.length === 0) return '';
-    if (points.length === 1) return `M ${points[0].x},${points[0].y}`;
-
-    let d = `M ${points[0].x},${points[0].y}`;
-    const n = points.length;
-    const tension = 0.22;
-
-    for (let i = 0; i < n - 1; i++) {
-      const p0 = points[Math.max(0, i - 1)];
-      const p1 = points[i];
-      const p2 = points[i + 1];
-      const p3 = points[Math.min(n - 1, i + 2)];
-
-      const cp1x = Math.round((p1.x + (p2.x - p0.x) * tension) * 10) / 10;
-      let cp1y = Math.round((p1.y + (p2.y - p0.y) * tension) * 10) / 10;
-      const cp2x = Math.round((p2.x - (p3.x - p1.x) * tension) * 10) / 10;
-      let cp2y = Math.round((p2.y - (p3.y - p1.y) * tension) * 10) / 10;
-
-      cp1y = Math.max(minY, Math.min(maxY, cp1y));
-      cp2y = Math.max(minY, Math.min(maxY, cp2y));
-
-      d += ` C ${cp1x},${cp1y} ${cp2x},${cp2y} ${p2.x},${p2.y}`;
-    }
-    return d;
+    return points.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x},${point.y}`).join(' ');
   }
 
-  calculateHomeTrendData(issues, timeRange) {
+  calculateHomeTrendData(issues, timeRange, W = 500, H = 120) {
     const rangeConfig = {
-      week: { days: 7, buckets: 7, labels: ['D-6', 'D-5', 'D-4', 'D-3', 'D-2', 'D-1', '今天'] },
+      week: { days: 7, buckets: 7, labels: [] }, // 周视图横轴标签由 bucketEnds 动态生成 mm-dd 日期
       month: { days: 30, buckets: 5, labels: ['4周前', '3周前', '2周前', '上周', '本周'] },
       quarter: { days: 90, buckets: 6, labels: ['10周前', '8周前', '6周前', '4周前', '2周前', '本周'] },
       year: { days: 365, buckets: 6, labels: ['10月前', '8月前', '6月前', '4月前', '2月前', '本月'] }
@@ -17228,6 +26302,15 @@ class TabonKBWorkbenchView extends ItemView {
     const bucketEnds = [];
     for (let i = 0; i < cfg.buckets; i++) {
       bucketEnds.push(i === cfg.buckets - 1 ? now : startTime + i * stepMs);
+    }
+
+    // 周视图横轴用具体 mm-dd 日期替代 D-* 偏移量，一眼看出对应哪天
+    let axisLabels = cfg.labels;
+    if (timeRange === 'week') {
+      axisLabels = bucketEnds.map((t) => {
+        const d = new Date(t);
+        return `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      });
     }
 
     const parseTime = (ts) => {
@@ -17247,17 +26330,14 @@ class TabonKBWorkbenchView extends ItemView {
       const proj = (iss.key && iss.key.includes('-')) ? iss.key.split('-')[0] : '';
       if (proj) projectCounts[proj] = (projectCounts[proj] || 0) + 1;
     }
-    const topProj = Object.entries(projectCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || 'SM8650';
+    const topProj = Object.entries(projectCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || '本人 Jira';
 
-    let scopeIssues = issues.filter(iss => {
-      const uTime = parseTime(iss.rawUpdated || iss.updated);
+    // The chart is a period view: only issues created in the selected range
+    // are included, so the visual never invents a baseline from old cache rows.
+    const scopeIssues = issues.filter(iss => {
       const cTime = parseTime(iss.rawCreated || iss.created);
-      return (uTime >= startTime) || (cTime >= startTime);
+      return cTime >= startTime && cTime <= now;
     });
-
-    if (scopeIssues.length === 0 && issues.length > 0) {
-      scopeIssues = issues.slice(0, 30);
-    }
 
     const rawCreatedSeries = [];
     const rawDoneSeries = [];
@@ -17267,20 +26347,22 @@ class TabonKBWorkbenchView extends ItemView {
       let dCount = 0;
       for (const iss of scopeIssues) {
         const cTime = parseTime(iss.rawCreated || iss.created);
-        const uTime = parseTime(iss.rawUpdated || iss.updated);
-        if (cTime && cTime <= bEnd) cCount++;
-        if (isDone(iss) && uTime && uTime <= bEnd) dCount++;
+        const uTime = parseTime(iss.rawResolved || iss.rawUpdated || iss.updated);
+        if (cTime && cTime >= startTime && cTime <= bEnd) cCount++;
+        if (isDone(iss) && uTime && uTime >= startTime && uTime <= bEnd) dCount++;
       }
       rawCreatedSeries.push(cCount);
       rawDoneSeries.push(dCount);
     }
 
-    const totalCount = scopeIssues.length;
-    const doneCount = scopeIssues.filter(isDone).length;
+    // 逐桶新增：累计发现序列的差分，周视图即「当日新增」
+    const newCreatedSeries = rawCreatedSeries.map((v, i) => (i === 0 ? v : Math.max(0, v - rawCreatedSeries[i - 1])));
+
+    // 总量/闭环统计与任务页指标卡对齐：基于全量数据集而非图表窗口内创建的子集
+    const totalCount = issues.length;
+    const doneCount = issues.filter(isDone).length;
     const openCount = Math.max(0, totalCount - doneCount);
     const convergenceRate = totalCount > 0 ? Math.min(100, Math.round((doneCount / totalCount) * 100)) : 100;
-
-    const smoothed = this.smoothConvergenceSeries(totalCount, doneCount, rawCreatedSeries, rawDoneSeries, cfg.buckets);
 
     const dateDetails = [];
     for (let i = 0; i < cfg.buckets; i++) {
@@ -17289,30 +26371,34 @@ class TabonKBWorkbenchView extends ItemView {
       const day = d.getDate();
       if (timeRange === 'week') {
         const diffDays = cfg.buckets - 1 - i;
-        dateDetails.push(`${m}月${day}日 · ${diffDays === 0 ? '今天' : `D-${diffDays}`}`);
+        dateDetails.push(`${m}月${day}日${diffDays === 0 ? ' · 今天' : ''}`);
       } else if (timeRange === 'month') {
-        dateDetails.push(`${cfg.labels[i]} (${m}/${day})`);
+        dateDetails.push(`${axisLabels[i]} (${m}/${day})`);
       } else if (timeRange === 'year') {
-        dateDetails.push(`${d.getFullYear()}年${m}月 (${cfg.labels[i]})`);
+        dateDetails.push(`${d.getFullYear()}年${m}月 (${axisLabels[i]})`);
       } else {
-        dateDetails.push(`${m}月${day}日 · ${cfg.labels[i]}`);
+        dateDetails.push(`${m}月${day}日 · ${axisLabels[i]}`);
       }
     }
 
     const minX = 25;
-    const maxX = 475;
+    const maxX = W - 25;
     const xCoords = [];
     for (let i = 0; i < cfg.buckets; i++) {
       xCoords.push(Math.round((minX + (i * (maxX - minX)) / (cfg.buckets - 1)) * 10) / 10);
     }
 
     return {
-      labels: cfg.labels,
+      W,
+      H,
+      labels: axisLabels,
       dateDetails,
       xCoords,
       bucketEnds,
-      createdSeries: smoothed.created,
-      doneSeries: smoothed.done,
+      createdSeries: rawCreatedSeries,
+      doneSeries: rawDoneSeries,
+      newSeries: newCreatedSeries,
+      scopeCount: scopeIssues.length,
       totalCount,
       doneCount,
       openCount,
@@ -17325,8 +26411,10 @@ class TabonKBWorkbenchView extends ItemView {
     const { labels, xCoords, createdSeries, doneSeries } = trendData;
     const N = labels.length;
     if (N === 0) return '';
+    const W = trendData.W || 500;
+    const H = trendData.H || 120;
 
-    const baseY = 92;
+    const baseY = H - 18;
     const topY = 18;
 
     const maxVal = Math.max(...createdSeries, ...doneSeries, 5);
@@ -17339,9 +26427,9 @@ class TabonKBWorkbenchView extends ItemView {
     const donePoints = xCoords.map((x, i) => ({ x, y: scaleY(doneSeries[i]) }));
     const createdPoints = xCoords.map((x, i) => ({ x, y: scaleY(createdSeries[i]) }));
 
-    const doneLinePath = this.pointsToSmoothPath(donePoints, topY, baseY);
+    const doneLinePath = this.pointsToLinePath(donePoints);
     const doneAreaPath = doneLinePath + ` L ${xCoords[N - 1]},${baseY} L ${xCoords[0]},${baseY} Z`;
-    const createdLinePath = this.pointsToSmoothPath(createdPoints, topY, baseY);
+    const createdLinePath = this.pointsToLinePath(createdPoints);
 
     const lastX = xCoords[N - 1];
     const lastDoneY = scaleY(doneSeries[N - 1]);
@@ -17354,7 +26442,7 @@ class TabonKBWorkbenchView extends ItemView {
       else if (i === N - 1) anchor = 'end';
       const isEnd = i === N - 1;
       const fill = isEnd ? '#10B981' : 'var(--text-muted, #8b949e)';
-      return `<text x="${x}" y="106" font-size="9" fill="${fill}" font-family="monospace" text-anchor="${anchor}">${lbl}${isEnd ? '(本期)' : ''}</text>`;
+      return `<text x="${x}" y="${H - 4}" font-size="9" fill="${fill}" font-family="monospace" text-anchor="${anchor}">${lbl}${isEnd ? '(本期)' : ''}</text>`;
     }).join('');
 
     const dotsHtml = xCoords.map((x, i) => {
@@ -17362,30 +26450,30 @@ class TabonKBWorkbenchView extends ItemView {
       const cr = scaleY(createdSeries[i]);
       return `
         <g class="tw-trend-col" data-idx="${i}">
-          <circle cx="${x}" cy="${cy}" r="3" fill="#10B981" stroke="var(--background-primary, #fff)" stroke-width="1" class="tw-trend-dot" data-idx="${i}" />
-          <circle cx="${x}" cy="${cr}" r="3" fill="#EF4444" stroke="var(--background-primary, #fff)" stroke-width="1" class="tw-trend-dot" data-idx="${i}" />
+          <circle cx="${x}" cy="${cy}" r="7" fill="transparent" class="tw-trend-hit tw-trend-hit-done" data-idx="${i}" />
+          <circle cx="${x}" cy="${cr}" r="7" fill="transparent" class="tw-trend-hit tw-trend-hit-created" data-idx="${i}" />
         </g>
       `;
     }).join('');
 
     return `
-      <svg viewBox="0 0 500 110" preserveAspectRatio="none" style="width: 100%; height: 100%; overflow: visible; display: block;">
+      <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" style="width: 100%; height: 100%; overflow: visible; display: block;">
         <defs>
           <linearGradient id="twTrendGreenGrad" x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stop-color="#10B981" stop-opacity="0.25"/>
             <stop offset="100%" stop-color="#10B981" stop-opacity="0.02"/>
           </linearGradient>
         </defs>
-        <line x1="0" y1="25" x2="500" y2="25" stroke="var(--background-modifier-border, #E2E8F0)" stroke-dasharray="3 3"/>
-        <line x1="0" y1="58" x2="500" y2="58" stroke="var(--background-modifier-border, #E2E8F0)" stroke-dasharray="3 3"/>
-        <line x1="0" y1="92" x2="500" y2="92" stroke="var(--background-modifier-border, #E2E8F0)" stroke-dasharray="3 3"/>
+        <line x1="0" y1="${topY + 7}" x2="${W}" y2="${topY + 7}" stroke="var(--background-modifier-border, #E2E8F0)" stroke-dasharray="3 3"/>
+        <line x1="0" y1="${Math.round((topY + baseY) / 2)}" x2="${W}" y2="${Math.round((topY + baseY) / 2)}" stroke="var(--background-modifier-border, #E2E8F0)" stroke-dasharray="3 3"/>
+        <line x1="0" y1="${baseY}" x2="${W}" y2="${baseY}" stroke="var(--background-modifier-border, #E2E8F0)" stroke-dasharray="3 3"/>
         <path d="${doneAreaPath}" fill="url(#twTrendGreenGrad)"/>
         <path d="${doneLinePath}" fill="none" stroke="#10B981" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
         <path d="${createdLinePath}" fill="none" stroke="#EF4444" stroke-width="2" stroke-dasharray="4 2" stroke-linecap="round" stroke-linejoin="round"/>
-        <line id="twTrendGuideline" x1="0" y1="14" x2="0" y2="92" stroke="var(--interactive-accent, #2563EB)" stroke-width="1.2" stroke-dasharray="2 2" style="opacity: 0; pointer-events: none; transition: opacity 0.1s ease;"/>
+        <line id="twTrendGuideline" x1="0" y1="${topY - 4}" x2="0" y2="${baseY}" stroke="var(--interactive-accent, #2563EB)" stroke-width="1.2" stroke-dasharray="2 2" style="opacity: 0; pointer-events: none; transition: opacity 0.1s ease;"/>
         ${dotsHtml}
-        <circle cx="${lastX}" cy="${lastDoneY}" r="4" fill="#10B981" stroke="var(--background-primary, #fff)" stroke-width="1.5"/>
-        <circle cx="${lastX}" cy="${lastCreatedY}" r="4" fill="#EF4444" stroke="var(--background-primary, #fff)" stroke-width="1.5"/>
+        <circle cx="${lastX}" cy="${lastDoneY}" r="3.2" fill="#10B981" class="tw-trend-latest-dot"/>
+        <circle cx="${lastX}" cy="${lastCreatedY}" r="3.2" fill="#EF4444" class="tw-trend-latest-dot"/>
         ${labelTexts}
       </svg>
     `;
@@ -17395,33 +26483,48 @@ class TabonKBWorkbenchView extends ItemView {
     this.homeTrendCardEl = parentEl.createDiv({ cls: 'tw-card tw-chart-card tw-home-trend-card' });
     this.updateHomeTrendCard();
     this.loadHomeTrendData(false);
+    // 监听侧边栏折叠/展开、窗口缩放引起的宽度变化，按 1:1 宽度重绘避免拉伸变形
+    if (this._homeTrendResizeObs) {
+      try { this._homeTrendResizeObs.disconnect(); } catch (e) {}
+    }
+    if (typeof ResizeObserver !== 'undefined') {
+      let rafId = 0;
+      this._homeTrendResizeObs = new ResizeObserver(() => {
+        const wrap = this.homeTrendCardEl?.querySelector('.tw-chart-svg-wrap');
+        const w = wrap ? wrap.clientWidth : 0;
+        if (w > 60 && Math.abs(w - (this._homeTrendW || 0)) > 4) {
+          if (rafId) cancelAnimationFrame(rafId);
+          rafId = requestAnimationFrame(() => { rafId = 0; this.updateHomeTrendCard(); });
+        }
+      });
+      this._homeTrendResizeObs.observe(this.homeTrendCardEl);
+    }
   }
 
   updateHomeTrendCard() {
     if (!this.homeTrendCardEl) return;
     const issues = this.getHomeTrendIssues();
     const timeRange = this.getHomeTrendTimeRange();
-    const trendData = this.calculateHomeTrendData(issues, timeRange);
+    // 按容器实际像素宽度 1:1 渲染 viewBox，避免侧栏收起时 SVG 非等比拉伸导致文字/数据点变形
+    const H = 120;
+    const prevWrap = this.homeTrendCardEl.querySelector('.tw-chart-svg-wrap');
+    const W = (prevWrap && prevWrap.clientWidth > 60) ? prevWrap.clientWidth : (this._homeTrendW || 500);
+    this._homeTrendW = W;
+    let trendData = this.calculateHomeTrendData(issues, timeRange, W, H);
     const svgHtml = this.generateHomeTrendSvg(trendData);
-
-    const rateColor = trendData.convergenceRate >= 70 ? '#10B981' : (trendData.convergenceRate >= 40 ? '#F59E0B' : '#EF4444');
 
     this.homeTrendCardEl.innerHTML = `
       <div class="tw-card-header tw-trend-header">
         <div class="tw-trend-title-left">
           <span>缺陷发现与收敛走势</span>
-          <span class="tw-trend-project-badge">(${escapeHtml(trendData.topProj)} 战役)</span>
         </div>
         <div class="tw-trend-controls-right">
-          <div class="tw-trend-time-pills">
-            <button class="tw-trend-time-btn ${timeRange === 'week' ? 'active' : ''}" data-range="week">周</button>
-            <button class="tw-trend-time-btn ${timeRange === 'month' ? 'active' : ''}" data-range="month">月</button>
-            <button class="tw-trend-time-btn ${timeRange === 'quarter' ? 'active' : ''}" data-range="quarter">季</button>
-            <button class="tw-trend-time-btn ${timeRange === 'year' ? 'active' : ''}" data-range="year">年</button>
-          </div>
-          <span class="tw-trend-rate" title="累计闭环: ${trendData.doneCount} / 发现总量: ${trendData.totalCount}">
-            收敛率 <strong style="color: ${rateColor}; font-family: monospace;">${trendData.convergenceRate}%</strong>
-          </span>
+          <select class="tw-trend-range-select" title="切换时间范围">
+            <option value="week" ${timeRange === 'week' ? 'selected' : ''}>周</option>
+            <option value="month" ${timeRange === 'month' ? 'selected' : ''}>月</option>
+            <option value="quarter" ${timeRange === 'quarter' ? 'selected' : ''}>季</option>
+            <option value="year" ${timeRange === 'year' ? 'selected' : ''}>年</option>
+          </select>
           <button class="tw-trend-refresh-btn" id="btnRefreshHomeTrend" title="刷新 Jira 数据">${getIconPark('refresh', 12)}</button>
         </div>
       </div>
@@ -17430,13 +26533,6 @@ class TabonKBWorkbenchView extends ItemView {
         <div class="tw-trend-tooltip" style="opacity: 0; display: none;"></div>
       </div>
       <div class="tw-trend-footer">
-        <div class="tw-trend-stat-summary">
-          <span>区间缺陷 <strong>${trendData.totalCount}</strong> 件</span>
-          <span class="tw-trend-sep">·</span>
-          <span style="color:#10B981;">已闭环 ${trendData.doneCount}</span>
-          <span class="tw-trend-sep">·</span>
-          <span style="color:#EF4444;">待解决 ${trendData.openCount}</span>
-        </div>
         <div class="tw-trend-legend">
           <span><span style="color: #EF4444; font-weight:bold;">--</span> 新增Bug</span>
           <span><span style="color: #10B981; font-weight:bold;">—</span> 闭环解决</span>
@@ -17444,15 +26540,16 @@ class TabonKBWorkbenchView extends ItemView {
       </div>
     `;
 
-    this.homeTrendCardEl.querySelectorAll('.tw-trend-time-btn').forEach(btn => {
-      btn.onclick = () => {
-        const range = btn.dataset.range;
+    const rangeSelect = this.homeTrendCardEl.querySelector('.tw-trend-range-select');
+    if (rangeSelect) {
+      rangeSelect.onchange = () => {
+        const range = rangeSelect.value;
         if (range) {
           this.saveHomeTrendTimeRange(range);
           this.updateHomeTrendCard();
         }
       };
-    });
+    }
 
     const refreshBtn = this.homeTrendCardEl.querySelector('#btnRefreshHomeTrend');
     if (refreshBtn) {
@@ -17465,17 +26562,28 @@ class TabonKBWorkbenchView extends ItemView {
     }
 
     const svgWrap = this.homeTrendCardEl.querySelector('.tw-chart-svg-wrap');
+    // 首次渲染时布局可能未完成，按最终实际宽度校正一次并重绘 SVG
+    if (svgWrap) {
+      const measured = svgWrap.clientWidth;
+      if (measured > 60 && Math.abs(measured - W) > 4) {
+        this._homeTrendW = measured;
+        trendData = this.calculateHomeTrendData(issues, timeRange, measured, H);
+        const svgEl = svgWrap.querySelector('svg');
+        if (svgEl) svgEl.outerHTML = this.generateHomeTrendSvg(trendData);
+      }
+    }
     const tooltipEl = this.homeTrendCardEl.querySelector('.tw-trend-tooltip');
     const guideline = this.homeTrendCardEl.querySelector('#twTrendGuideline');
-    const allDots = this.homeTrendCardEl.querySelectorAll('.tw-trend-dot');
+    const allDots = this.homeTrendCardEl.querySelectorAll('.tw-trend-hit');
 
     if (svgWrap && tooltipEl && trendData.xCoords && trendData.xCoords.length > 0) {
-      const { xCoords, labels, createdSeries, doneSeries, dateDetails } = trendData;
+      const { xCoords, labels, createdSeries, doneSeries, newSeries, dateDetails } = trendData;
+      const chartW = trendData.W || 500;
 
       svgWrap.onmousemove = (e) => {
         const rect = svgWrap.getBoundingClientRect();
         if (rect.width <= 0) return;
-        const mouseSvgX = ((e.clientX - rect.left) / rect.width) * 500;
+        const mouseSvgX = ((e.clientX - rect.left) / rect.width) * chartW;
 
         let closestIdx = 0;
         let minDiff = Infinity;
@@ -17492,6 +26600,9 @@ class TabonKBWorkbenchView extends ItemView {
         const dVal = doneSeries[closestIdx];
         const oVal = Math.max(0, cVal - dVal);
         const ptRate = cVal > 0 ? Math.round((dVal / cVal) * 100) : 100;
+        const nVal = (newSeries && newSeries[closestIdx] !== undefined) ? newSeries[closestIdx] : 0;
+        // 新增行文案随分桶粒度自适应：周=当日、月/季=当周、年=当月
+        const newLabel = timeRange === 'week' ? '当日新增:' : (timeRange === 'year' ? '当月新增:' : '当周新增:');
         const dtTitle = (dateDetails && dateDetails[closestIdx]) || labels[closestIdx] || '';
 
         if (guideline) {
@@ -17503,10 +26614,10 @@ class TabonKBWorkbenchView extends ItemView {
         allDots.forEach(dot => {
           const idx = parseInt(dot.dataset.idx, 10);
           if (idx === closestIdx) {
-            dot.setAttribute('r', '4.5');
+            dot.setAttribute('r', '7');
             dot.classList.add('active-dot');
           } else {
-            dot.setAttribute('r', '3');
+            dot.setAttribute('r', '7');
             dot.classList.remove('active-dot');
           }
         });
@@ -17519,6 +26630,11 @@ class TabonKBWorkbenchView extends ItemView {
             <span class="tw-tt-val">${cVal} <small>件</small></span>
           </div>
           <div class="tw-tt-row">
+            <span class="tw-tt-indicator blue"></span>
+            <span class="tw-tt-label">${newLabel}</span>
+            <span class="tw-tt-val">${nVal} <small>件</small></span>
+          </div>
+          <div class="tw-tt-row">
             <span class="tw-tt-indicator green"></span>
             <span class="tw-tt-label">闭环解决:</span>
             <span class="tw-tt-val">${dVal} <small>件</small></span>
@@ -17529,15 +26645,16 @@ class TabonKBWorkbenchView extends ItemView {
             <span class="tw-tt-val">${oVal} <small>件</small></span>
           </div>
           <div class="tw-tt-row tw-tt-footer-row">
-            <span class="tw-tt-label">当期收敛率:</span>
+            <span class="tw-tt-label">当期收敛率</span>
             <span class="tw-tt-val" style="color: ${ptRate >= 70 ? '#10B981' : (ptRate >= 40 ? '#F59E0B' : '#EF4444')};">${ptRate}%</span>
           </div>
         `;
 
         tooltipEl.style.display = 'block';
-        const ttWidth = 145;
-        const pxX = (ptX / 500) * rect.width;
-        let leftPos = pxX - (ttWidth / 2);
+        const ttWidth = tooltipEl.offsetWidth || 145;
+        const pxX = (ptX / chartW) * rect.width;
+        // 浮窗放到数据点背向曲线的一侧，避免遮挡当前点与其曲线段
+        let leftPos = pxX > rect.width / 2 ? (pxX - ttWidth - 14) : (pxX + 14);
         if (leftPos < 6) leftPos = 6;
         if (leftPos + ttWidth > rect.width - 6) leftPos = rect.width - ttWidth - 6;
 
@@ -17560,13 +26677,39 @@ class TabonKBWorkbenchView extends ItemView {
     }
   }
 
+  // 与任务页 JiraPlatformView.getProjectJql 保持完全一致的口径（项目筛选 + 时间筛选同源），保证统计实时对应
+  buildHomeTrendJql() {
+    let project = 'all';
+    let timeRange = 'all';
+    if (this.jiraPlatform) {
+      project = this.jiraPlatform.activeProject || 'all';
+      timeRange = this.jiraPlatform.activeTimeRange || 'all';
+    } else {
+      try {
+        if (typeof localStorage !== 'undefined') {
+          project = localStorage.getItem('tabonkb-jira-project') || 'all';
+          timeRange = localStorage.getItem('tabonkb-jira-timerange') || 'all';
+        }
+      } catch (e) {}
+    }
+    let jql = '(resolution = Unresolved OR resolutiondate >= -30d) AND (assignee = currentUser() OR watcher = currentUser() OR reporter = currentUser())';
+    if (project && project !== 'all') jql += ` AND project = "${project}"`;
+    const days = { week: 7, month: 30, quarter: 90, year: 365 }[timeRange];
+    if (days) jql += ` AND updated >= -${days}d`;
+    return `${jql} ORDER BY updated DESC`;
+  }
+
   async loadHomeTrendData(forceRefresh = false) {
     const plugin = this.app?.plugins?.getPlugin?.('tabonkb-workbench') || this.app?.plugins?.plugins?.['tabonkb-workbench'];
     const jiraService = plugin?.jiraService;
     if (!jiraService) return;
 
     try {
-      const issues = await jiraService.getTrendIssues(forceRefresh);
+      // 复用任务页的主缓存链路（searchIssues），任一侧刷新两侧数据同步
+      const config = typeof jiraService.getConfig === 'function' ? jiraService.getConfig() : null;
+      if (config) config.jql = this.buildHomeTrendJql();
+      const res = await jiraService.searchIssues(forceRefresh);
+      const issues = res?.issues;
       if (Array.isArray(issues) && issues.length > 0) {
         this.homeTrendIssues = issues;
         this.updateHomeTrendCard();
@@ -17585,7 +26728,7 @@ class TabonKBWorkbenchView extends ItemView {
   }
 
   getIcon() {
-    return "layout-dashboard";
+    return (typeof TW_BRAND_ICON_OK !== 'undefined' && TW_BRAND_ICON_OK) ? 'tabonkb-brand' : 'layout-dashboard';
   }
 
   getContainer() {
@@ -17607,6 +26750,7 @@ class TabonKBWorkbenchView extends ItemView {
         this.render();
       } catch (err) {
         console.error('[TabonKB Workbench] Post-scan render failed:', err);
+        try { wkTopoWriteLog(this.app.vault.adapter.basePath, 'POSTSCAN-RENDER: ' + (err && err.stack || err)); } catch (e) {}
       }
     }).catch(err => {
       console.error('[TabonKB Workbench] Vault scan failed:', err);
@@ -17630,6 +26774,10 @@ class TabonKBWorkbenchView extends ItemView {
       this.rssCenter.dispose();
       this.rssCenter = null;
     }
+    if (this.phoneComp) {
+      this.phoneComp.dispose();
+      this.phoneComp = null;
+    }
     if (this.jiraPlatform) {
       this.jiraPlatform = null;
     }
@@ -17641,8 +26789,16 @@ class TabonKBWorkbenchView extends ItemView {
       this.rssCard.dispose();
       this.rssCard = null;
     }
+    if (this.weknoraManage) {
+      this.weknoraManage.dispose();
+      this.weknoraManage = null;
+    }
     if (this.agentBridge) {
       this.agentBridge.destroy();
+    }
+    if (this._homeTrendResizeObs) {
+      try { this._homeTrendResizeObs.disconnect(); } catch (e) {}
+      this._homeTrendResizeObs = null;
     }
   }
 
@@ -17766,7 +26922,9 @@ class TabonKBWorkbenchView extends ItemView {
 
       docs.sort((a, b) => b.mtime - a.mtime);
       this.realDocs = docs;
-      this.graphData = buildGraphData(this.realDocs);
+      this.vaultGraphData = buildGraphData(this.realDocs);
+      this.graphData = this.vaultGraphData;
+      this.scheduleWeknoraMerge();
     } catch (err) {
       console.error('[TabonKB Workbench] Error in loadVaultDocs:', err);
     } finally {
@@ -17816,8 +26974,10 @@ class TabonKBWorkbenchView extends ItemView {
 
   render() {
     try {
+      this.closeExploreSubmenu();
       const container = this.getContainer();
       if (!container) return;
+      this.ensureStylesheet(container.ownerDocument);
       container.empty();
       container.addClass('tabonkb-workbench-container', 'with-drawer');
 
@@ -17858,8 +27018,12 @@ class TabonKBWorkbenchView extends ItemView {
       // 3. Mount Pi Agent Hub Drawer into layout (docked on right across all tabs)
       this.agentDrawer.mount(layout);
 
-      // 4. Render Context-Aware Top Bar
-      this.renderTopBar(mainPanel);
+      // 4. Render Context-Aware Top Bar.
+      // Explore owns its own sub-navigation and search surface, so the global
+      // search/Agent Hub row would only duplicate controls on that page.
+      if (this.activeTab !== 'explore' && this.activeTab !== 'manage') {
+        this.renderTopBar(mainPanel);
+      }
 
       // 5. Render Stage Container for the Active Tab
       const stage = mainPanel.createDiv({ cls: 'tw-workbench-stage' });
@@ -17870,6 +27034,8 @@ class TabonKBWorkbenchView extends ItemView {
         this.renderNewsTab(stage);
       } else if (this.activeTab === 'explore') {
         this.renderExploreTab(stage);
+      } else if (this.activeTab === 'manage') {
+        this.renderManageTab(stage);
       } else {
         this.renderHomeTab(stage);
       }
@@ -17895,6 +27061,75 @@ class TabonKBWorkbenchView extends ItemView {
     }
   }
 
+  getExploreSubTab() {
+    if (this.exploreView && this.exploreView.activeSubTab) return this.exploreView.activeSubTab;
+    try {
+      if (typeof localStorage !== 'undefined') {
+        const s = localStorage.getItem('tabonkb-explore-subtab');
+        if (s === 'ai' || s === 'search') return s;
+      }
+    } catch (e) {}
+    return 'ai';
+  }
+
+  setExploreSubTab(sub) {
+    try {
+      if (typeof localStorage !== 'undefined') localStorage.setItem('tabonkb-explore-subtab', sub);
+    } catch (e) {}
+    if (this.exploreView) {
+      // 内部持久化并重渲染探索页自身, 保留检索结果等实例状态 (不整页重绘)
+      this.exploreView.setSubTab(sub);
+    } else {
+      this.render();
+    }
+    // 选定后收起子选择菜单
+    this.closeExploreSubmenu();
+  }
+
+  toggleExploreSubmenu(anchorEl) {
+    const container = this.getContainer ? this.getContainer() : null;
+    if (!container) return;
+    if (container.querySelector('.tw-explore-submenu')) {
+      this.closeExploreSubmenu();
+      return;
+    }
+    const cur = this.getExploreSubTab();
+    const subs = [
+      { id: 'ai', label: 'AI助手', icon: 'robot' },
+      { id: 'search', label: '平台资源检索', icon: 'search' }
+    ];
+    const menu = container.createDiv({ cls: 'tw-explore-submenu' });
+    for (const s of subs) {
+      const item = menu.createEl('button', { cls: `tw-explore-submenu-item ${cur === s.id ? 'active' : ''}` });
+      item.innerHTML = `
+        <span class="tw-explore-submenu-icon">${getIconPark(s.icon, 15)}</span>
+        <span class="tw-explore-submenu-label">${s.label}</span>
+      `;
+      item.onclick = () => this.setExploreSubTab(s.id);
+    }
+    // 对齐「探索」按钮, 紧贴侧栏右侧弹出 (top 叠加容器滚动偏移)
+    const cRect = container.getBoundingClientRect();
+    const aRect = anchorEl.getBoundingClientRect();
+    menu.style.top = Math.round(aRect.top - cRect.top + container.scrollTop) + 'px';
+    menu.style.left = Math.round(aRect.right - cRect.left + 8) + 'px';
+    // 点击外部 / 再次点击触发器时关闭 (延迟挂接, 避免本次点击立即触发)
+    const closer = (e) => {
+      if (!menu.contains(e.target) && !anchorEl.contains(e.target)) this.closeExploreSubmenu();
+    };
+    this._exploreSubmenuCloser = closer;
+    setTimeout(() => document.addEventListener('pointerdown', closer, true), 0);
+  }
+
+  closeExploreSubmenu() {
+    if (this._exploreSubmenuCloser) {
+      try { document.removeEventListener('pointerdown', this._exploreSubmenuCloser, true); } catch (e) {}
+      this._exploreSubmenuCloser = null;
+    }
+    const container = this.getContainer ? this.getContainer() : null;
+    const menu = container ? container.querySelector('.tw-explore-submenu') : null;
+    if (menu) menu.remove();
+  }
+
   renderNavRail(parentEl) {
     const rail = parentEl.createDiv({ cls: 'tw-nav-rail' });
 
@@ -17904,10 +27139,12 @@ class TabonKBWorkbenchView extends ItemView {
     const brand = topSec.createDiv({ cls: 'tw-nav-brand' });
     brand.innerHTML = `
       <div class="tw-nav-brand-logo" title="TabonKB 研发知识库与工作台">
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M12 2L2 7l10 5 10-5-10-5z"/>
-          <path d="M2 17l10 5 10-5"/>
-          <path d="M2 12l10 5 10-5"/>
+        <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M6.4 7.4h11.2"/>
+          <path d="M12 7.4v10.2"/>
+          <circle cx="6.4" cy="7.4" r="2" fill="currentColor" stroke="none"/>
+          <circle cx="17.6" cy="7.4" r="2" fill="currentColor" stroke="none"/>
+          <circle cx="12" cy="17.6" r="2.1" fill="currentColor" stroke="none"/>
         </svg>
       </div>
       <span class="tw-nav-brand-text">TabonKB</span>
@@ -17920,7 +27157,8 @@ class TabonKBWorkbenchView extends ItemView {
       { id: 'home', label: '首页', icon: 'dashboard', title: '知识库首页与图谱' },
       { id: 'tasks', label: '任务', icon: 'tasks', title: 'Jira 协作与任务看板' },
       { id: 'news', label: '资讯', icon: 'newspaper', title: '技术资讯与规范动态' },
-      { id: 'explore', label: '探索', icon: 'compass', title: 'Agent Hub 与芯片资源检索' }
+      { id: 'explore', label: '探索', icon: 'compass', title: 'Agent Hub 与芯片资源检索' },
+      { id: 'manage', label: '管理', icon: 'setting-two', title: 'WeKnora 知识库与数据管理' }
     ];
 
     for (const t of tabs) {
@@ -17933,6 +27171,17 @@ class TabonKBWorkbenchView extends ItemView {
         <span class="tw-nav-label">${t.label}</span>
       `;
       btn.onclick = () => this.setActiveTab(t.id);
+
+      // 探索页: 已在探索页时再次点击「探索」, 弹出子选择菜单 (AI 研发助手 / 芯片资源检索), 不常驻占位
+      if (t.id === 'explore') {
+        btn.onclick = () => {
+          if (this.activeTab !== 'explore') {
+            this.setActiveTab('explore');
+            return;
+          }
+          this.toggleExploreSubmenu(btn);
+        };
+      }
     }
 
     // Bottom Section: Settings Shortcut
@@ -17978,15 +27227,14 @@ class TabonKBWorkbenchView extends ItemView {
         <svg class="tw-search-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
         </svg>
-        <input type="text" class="tw-search-input" style="padding-left: 42px !important; padding-right: 175px !important;" placeholder="${escapeAttr(searchPlaceholder)}" value="${escapeHtml(this.keyword)}">
+        <input type="text" class="tw-search-input" style="padding-left: 44px !important; padding-right: 175px !important;" placeholder="${escapeAttr(searchPlaceholder)}" value="${escapeHtml(this.keyword)}">
         <div class="tw-search-actions">
           ${rightActionHtml}
         </div>
       </div>
       <div class="tw-agent-selector-wrap" id="twTopAgentSelectorWrap">
-        <button class="tw-agent-hub-btn ${this.agentDrawer.isOpen() ? 'active' : ''}" id="btnTogglePiAgent" title="打开/折叠 AI 研发助手 (Agent Hub)">
-          <span class="tw-agent-hub-icon">${getIconPark('robot', 15)}</span>
-          <span class="tw-agent-hub-text">Agent Hub</span>
+        <button class="tw-agent-hub-btn ${this.agentDrawer.isOpen() ? 'active' : ''}" id="btnTogglePiAgent" title="Agent Hub · AI 研发助手">
+          <span class="tw-agent-hub-icon">${getIconPark('robot', 16)}</span>
         </button>
       </div>
     `;
@@ -17994,6 +27242,7 @@ class TabonKBWorkbenchView extends ItemView {
     const input = topBarRow.querySelector('input');
     input.addEventListener('input', (e) => {
       this.keyword = e.target.value.trim();
+      if (this.tabKeywords) this.tabKeywords[this.activeTab] = this.keyword;
 
       if (this.activeTab === 'home') {
         if (this.contextProvider) this.contextProvider.setKeyword(this.keyword);
@@ -18032,6 +27281,7 @@ class TabonKBWorkbenchView extends ItemView {
       } else if (e.key === 'Escape') {
         this.keyword = '';
         input.value = '';
+        if (this.tabKeywords) this.tabKeywords[this.activeTab] = '';
         if (this.activeTab === 'home') {
           if (this.contextProvider) this.contextProvider.setKeyword('');
           this.omnisearchResults = null;
@@ -18070,6 +27320,38 @@ class TabonKBWorkbenchView extends ItemView {
     const btnOmni = topBarRow.querySelector('#btnTriggerOmnisearch');
     if (btnOmni) {
       btnOmni.onclick = () => this.openOmnisearchModal(this.keyword);
+    }
+  }
+
+  ensureStylesheet(doc) {
+    // 自愈: 探测当前文档是否已加载插件样式 (弹出窗口/注入失败时自动补注入)
+    try {
+      doc = doc || (typeof document !== 'undefined' ? document : null);
+      if (!doc) return;
+      const probe = doc.createElement('div');
+      probe.className = 'tw-nav-rail';
+      probe.style.position = 'absolute';
+      probe.style.visibility = 'hidden';
+      probe.style.pointerEvents = 'none';
+      probe.style.width = '0';
+      probe.style.height = '0';
+      (doc.body || doc.documentElement).appendChild(probe);
+      const applied = !!(doc.defaultView && doc.defaultView.getComputedStyle(probe).display === 'flex');
+      probe.remove();
+      const existing = doc.getElementById('tw-selfheal-css');
+      if (applied) {
+        if (existing) existing.remove();
+        return;
+      }
+      const cssPath = path.join(this.app.vault.adapter.basePath, '.obsidian', 'plugins', 'tabonkb-workbench', 'styles.css');
+      const css = fs.readFileSync(cssPath, 'utf8');
+      const st = doc.createElement('style');
+      st.id = 'tw-selfheal-css';
+      st.textContent = css;
+      (doc.head || doc.documentElement).appendChild(st);
+      console.log('[TabonKB Workbench] stylesheet missing in this window, self-heal injected');
+    } catch (e) {
+      console.warn('[TabonKB Workbench] stylesheet self-heal failed:', e);
     }
   }
 
@@ -18112,28 +27394,35 @@ class TabonKBWorkbenchView extends ItemView {
     // Layer 3: Knowledge Workspace (Graph + Dynamic Context Panel)
     const workspaceWrap = wrap.createDiv({ cls: 'tw-knowledge-workspace dashboard-knowledge-workspace', id: 'twKnowledgeWorkspace' });
     
-    // Left: Graph Card
+    // Left: Graph Card (降级保护: 拓扑组件异常不拖垮整个工作台)
     const graphCard = workspaceWrap.createDiv({ cls: 'tw-card tw-graph-card' });
-    this.graphCanvas = new ForceGraphCanvas(graphCard, {
-      onNodeClick: (node) => {
-        const nextMode = node ? 'detail' : 'overview';
-        if (this.knowledgePanelMode === nextMode && this.selectedKnowledgeNode === node) {
-          return;
+    try {
+      this.graphCanvas = new ForceGraphCanvas(graphCard, {
+        onNodeClick: (node) => {
+          const nextMode = node ? 'detail' : 'overview';
+          if (this.knowledgePanelMode === nextMode && this.selectedKnowledgeNode === node) {
+            return;
+          }
+          this.selectedKnowledgeNode = node;
+          this.knowledgePanelMode = nextMode;
+          if (this.contextProvider) {
+            if (node) this.contextProvider.setKnowledgeNode(node);
+            else this.contextProvider.clearKnowledgeNode();
+          }
+          this.renderContextPanel();
+        },
+        onNodeDblClick: (node) => {
+          if (node) this.openTarget(node.id, node.title);
         }
-        this.selectedKnowledgeNode = node;
-        this.knowledgePanelMode = nextMode;
-        if (this.contextProvider) {
-          if (node) this.contextProvider.setKnowledgeNode(node);
-          else this.contextProvider.clearKnowledgeNode();
-        }
-        this.renderContextPanel();
-      },
-      onNodeDblClick: (node) => {
-        if (node) this.openTarget(node.id, node.title);
+      });
+      if (this.graphData.nodes.length > 0) {
+        this.graphCanvas.setData(this.graphData);
       }
-    });
-    if (this.graphData.nodes.length > 0) {
-      this.graphCanvas.setData(this.graphData);
+    } catch (gErr) {
+      console.warn('[TabonKB] Topology init degraded:', gErr);
+      try { wkTopoWriteLog(this.app.vault.adapter.basePath, 'GRAPHCARD: ' + (gErr && gErr.stack || gErr)); } catch (e) {}
+      this.graphCanvas = null;
+      graphCard.innerHTML = '<div style="padding:28px;font-size:11px;color:var(--text-muted);">拓扑组件初始化异常 (已降级, 不影响工作台其它区域), 详见插件目录 weknora-topo-error.log</div>';
     }
 
     // Right: Context Panel Card
@@ -18150,7 +27439,7 @@ class TabonKBWorkbenchView extends ItemView {
       <button class="tw-chip ${this.moduleFilter==='Display'?'active':''}" data-mod="Display">Display ${stats.modules.display || 2}</button>
       <button class="tw-chip ${this.moduleFilter==='Crash'?'active':''}" data-mod="Crash">Crash/Panic ${stats.modules.crash || 1}</button>
       <button class="tw-chip ${this.platformFilter==='MTK'?'active':''}" data-plat="MTK">联发科 ${stats.mtkCount || 6}</button>
-      <button class="tw-chip ${this.platformFilter==='QCOM'?'active':''}" data-plat="QCOM">高通 ${stats.qcomCount || 1}</button>
+      <button class="tw-chip ${this.platformFilter==='QCOM'?'active':''}" data-plat="QCOM">楂橀€?${stats.qcomCount || 1}</button>
       <button class="tw-chip ${this.platformFilter==='MULTI'?'active':''}" data-plat="MULTI">多平台 ${stats.multiCount || 5}</button>
     `;
 
@@ -18217,7 +27506,43 @@ class TabonKBWorkbenchView extends ItemView {
     }
   }
 
+  getNewsSubTab() {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        const s = localStorage.getItem('tabonkb-news-subtab');
+        if (s === 'feed' || s === 'comp') return s;
+      }
+    } catch (e) {}
+    return 'feed';
+  }
+
+  saveNewsSubTab(sub) {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('tabonkb-news-subtab', sub);
+      }
+    } catch (e) {}
+  }
+
   renderNewsTab(stage) {
+    const sub = this.getNewsSubTab();
+    const bar = stage.createDiv({ cls: 'tw-news-subtabs' });
+    for (const [id, label] of [['feed', '资讯流'], ['comp', '竞品分析']]) {
+      const btn = bar.createEl('button', { cls: `tw-news-subtab-btn ${sub === id ? 'active' : ''}`, text: label });
+      btn.onclick = () => {
+        if (this.getNewsSubTab() === id) return;
+        this.saveNewsSubTab(id);
+        if (this.phoneComp) { this.phoneComp.dispose(); this.phoneComp = null; }
+        if (this.rssCenter) { this.rssCenter.dispose(); this.rssCenter = null; }
+        this.render();
+      };
+    }
+    const host = stage.createDiv({ cls: 'tw-news-subhost' });
+    if (sub === 'comp') {
+      this.phoneComp = new PhoneCompetitorView({ app: this.app });
+      this.phoneComp.mount(host);
+      return;
+    }
     const plugin = this.app.plugins?.getPlugin?.('tabonkb-workbench') || this.app.plugins?.plugins?.['tabonkb-workbench'];
     const rssService = plugin?.rssService || new RssService({ app: this.app, getFeeds: () => DEFAULT_SETTINGS.rss?.feeds || [] });
 
@@ -18230,7 +27555,7 @@ class TabonKBWorkbenchView extends ItemView {
       }
     });
 
-    this.rssCenter.mount(stage);
+    this.rssCenter.mount(host);
     if (this.keyword) {
       this.rssCenter.filterKeyword(this.keyword);
     }
@@ -18254,11 +27579,34 @@ class TabonKBWorkbenchView extends ItemView {
       }
     });
 
-    this.exploreView.mount(stage);
+    // Restore keyword BEFORE mount so renderSearchSubView sees it and auto-triggers live search
     if (this.keyword && this.exploreView.activeSubTab === 'search') {
       this.exploreView.searchKeyword = this.keyword;
-      this.exploreView.refreshResults();
     }
+
+    this.exploreView.mount(stage);
+
+    // If keyword was restored but liveSearchResults is empty, executeInSituSearch
+    // (renderSearchSubView auto-restore handles this via setTimeout, no extra call needed)
+
+  }
+
+  renderManageTab(stage) {
+    if (this.weknoraManage) {
+      this.weknoraManage.dispose();
+      this.weknoraManage = null;
+    }
+
+    this.weknoraManage = new WeKnoraManageView({
+      app: this.app,
+      plugin: this.plugin,
+      onOpenSettings: () => {
+        this.app.setting?.open?.();
+        this.app.setting?.openTabById?.('tabonkb-workbench');
+      }
+    });
+
+    this.weknoraManage.mount(stage);
   }
 
   renderContextPanel() {
@@ -18301,106 +27649,228 @@ class TabonKBWorkbenchView extends ItemView {
       </div>
     `;
 
-    // 1. Knowledge Stats 4-Grid
-    const stats = this.getVaultStats();
-    const nodeCount = this.graphData.nodes.length || stats.totalDocs;
-    const edgeCount = this.graphData.edges.length || 128;
-    const coreCount = this.graphData.nodes.filter(n => n.importance === 'core').length || 17;
+    // 1. 文档打标：命名规范后缀 _平台_模块_类型 优先（与盘点报告同口径），缺失回退路径/frontmatter
+    const KNOWN_DOCTYPES = ['REF','GUIDE','NOTE','ARCH','SPEC','RPT','CHK','CASE','LOG','IDX','CODE','PLAN','DBG'];
+    const PATH_MODULE_MAP = [
+      ['05-charger', 'CHG'], ['08-power', 'PWR'], ['02-camera', 'CAM'], ['01-display', 'DISP'],
+      ['04-usb', 'USB'], ['13-security', 'SEC'], ['10-connectivity', 'CONN'], ['03-audio', 'AUD'],
+      ['02-os-kernel', 'KERN'], ['07-touch', 'TP'], ['06-sensor', 'SEN'], ['09-storage', 'STOR'],
+      ['11-modem', 'MODEM'], ['12-input', 'INPUT'], ['05-toolchain', 'BUILD'], ['06-spec', 'SPEC']
+    ];
+    const MODULE_LABELS = { PWR: 'PWR 电源/热', CHG: 'CHG 充电', CAM: 'CAM 摄像头', KERN: 'KERN 内核', DISP: 'DISP 显示', USB: 'USB', SEC: 'SEC 安全', CONN: 'CONN 连接', AUD: 'AUD 音频', GEN: 'GEN 通用', HW: 'HW 硬件', TP: 'TP 触摸', SPEC: 'SPEC 规范', BUILD: 'BUILD 工具链', STOR: 'STOR 存储', MODEM: 'MODEM  modem', SEN: 'SEN 传感器', INPUT: 'INPUT 输入', TEST: 'TEST 测试', DBG: 'DBG 调试', PROJ: 'PROJ 项目', PLAT: 'PLAT 平台', META: 'META 治理' };
+    const DOCTYPE_LABELS = { REF: 'REF 原厂/第三方原文', GUIDE: 'GUIDE 操作指南', NOTE: 'NOTE 笔记', ARCH: 'ARCH 架构', SPEC: 'SPEC 规范', RPT: 'RPT 报告', CHK: 'CHK 检查表', CASE: 'CASE 案例', LOG: 'LOG 日志', IDX: 'IDX 索引', CODE: 'CODE 代码', PLAN: 'PLAN 计划', DBG: 'DBG 调试', IMG: 'IMG 图像', DATA: 'DATA 表格', ATT: 'ATT 附件' };
+    const tagOf = (d) => {
+      const base = (d.path || '').split('/').pop().replace(/\.md$/i, '');
+      const toks = base.split('_');
+      let platform = '', module = '', doctype = '';
+      if (toks.length >= 3) {
+        const t = toks[toks.length - 1].toUpperCase();
+        const m = toks[toks.length - 2].toUpperCase();
+        const p = toks[toks.length - 3].toUpperCase();
+        if (KNOWN_DOCTYPES.includes(t)) {
+          doctype = t;
+          if (/^[A-Z][A-Z0-9-]{1,8}$/.test(m)) module = m;
+          if (/^[A-Z][A-Z0-9-]{1,8}$/.test(p)) platform = p;
+        }
+      }
+      if (!module) {
+        const pl = (d.path || '').toLowerCase();
+        const hit = PATH_MODULE_MAP.find(([k]) => pl.includes(k));
+        module = hit ? hit[1] : '';
+      }
+      if (!doctype) doctype = (d.type && d.type !== 'DOC') ? String(d.type).toUpperCase() : '';
+      if (!platform) platform = String(d.platform || '').toUpperCase();
+      return { platform: platform || 'COMMON', module: module || '未打标', doctype: doctype || '未打标' };
+    };
+    const tagged = this.realDocs.map(d => Object.assign({ doc: d, vendor: /vendor-docs/i.test(d.path || '') }, tagOf(d)));
+    // 全量资产口径：vault 全部文件（含原厂原文/附件），与盘点报告同口径
+    const PATH_MODULE_RULES = [
+      ['charger', 'CHG'], ['battery', 'CHG'], ['chg', 'CHG'],
+      ['power', 'PWR'], ['thermal', 'PWR'], ['pmic', 'PWR'],
+      ['camera', 'CAM'],
+      ['kernel', 'KERN'],
+      ['display', 'DISP'],
+      ['usb', 'USB'], ['typec', 'USB'],
+      ['security', 'SEC'], ['tee', 'SEC'],
+      ['connect', 'CONN'], ['wifi', 'CONN'], ['bluetooth', 'CONN'],
+      ['audio', 'AUD'],
+      ['touch', 'TP'],
+      ['storage', 'STOR'], ['emmc', 'STOR'],
+      ['modem', 'MODEM'], ['ril', 'MODEM'],
+      ['sensor', 'SEN'],
+      ['input', 'INPUT'],
+      ['spec', 'SPEC'],
+      ['toolchain', 'BUILD'], ['compiler', 'BUILD'],
+      ['crash', 'DBG'], ['panic', 'DBG'], ['debug', 'DBG'], ['trace', 'DBG'],
+      ['test', 'TEST'], ['cert', 'TEST'],
+      ['hardware', 'HW'], ['datasheet', 'HW'],
+      ['project', 'PROJ'],
+      ['platform', 'PLAT']
+    ];
+    const EXT_DOCTYPE = { '.pdf': 'REF', '.doc': 'REF', '.docx': 'REF', '.html': 'REF', '.htm': 'REF',
+      '.png': 'IMG', '.jpg': 'IMG', '.jpeg': 'IMG', '.svg': 'IMG',
+      '.csv': 'DATA', '.xlsx': 'DATA', '.xls': 'DATA',
+      '.js': 'CODE', '.py': 'CODE', '.ts': 'CODE',
+      '.pptx': 'RPT', '.ppt': 'RPT' };
+    const allFiles = (this.app && this.app.vault && typeof this.app.vault.getFiles === 'function') ? this.app.vault.getFiles() : [];
+    const fileTags = allFiles.map(f => {
+      const p = (f.path || '').toLowerCase();
+      const vendor = p.includes('08-vendor-docs');
+      const nameNoExt = (f.name || '').replace(/\.[^.]+$/, '');
+      const toks = nameNoExt.split('_');
+      const suffixed = toks.length >= 3 && KNOWN_DOCTYPES.includes(toks[toks.length - 1].toUpperCase());
+      let module = '';
+      if (suffixed) {
+        const m = toks[toks.length - 2].toUpperCase();
+        if (/^[A-Z][A-Z0-9-]{1,8}$/.test(m)) module = m;
+      }
+      if (!module) {
+        const hit = PATH_MODULE_RULES.find(([k]) => p.includes(k));
+        module = hit ? hit[1] : '';
+      }
+      if (!module) module = p.startsWith('99-meta') ? 'META' : (p.startsWith('00-inbox') ? 'META' : 'GEN');
+      const ext = (/\.[a-z0-9]+$/i.exec(f.name || '') || [''])[0].toLowerCase();
+      let doctype;
+      if (ext === '.md') doctype = suffixed ? toks[toks.length - 1].toUpperCase() : (vendor ? 'REF' : 'NOTE');
+      else if (vendor) doctype = 'REF';
+      else doctype = EXT_DOCTYPE[ext] || 'ATT';
+      let platform = '';
+      if (suffixed) platform = toks[toks.length - 3].toUpperCase();
+      if (!/^[A-Z][A-Z0-9-]{0,8}$/.test(platform || '')) platform = '';
+      if (!platform) {
+        if (p.includes('qcom') || p.includes('qualcomm')) platform = 'QCOM';
+        else if (p.includes('mtk') || p.includes('mediatek')) platform = 'MTK';
+        else if (p.includes('unisoc')) platform = 'UNISOC';
+        else if (p.includes('samsung') || p.includes('exynos')) platform = 'EXYNOS';
+        else if (p.includes('multi')) platform = 'MULTI';
+        else platform = 'COMMON';
+      }
+      return { module, doctype, platform, vendor };
+    });
+    const clusterCount = new Set(fileTags.map(t => t.module).filter(m => m && m !== 'GEN' && m !== 'META')).size;
+    const doctypeCount = new Set(fileTags.map(t => t.doctype)).size;
+    const vendorCount = fileTags.filter(t => t.vendor).length;
 
     const kpiSection = wrap.createDiv();
     kpiSection.innerHTML = `
       <div class="tw-overview-section-title">
-        <span>KNOWLEDGE 资产拓扑</span>
-        <span style="font-family:monospace; font-size:10px; font-weight:normal;">全库穿透感知</span>
+        <span>KNOWLEDGE 资产概览</span>
+        <span style="font-family:monospace; font-size:10px; font-weight:normal;">命名规范打标 · ${this.realDocs.length} 篇</span>
       </div>
       <div class="tw-kpi-grid-4">
         <div class="tw-kpi-box">
-          <div class="tw-kpi-box-num">${nodeCount}</div>
-          <div class="tw-kpi-box-label">知识资产 (Nodes)</div>
+          <div class="tw-kpi-box-num">${allFiles.length}</div>
+          <div class="tw-kpi-box-label">资产总数 (含原文)</div>
         </div>
         <div class="tw-kpi-box">
-          <div class="tw-kpi-box-num" style="color:#059669;">${edgeCount}</div>
-          <div class="tw-kpi-box-label">知识关系 (Edges)</div>
+          <div class="tw-kpi-box-num" style="color:#059669;">${vendorCount}</div>
+          <div class="tw-kpi-box-label">原厂原文</div>
         </div>
         <div class="tw-kpi-box">
-          <div class="tw-kpi-box-num" style="color:#D97706;">8</div>
-          <div class="tw-kpi-box-label">知识模块 (Clusters)</div>
+          <div class="tw-kpi-box-num" style="color:#D97706;">${clusterCount}</div>
+          <div class="tw-kpi-box-label">知识模块</div>
         </div>
         <div class="tw-kpi-box">
-          <div class="tw-kpi-box-num" style="color:#7C3AED;">${coreCount}</div>
-          <div class="tw-kpi-box-label">核心知识 (Hubs)</div>
+          <div class="tw-kpi-box-num" style="color:#7C3AED;">${this.realDocs.length}</div>
+          <div class="tw-kpi-box-label">知识文档 (md)</div>
         </div>
       </div>
     `;
 
-    // 2. Knowledge Composition (Progress bars)
-    const compSection = wrap.createDiv();
-    const modulesData = [
-      { name: '充电/CHG', count: stats.modules.charger || 17, color: '#F59E0B' },
-      { name: 'Spec/规范', count: stats.modules.spec || 14, color: '#10B981' },
-      { name: 'Display', count: stats.modules.display || 2, color: '#3B82F6' },
-      { name: 'Power', count: stats.modules.power || 2, color: '#EF4444' },
-      { name: 'Crash', count: stats.modules.crash || 1, color: '#EC4899' },
-      { name: 'Camera', count: stats.modules.camera || 1, color: '#8B5CF6' }
-    ];
-
-    const maxCount = Math.max(...modulesData.map(m => m.count), 1);
-
-    let compBarsHtml = modulesData.map(m => {
-      const pct = Math.round((m.count / maxCount) * 100);
-      return `
+    // 2. 模块 / 文档类型分布：与盘点报告同口径（命名规范标签），仅展示 count>0 降序
+    const MOD_COLOR_POOL = ['#F59E0B', '#10B981', '#3B82F6', '#EF4444', '#EC4899', '#8B5CF6', '#0EA5E9', '#84CC16'];
+    const barBlock = (title, sub, counts) => {
+      let list = [...counts.entries()].sort((a, b) => b[1] - a[1]);
+      if (list.length > 8) {
+        const head = list.slice(0, 7);
+        const rest = list.slice(7).reduce((a, [, c]) => a + c, 0);
+        list = [...head, ['其他', rest]];
+      }
+      const mx = Math.max(...list.map(([, c]) => c), 1);
+      const rows = list.length ? list.map(([name, count], i) => {
+        const pct = Math.round((count / mx) * 100);
+        return `
         <div class="tw-comp-row">
-          <span class="tw-comp-name" title="${m.name}">${m.name}</span>
+          <span class="tw-comp-name" title="${escapeHtml(name)}">${escapeHtml(name)}</span>
           <div class="tw-comp-track">
-            <div class="tw-comp-fill" style="width:${pct}%; background:${m.color};"></div>
+            <div class="tw-comp-fill" style="width:${pct}%; background:${MOD_COLOR_POOL[i % MOD_COLOR_POOL.length]};"></div>
           </div>
-          <span class="tw-comp-count">${m.count}</span>
-        </div>
-      `;
-    }).join('');
-
-    compSection.innerHTML = `
+          <span class="tw-comp-count">${count}</span>
+        </div>`;
+      }).join('') : '<div class="tw-overview-empty">暂无数据</div>';
+      return `
       <div class="tw-overview-section-title">
-        <span>知识构成 (COMPOSITION)</span>
-        <span style="font-family:monospace; font-size:10px; font-weight:normal;">模块分布</span>
+        <span>${title}</span>
+        <span style="font-family:monospace; font-size:10px; font-weight:normal;">${sub}</span>
       </div>
-      <div class="tw-comp-bar-wrap">
-        ${compBarsHtml}
-      </div>
-    `;
+      <div class="tw-comp-bar-wrap">${rows}</div>`;
+    };
+    const modCounts = new Map();
+    for (const t of fileTags) {
+      const label = MODULE_LABELS[t.module] || t.module;
+      modCounts.set(label, (modCounts.get(label) || 0) + 1);
+    }
+    const typeCounts = new Map();
+    for (const t of fileTags) {
+      const label = DOCTYPE_LABELS[t.doctype] || t.doctype;
+      typeCounts.set(label, (typeCounts.get(label) || 0) + 1);
+    }
 
-    // 3. Task Stats & Closure Rate
-    const taskSection = wrap.createDiv();
-    taskSection.innerHTML = `
+    const compSection = wrap.createDiv();
+    compSection.innerHTML = barBlock('模块分布 (MODULE)', '命名规范口径', modCounts)
+      + barBlock('文档类型 (DOCTYPE)', '命名规范口径', typeCounts);
+
+    // 3. 平台分布 + 原厂只读区 + 治理活跃（纯知识库视角）
+    const platCounts = new Map();
+    for (const t of fileTags) platCounts.set(t.platform, (platCounts.get(t.platform) || 0) + 1);
+    const vendorByPlat = new Map();
+    for (const t of fileTags) if (t.vendor) vendorByPlat.set(t.platform, (vendorByPlat.get(t.platform) || 0) + 1);
+    const vendorDesc = [...vendorByPlat.entries()].sort((a, b) => b[1] - a[1]).map(([p, c]) => `${p} ${c}`).join(' / ') || '暂无';
+    const nowTs = Date.now();
+    const added7 = this.realDocs.filter(d => d.mtime && nowTs - d.mtime <= 7 * 86400000).length;
+    const added30 = this.realDocs.filter(d => d.mtime && nowTs - d.mtime <= 30 * 86400000).length;
+    const untagged = tagged.filter(t => t.module === '未打标').length;
+    const withSummary = this.realDocs.filter(d => d.summary && d.summary !== '（暂无详细说明）').length;
+    const summaryRate = this.realDocs.length ? Math.round((withSummary / this.realDocs.length) * 100) : 0;
+
+    const kbSection = wrap.createDiv();
+    const platCells = ['QCOM', 'MTK', 'UNISOC', 'MULTI', 'COMMON'].map(pl => `
+      <div class="tw-task-mini-cell">
+        <div class="tw-task-mini-val" style="color:var(--text-normal);">${platCounts.get(pl) || 0}</div>
+        <div class="tw-task-mini-lbl">${pl}</div>
+      </div>
+    `).join('');
+    kbSection.innerHTML = `
       <div class="tw-overview-section-title" style="margin-top:2px;">
-        <span>TASK 研发攻坚跟踪</span>
-        <span style="font-family:monospace; font-size:10px; font-weight:normal;">6 项聚焦</span>
+        <span>PLATFORM 平台分布</span>
+        <span style="font-family:monospace; font-size:10px; font-weight:normal;">命名规范口径</span>
+      </div>
+      <div class="tw-task-summary-grid" style="grid-template-columns:repeat(5,1fr);">
+        ${platCells}
+      </div>
+      <div style="margin-top:6px; padding:6px 9px; font-size:10.5px; color:var(--text-muted,#64748B); background:var(--background-secondary,#F1F5F9); border-radius:6px;">
+        原厂只读区 <strong style="color:var(--text-normal);">${vendorCount}</strong> 篇 · ${escapeHtml(vendorDesc)}
+      </div>
+      <div class="tw-overview-section-title" style="margin-top:8px;">
+        <span>ACTIVITY 活跃与治理</span>
+        <span style="font-family:monospace; font-size:10px; font-weight:normal;">按文件_mtime_统计</span>
       </div>
       <div class="tw-task-summary-grid">
         <div class="tw-task-mini-cell">
-          <div class="tw-task-mini-val" style="color:var(--text-normal);">6</div>
-          <div class="tw-task-mini-lbl">活跃任务</div>
+          <div class="tw-task-mini-val" style="color:#15803D;">${added7}</div>
+          <div class="tw-task-mini-lbl">近 7 天新增</div>
         </div>
         <div class="tw-task-mini-cell">
-          <div class="tw-task-mini-val" style="color:#C2410C;">3</div>
-          <div class="tw-task-mini-lbl">攻坚排查</div>
+          <div class="tw-task-mini-val" style="color:#059669;">${added30}</div>
+          <div class="tw-task-mini-lbl">近 30 天新增</div>
         </div>
         <div class="tw-task-mini-cell">
-          <div class="tw-task-mini-val" style="color:#B45309;">1</div>
-          <div class="tw-task-mini-lbl">阻塞等原厂</div>
+          <div class="tw-task-mini-val" style="color:#C2410C;">${untagged}</div>
+          <div class="tw-task-mini-lbl">未打标文档</div>
         </div>
         <div class="tw-task-mini-cell">
-          <div class="tw-task-mini-val" style="color:#15803D;">2</div>
-          <div class="tw-task-mini-lbl">已闭环</div>
-        </div>
-      </div>
-      <div class="tw-closure-bar-wrap">
-        <div style="display:flex; justify-content:space-between; font-size:10.5px; color:var(--text-muted);">
-          <span>收敛闭环率</span>
-          <span style="font-weight:700; color:#10B981; font-family:monospace;">33% (稳步推进)</span>
-        </div>
-        <div style="height:6px; background:var(--background-secondary, #E2E8F0); border-radius:3px; overflow:hidden;">
-          <div style="width:33%; height:100%; background:#10B981; border-radius:3px;"></div>
+          <div class="tw-task-mini-val" style="color:#2563EB;">${summaryRate}%</div>
+          <div class="tw-task-mini-lbl">摘要完备率</div>
         </div>
       </div>
     `;
@@ -18447,6 +27917,27 @@ class TabonKBWorkbenchView extends ItemView {
       <div style="font-size:10px; font-weight:600; color:var(--text-muted); margin-bottom:3px; text-transform:uppercase;">资料简要介绍</div>
       <div>${escapeHtml(node.summary || '（暂无详细说明）')}</div>
     `;
+
+    // WeKnora 节点: 来源信息 + ego 展开/懒加载正文/深链 (全部复用原生组件样式)
+    if (node.source === 'weknora') {
+      const wkBox = wrap.createDiv({ cls: 'tw-detail-summary-box' });
+      wkBox.innerHTML = `
+        <div style="font-size:10px; font-weight:600; color:var(--text-muted); margin-bottom:3px; text-transform:uppercase;">WeKnora 知识页</div>
+        <div style="font-size:11px; margin-bottom:6px;">page_type <b>${escapeHtml(node.wkType || '')}</b> · 图内链接 <b>${node.wkLinks || 0}</b> · slug <span style="font-family:monospace;">${escapeHtml(node.wkSlug || '')}</span></div>
+        <div style="display:flex; gap:6px; flex-wrap:wrap;">
+          <button class="tw-detail-open-btn" id="wkBtnEgo" style="flex:0 0 auto;">展开 WeKnora 邻居</button>
+          <button class="tw-detail-open-btn" id="wkBtnContent" style="flex:0 0 auto;">加载页面正文</button>
+          <button class="tw-detail-open-btn" id="wkBtnOpen" style="flex:0 0 auto;">在 WeKnora 打开 ↗</button>
+        </div>
+        <div id="wkPageContentBox" style="margin-top:8px; max-height:320px; overflow:auto; font-size:11px;"></div>
+      `;
+      wkBox.querySelector('#wkBtnEgo').onclick = () => this.weknoraEgoExpand(node);
+      wkBox.querySelector('#wkBtnContent').onclick = () => this.weknoraLoadPageContent(node, wkBox.querySelector('#wkPageContentBox'));
+      wkBox.querySelector('#wkBtnOpen').onclick = () => {
+        const ws = (this.plugin && this.plugin.settings && this.plugin.settings.weknora) || {};
+        if (ws.baseUrl) window.open(String(ws.baseUrl).replace(/\/+$/, '') + '/', '_blank');
+      };
+    }
 
     // 4. Relations Count & List
     const connectedEdges = this.graphData.edges.filter(e => e.source === node.id || e.target === node.id);
@@ -18520,12 +28011,88 @@ class TabonKBWorkbenchView extends ItemView {
       });
     }
 
-    // 7. Bottom Action Button
-    const btnOpenDoc = wrap.createEl('button', { cls: 'tw-detail-open-btn' });
-    btnOpenDoc.innerHTML = `<span>打开原始知识文档</span> <span>↗</span>`;
-    btnOpenDoc.onclick = () => {
-      this.openTarget(node.id, node.title);
-    };
+    // 7. Bottom Action Button (WeKnora 节点无 vault 源文档, 入口在上方 wkBox)
+    if (node.source !== 'weknora') {
+      const btnOpenDoc = wrap.createEl('button', { cls: 'tw-detail-open-btn' });
+      btnOpenDoc.innerHTML = `<span>打开原始知识文档</span> <span>↗</span>`;
+      btnOpenDoc.onclick = () => {
+        this.openTarget(node.id, node.title);
+      };
+    }
+  }
+
+  // ---------- WeKnora 拓扑接入 (瘦节点联邦合并, 样式沿用原生主题) ----------
+  scheduleWeknoraMerge(force) {
+    const s = (this.plugin && this.plugin.settings && this.plugin.settings.weknora) || {};
+    if (!s.topoEnabled) return;
+    if (this._wkTopoLoading) return;
+    this._wkTopoLoading = true;
+    const vb = this.app.vault.adapter.basePath;
+    (async () => {
+      try {
+        let cached = force ? null : wkTopoCacheLoad(vb, s.topoTtlHours || 24);
+        if (!cached) cached = wkTopoCacheSave(vb, await wkTopoFetchGraph(vb, s.topoLimit || 300));
+        const wk = wkTopoSlimGraph(cached, s.topoGrouping || 'semantic');
+        const base = this.vaultGraphData || this.graphData;
+        this.graphData = wkTopoMerge(base, wk, 800);
+        if (this.graphCanvas) this.graphCanvas.setData(this.graphData);
+        this.updateWkTopoStatus(true, this.graphData.nodes.filter(n => n.source === 'weknora').length);
+      } catch (e) {
+        console.warn('[TabonKB] WeKnora 拓扑合并失败:', e);
+        try { wkTopoWriteLog(vb, 'MERGE: ' + (e && e.stack || e)); } catch (e2) {}
+        this.updateWkTopoStatus(false, 0);
+      } finally {
+        this._wkTopoLoading = false;
+      }
+    })();
+  }
+
+  updateWkTopoStatus(ok, wkCount) {
+    const el = this.graphCanvas && this.graphCanvas.statusEl;
+    if (!el) return;
+    el.innerHTML = ok
+      ? `<span class="tw-graph-dot" style="background:#10B981;"></span><span id="twStatusText">✓ 轻量知识拓扑 就绪 · 含 WeKnora ${wkCount} 节点</span>`
+      : `<span class="tw-graph-dot" style="background:#94A3B8;"></span><span id="twStatusText">WeKnora 不可达 · 仅本地 vault 拓扑</span>`;
+  }
+
+  async weknoraEgoExpand(node) {
+    const vb = this.app.vault.adapter.basePath;
+    const s = (this.plugin && this.plugin.settings && this.plugin.settings.weknora) || {};
+    try {
+      const raw = await wkTopoFetchEgo(vb, node.wkSlug, 150);
+      const wk = wkTopoSlimGraph(raw, s.topoGrouping || 'semantic');
+      this.graphData = wkTopoMerge(this.graphData, wk, 800);
+      if (this.graphCanvas) this.graphCanvas.setData(this.graphData);
+      new Notice(`WeKnora 邻居展开: +${wk.nodes.length} 节点`);
+    } catch (e) {
+      new Notice('WeKnora ego 展开失败: ' + e.message);
+    }
+  }
+
+  async weknoraLoadPageContent(node, box) {
+    box.innerHTML = '<div style="font-size:11px;color:var(--text-muted);">加载 WeKnora 页面正文…</div>';
+    try {
+      const p = await wkTopoFetchPage(this.app.vault.adapter.basePath, node.wkSlug);
+      box.empty();
+      MarkdownRenderer.renderMarkdown(p.content || '(空内容)', box, this.app.vault.adapter.basePath, this);
+    } catch (e) {
+      box.innerHTML = `<div style="font-size:11px;color:var(--text-muted);">加载失败: ${escapeHtml(e.message)}</div>`;
+    }
+  }
+
+  onClose() {
+    // 视图关闭释放图数据 (磁盘缓存保留), 避免常驻内存
+    this.graphData = { nodes: [], edges: [] };
+    this.vaultGraphData = null;
+    this.realDocs = [];
+    if (this.graphCanvas) {
+      if (this.graphCanvas.animFrameId) cancelAnimationFrame(this.graphCanvas.animFrameId);
+      this.graphCanvas.nodes = [];
+      this.graphCanvas.edges = [];
+      this.graphCanvas.nodeMap.clear();
+      this.graphCanvas.adjMap.clear();
+    }
+    return Promise.resolve();
   }
 
   selectKnowledgeNode(nodeId) {
@@ -18975,6 +28542,8 @@ class TabonKBWorkbenchView extends ItemView {
 /* ==========================================================================
    Plugin Entry Point
    ========================================================================== */
+var TW_BRAND_ICON_OK = false;
+
 module.exports = class TabonKBWorkbenchPlugin extends Plugin {
   async onload() {
     await this.loadSettings();
@@ -19003,6 +28572,10 @@ module.exports = class TabonKBWorkbenchPlugin extends Plugin {
       app: this.app,
       getNiceaigcConfig: () => this.settings.niceaigc || DEFAULT_SETTINGS.niceaigc
     });
+
+    // Companion Sync Server for Chrome / Edge Extension (127.0.0.1:28123)
+    this.companionServer = new CompanionSyncServer({ plugin: this, port: 28123 });
+    this.companionServer.start();
 
     this.addSettingTab(new TabonKBSettingTab(this.app, this));
 
@@ -19040,9 +28613,20 @@ module.exports = class TabonKBWorkbenchPlugin extends Plugin {
     }));
 
     // Add ribbon icon on left navigation bar
-    this.addRibbonIcon('layout-dashboard', '打开 TabonKB 研发工作台', () => {
-      this.activateView();
-    });
+    // 图标注册失败不得拖垮插件加载: 捕获后回退内置图标
+    try {
+      this.addIcon('tabonkb-brand', '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M6.4 7.4h11.2"/><path d="M12 7.4v10.2"/><circle cx="6.4" cy="7.4" r="2" fill="currentColor" stroke="none"/><circle cx="17.6" cy="7.4" r="2" fill="currentColor" stroke="none"/><circle cx="12" cy="17.6" r="2.1" fill="currentColor" stroke="none"/></svg>');
+      TW_BRAND_ICON_OK = true;
+      this.addRibbonIcon('tabonkb-brand', '打开 TabonKB 研发工作台', () => {
+        this.activateView();
+      });
+    } catch (e) {
+      console.warn('[TabonKB Workbench] custom brand icon failed, fallback to built-in:', e);
+      TW_BRAND_ICON_OK = false;
+      this.addRibbonIcon('layout-dashboard', '打开 TabonKB 研发工作台', () => {
+        this.activateView();
+      });
+    }
 
     // Add command palette item
     this.addCommand({
@@ -19172,6 +28756,10 @@ module.exports = class TabonKBWorkbenchPlugin extends Plugin {
         }
       }
     });
+
+    if (this.companionServer) {
+      this.companionServer.stop();
+    }
   }
 
   async activateView() {

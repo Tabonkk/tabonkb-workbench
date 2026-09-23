@@ -11,6 +11,19 @@ const { formatRelativeTime } = require('../services/jira-service.js');
  * - Issue Inspector side drawer with Markdown link copy & Agent Hub dispatch
  * - Local keyword filtering & real-time search match
  */
+/**
+ * 优先级等级分类: 兼容 Jira 中/英文字标 (致命(Fatal) / 严重(Major) / 一般(Normal) / 次要(Minor) 等),
+ * 返回四档胶囊样式类: p-urgent 红 / p-high 橙 / p-medium 蓝 / p-low 绿
+ */
+function resolveKanbanPriorityClass(priority) {
+  if (!priority) return 'p-medium';
+  const p = priority.toLowerCase();
+  if (p.includes('blocker') || p.includes('fatal') || p.includes('critical') || p.includes('highest') || p.includes('urgent') || p.includes('p0') || p.includes('\u7d27\u6025') || p.includes('\u81f4\u547d') || p.includes('\u6700\u9ad8') || p.includes('\u4e25\u91cd\u963b\u585e')) return 'p-urgent';
+  if (p.includes('major') || p.includes('high') || p.includes('p1') || p.includes('\u4e25\u91cd') || p.includes('\u9ad8')) return 'p-high';
+  if (p.includes('minor') || p.includes('trivial') || p.includes('low') || p.includes('p3') || p.includes('p4') || p.includes('\u6b21\u8981') || p.includes('\u8f7b\u5fae') || p.includes('\u4f4e')) return 'p-low';
+  return 'p-medium';
+}
+
 class JiraPlatformView {
   constructor(options = {}) {
     this.jiraService = options.jiraService;
@@ -26,7 +39,7 @@ class JiraPlatformView {
 
     // View & preset states
     this.currentView = this.getSavedViewMode();
-    this.activePreset = this.getSavedPreset();
+    this.activeProject = this.getSavedProject();
     this.activeTimeRange = this.getSavedTimeRange();
     this.keyword = '';
     this.selectedIssue = null;
@@ -52,21 +65,21 @@ class JiraPlatformView {
     } catch (e) {}
   }
 
-  getSavedPreset() {
+  getSavedProject() {
     try {
       if (typeof localStorage !== 'undefined') {
-        const p = localStorage.getItem('tabonkb-jira-preset');
+        const p = localStorage.getItem('tabonkb-jira-project');
         if (p) return p;
       }
     } catch (e) {}
-    return 'unresolved';
+    return 'all';
   }
 
-  savePreset(preset) {
-    this.activePreset = preset;
+  saveProject(project) {
+    this.activeProject = project;
     try {
       if (typeof localStorage !== 'undefined') {
-        localStorage.setItem('tabonkb-jira-preset', preset);
+        localStorage.setItem('tabonkb-jira-project', project);
       }
     } catch (e) {}
   }
@@ -90,25 +103,22 @@ class JiraPlatformView {
     } catch (e) {}
   }
 
-  getPresetJql(preset, timeRange = this.activeTimeRange) {
-    let baseJql = '';
-    switch (preset) {
-      case 'assigned':
-        baseJql = 'assignee = currentUser()';
-        break;
-      case 'high':
-        baseJql = 'assignee = currentUser() AND priority in (High, Highest, Blocker, Critical) AND resolution = Unresolved';
-        break;
-      case 'watching':
-        baseJql = 'watcher = currentUser() AND resolution = Unresolved';
-        break;
-      case 'all':
-        baseJql = 'resolution = Unresolved';
-        break;
-      case 'unresolved':
-      default:
-        baseJql = 'assignee = currentUser() AND resolution = Unresolved';
-        break;
+  // 从已加载事项中提取项目 key（SEX90-526 → SEX90），去重排序供下拉选择
+  getProjectKeys() {
+    const set = new Set();
+    for (const it of this.issues) {
+      const m = /^(.+)-\d+$/.exec(it.key || '');
+      if (m) set.add(m[1]);
+    }
+    return [...set].sort();
+  }
+
+  getProjectJql(project, timeRange = this.activeTimeRange) {
+    // 只采集与当前用户相关的事项（经办/关注/提报任一命中），避免拉全公司工单；
+    // 同时纳入近 30 天内已解决/关闭的事项，让看板「已完成」列能呈现闭环结果
+    let baseJql = '(resolution = Unresolved OR resolutiondate >= -30d) AND (assignee = currentUser() OR watcher = currentUser() OR reporter = currentUser())';
+    if (project && project !== 'all') {
+      baseJql += ` AND project = "${project}"`;
     }
 
     if (timeRange && timeRange !== 'all') {
@@ -136,7 +146,7 @@ class JiraPlatformView {
     this.render();
     const config = typeof this.jiraService?.getConfig === 'function' ? this.jiraService.getConfig() : {};
     if (config) {
-      config.jql = this.getPresetJql(this.activePreset, this.activeTimeRange);
+      config.jql = this.getProjectJql(this.activeProject, this.activeTimeRange);
     }
     // Offline-first load: render from cache first, then refresh if expired
     this.loadIssues(false);
@@ -192,14 +202,9 @@ class JiraPlatformView {
     if (this.activeTimeRange === range) return;
     this.saveTimeRange(range);
 
-    // Update UI active buttons immediately
-    const btns = this.containerEl?.querySelectorAll('.tw-jira-time-btn');
-    if (btns) {
-      btns.forEach(b => {
-        if (b.getAttribute('data-range') === range) b.classList.add('active');
-        else b.classList.remove('active');
-      });
-    }
+    // 同步时间下拉框选中值
+    const timeSelect = this.containerEl?.querySelector('.tw-jira-time-select');
+    if (timeSelect) timeSelect.value = range;
 
     // 1. Instant client-side filtering for 0-latency feedback
     this.applyFilters();
@@ -209,7 +214,7 @@ class JiraPlatformView {
     // 2. Refresh from server with updated JQL for 100% full accuracy
     const config = typeof this.jiraService?.getConfig === 'function' ? this.jiraService.getConfig() : {};
     if (config) {
-      config.jql = this.getPresetJql(this.activePreset, range);
+      config.jql = this.getProjectJql(this.activeProject, range);
     }
     this.loadIssues(true);
   }
@@ -279,7 +284,7 @@ class JiraPlatformView {
     const s = (statusName || '').toLowerCase();
     const cat = (statusCategory || '').toLowerCase();
 
-    if (cat === 'done' || s.includes('closed') || s.includes('done') || s.includes('已解决') || s.includes('关闭') || s.includes('完成')) {
+    if (cat === 'done' || s.includes('closed') || s.includes('done') || s.includes('resolved') || s.includes('fixed') || s.includes('已解决') || s.includes('关闭') || s.includes('完成') || s.includes('验证通过')) {
       return 'done';
     }
     if (s.includes('review') || s.includes('verify') || s.includes('verification') || s.includes('测试') || s.includes('评审') || s.includes('待验')) {
@@ -289,6 +294,23 @@ class JiraPlatformView {
       return 'inprogress';
     }
     return 'todo';
+  }
+
+  // 经办人是否为本账户（Server 比 username，Cloud 比 accountId/email）
+  isAssignedToMe(issue) {
+    const config = typeof this.jiraService?.getConfig === 'function' ? this.jiraService.getConfig() : {};
+    const me = String(config.username || '').toLowerCase();
+    const myEmail = String(config.email || '').toLowerCase();
+    if (!me && !myEmail) return true; // 无法确定当前账号时不过滤
+    // 旧缓存无账号字段时不过滤，强制刷新后自动精确
+    if (issue.assigneeName === undefined && issue.assigneeEmail === undefined) return true;
+    const name = String(issue.assigneeName || '').toLowerCase();
+    const email = String(issue.assigneeEmail || '').toLowerCase();
+    if (name && ((me && name === me) || (myEmail && name === myEmail))) return true;
+    if (email && myEmail && email === myEmail) return true;
+    // 兼容 displayName 直接存在 username 配置里的情况
+    if (me && String(issue.assignee || '').toLowerCase() === me) return true;
+    return false;
   }
 
   getGroupedIssues() {
@@ -301,6 +323,8 @@ class JiraPlatformView {
 
     for (const issue of this.filteredIssues) {
       const groupKey = this.categorizeStatus(issue.status, issue.statusCategory);
+      // 进行中阶段（待办/处理中）只统计经办人为本账户的事项，他人经办的不纳入这两列
+      if ((groupKey === 'todo' || groupKey === 'inprogress') && !this.isAssignedToMe(issue)) continue;
       groups[groupKey].push(issue);
     }
     return groups;
@@ -365,32 +389,35 @@ class JiraPlatformView {
 
     const leftWrap = consoleEl.createDiv({ cls: 'tw-jira-console-left' });
     
-    // 1. Preset Filters (Strictly User's Scope)
-    const presets = [
-      { id: 'unresolved', label: '我的未解决', title: '指派给我的未解决缺陷与事项' },
-      { id: 'assigned', label: '我经办的', title: '所有指派给我的缺陷与事项' },
-      { id: 'high', label: '高优先级', title: '指派给我的严重/致命优先级缺陷' },
-      { id: 'watching', label: '我关注的', title: '我作为关注人(Watcher)的项目缺陷' },
-      { id: 'all', label: '全部待办', title: '当前项目下所有待解决事项' }
-    ];
-
-    const presetGroup = leftWrap.createDiv({ cls: 'tw-jira-preset-group' });
-    for (const p of presets) {
-      const btn = presetGroup.createEl('button', {
-        cls: `tw-jira-preset-btn ${this.activePreset === p.id ? 'active' : ''}`,
-        text: p.label,
-        title: p.title
-      });
-      btn.onclick = () => {
-        if (this.activePreset === p.id) return;
-        this.savePreset(p.id);
-        const config = typeof this.jiraService?.getConfig === 'function' ? this.jiraService.getConfig() : {};
-        if (config) {
-          config.jql = this.getPresetJql(p.id, this.activeTimeRange);
-        }
-        this.loadIssues(true);
-      };
+    // 1. Project Selector (全部 + 各 Jira 项目，下拉选择)
+    const projWrap = leftWrap.createDiv({ cls: 'tw-jira-project-wrap' });
+    const projLabel = projWrap.createSpan({ cls: 'tw-jira-time-label' });
+    projLabel.innerHTML = `${getIconPark('folder', 12)} 项目:`;
+    const projSelect = projWrap.createEl('select', {
+      cls: 'tw-jira-project-select',
+      title: '按 Jira 项目筛选任务'
+    });
+    const projectKeys = this.getProjectKeys();
+    // 当前选中项目不在已加载列表中时临时补入，避免选择丢失
+    if (this.activeProject !== 'all' && !projectKeys.includes(this.activeProject)) {
+      projectKeys.unshift(this.activeProject);
     }
+    const optAll = projSelect.createEl('option', { text: '全部', value: 'all' });
+    if (this.activeProject === 'all') optAll.selected = true;
+    for (const pk of projectKeys) {
+      const opt = projSelect.createEl('option', { text: pk, value: pk });
+      if (pk === this.activeProject) opt.selected = true;
+    }
+    projSelect.onchange = () => {
+      const v = projSelect.value || 'all';
+      if (v === this.activeProject) return;
+      this.saveProject(v);
+      const config = typeof this.jiraService?.getConfig === 'function' ? this.jiraService.getConfig() : {};
+      if (config) {
+        config.jql = this.getProjectJql(v, this.activeTimeRange);
+      }
+      this.loadIssues(true);
+    };
 
     // 2. Time Dimension Filter: 全部 / 周 / 月 / 季 / 年
     const timeRanges = [
@@ -405,15 +432,16 @@ class JiraPlatformView {
     const timeLabel = timeGroup.createSpan({ cls: 'tw-jira-time-label' });
     timeLabel.innerHTML = `${getIconPark('time', 12)} 时间:`;
 
+    const timeSelect = timeGroup.createEl('select', {
+      cls: 'tw-jira-time-select',
+      title: '按活跃时间范围筛选任务'
+    });
     for (const tr of timeRanges) {
-      const btn = timeGroup.createEl('button', {
-        cls: `tw-jira-time-btn ${this.activeTimeRange === tr.id ? 'active' : ''}`,
-        text: tr.label,
-        title: tr.title
-      });
-      btn.setAttribute('data-range', tr.id);
-      btn.onclick = () => this.setTimeRange(tr.id);
+      const opt = timeSelect.createEl('option', { text: tr.label, value: tr.id });
+      opt.setAttribute('title', tr.title);
+      if (this.activeTimeRange === tr.id) opt.selected = true;
     }
+    timeSelect.onchange = () => this.setTimeRange(timeSelect.value);
 
     // Right Controls
     const rightWrap = consoleEl.createDiv({ cls: 'tw-jira-console-right' });
@@ -484,7 +512,15 @@ class JiraPlatformView {
   }
 
   renderMetricsBar(parentEl) {
+    if (!parentEl) return;
+    // 幂等渲染：搜索/筛选/流转等局部刷新会高频调用本方法，
+    // 若不清理旧节点，每次按键都会 append 一整行统计卡片，把页面纵向撑爆
+    parentEl.querySelectorAll(':scope > .tw-jira-metrics-bar').forEach(el => el.remove());
     const metricsEl = parentEl.createDiv({ cls: 'tw-jira-metrics-bar' });
+    // 局部刷新时 createDiv 会追加到容器末尾，需重新插回看板之前（工具栏之下）
+    if (this.stageContainer && this.stageContainer.parentElement === parentEl) {
+      parentEl.insertBefore(metricsEl, this.stageContainer);
+    }
     const groups = this.getGroupedIssues();
     const total = this.filteredIssues.length;
 
@@ -540,6 +576,8 @@ class JiraPlatformView {
     ];
 
     for (const col of columns) {
+      // 评审/测试列无工单时自动隐藏（部分 Jira 工作流无独立评审态），有工单时自动回归
+      if (col.key === 'review' && col.items.length === 0) continue;
       const colEl = kanbanEl.createDiv({ cls: `tw-kanban-column tw-col-${col.key}` });
       
       // Column Header
@@ -570,11 +608,8 @@ class JiraPlatformView {
   renderKanbanCard(parentEl, issue) {
     const card = parentEl.createDiv({ cls: 'tw-kanban-card' });
     
-    // Priority badge class
-    const pLower = (issue.priority || '').toLowerCase();
-    let pCls = 'p-medium';
-    if (pLower.includes('high') || pLower.includes('block') || pLower.includes('crit')) pCls = 'p-high';
-    else if (pLower.includes('low')) pCls = 'p-low';
+    // Priority badge class (中/英双语字标 → 四档颜色)
+    const pCls = resolveKanbanPriorityClass(issue.priority);
 
     // Component tags
     const compHtml = (issue.components || []).map(c => `<span class="tw-card-comp-tag">${escapeHtml(c)}</span>`).join('');
@@ -615,7 +650,7 @@ class JiraPlatformView {
         <tr>
           <th style="width: 110px;">编号 (Key)</th>
           <th>事项摘要 (Summary)</th>
-          <th style="width: 120px;">状态</th>
+          <th style="width: 120px;">״̬</th>
           <th style="width: 90px;">优先级</th>
           <th style="width: 110px;">经办人</th>
           <th style="width: 100px;">更新时间</th>
@@ -629,10 +664,7 @@ class JiraPlatformView {
     for (const issue of this.filteredIssues) {
       const tr = tbody.createEl('tr', { cls: 'tw-jira-table-row' });
       
-      const pLower = (issue.priority || '').toLowerCase();
-      let pCls = 'p-medium';
-      if (pLower.includes('high') || pLower.includes('block') || pLower.includes('crit')) pCls = 'p-high';
-      else if (pLower.includes('low')) pCls = 'p-low';
+      const pCls = resolveKanbanPriorityClass(issue.priority);
 
       tr.innerHTML = `
         <td><span class="tw-table-key">${escapeHtml(issue.key)}</span></td>
@@ -747,7 +779,7 @@ class JiraPlatformView {
       </div>
       <div class="tw-meta-item">
         <span class="tw-meta-label">报告人</span>
-        <span class="tw-meta-val">${escapeHtml(issue.reporter || '系统')}</span>
+        <span class="tw-meta-val">${escapeHtml(issue.reporter || 'ϵͳ')}</span>
       </div>
       <div class="tw-meta-item">
         <span class="tw-meta-label">优先级</span>
@@ -755,7 +787,7 @@ class JiraPlatformView {
       </div>
       <div class="tw-meta-item">
         <span class="tw-meta-label">更新时间</span>
-        <span class="tw-meta-val">${escapeHtml(issue.updated || '未知')}</span>
+        <span class="tw-meta-val">${escapeHtml(issue.updated || 'δ֪')}</span>
       </div>
       ${issue.created ? `
         <div class="tw-meta-item">
@@ -1391,7 +1423,7 @@ class JiraPlatformView {
       if (!comments || comments.length === 0) {
         listEl.innerHTML = `
           <div class="tw-ins-comments-empty">
-            <span class="tw-empty-icon">${getIconPark('info', 13)}</span>
+            <span class="tw-empty-icon">${getIconPark('info-circle', 13)}</span>
             <span>暂无注释记录，您可在上方输入框添加第一条处理注释</span>
           </div>
         `;
@@ -1499,7 +1531,7 @@ class JiraPlatformView {
     lines.push(`status: "${issue.status || ''}"`);
     lines.push(`priority: "${issue.priority || 'Medium'}"`);
     lines.push(`assignee: "${issue.assignee || '未指派'}"`);
-    lines.push(`reporter: "${issue.reporter || '系统'}"`);
+    lines.push(`reporter: "${issue.reporter || 'ϵͳ'}"`);
     lines.push('tags:');
     lines.push('  - jira');
     lines.push('  - quick-note');

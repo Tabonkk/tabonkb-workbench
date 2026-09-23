@@ -1,4 +1,5 @@
 const { AgentAdapter, getAgentBrandSvg } = require('./agent-adapter-base.js');
+const { buildVendorEnv, ensureGeminiVendorMcp, VENDOR_MCP_TOOL_HINT } = require('../mcp/vendor-mcp-shared.js');
 const fs = require('fs');
 const path = require('path');
 const child_process = require('child_process');
@@ -111,11 +112,20 @@ class GeminiAdapter extends AgentAdapter {
   async start() {
     const check = await this.detect();
     if (check.available) {
+      this.ensureVendorMcp();
       this.setStatus('connected', '已就绪');
       return true;
     }
     this.setStatus('not_installed', 'Gemini 未安装');
     return false;
+  }
+
+  // 写项目级 .gemini/settings.json 注册芯片检索 MCP server (幂等, 失败不阻断)
+  ensureVendorMcp() {
+    try {
+      const res = ensureGeminiVendorMcp(this.vaultBasePath);
+      if (!res.ok) console.warn('[Gemini] vendor MCP 注册失败:', res.error);
+    } catch (e) { console.warn('[Gemini] vendor MCP 注册异常:', e.message); }
   }
 
   async stop() {
@@ -135,18 +145,20 @@ class GeminiAdapter extends AgentAdapter {
     const bin = this.resolveGeminiBinary();
     const vaultPath = this.vaultBasePath || process.cwd();
     const approvalMode = this.permissionMode === 'readwrite' ? 'auto_edit' : 'plan';
+    this.ensureVendorMcp();
 
     if (!this.sessionId) {
       this.sessionId = this.generateSessionId();
     }
 
+    const promptText = text + VENDOR_MCP_TOOL_HINT;
     const args = [
       ...bin.prefixArgs,
       '--skip-trust',
       '--session-id', this.sessionId,
       '--approval-mode', approvalMode,
       '-o', 'stream-json',
-      '-p', text
+      '-p', promptText
     ];
 
     return new Promise((resolve) => {
@@ -156,7 +168,7 @@ class GeminiAdapter extends AgentAdapter {
 
         this.process = child_process.spawn(bin.cmd, args, {
           cwd: vaultPath,
-          env: Object.assign({}, process.env, {
+          env: Object.assign({}, process.env, buildVendorEnv(vaultPath), {
             GEMINI_CLI_TRUST_WORKSPACE: 'true'
           }),
           stdio: ['pipe', 'pipe', 'pipe']

@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TabonKB 研发工作台伴侣</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="popup-container">
+    <!-- Header -->
+    <div class="header">
+      <div class="brand">
+        <span class="logo-icon">💎</span>
+        <div class="brand-text">
+          <div class="title">TabonKB 伴侣</div>
+          <div class="subtitle">原厂芯片凭据一键同步</div>
+        </div>
+      </div>
+      <div class="server-status" id="serverStatus" title="Obsidian 本地同步服务状态">
+        <span class="status-dot checking"></span>
+        <span class="status-text">检测中...</span>
+      </div>
+    </div>
+
+    <!-- Active Tab Inspection -->
+    <div class="section-card" id="siteCard">
+      <div class="card-header">
+        <span class="card-title" id="siteTitle">当前页面检测</span>
+        <span class="badge" id="siteBadge">未知</span>
+      </div>
+      <div class="card-body">
+        <div class="detected-info" id="detectedInfo">
+          正在读取页面与 Cookie 凭据...
+        </div>
+      </div>
+      <div class="card-actions">
+        <button class="btn btn-primary" id="btnSyncNow" disabled>
+          ⚡ 一键同步到 TabonKB
+        </button>
+        <button class="btn btn-secondary" id="btnCopyToken" disabled>
+          📋 复制 Token
+        </button>
+      </div>
+    </div>
+
+    <!-- Quick Navigation -->
+    <div class="section-card">
+      <div class="card-header">
+        <span class="card-title">快捷原厂直达</span>
+      </div>
+      <div class="quick-links">
+        <a href="https://unisupport.unisoc.com/dcc" target="_blank" class="quick-link unisoc">
+          <span class="link-dot unisoc"></span>
+          <span>展锐 DCC 文档中心 ↗</span>
+        </a>
+        <a href="https://unisupport.unisoc.com/faq" target="_blank" class="quick-link unisoc">
+          <span class="link-dot unisoc"></span>
+          <span>展锐 FAQ 知识库 ↗</span>
+        </a>
+        <a href="https://online.mediatek.com/" target="_blank" class="quick-link mtk">
+          <span class="link-dot mtk"></span>
+          <span>MTK Online 门户 ↗</span>
+        </a>
+      </div>
+    </div>
+
+    <!-- Footer Notification Message -->
+    <div class="status-message" id="statusMessage"></div>
+
+    <div class="footer">
+      <span>Obsidian 端口: 28123</span>
+      <span>v1.2.0</span>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

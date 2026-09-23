@@ -1,7 +1,7 @@
-const { AgentSessionManager } = require('./agent-session-manager.js');
+﻿const { AgentSessionManager } = require('./agent-session-manager.js');
 const { getAgentBrandSvg } = require('./providers/agent-adapter-base.js');
 const { PiAdapter } = require('./providers/pi-adapter.js');
-const { CodexAdapter } = require('./providers/codex-adapter.js');
+const { HermesAdapter } = require('./providers/hermes-adapter.js');
 const { GeminiAdapter } = require('./providers/gemini-adapter.js');
 const { NiceAigcAdapter } = require('./providers/niceaigc-adapter.js');
 
@@ -40,7 +40,7 @@ class AgentHub {
     try {
       if (typeof localStorage !== 'undefined') {
         const saved = localStorage.getItem('tabonkb-active-agent-id');
-        if (saved && (saved === 'pi' || saved === 'codex' || saved === 'gemini' || saved === 'niceaigc')) {
+        if (saved && (saved === 'pi' || saved === 'hermes' || saved === 'gemini' || saved === 'niceaigc')) {
           return saved;
         }
       }
@@ -66,9 +66,9 @@ class AgentHub {
     const pi = new PiAdapter(Object.assign({}, opts, { bridge: options.bridge }));
     this.adapters.set('pi', pi);
 
-    // 2. Codex Adapter
-    const codex = new CodexAdapter(opts);
-    this.adapters.set('codex', codex);
+    // 2. Hermes Adapter
+    const hermes = new HermesAdapter(opts);
+    this.adapters.set('hermes', hermes);
 
     // 3. Gemini Adapter
     const gemini = new GeminiAdapter(opts);
@@ -77,7 +77,9 @@ class AgentHub {
     // 4. NiceAIGC Adapter (Web/API)
     const niceaigc = new NiceAigcAdapter(Object.assign({}, opts, {
       app: options.app,
-      getConfig: options.getNiceaigcConfig
+      getConfig: options.getNiceaigcConfig,
+      // 会话级持久化 conversationId, 历史会话续接不丢上下文
+      sessionManager: this.sessionManager
     }));
     this.adapters.set('niceaigc', niceaigc);
   }
@@ -158,7 +160,7 @@ class AgentHub {
   getAgentList() {
     return [
       { id: 'pi', name: 'Pi', displayName: 'Pi Agent', icon: getAgentBrandSvg('pi', 16), desc: '本地轻量快速检索与笔记维护 (RPC)' },
-      { id: 'codex', name: 'Codex', displayName: 'Codex CLI', icon: getAgentBrandSvg('codex', 16), desc: 'OpenAI 深度代码理解与复杂推理 (Exec)' },
+      { id: 'hermes', name: 'Hermes', displayName: 'Hermes CLI', icon: getAgentBrandSvg('hermes', 16), desc: '本地 Hermes 全工具智能体 · 代码/研究/浏览 (Exec)' },
       { id: 'gemini', name: 'Gemini', displayName: 'Gemini CLI', icon: getAgentBrandSvg('gemini', 16), desc: 'Google Gemini 知识融合与综合分析 (Headless)' },
       { id: 'niceaigc', name: 'NiceAIGC', displayName: 'NiceAIGC', icon: getAgentBrandSvg('niceaigc', 16), desc: 'NiceAIGC 智能大模型多模态对话 (Web/API)' }
     ];

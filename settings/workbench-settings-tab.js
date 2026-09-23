@@ -33,6 +33,32 @@ const DEFAULT_SETTINGS = {
       username: '',
       secretName: 'tabonkb-unisoc-password'
     }
+  },
+  weknora: {
+    baseUrl: '',
+    defaultKb: '',
+    secretName: 'tabonkb-weknora-apikey',
+    topoEnabled: false,
+    topoGrouping: 'semantic',
+    topoLimit: 300,
+    topoTtlHours: 24,
+    syncFolders: [
+      '01-Platform',
+      '02-OS-Kernel',
+      '03-Driver',
+      '04-Debug',
+      '05-Toolchain',
+      '06-Spec',
+      '07-Project'
+    ]
+  },
+  clipInliner: {
+    enabled: true,
+    folderPrefix: '00-Inbox/',
+    maxImages: 30,
+    maxBytes: 10485760,
+    minBytes: 2048,
+    debounceMs: 1200
   }
 };
 
@@ -762,6 +788,247 @@ class TabonKBSettingTab extends PluginSettingTab {
           }
         });
     });
+
+    // =========================================================================
+    // SECTION 5: WeKnora 团队知识库 (RAG / 检索 / 写入)
+    // =========================================================================
+    containerEl.createEl('h3', { text: '🧠 WeKnora 团队知识库配置' });
+
+    const wkDesc = containerEl.createDiv({ cls: 'setting-item-description', style: 'margin-bottom: 12px;' });
+    wkDesc.textContent = '接入自部署的 WeKnora 知识库服务。配置后, Pi 与 Hermes 两个 Agent 将获得 weknora_search / weknora_ask 等检索、RAG 问答与文档写入工具。API Key 将安全保存在 Obsidian SecretStorage 与 .secrets.json 中, 供子进程读取, 绝不写入任何 Markdown 文件或日志。';
+
+    if (!this.plugin.settings.weknora) {
+      this.plugin.settings.weknora = Object.assign({}, DEFAULT_SETTINGS.weknora);
+    }
+    const wk = this.plugin.settings.weknora;
+
+    // 5.1 Base URL
+    new Setting(containerEl)
+      .setName('WeKnora 服务地址 (Base URL)')
+      .setDesc('WeKnora 部署地址, 例如 http://192.168.1.62:8088 (可不含 /api/v1 后缀, 系统会自动补全)')
+      .addText(text => {
+        text
+          .setPlaceholder('http://192.168.1.62:8088')
+          .setValue(wk.baseUrl || '')
+          .onChange(async (val) => {
+            wk.baseUrl = val.trim();
+            await this.plugin.saveSettings();
+          });
+      });
+
+    // 5.2 API Key (SecretStorage)
+    const wkSecret = wk.secretName || 'tabonkb-weknora-apikey';
+    let pendingWkKey = '';
+    const wkKeySetting = new Setting(containerEl)
+      .setName('WeKnora API Key')
+      .setDesc('在 WeKnora「设置 → API 集成」中创建的 API Key (形如 sk-...)')
+      .addText(text => {
+        text.inputEl.type = 'password';
+        text.inputEl.style.width = '320px';
+        text.setPlaceholder('sk-••••••••••••••••••••••••');
+        this.getCredential(wkSecret).then(existing => {
+          if (existing) {
+            wkKeySetting.setDesc('✅ API Key 已安全保存在 SecretStorage 中（若需更换，直接输入新内容后点击保存）');
+          }
+        });
+        text.onChange((val) => { pendingWkKey = val.trim(); });
+      })
+      .addButton(btn => {
+        btn
+          .setButtonText('💾 保存凭据')
+          .setCta()
+          .onClick(async () => {
+            if (!pendingWkKey) {
+              new Notice('请先输入 WeKnora API Key 后再点击保存');
+              return;
+            }
+            await this.setCredential(wkSecret, pendingWkKey);
+            wkKeySetting.setDesc('✅ API Key 已成功保存至 SecretStorage');
+            new Notice('✓ WeKnora API Key 已安全保存！');
+            pendingWkKey = '';
+          });
+      });
+
+    // 5.3 Default KB
+    new Setting(containerEl)
+      .setName('默认知识库 (名称或 ID)')
+      .setDesc('Agent 未显式指定 kb 时使用的默认知识库; 留空则自动使用第一个知识库。例如: TabonKB')
+      .addText(text => {
+        text
+          .setPlaceholder('如: TabonKB')
+          .setValue(wk.defaultKb || '')
+          .onChange(async (val) => {
+            wk.defaultKb = val.trim();
+            await this.plugin.saveSettings();
+          });
+      });
+
+    // 5.3.1 Sync Folders
+    const currentSyncFolders = Array.isArray(wk.syncFolders) && wk.syncFolders.length > 0
+      ? wk.syncFolders
+      : ['01-Platform', '02-OS-Kernel', '03-Driver', '04-Debug', '05-Toolchain', '06-Spec', '07-Project'];
+    new Setting(containerEl)
+      .setName('知识库同步对比目录 (Sync Folders)')
+      .setDesc(`选择纳入与 WeKnora 对比的根目录清单（逗号分隔，默认已排除 08-Learning）`)
+      .addText(text => {
+        text
+          .setPlaceholder('01-Platform, 02-OS-Kernel, 03-Driver, ...')
+          .setValue(currentSyncFolders.join(', '))
+          .onChange(async (val) => {
+            const arr = val.split(',').map(s => s.trim()).filter(Boolean);
+            wk.syncFolders = arr;
+            await this.plugin.saveSettings();
+          });
+      });
+
+    // 5.4 Test Connection
+    new Setting(containerEl)
+      .setName('连接测试')
+      .setDesc('验证 WeKnora 服务地址与 API Key 是否有效, 并列出可用知识库')
+      .addButton(btn => {
+        btn
+          .setButtonText('测试 WeKnora 连通性')
+          .onClick(async () => {
+            btn.setDisabled(true);
+            btn.setButtonText('正在连接...');
+            try {
+              // 自动保存未点击保存的 Key
+              if (pendingWkKey) {
+                await this.setCredential(wkSecret, pendingWkKey);
+                wkKeySetting.setDesc('✅ API Key 已安全保存在 SecretStorage 中');
+                pendingWkKey = '';
+              }
+              let base = (wk.baseUrl || '').trim().replace(/\/+$/, '');
+              if (!base) {
+                new Notice('❌ 请先填写 WeKnora 服务地址 (Base URL)', 8000);
+                return;
+              }
+              if (!/\/api\/v\d+$/i.test(base)) base = base + '/api/v1';
+              const apiKey = await this.getCredential(wkSecret);
+              if (!apiKey) {
+                new Notice('❌ 请先录入并保存 WeKnora API Key', 8000);
+                return;
+              }
+              const res = await requestUrl({
+                url: `${base}/knowledge-bases`,
+                method: 'GET',
+                headers: { 'X-API-Key': apiKey }
+              });
+              if (res.status === 200) {
+                const list = (res.json && (res.json.data || res.json.knowledge_bases)) || [];
+                const n = Array.isArray(list) ? list.length : 0;
+                new Notice(`✓ WeKnora 连接成功！发现 ${n} 个知识库。`, 8000);
+              } else if (res.status === 401 || res.status === 403) {
+                new Notice(`❌ 鉴权失败 (HTTP ${res.status})，请确认 API Key 有效且具备读取权限`, 8000);
+              } else {
+                new Notice(`❌ 连接返回 HTTP ${res.status}，请检查 Base URL 与凭据`, 8000);
+              }
+            } catch (e) {
+              if (e.status === 401 || e.message?.includes('401')) {
+                new Notice('❌ 凭据鉴权失败 (HTTP 401)，请重新创建/复制 API Key 并保存', 8000);
+              } else if (e.status === 404 || e.message?.includes('404')) {
+                new Notice('❌ 接口返回 404：请确认 Base URL 与 /api/v1 路径正确', 8000);
+              } else {
+                new Notice(`❌ 连接测试失败: ${e.message || e}`, 8000);
+              }
+            } finally {
+              btn.setDisabled(false);
+              btn.setButtonText('测试 WeKnora 连通性');
+            }
+          });
+      });
+
+    // 5.5 拓扑导入开关
+    new Setting(containerEl)
+      .setName('研发知识拓扑导入 WeKnora 图谱')
+      .setDesc('开启后, 首页「研发知识拓扑」将联邦合并 WeKnora Wiki 链接图谱 (服务端切片 top-N + 磁盘缓存, 不常驻内存)。样式沿用 Obsidian 原生拓扑主题。')
+      .addToggle(toggle => {
+        toggle
+          .setValue(!!wk.topoEnabled)
+          .onChange(async (val) => {
+            wk.topoEnabled = val;
+            await this.plugin.saveSettings();
+            new Notice(val ? '✓ 已开启 WeKnora 拓扑导入, 重开工作台页生效' : 'WeKnora 拓扑导入已关闭');
+          });
+      });
+
+    // 5.6 归簇策略
+    new Setting(containerEl)
+      .setName('WeKnora 节点归簇策略')
+      .setDesc('语义归簇: 按标题关键词并入 Charger/Display/Power 等现有模块 (主题最纯净); 独立分组: 新增 WK-Entity/WK-Concept/WK-Summary 三个同族色模块与胶囊。')
+      .addDropdown(dd => {
+        dd
+          .addOption('semantic', '语义归簇 (默认)')
+          .addOption('wk', '独立 WK 分组')
+          .setValue(wk.topoGrouping || 'semantic')
+          .onChange(async (val) => {
+            wk.topoGrouping = val;
+            await this.plugin.saveSettings();
+          });
+      });
+
+    // 5.7 切片规模
+    new Setting(containerEl)
+      .setName('图谱切片规模 (top-N)')
+      .setDesc('服务端按连接度切取的最多节点数 (50-500, 默认 300)。你的库全图约 4900+ 节点, 切勿贪大; 内存中另含 vault 图, 总量封顶 800。')
+      .addText(text => {
+        text
+          .setPlaceholder('300')
+          .setValue(String(wk.topoLimit || 300))
+          .onChange(async (val) => {
+            const n = parseInt(val, 10);
+            wk.topoLimit = isNaN(n) ? 300 : Math.max(50, Math.min(500, n));
+            await this.plugin.saveSettings();
+          });
+      });
+
+    // 5.8 缓存 TTL + 立即同步
+    new Setting(containerEl)
+      .setName('缓存有效期 (小时) 与立即同步')
+      .setDesc('磁盘缓存 weknora-graph-cache.json 的 TTL (默认 24h), 过期后下次打开工作台自动重拉; 「立即同步」强制刷新。')
+      .addText(text => {
+        text
+          .setPlaceholder('24')
+          .setValue(String(wk.topoTtlHours || 24))
+          .onChange(async (val) => {
+            const n = parseInt(val, 10);
+            wk.topoTtlHours = isNaN(n) ? 24 : Math.max(1, Math.min(168, n));
+            await this.plugin.saveSettings();
+          });
+      })
+      .addButton(btn => {
+        btn
+          .setButtonText('⬇ 立即同步 WeKnora 图谱')
+          .onClick(async () => {
+            btn.setDisabled(true);
+            btn.setButtonText('同步中...');
+            try {
+              const leaves = this.app.workspace.getLeavesOfType('tabonkb-workbench-view');
+              const view = leaves && leaves[0] && leaves[0].view;
+              if (!view || typeof view.scheduleWeknoraMerge !== 'function') {
+                new Notice('❌ 请先打开研发工作台页后再同步', 8000);
+                return;
+              }
+              view.scheduleWeknoraMerge(true);
+              new Notice('✓ 已触发 WeKnora 图谱同步 (后台执行)');
+            } finally {
+              btn.setDisabled(false);
+              btn.setButtonText('⬇ 立即同步 WeKnora 图谱');
+            }
+          });
+      });
+
+    containerEl.createEl('h3', { text: '网页剪藏 · 图片 Data URL' });
+    const ci = this.plugin.settings.clipInliner || (this.plugin.settings.clipInliner = JSON.parse(JSON.stringify(DEFAULT_SETTINGS.clipInliner)));
+    new Setting(containerEl)
+      .setName('剪藏落地时把外链图转为 Data URL')
+      .setDesc('官方 Clipper 无法在扩展里转码。笔记写入 00-Inbox 后，工作台自动拉取 http(s) 图并写成 data:image；已是 Data URL 的跳过。供 WeKnora 多模态解析。')
+      .addToggle(toggle => {
+        toggle.setValue(ci.enabled !== false).onChange(async (val) => {
+          ci.enabled = val;
+          await this.plugin.saveSettings();
+        });
+      });
   }
 }
 

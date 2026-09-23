@@ -60,6 +60,16 @@ class JiraService {
     this.loadPersistentCache();
   }
 
+  getTrendCacheKeys(config = null) {
+    const cfg = config || (typeof this.getConfig === 'function' ? this.getConfig() : {}) || {};
+    const identity = [cfg.type || 'jira', (cfg.baseUrl || '').trim().replace(/\/+$/, ''), (cfg.email || cfg.username || '').trim().toLowerCase()].join('|');
+    const suffix = encodeURIComponent(identity).slice(0, 180);
+    return {
+      data: `tabonkb-jira-trend-cache:${suffix}`,
+      time: `tabonkb-jira-trend-time:${suffix}`
+    };
+  }
+
   loadPersistentCache() {
     try {
       if (typeof localStorage !== 'undefined') {
@@ -77,8 +87,9 @@ class JiraService {
           }
         }
 
-        const rawTrend = localStorage.getItem('tabonkb-jira-trend-cache');
-        const trendTimeStr = localStorage.getItem('tabonkb-jira-trend-time');
+        const trendKeys = this.getTrendCacheKeys();
+        const rawTrend = localStorage.getItem(trendKeys.data);
+        const trendTimeStr = localStorage.getItem(trendKeys.time);
         if (rawTrend && trendTimeStr) {
           const trendIssues = JSON.parse(rawTrend);
           const lastTrendUpdated = parseInt(trendTimeStr, 10);
@@ -256,7 +267,7 @@ class JiraService {
     const requestBody = {
       jql,
       maxResults: 50,
-      fields: ['summary', 'status', 'priority', 'assignee', 'updated', 'description', 'reporter', 'created', 'components']
+      fields: ['summary', 'status', 'priority', 'assignee', 'updated', 'resolutiondate', 'description', 'reporter', 'created', 'components']
     };
 
     const response = await this._executeRequest({
@@ -336,7 +347,7 @@ class JiraService {
     }
 
     const jql = (config.jql && config.jql.trim()) || DEFAULT_JIRA_JQL;
-    const reqFields = 'summary,status,priority,assignee,updated,description,reporter,created,components';
+    const reqFields = 'summary,status,priority,assignee,updated,resolutiondate,description,reporter,created,components';
 
     // Primary attempt: GET /rest/api/2/search
     // In Electron, GET avoids Jira Server CSRF / XSRF origin check failure (Status 403)
@@ -359,7 +370,7 @@ class JiraService {
         jql,
         startAt: 0,
         maxResults: 100,
-        fields: ['summary', 'status', 'priority', 'assignee', 'updated', 'description', 'reporter', 'created', 'components']
+        fields: ['summary', 'status', 'priority', 'assignee', 'updated', 'resolutiondate', 'description', 'reporter', 'created', 'components']
       };
       response = await this._executeRequest({
         url: postUrl,
@@ -417,18 +428,23 @@ class JiraService {
     const fields = raw.fields || {};
 
     const summary = fields.summary || '（无标题）';
-    const status = fields.status?.name || '未知';
+    const status = fields.status?.name || 'δ֪';
     const statusCategory = fields.status?.statusCategory?.key || '';
     const priority = fields.priority?.name || 'Medium';
 
     let assignee = '未指派';
+    let assigneeName = '';
+    let assigneeEmail = '';
     if (fields.assignee) {
       assignee = fields.assignee.displayName || fields.assignee.name || '已指派';
+      // 账号级字段：Server 为 name，Cloud 为 accountId；供“是否本人事项”判断
+      assigneeName = fields.assignee.name || fields.assignee.accountId || '';
+      assigneeEmail = fields.assignee.emailAddress || '';
     }
 
-    let reporter = '系统';
+    let reporter = 'ϵͳ';
     if (fields.reporter) {
-      reporter = fields.reporter.displayName || fields.reporter.name || '系统';
+      reporter = fields.reporter.displayName || fields.reporter.name || 'ϵͳ';
     }
 
     let description = '';
@@ -455,6 +471,8 @@ class JiraService {
       } catch (e) {}
     }
 
+    const rawResolved = fields.resolutiondate || '';
+
     let created = '';
     let rawCreated = fields.created || '';
     if (fields.created) {
@@ -476,6 +494,8 @@ class JiraService {
       statusCategory,
       priority,
       assignee,
+      assigneeName,
+      assigneeEmail,
       reporter,
       description,
       components,
@@ -483,6 +503,7 @@ class JiraService {
       updated,
       rawCreated,
       rawUpdated,
+      rawResolved,
       url
     };
   }
@@ -608,12 +629,12 @@ class JiraService {
     try {
       const config = typeof this.getConfig === 'function' ? this.getConfig() : {};
       if (!config || !config.baseUrl) {
-        return this._cache?.issues || [];
+        return this._trendCache?.issues || [];
       }
       const secretKey = config.secretName || 'tabonkb-jira-token';
       const token = await this.getCredential(secretKey);
       if (!token) {
-        return this._cache?.issues || [];
+        return this._trendCache?.issues || [];
       }
 
       const trendConfig = Object.assign({}, config, {
@@ -631,8 +652,9 @@ class JiraService {
         this._trendCache = { issues, lastUpdated: now };
         try {
           if (typeof localStorage !== 'undefined') {
-            localStorage.setItem('tabonkb-jira-trend-cache', JSON.stringify(issues));
-            localStorage.setItem('tabonkb-jira-trend-time', String(now));
+            const trendKeys = this.getTrendCacheKeys(config);
+            localStorage.setItem(trendKeys.data, JSON.stringify(issues));
+            localStorage.setItem(trendKeys.time, String(now));
           }
         } catch (e) {}
         return issues;
@@ -644,7 +666,8 @@ class JiraService {
     // Fallback: cached trend issues, then main cache
     try {
       if (typeof localStorage !== 'undefined') {
-        const raw = localStorage.getItem('tabonkb-jira-trend-cache') || localStorage.getItem('tabonkb-jira-cache-v1');
+        const trendKeys = this.getTrendCacheKeys();
+        const raw = localStorage.getItem(trendKeys.data);
         if (raw) {
           const parsed = JSON.parse(raw);
           if (Array.isArray(parsed) && parsed.length > 0) return parsed;
@@ -652,7 +675,7 @@ class JiraService {
       }
     } catch (e) {}
 
-    return this._cache?.issues || [];
+    return this._trendCache?.issues || [];
   }
 
   /**
@@ -1298,7 +1321,7 @@ function formatRelativeTime(date) {
   const diffSec = Math.floor((Date.now() - date.getTime()) / 1000);
   if (diffSec < 60) return '刚刚';
   if (diffSec < 3600) return `${Math.floor(diffSec / 60)} 分钟前`;
-  if (diffSec < 86400) return `${Math.floor(diffSec / 3600)} 小时前`;
+  if (diffSec < 86400) return `${Math.floor(diffSec / 3600)} Сʱǰ`;
   if (diffSec < 86400 * 3) return `${Math.floor(diffSec / 86400)} 天前`;
   return `${date.getMonth() + 1}月${date.getDate()}日`;
 }

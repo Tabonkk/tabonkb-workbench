@@ -311,7 +311,7 @@ class RssCenterView {
     });
     allBtn.innerHTML = `
       <div class="tw-chan-left">
-        <span class="tw-chan-icon">${getIconPark('application-menu', 13)}</span>
+        <span class="tw-chan-icon">${getIconPark('dashboard', 13)}</span>
         <span class="tw-chan-name">全部资讯</span>
       </div>
       <div class="tw-chan-badges">
@@ -332,7 +332,7 @@ class RssCenterView {
     });
     unreadBtn.innerHTML = `
       <div class="tw-chan-left">
-        <span class="tw-chan-icon">${getIconPark('remind', 13)}</span>
+        <span class="tw-chan-icon">${getIconPark('bell', 13)}</span>
         <span class="tw-chan-name">未读动态</span>
       </div>
       <span class="tw-chan-unread-badge primary">${totalUnread}</span>
@@ -418,7 +418,7 @@ class RssCenterView {
       cls: 'tw-rss-act-btn secondary',
       title: '将所有文章标记为已读'
     });
-    btnMarkAll.innerHTML = `${getIconPark('check-one', 12)} <span>全部标为已读</span>`;
+    btnMarkAll.innerHTML = `${getIconPark('check-square', 12)} <span>全部标为已读</span>`;
     btnMarkAll.onclick = () => this.markAllAsRead();
 
     // Refresh Button
@@ -514,7 +514,7 @@ class RssCenterView {
       cls: 'tw-card-action-btn excerpt',
       title: '将本篇资讯摘要与链接保存至 00-Inbox/Quick-Notes.md'
     });
-    btnExcerpt.innerHTML = `${getIconPark('editor', 11)} <span>摘录至 Quick Note</span>`;
+    btnExcerpt.innerHTML = `${getIconPark('clipboard-check', 11)} <span>摘录至 Quick Note</span>`;
     btnExcerpt.onclick = (e) => {
       e.stopPropagation();
       this.handleExcerptToQuickNote(item, btnExcerpt);
@@ -544,8 +544,8 @@ class RssCenterView {
       title: isItemRead ? '标记为未读' : '标记为已读'
     });
     btnToggle.innerHTML = isItemRead 
-      ? `${getIconPark('close', 11)} <span>标为未读</span>`
-      : `${getIconPark('check-one', 11)} <span>标为已读</span>`;
+      ? `${getIconPark('circle', 11)} <span>标为未读</span>`
+      : `${getIconPark('check-circle', 11)} <span>标为已读</span>`;
     btnToggle.onclick = (e) => {
       e.stopPropagation();
       this.toggleRead(item);
@@ -600,7 +600,7 @@ class RssCenterView {
         navigator.clipboard.writeText(excerptContent.trim());
       }
 
-      btnEl.innerHTML = `${getIconPark('check-one', 11)} <span>已摘录入库！</span>`;
+      btnEl.innerHTML = `${getIconPark('check-circle', 11)} <span>已摘录入库！</span>`;
       btnEl.classList.add('success');
       this.markAsRead(item);
       setTimeout(() => {
@@ -675,7 +675,7 @@ function formatRelativeTime(date) {
   const diffSec = Math.floor((Date.now() - d.getTime()) / 1000);
   if (diffSec < 60) return '刚刚';
   if (diffSec < 3600) return `${Math.floor(diffSec / 60)} 分钟前`;
-  if (diffSec < 86400) return `${Math.floor(diffSec / 3600)} 小时前`;
+  if (diffSec < 86400) return `${Math.floor(diffSec / 3600)} Сʱǰ`;
   if (diffSec < 86400 * 2) return '昨天';
   if (diffSec < 86400 * 3) return '前天';
   if (diffSec < 86400 * 30) return `${Math.floor(diffSec / 86400)} 天前`;

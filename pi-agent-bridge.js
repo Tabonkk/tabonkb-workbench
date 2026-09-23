@@ -130,15 +130,26 @@ class PiAgentBridge {
     }
   }
 
-  getExtensionPath() {
-    const candidates = [
-      path.join(this.vaultBasePath, '.pi', 'extensions', 'vendor-portal.ts'),
-      path.join(this.vaultBasePath, '.obsidian', 'plugins', 'tabonkb-workbench', 'extensions', 'vendor-portal.ts')
-    ];
-    for (const c of candidates) {
-      if (fs.existsSync(c)) return c;
+  // 返回所有可用的 Pi 原生扩展路径 (vendor-portal + weknora-portal)
+  // 优先级: .pi/extensions > plugin/extensions; 供 --extension 多次传入
+  getExtensionPaths() {
+    const names = ['vendor-portal.ts', 'weknora-portal.ts'];
+    const result = [];
+    for (const name of names) {
+      const candidates = [
+        path.join(this.vaultBasePath, '.pi', 'extensions', name),
+        path.join(this.vaultBasePath, '.obsidian', 'plugins', 'tabonkb-workbench', 'extensions', name)
+      ];
+      for (const c of candidates) {
+        if (fs.existsSync(c)) { result.push(c); break; }
+      }
     }
-    return null;
+    return result;
+  }
+
+  getExtensionPath() {
+    const list = this.getExtensionPaths();
+    return list.length ? list[0] : null;
   }
 
   /**
@@ -148,10 +159,12 @@ class PiAgentBridge {
     const baseTools = this.permissionMode === 'readwrite'
       ? 'read,write,edit,grep,find,ls'
       : 'read,grep,find,ls';
-    const tools = `${baseTools},vendor_portal_search,vendor_portal_get_detail`;
+    const weknoraTools = ',weknora_list_knowledge_bases,weknora_search,weknora_ask,weknora_list_documents,weknora_read_document,weknora_add_document,weknora_update_document,weknora_delete_document';
+    const tools = `${baseTools},vendor_portal_search,vendor_portal_get_detail${weknoraTools}`;
 
-    const extPath = this.getExtensionPath();
-    const extArgs = extPath ? ['--extension', extPath] : [];
+    const extPaths = this.getExtensionPaths();
+    const extArgs = [];
+    for (const ep of extPaths) { extArgs.push('--extension', ep); }
     const modelArgs = [
       '--provider', this.activeProvider || 'cc-switch-deep-seek',
       '--model', this.activeModelId || 'deepseek-v4-flash'
@@ -279,6 +292,46 @@ class PiAgentBridge {
         }
       } catch (_) {}
 
+      // Extract WeKnora knowledge-base config + credential (env > plugin.getSecret > localStorage > .secrets.json > data.json)
+      let weknoraBase = process.env.WEKNORA_BASE_URL || '';
+      let weknoraKey = process.env.WEKNORA_API_KEY || '';
+      let weknoraKb = process.env.WEKNORA_DEFAULT_KB || '';
+      try {
+        const plugin = this.plugin || (typeof window !== 'undefined' && (window.app?.plugins?.getPlugin?.('tabonkb-workbench') || window.app?.plugins?.plugins?.['tabonkb-workbench']));
+        if (plugin) {
+          if (!weknoraBase && plugin.settings?.weknora?.baseUrl) weknoraBase = plugin.settings.weknora.baseUrl;
+          if (!weknoraKb && plugin.settings?.weknora?.defaultKb) weknoraKb = plugin.settings.weknora.defaultKb;
+          if (!weknoraKey && typeof plugin.getSecret === 'function') {
+            weknoraKey = (await plugin.getSecret('tabonkb-weknora-apikey')) || '';
+          }
+        }
+      } catch (_) {}
+      if (!weknoraKey && typeof localStorage !== 'undefined') {
+        weknoraKey = localStorage.getItem('tabonkb-secret-tabonkb-weknora-apikey') || '';
+      }
+      try {
+        const secCandidates = [
+          path.join(this.vaultBasePath, '.secrets.json'),
+          path.join(this.vaultBasePath, '.obsidian', 'plugins', 'tabonkb-workbench', '.secrets.json')
+        ];
+        for (const secPath of secCandidates) {
+          if (fs.existsSync(secPath)) {
+            const sdata = JSON.parse(fs.readFileSync(secPath, 'utf8'));
+            if (!weknoraKey && sdata['tabonkb-weknora-apikey']) weknoraKey = sdata['tabonkb-weknora-apikey'];
+          }
+        }
+      } catch (_) {}
+      try {
+        if (!weknoraBase || !weknoraKb) {
+          const dataJsonPath = path.join(this.vaultBasePath, '.obsidian', 'plugins', 'tabonkb-workbench', 'data.json');
+          if (fs.existsSync(dataJsonPath)) {
+            const dj = JSON.parse(fs.readFileSync(dataJsonPath, 'utf8'));
+            if (!weknoraBase) weknoraBase = dj?.weknora?.baseUrl || '';
+            if (!weknoraKb) weknoraKb = dj?.weknora?.defaultKb || '';
+          }
+        }
+      } catch (_) {}
+
       this.process = child_process.spawn(launch.cmd, launch.args, {
         cwd: this.vaultBasePath,
         env: Object.assign({}, process.env, {
@@ -288,7 +341,10 @@ class PiAgentBridge {
           PYTHONIOENCODING: 'utf-8',
           TABONKB_UNISOC_TOKEN: unisocToken,
           TABONKB_MTK_USERNAME: mtkUsername,
-          TABONKB_MTK_PASSWORD: mtkPassword
+          TABONKB_MTK_PASSWORD: mtkPassword,
+          WEKNORA_BASE_URL: weknoraBase,
+          WEKNORA_API_KEY: weknoraKey,
+          WEKNORA_DEFAULT_KB: weknoraKb
         }),
         stdio: ['pipe', 'pipe', 'pipe']
       });
@@ -482,6 +538,22 @@ class PiAgentBridge {
         const docId = args?.docId || '';
         const v = args?.vendor ? ` [${args.vendor}]` : '';
         actionDesc = `正在调取原厂技术方案${v}: ${docId}`;
+      } else if (toolName === 'weknora_search') {
+        actionDesc = `正在检索团队知识库: "${args?.query || ''}"`;
+      } else if (toolName === 'weknora_ask') {
+        actionDesc = `正在向知识库提问: "${args?.query || ''}"`;
+      } else if (toolName === 'weknora_list_knowledge_bases') {
+        actionDesc = '正在列出知识库...';
+      } else if (toolName === 'weknora_list_documents') {
+        actionDesc = '正在查看知识库文档清单...';
+      } else if (toolName === 'weknora_read_document') {
+        actionDesc = `正在读取知识文档: ${args?.knowledge_id || ''}`;
+      } else if (toolName === 'weknora_add_document') {
+        actionDesc = `正在写入知识库: ${args?.title || ''}`;
+      } else if (toolName === 'weknora_update_document') {
+        actionDesc = `正在更新知识文档: ${args?.knowledge_id || ''}`;
+      } else if (toolName === 'weknora_delete_document') {
+        actionDesc = `正在删除知识文档: ${args?.knowledge_id || ''}`;
       }
 
       this.setStatus('running_tool', actionDesc);

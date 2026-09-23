@@ -5,7 +5,7 @@ const { getIconPark, detectModelIconPark, detectModelBrand, getOfficialModelSvg 
 
 /**
  * PiDrawerView: Controls the UI Drawer component for Agent Hub inside TabonKB Workbench.
- * - Supports Multi-Agent Hub: Pi Agent, Codex CLI, Gemini CLI
+ * - Supports Multi-Agent Hub: Pi Agent, Hermes CLI, Gemini CLI
  * - Dynamic Agent Selector Dropdown in Header [ 🤖 Pi ▼ ]
  * - Isolated Session & Message History Swapping per Agent
  * - Input Draft Preservation during Agent Switching
@@ -49,6 +49,9 @@ class PiDrawerView {
     }
     this.containerEl = null;
     this.drawerEl = null;
+    // 发送全链路防重入守卫（检索注入阶段 hub 尚未 streaming，isStreaming() 拦不住重复提交）
+    this._sendInFlight = false;
+    this._abortRequested = false;
     this.resizerEl = null;
     this.messagesEl = null;
     this.inputEl = null;
@@ -58,6 +61,7 @@ class PiDrawerView {
     this.btnClose = null;
     this.statusLed = null;
     this.statusText = null;
+    this._connInFlightAgent = null;
     this.contextCapsuleEl = null;
     this.permBadgeEl = null;
     this.warningBannerEl = null;
@@ -158,8 +162,8 @@ class PiDrawerView {
     const isRW = this.permissionMode === 'readwrite';
     this.permBadgeEl.className = `tw-drawer-badge-btn ${isRW ? 'readwrite' : 'readonly'}`;
     this.permBadgeEl.innerHTML = isRW
-      ? `<span class="tw-badge-icon">${getIconPark('edit', 12)}</span><span class="tw-badge-text">读写模式</span>`
-      : `<span class="tw-badge-icon">${getIconPark('lock', 12)}</span><span class="tw-badge-text">只读模式</span>`;
+      ? `<span class="tw-badge-icon">${getIconPark('edit', 13)}</span>`
+      : `<span class="tw-badge-icon">${getIconPark('lock', 13)}</span>`;
     this.permBadgeEl.title = isRW
       ? '当前：读写模式（支持新建与修改笔记），点击切换为只读'
       : '当前：只读模式（安全检索不修改），点击切换为读写';
@@ -218,6 +222,7 @@ class PiDrawerView {
     this.syncActiveAgentUI();
     this.restoreSessionMessages(this.hub.activeAgentId);
     this.updateStatus(this.hub.getStatus());
+    this.ensureAgentConnected();
   }
 
   buildDom() {
@@ -253,7 +258,7 @@ class PiDrawerView {
           <div class="tw-agent-dropdown-menu" id="twDrawerAgentMenu" style="display:none;"></div>
         </div>
         <button class="tw-drawer-badge-btn" id="twDrawerPermBadge" title="点击切换：只读模式 / 读写模式">
-          <span class="tw-badge-icon">${getIconPark('edit', 12)}</span><span class="tw-badge-text">读写模式</span>
+          <span class="tw-badge-icon">${getIconPark('edit', 13)}</span>
         </button>
         <div class="tw-drawer-status">
           <span class="tw-status-dot disconnected" id="twDrawerStatusDot"></span>
@@ -349,10 +354,11 @@ class PiDrawerView {
     this.warningBannerEl.style.display = 'none';
     contentWrap.appendChild(this.warningBannerEl);
 
-    // 4. Context Capsule Bar
+    // 4. Context Capsule (merged into header row, no standalone bar)
     this.contextCapsuleEl = document.createElement('div');
     this.contextCapsuleEl.className = 'tw-drawer-context-bar';
-    contentWrap.appendChild(this.contextCapsuleEl);
+    const headerLeftEl = header.querySelector('.tw-drawer-header-left');
+    if (headerLeftEl) headerLeftEl.appendChild(this.contextCapsuleEl);
 
     // 5. Messages Container
     this.messagesEl = document.createElement('div');
@@ -460,6 +466,44 @@ class PiDrawerView {
 
     contentWrap.appendChild(this.messagesEl);
 
+    // 5.5 吸顶提问复用条: 滚动离开原始气泡时钉在消息区顶部 (绝对定位, 不占 flex 流)
+    this.stickyHeaderEl = document.createElement('div');
+    this.stickyHeaderEl.className = 'tw-sticky-question';
+    this.stickyHeaderEl.innerHTML = `
+      <span class="tw-sticky-q-tag"><span class="tw-msg-user-avatar tw-msg-user-avatar--sm"></span></span>
+      <span class="tw-sticky-q-text"></span>
+    `;
+    this.stickyHeaderEl.onclick = () => this.scrollToBottom();
+    contentWrap.insertBefore(this.stickyHeaderEl, this.messagesEl);
+
+    this._stickyAbort = new AbortController();
+    this.messagesEl.addEventListener('scroll', () => {
+      if (this._stickyRaf) return;
+      this._stickyRaf = requestAnimationFrame(() => {
+        this._stickyRaf = null;
+        this.updateStickyQuestion();
+        this.updateMinimapActive();
+      });
+    }, { signal: this._stickyAbort.signal });
+
+    // 5.6 对话段导航条: 右侧刻度, 每条用户提问=一段, 点击跳转至该段并高亮当前视口段
+    this.minimapEl = document.createElement('div');
+    this.minimapEl.className = 'tw-chat-minimap';
+    this.minimapEl.style.display = 'none';
+    contentWrap.appendChild(this.minimapEl);
+
+    this._minimapAbort = new AbortController();
+    // 消息增删后重建刻度 (覆盖历史恢复 / 发送 / 流式渲染等所有入口)
+    this._minimapObserver = new MutationObserver(() => {
+      if (this._minimapRaf) return;
+      this._minimapRaf = requestAnimationFrame(() => {
+        this._minimapRaf = null;
+        this.buildChatMinimap();
+      });
+    });
+    this._minimapObserver.observe(this.messagesEl, { childList: true });
+    window.addEventListener('resize', () => this.layoutMinimap(), { signal: this._minimapAbort.signal });
+
     // 6. Footer / Input Bar (Antigravity Floating Card Design - Resizable & Clean)
     const footer = document.createElement('div');
     footer.className = 'tw-drawer-footer';
@@ -496,7 +540,6 @@ class PiDrawerView {
               ${getIconPark('pic', 14)}
             </button>
             <input type="file" id="twImageFileInput" accept="image/png,image/jpeg,image/webp,image/gif" multiple style="display:none;" />
-            <span class="tw-card-shortcut-hint">↵ 发送 · Shift+↵ 换行</span>
           </div>
           <div class="tw-card-toolbar-right">
             <button class="tw-card-abort-btn" id="twBtnAbort" style="display:none;" title="停止生成 (Esc)">
@@ -1048,8 +1091,8 @@ class PiDrawerView {
 
     if (adapter.status === 'not_installed') {
       let installCmd = '';
-      if (adapter.id === 'codex') {
-        installCmd = 'npm install -g @openai/codex';
+      if (adapter.id === 'hermes') {
+        installCmd = 'npm install -g hermes-cli';
       } else if (adapter.id === 'gemini') {
         installCmd = 'npm install -g @google/gemini-cli';
       }
@@ -1114,7 +1157,7 @@ class PiDrawerView {
 
     bubbleWrap.innerHTML = `
       <div class="tw-msg-avatar">
-        <div class="tw-msg-avatar-info"><span class="tw-msg-user-icon">${getIconPark('user', 14)}</span> <span class="tw-msg-author">You</span></div>
+        <div class="tw-msg-avatar-info"><span class="tw-msg-user-avatar"></span> <span class="tw-msg-author">You</span></div>
         <button class="tw-msg-copy-btn" title="复制提问内容">${getIconPark('copy', 12)} <span>复制</span></button>
       </div>
       ${badgeHtml}
@@ -1131,7 +1174,7 @@ class PiDrawerView {
     bubbleWrap.className = 'tw-msg-bubble-wrap assistant';
 
     const authorName = msg.model || adapter.displayName;
-    const authorIcon = msg.model ? getOfficialModelSvg(msg.model, 16) : adapter.icon;
+    const authorIcon = adapter.id === 'hermes' ? adapter.icon : (msg.model ? getOfficialModelSvg(msg.model, 16) : adapter.icon);
 
     bubbleWrap.innerHTML = `
       <div class="tw-msg-avatar">
@@ -1206,6 +1249,7 @@ class PiDrawerView {
         isResizing = false;
         document.body.classList.remove('tw-resizing-v');
         this.saveInputHeight(this.inputHeight);
+        this.layoutMinimap();
         window.removeEventListener('mousemove', onMouseMove);
         window.removeEventListener('mouseup', onMouseUp);
       }
@@ -1221,6 +1265,17 @@ class PiDrawerView {
       window.addEventListener('mousemove', onMouseMove);
       window.addEventListener('mouseup', onMouseUp);
     });
+  }
+
+  adjustInputHeight() {
+    if (!this.inputEl) return;
+    const minH = this.inputHeight || 38;
+    const scrollH = this.inputEl.scrollHeight;
+    const targetH = scrollH > minH ? Math.min(500, scrollH) : minH;
+    const currentH = parseInt(this.inputEl.style.height, 10) || this.inputEl.offsetHeight || minH;
+    if (Math.abs(targetH - currentH) > 2) {
+      this.inputEl.style.height = `${targetH}px`;
+    }
   }
 
   bindInputEvents() {
@@ -1244,17 +1299,24 @@ class PiDrawerView {
       }
     });
 
-    // Auto grow input textarea when content overflows, but never shrink below this.inputHeight
-    this.inputEl.addEventListener('input', () => {
-      const minH = this.inputHeight;
-      if (this.inputEl.scrollHeight > minH) {
-        const newHeight = Math.min(500, this.inputEl.scrollHeight);
-        this.inputEl.style.height = `${newHeight}px`;
-      } else {
-        this.inputEl.style.height = `${minH}px`;
-      }
+    // Auto grow input textarea when content overflows, with IME support and layout protection
+    let isComposing = false;
+    this.inputEl.addEventListener('compositionstart', () => {
+      isComposing = true;
+    });
+    this.inputEl.addEventListener('compositionend', () => {
+      isComposing = false;
+      this.adjustInputHeight();
       this.hub.sessionManager.setDraft(this.hub.activeAgentId, this.inputEl.value);
       this.updateSendButtonState();
+    });
+
+    this.inputEl.addEventListener('input', () => {
+      this.adjustInputHeight();
+      this.hub.sessionManager.setDraft(this.hub.activeAgentId, this.inputEl.value);
+      if (!isComposing) {
+        this.updateSendButtonState();
+      }
     });
 
     if (this.btnSend) this.btnSend.onclick = () => this.handleSend();
@@ -1731,7 +1793,7 @@ class PiDrawerView {
       this.contextCapsuleEl.style.display = 'none';
       return;
     }
-    this.contextCapsuleEl.style.display = 'block';
+    this.contextCapsuleEl.style.display = '';
 
     if (!this.contextProvider) return;
     const info = this.contextProvider.getContextBadgeInfo();
@@ -1762,7 +1824,6 @@ class PiDrawerView {
         <div class="tw-ctx-capsule global" title="未选中节点，查询覆盖整个知识库">
           <span class="tw-ctx-icon">${getIconPark('globe', 13)}</span>
           <span class="tw-ctx-title">全局知识库 (TabonKB)</span>
-          <span class="tw-ctx-hint">在图谱中点击任意节点可自动聚焦</span>
         </div>
       `;
     }
@@ -1821,19 +1882,219 @@ class PiDrawerView {
     else if (status === 'error') label = '服务异常';
     else if (status === 'not_installed') label = '未安装';
 
-    this.statusText.textContent = detail ? `${label} (${detail})` : label;
+    this.statusText.textContent = label;
+    this.statusText.title = detail || label;
 
     this.updateSendButtonState(status);
+  }
+
+  // 自动探测并连接当前 Agent（重载/打开抽屉时触发，避免指示灯停在灰色未连接）
+  ensureAgentConnected() {
+    if (!this.hub) return;
+    const adapter = this.hub.getActiveAdapter();
+    if (!adapter) return;
+    if (adapter.status !== 'disconnected') {
+      this.updateStatus(adapter.getStatus());
+      return;
+    }
+    // 同一 Agent 的探测链已在进行中则不重复发起
+    if (this._connInFlightAgent === adapter.id) return;
+    this._connInFlightAgent = adapter.id;
+
+    this.updateStatus({ status: 'connecting', detail: '正在检测并连接...' });
+
+    const work = Promise.resolve()
+      .then(() => (typeof adapter.detect === 'function' ? adapter.detect() : { available: true }))
+      .then((det) => {
+        if (det && det.available && typeof adapter.start === 'function') {
+          return adapter.start();
+        }
+        return null;
+      });
+
+    // 30s 超时兜底机制：探测/连接挂起时转红色 error，避免指示灯永远紫色脉冲；
+    // work 链继续后台执行，若之后真实连上，adapter 的 status_change 会经 hub 自动纠正灯色
+    let timedOut = false;
+    let timeoutId = null;
+    const timeout = new Promise((_, reject) => {
+      timeoutId = setTimeout(() => {
+        timedOut = true;
+        reject(new Error('connect timeout'));
+      }, 30000);
+    });
+
+    Promise.race([work, timeout])
+      .catch((e) => {
+        console.warn('[PiDrawerView] ensureAgentConnected failed:', e);
+        if (timedOut) {
+          this.updateStatus({ status: 'error', detail: '连接超时（30秒），点击指示灯重试' });
+        }
+      })
+      .finally(() => {
+        if (timeoutId) clearTimeout(timeoutId);
+        this._connInFlightAgent = null;
+        if (!timedOut) {
+          this.updateStatus(adapter.getStatus());
+        }
+      });
+  }
+
+  // ===== 知识库 & 芯片资源检索（非 Pi Agent 的 RAG 注入）=====
+  getVendorService() {
+    if (this._vendorService) return this._vendorService;
+    try {
+      const plugin = (this.app && this.app.plugins && typeof this.app.plugins.getPlugin === 'function')
+        ? this.app.plugins.getPlugin('tabonkb-workbench') : null;
+      if (plugin && plugin.vendorService) {
+        this._vendorService = plugin.vendorService;
+        return this._vendorService;
+      }
+      if (typeof VendorPortalService === 'function') {
+        this._vendorService = new VendorPortalService({ plugin: plugin || null, vaultBasePath: this.vaultBasePath });
+      }
+    } catch (e) {
+      console.warn('[PiDrawerView] vendor service unavailable:', e);
+    }
+    return this._vendorService || null;
+  }
+
+  extractQueryTokens(query) {
+    const stop = ['帮我', '请问', '一下', '怎么', '如何', '是什么', '搜索', '检索', '资料', '文档', '内容', '问题', '关于', '的', '了', '和', '与', '请', '到', '在', '有', '吗', '呢'];
+    let q = String(query || '').toLowerCase();
+    for (const w of [...stop].sort((a, b) => b.length - a.length)) q = q.split(w).join(' ');
+    const raw = q.match(/[a-z0-9][a-z0-9_\-\.]{1,}|[\u4e00-\u9fff]{2,6}/g) || [];
+    return [...new Set(raw)].slice(0, 8);
+  }
+
+  buildKbIndex() {
+    const now = Date.now();
+    if (this._kbIndex && now - this._kbIndex.builtAt < 10 * 60 * 1000) return this._kbIndex;
+    const skip = new Set(['.obsidian', '.git', 'node_modules', '98-Archive', '.pi', '.agents', '.qoder']);
+    const files = [];
+    const walk = (dir, depth) => {
+      if (depth > 4 || files.length > 3000) return;
+      let entries = [];
+      try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (e) { return; }
+      for (const en of entries) {
+        if (en.name.startsWith('.')) continue;
+        const p = path.join(dir, en.name);
+        if (en.isDirectory()) { if (!skip.has(en.name)) walk(p, depth + 1); }
+        else if (en.name.endsWith('.md')) files.push(p);
+      }
+    };
+    walk(this.vaultBasePath, 0);
+    this._kbIndex = { builtAt: now, files };
+    return this._kbIndex;
+  }
+
+  searchKnowledgeBase(query, limit = 4) {
+    const tokens = this.extractQueryTokens(query);
+    if (!tokens.length || !this.vaultBasePath || typeof fs === 'undefined') return [];
+    const idx = this.buildKbIndex();
+    const hits = [];
+    for (const fp of idx.files) {
+      let content = '';
+      try { content = fs.readFileSync(fp, 'utf8'); } catch (e) { continue; }
+      if (content.length > 400000) content = content.slice(0, 400000);
+      const lower = content.toLowerCase();
+      const nameLower = fp.toLowerCase();
+      let score = 0;
+      let firstPos = -1;
+      for (const t of tokens) {
+        if (nameLower.includes(t)) score += 4;
+        let pos = lower.indexOf(t);
+        let cnt = 0;
+        while (pos >= 0 && cnt < 8) { cnt++; if (firstPos < 0) firstPos = pos; pos = lower.indexOf(t, pos + t.length); }
+        score += cnt;
+      }
+      if (score >= 3) {
+        const rel = fp.slice(this.vaultBasePath.length).replace(/^[\\/]/, '').replace(/\\/g, '/');
+        let snippet = '';
+        if (firstPos >= 0) {
+          const s = Math.max(0, firstPos - 60);
+          snippet = content.slice(s, s + 220).replace(/\s+/g, ' ').trim();
+        }
+        hits.push({ path: rel, score, snippet });
+      }
+    }
+    hits.sort((a, b) => b.score - a.score);
+    return hits.slice(0, limit);
+  }
+
+  async searchVendorResources(query) {
+    const svc = this.getVendorService();
+    if (!svc) return [];
+    const pick = (res) => {
+      if (!res) return [];
+      if (Array.isArray(res)) return res;
+      if (Array.isArray(res.hits)) return res.hits;
+      if (Array.isArray(res.results)) return res.results;
+      return [];
+    };
+    try {
+      const live = await Promise.race([
+        Promise.resolve(svc.searchResourcesLive(query)),
+        new Promise((_, rej) => setTimeout(() => rej(new Error('vendor live search timeout')), 12000))
+      ]);
+      const list = pick(live);
+      if (list.length) return list.slice(0, 4);
+    } catch (e) { /* 回退本地索引 */ }
+    try {
+      return pick(svc.searchResources(query)).slice(0, 4);
+    } catch (e) { return []; }
+  }
+
+  async gatherRetrievalContext(query) {
+    const toolId = 'retrieval_' + Date.now();
+    const startedAt = Date.now();
+    this.handleToolStart({ toolCallId: toolId, toolName: 'kb_vendor_search', actionDesc: '检索 TabonKB 知识库与芯片原厂资源...', startTime: startedAt });
+    const blocks = [];
+    let kbCount = 0;
+    let vendorCount = 0;
+    try {
+      const kb = this.searchKnowledgeBase(query);
+      kbCount = kb.length;
+      if (kb.length) {
+        blocks.push('[TabonKB 知识库检索结果]\n' + kb.map((h, i) => `${i + 1}. ${h.path}\n   摘要: ${h.snippet || '(无摘要)'}`).join('\n'));
+      }
+    } catch (e) { console.warn('[PiDrawerView] kb search failed:', e); }
+    try {
+      const vr = await this.searchVendorResources(query);
+      vendorCount = vr.length;
+      if (vr.length) {
+        blocks.push('[芯片原厂资源检索结果]\n' + vr.map((r, i) => {
+          const title = r.title || r.name || r.docId || '资源';
+          const src = r.portalId || r.source || r.portal || 'vendor';
+          const url = r.url || r.link || '';
+          const sum = r.summary ? String(r.summary).slice(0, 160) : '';
+          return `${i + 1}. [${src}] ${title}${url ? ' ' + url : ''}${sum ? '\n   摘要: ' + sum : ''}`;
+        }).join('\n'));
+      } else {
+        // 0 命中不再静默: 明示原因, 并引导有 MCP 工具的 Agent 自行二次检索
+        blocks.push('[芯片原厂资源检索结果] 本次预检索 0 命中 (可能原因: 原厂门户未登录 / 受控文档不在本地索引)。若你已接入 vendor_portal_search / vendor_portal_get_detail 工具, 请换用更短的关键词(如型号、FAQ 编号)主动调用工具二次检索; 否则请提示用户在「芯片资源检索」面板检查原厂账号登录状态。');
+      }
+    } catch (e) { console.warn('[PiDrawerView] vendor search failed:', e); }
+    this.handleToolEnd({ toolCallId: toolId, toolName: 'kb_vendor_search', durationMs: Date.now() - startedAt, isError: false, output: `知识库 ${kbCount} 条 / 原厂 ${vendorCount} 条` });
+    if (!blocks.length) return { block: '', kbCount, vendorCount };
+    const block = '\n\n' + blocks.join('\n\n') + '\n\n[回答要求] 优先基于以上检索资料回答并标注来源路径/链接；输出使用 Markdown 格式（标题、列表、代码块、链接）。';
+    return { block, kbCount, vendorCount };
   }
 
   updateSendButtonState(statusOverride) {
     if (!this.btnSend) return;
     const status = statusOverride || (this.hub ? this.hub.getStatus()?.status : 'disconnected');
-    const isStreaming = (status === 'thinking' || status === 'running_tool') || !!(this.hub && typeof this.hub.isStreaming === 'function' && this.hub.isStreaming());
+    const isStreaming = (status === 'thinking' || status === 'running_tool') || !!this._sendInFlight || !!(this.hub && typeof this.hub.isStreaming === 'function' && this.hub.isStreaming());
 
     if (isStreaming) {
       this.btnSend.style.display = 'none';
-      if (this.btnAbort) this.btnAbort.style.display = 'inline-flex';
+      if (this.btnAbort) {
+        this.btnAbort.style.display = 'inline-flex';
+        // 复位上一次中止请求的禁用态（_sendInFlight 收尾后重新可点）
+        if (this.btnAbort.disabled && !this._abortRequested) {
+          this.btnAbort.disabled = false;
+          this.btnAbort.title = '中止当前回复';
+        }
+      }
     } else {
       if (this.btnAbort) this.btnAbort.style.display = 'none';
       this.btnSend.style.display = 'inline-flex';
@@ -1931,7 +2192,7 @@ class PiDrawerView {
       const effortConfig = typeof adapter.getReasoningEffortConfig === 'function' ? adapter.getReasoningEffortConfig() : null;
       if (effortConfig && effortConfig.label) authorName += ` · ${effortConfig.label}`;
     }
-    const authorIcon = currentModel ? getOfficialModelSvg(currentModel.id || currentModel.name, 16) : adapter.icon;
+    const authorIcon = adapter.id === 'hermes' ? adapter.icon : (currentModel ? getOfficialModelSvg(currentModel.id || currentModel.name, 16) : adapter.icon);
 
     const bubbleWrap = document.createElement('div');
     bubbleWrap.className = 'tw-msg-bubble-wrap assistant';
@@ -2342,7 +2603,7 @@ class PiDrawerView {
 
     bubbleWrap.innerHTML = `
       <div class="tw-msg-avatar">
-        <div class="tw-msg-avatar-info"><span class="tw-msg-user-icon">${getIconPark('user', 14)}</span> <span class="tw-msg-author">You</span></div>
+        <div class="tw-msg-avatar-info"><span class="tw-msg-user-avatar"></span> <span class="tw-msg-author">You</span></div>
         <button class="tw-msg-copy-btn" title="复制提问内容">${getIconPark('copy', 12)} <span>复制</span></button>
       </div>
       ${badgeHtml}
@@ -2368,10 +2629,16 @@ class PiDrawerView {
     if (adapter.status === 'not_installed') {
       return;
     }
+    // 防重入：上一次提交（含检索等待）未落地前，忽略 Enter/点击
+    if (this._sendInFlight) return;
 
     const text = this.inputEl.value.trim();
     const imagesToSend = [...(this.attachedImages || [])];
     if ((!text && imagesToSend.length === 0) || this.hub.isStreaming()) return;
+
+    this._sendInFlight = true;
+    this._abortRequested = false;
+    try {
 
     if (this.currentAssistantMessage) {
       this.finishAssistantMessage();
@@ -2391,9 +2658,25 @@ class PiDrawerView {
     this.addUserMessageBubble(text, badgeLabel, imagesToSend);
 
     // NiceAIGC does NOT bind to knowledge base; send clean user prompt without metadata
-    const fullPrompt = (!isNiceAigc && this.contextProvider)
+    let fullPrompt = (!isNiceAigc && this.contextProvider)
       ? this.contextProvider.formatPromptWithContext(text)
       : text;
+
+    // 非 Pi / Hermes Agent（无内置或原生 MCP vendor 工具的 Agent）此处才做插件侧前置检索注入；
+    // Pi 与 Hermes 已通过 Extension / MCP 接入 vendor_portal 工具链，支持自主按需调用与执行卡片渲染
+    if (text && !isNiceAigc && this.hub.activeAgentId !== 'pi' && this.hub.activeAgentId !== 'hermes') {
+      try {
+        const retrieval = await this.gatherRetrievalContext(text);
+        if (retrieval.block) fullPrompt += retrieval.block;
+      } catch (e) {
+        console.warn('[PiDrawerView] retrieval injection failed:', e);
+      }
+      // 检索期间用户点了中止：不再发送，收尾当前气泡
+      if (this._abortRequested) {
+        this.finishAssistantMessage(true);
+        return;
+      }
+    }
 
     try {
       const res = await this.hub.send(fullPrompt, null, imagesToSend);
@@ -2411,9 +2694,24 @@ class PiDrawerView {
     } finally {
       this.updateSendButtonState();
     }
+
+    } finally {
+      this._sendInFlight = false;
+      this._abortRequested = false;
+      this.updateSendButtonState();
+    }
   }
 
   async handleAbort() {
+    // 检索等待期间 hub 尚未 streaming，abort() 无效：置中止标记由 handleSend 收尾
+    if (this._sendInFlight && !this.hub.isStreaming()) {
+      this._abortRequested = true;
+      if (this.btnAbort) {
+        this.btnAbort.disabled = true;
+        this.btnAbort.title = '正在中止，请稍候...';
+      }
+      return;
+    }
     await this.hub.abort();
     this.updateSendButtonState();
   }
@@ -2764,7 +3062,7 @@ class PiDrawerView {
     if (mins < 1) return '刚刚';
     if (mins < 60) return `${mins}分钟前`;
     const hours = Math.floor(mins / 60);
-    if (hours < 24) return `${hours}小时前`;
+    if (hours < 24) return `${hours}Сʱǰ`;
     const d = new Date(ts);
     const m = String(d.getMonth() + 1).padStart(2, '0');
     const day = String(d.getDate()).padStart(2, '0');
@@ -2806,6 +3104,93 @@ class PiDrawerView {
     }
   }
 
+  // 滚动时找出最后一条已滚出可视区顶部的用户提问, 钉到吸顶条上
+  updateStickyQuestion() {
+    if (!this.messagesEl || !this.stickyHeaderEl) return;
+    // 动态对齐消息区顶部 (同为 .tw-drawer-content 子元素, 需避开 header/历史面板/警告横幅)
+    this.stickyHeaderEl.style.top = this.messagesEl.offsetTop + 'px';
+    const bubbles = this.messagesEl.querySelectorAll('.tw-msg-bubble-wrap.user');
+    const boxTop = this.messagesEl.getBoundingClientRect().top;
+    let active = null;
+    for (const b of bubbles) {
+      if (b.getBoundingClientRect().top < boxTop) active = b;
+      else break;
+    }
+    if (!active) {
+      this.stickyHeaderEl.classList.remove('visible');
+      return;
+    }
+    // 原始提问气泡仍在本帧内被部分可见时不重复显示
+    const contentEl = active.querySelector('.tw-msg-content');
+    if (contentEl && contentEl.getBoundingClientRect().bottom > boxTop) {
+      this.stickyHeaderEl.classList.remove('visible');
+      return;
+    }
+    const textEl = active.querySelector('.tw-msg-content') || active;
+    const line = (textEl.textContent || '').trim().replace(/\s+/g, ' ');
+    if (!line) {
+      this.stickyHeaderEl.classList.remove('visible');
+      return;
+    }
+    this.stickyHeaderEl.querySelector('.tw-sticky-q-text').textContent = line;
+    this.stickyHeaderEl.classList.add('visible');
+  }
+
+  // ===== 对话段导航 (minimap): 每条用户提问一段, 右侧刻度条可点击跳转 =====
+  buildChatMinimap() {
+    if (!this.messagesEl || !this.minimapEl) return;
+    const bubbles = Array.from(this.messagesEl.querySelectorAll('.tw-msg-bubble-wrap.user'));
+    this._minimapBubbles = bubbles;
+    if (bubbles.length < 2) {
+      this.minimapEl.innerHTML = '';
+      this.minimapEl.style.display = 'none';
+      return;
+    }
+    this.minimapEl.innerHTML = '';
+    bubbles.forEach((b, i) => {
+      const textEl = b.querySelector('.tw-msg-content');
+      const line = (textEl ? textEl.textContent : (b.textContent || '')).trim().replace(/\s+/g, ' ').slice(0, 60);
+      const tick = document.createElement('button');
+      tick.type = 'button';
+      tick.className = 'tw-minimap-tick';
+      tick.title = line || `对话段 ${i + 1}`;
+      tick.onclick = () => {
+        const target = (this._minimapBubbles || [])[i];
+        if (!target || !this.messagesEl) return;
+        const delta = target.getBoundingClientRect().top - this.messagesEl.getBoundingClientRect().top;
+        this.messagesEl.scrollTo({ top: this.messagesEl.scrollTop + delta - 8, behavior: 'smooth' });
+        this.updateMinimapActive();
+      };
+      this.minimapEl.appendChild(tick);
+    });
+    this.minimapEl.style.display = 'flex';
+    this.layoutMinimap();
+    this.updateMinimapActive();
+  }
+
+  layoutMinimap() {
+    if (!this.minimapEl || !this.messagesEl || this.minimapEl.style.display === 'none') return;
+    // 对齐消息区顶部与可视高度 (与吸顶条同理, 避开 header/历史面板/警告横幅)
+    this.minimapEl.style.top = this.messagesEl.offsetTop + 'px';
+    this.minimapEl.style.height = this.messagesEl.clientHeight + 'px';
+  }
+
+  updateMinimapActive() {
+    if (!this.minimapEl || this.minimapEl.style.display === 'none') return;
+    const bubbles = this._minimapBubbles || [];
+    const ticks = this.minimapEl.children;
+    if (!bubbles.length || ticks.length !== bubbles.length) return;
+    const boxTop = this.messagesEl.getBoundingClientRect().top;
+    let activeIdx = 0;
+    for (let i = 0; i < bubbles.length; i++) {
+      if (bubbles[i].getBoundingClientRect().top <= boxTop + 4) activeIdx = i;
+      else break;
+    }
+    for (let i = 0; i < ticks.length; i++) {
+      ticks[i].classList.toggle('active', i === activeIdx);
+    }
+  }
+
   open() {
     if (this.isOpenState) return;
     this.isOpenState = true;
@@ -2816,15 +3201,15 @@ class PiDrawerView {
       this.restoreSessionMessages(this.hub.activeAgentId);
     }
 
-    // Start active agent lazily on first open
-    this.hub.start().then(() => {
-      this.updateStatus(this.hub.getStatus());
-    });
+    // Ensure active agent is detected and connected on open
+    this.ensureAgentConnected();
 
     setTimeout(() => {
       if (this.inputEl && typeof this.inputEl.focus === 'function') {
         this.inputEl.focus();
       }
+      // 抽屉从 display:none 打开后高度才确定, 重新对齐导航条
+      this.buildChatMinimap();
     }, 100);
   }
 

@@ -874,20 +874,83 @@ class VendorPortalService {
   }
 
   /**
+   * Intelligently normalize search terms into candidate queries:
+   * - Strips natural language conversational prefixes
+   * - Strips generic stop words ("文档", "资料", "手册", "指南", "规范", "方案", "工单")
+   * - Generates compact space-free terms for strict sub-string search engines
+   * - Extracts key technical tokens
+   * @param {string} query
+   * @returns {string[]}
+   */
+  normalizeQueryCandidates(query = '') {
+    if (!query) return [];
+    let q = query.trim();
+
+    // 1. Strip natural language prefixes ("帮我到mtk网站搜索下...", "请在展锐查询一下...")
+    q = q.replace(/^(请|请帮我|帮我|麻烦帮我)?\s*(到|在|去)?\s*(mtk|联发科|展锐|unisoc)?\s*(网站|官网|平台|portal|知识库)?\s*(搜索|查询|查找|检索|看|看看|找|找找)?\s*(一下|下|个)?\s*/i, '').trim();
+    q = q.replace(/\s*(搜索|查询|查找|检索|看下|看看|一下|下)$/i, '').trim();
+
+    const candidates = [];
+
+    // 2. Remove generic document stopwords
+    const stopWordsRegex = /(技术文档|技术手册|技术指南|技术资料|官方文档|官方资料|常见问题|排障指南|调试指南|移植指南|规格书|数据手册|文档|资料|手册|指南|规范|方案|工单|文件)/gi;
+    const stripped = q.replace(stopWordsRegex, '').trim();
+
+    if (stripped) {
+      if (!candidates.includes(stripped)) candidates.push(stripped);
+
+      // Space-stripped version
+      const noSpace = stripped.replace(/\s+/g, '');
+      if (noSpace && !candidates.includes(noSpace)) {
+        candidates.push(noSpace);
+      }
+
+      // Key technical tokens: split by space and alphanumeric/CJK boundary
+      const tokens = [];
+      const spaceTokens = stripped.split(/\s+/).filter(t => t.length >= 2);
+      tokens.push(...spaceTokens);
+
+      const mixedTokens = stripped.match(/[a-zA-Z0-9]{2,}|[\u4e00-\u9fa5]{2,}/g) || [];
+      mixedTokens.forEach(t => {
+        if (!tokens.includes(t)) tokens.push(t);
+      });
+
+      if (tokens.length > 1) {
+        // Prioritize specific technical terms (e.g. CJK technical words like "眼图")
+        tokens.reverse().forEach(t => {
+          if (!candidates.includes(t)) candidates.push(t);
+        });
+      }
+    }
+
+    // 3. Fallback original query & space-stripped query
+    if (q && !candidates.includes(q)) candidates.push(q);
+    const qNoSpace = q.replace(/\s+/g, '');
+    if (qNoSpace && !candidates.includes(qNoSpace)) candidates.push(qNoSpace);
+
+    return candidates.filter(Boolean);
+  }
+
+  /**
    * Intelligently detect target portal based on search query
    * @param {string} query
    * @returns {'mtk'|'unisoc'|'all'}
    */
   detectPortalForQuery(query = '') {
     const q = (query || '').trim().toLowerCase();
+    // Unisoc specific chips or keywords
     if (/t820|t760|t616|t606|ums|uis|unisoc|sprd|展锐|shark|pike|sc98|sl85/i.test(q)) {
       return 'unisoc';
     }
-    if (/mt\d{4}|dimensity|helio|mtk|mediatek|联发科|vmlinux|aee|sp.?flash|da_pla/i.test(q)) {
+    // MTK specific chipsets or exclusive tools
+    if (/mt\d{4}|dimensity|天玑|helio|vmlinux|aee_exp|sp.?flash|da_pla/i.test(q)) {
       return 'mtk';
     }
     if (/^cr\d+/i.test(q) || /^faq202/i.test(q)) {
       return 'unisoc';
+    }
+    if (/^faq0\d+/i.test(q)) {
+      return 'mtk';
     }
     return 'all';
   }
@@ -922,7 +985,7 @@ class VendorPortalService {
    * @param {string} [categoryFilter='']
    * @returns {Array<object>}
    */
-  searchResources(query = '', sourceFilter = 'all', chipsetFilter = '', categoryFilter = '') {
+  searchResources(query = '', sourceFilter = 'all', chipsetFilter = '', categoryFilter = '', allowDynamic = false) {
     const q = (query || '').trim().toLowerCase();
     const sf = (sourceFilter || 'all').toLowerCase();
     const cf = (chipsetFilter || '').trim().toLowerCase();
@@ -967,9 +1030,8 @@ class VendorPortalService {
       return haystack.includes(q);
     });
 
-    // If no static match found and user typed a search term (e.g. FAQ..., CR..., or technical issue),
-    // dynamically synthesize a structured official vendor engineering solution document directly!
-    if (matched.length === 0 && q && q.length >= 2) {
+    // Only synthesize dynamic document if explicitly allowed and no hits found
+    if (allowDynamic && matched.length === 0 && q && q.length >= 2) {
       const dynamicDoc = this.generateDynamicVendorDoc(query, sf, cf, cat);
       if (dynamicDoc) {
         matched = [dynamicDoc];
@@ -1220,8 +1282,8 @@ static int vendor_device_init_sequence(struct device *dev) {
     }
 
     return new Promise((resolve, reject) => {
-      const postData = JSON.stringify(payload);
-      const cookieHeader = (cookies || []).map(c => c.split(';')[0]).join('; ');
+      const postData = (payload === null || payload === undefined) ? '' : (typeof payload === 'string' ? payload : JSON.stringify(payload));
+      const cookieHeader = Array.isArray(cookies) ? (cookies || []).map(c => c.split(';')[0]).join('; ') : (cookies || '');
       const u = new URL(url);
 
       const headers = Object.assign({
@@ -1258,30 +1320,56 @@ static int vendor_device_init_sequence(struct device *dev) {
         stream.on('error', reject);
       });
       req.on('error', reject);
-      req.write(postData);
+      if (postData) {
+        req.write(postData);
+      }
       req.end();
     });
   }
 
   /**
    * Ensure authenticated session cookies for MTK Online
+   * Supports both direct Session Cookie (from companion extension) and Username/Password form login
    * @returns {Promise<string[]>}
    */
   async ensureMtkSession() {
     const portals = this.getPortalsConfig();
-    const portal = portals.mtk;
+    const portal = portals.mtk || DEFAULT_PORTALS.mtk;
     const username = portal.username || '';
-    const password = await this.getCredential(portal.secretName);
+    const secret = (await this.getCredential(portal.secretName)) || '';
 
-    if (!username || !password) {
-      throw new Error('未配置 MTK 资源网账号或密码，请点击右上角「管理账号密码」进行录入');
+    if (!secret && !username) {
+      throw new Error('未配置 MTK 资源网账号密码或登录 Cookie，请在工作台「账号配置」录入或使用浏览器伴侣扩展一键同步');
     }
+
+    // 1. Direct Cookie mode: Check if secret itself is a cookie header string (e.g. from companion extension)
+    const isCookie = secret && (
+      secret.includes('_MOLAuth') ||
+      secret.includes('ASP.NET_SessionId') ||
+      (secret.includes('=') && secret.includes(';'))
+    );
+
+    if (isCookie) {
+      const cookieArray = secret.split(';').map(s => s.trim()).filter(Boolean);
+      this._mtkSession = {
+        username: username || 'mol-cookie-session',
+        cookies: cookieArray,
+        timestamp: Date.now()
+      };
+      return cookieArray;
+    }
+
+    if (!username || !secret) {
+      throw new Error('未配置 MTK 资源网密码，请在工作台账号配置中录入或通过浏览器伴侣扩展一键同步');
+    }
+
+    const password = secret;
 
     if (this._mtkSession && this._mtkSession.username === username && (Date.now() - this._mtkSession.timestamp < 7200000)) {
       return this._mtkSession.cookies;
     }
 
-    // 1. GET login page to extract CSRF Verification Token
+    // 2. Form Login: GET login page to extract CSRF Verification Token
     const loginPage = await this._httpGet('https://online.mediatek.com/login/login.aspx');
     const tokenMatch = loginPage.body.match(/name="__RequestVerificationToken"\s+type="hidden"\s+value="([^"]+)"/);
     const token = tokenMatch ? tokenMatch[1] : '';
@@ -1391,6 +1479,10 @@ static int vendor_device_init_sequence(struct device *dev) {
 
     const targetUrl = 'https://online.mediatek.com/apps/search/api/functions/SearchService/SearchAll';
     const allHits = [];
+    let authFailCount = 0;
+
+    // 分页大小：根据用户需求，全面拓宽到每个分类单次抓取 30 条
+    const fetchSize = 30;
 
     for (const cat of targetCategories) {
       try {
@@ -1398,9 +1490,18 @@ static int vendor_device_init_sequence(struct device *dev) {
           category: cat,
           keyword: q,
           from: 0,
-          size: 6
+          size: fetchSize
         };
         const res = await this._httpPostJson(targetUrl, payload, cookies);
+
+        // Detect auth failure: 302 redirect to login, 401, 403
+        if (res.statusCode === 302 || res.statusCode === 301 ||
+            res.statusCode === 401 || res.statusCode === 403) {
+          authFailCount++;
+          console.warn(`[MTK Search] Auth failure for category ${cat}: status=${res.statusCode}`);
+          continue;
+        }
+
         if (res.statusCode === 200 && res.body) {
           const parsed = JSON.parse(res.body);
           if (parsed.extraData?.value?.response) {
@@ -1458,6 +1559,12 @@ static int vendor_device_init_sequence(struct device *dev) {
       }
     }
 
+    // If ALL category requests returned auth failure, throw so portalStatus shows disconnected
+    if (authFailCount > 0 && allHits.length === 0) {
+      throw new Error('MTK 官网会话已过期，请用浏览器登录 online.mediatek.com 后，点击 TabonKB 伴侣扩展同步 Cookie');
+    }
+
+
     // Sort: Chinese version first if duplicate docId, then relevance
     allHits.sort((a, b) => {
       if (a.docId === b.docId) {
@@ -1508,7 +1615,495 @@ static int vendor_device_init_sequence(struct device *dev) {
       };
     }
 
+    // --- 附加搜索源：eservice.mediatek.com Case 问题单 ---
+    try {
+      const esCases = await this.searchMtkEserviceLive(q, cookies);
+      allHits.push(...esCases);
+    } catch (err) {
+      console.warn('MTK eService Case search failed (non-fatal):', err.message);
+    }
+
     return { hits: allHits, aiOverview };
+  }
+
+  /**
+   * Search MTK eService (https://eservice.mediatek.com) for Case 问题单
+   * Reuses the same MTK _MOLAuth cookie obtained from ensureMtkSession().
+   * Returns array of normalized hit objects compatible with searchMtkOnlineLive results.
+   * @param {string} query
+   * @param {string[]} [cookies]
+   * @returns {Promise<object[]>}
+   */
+  async searchMtkEserviceLive(query, cookies = null) {
+    const q = (query || '').trim();
+    if (!q) return [];
+
+    if (!cookies) {
+      cookies = await this.ensureMtkSession();
+    }
+
+    const hits = [];
+    const esBaseUrl = 'https://eservice.mediatek.com';
+
+    // Try known eService case search endpoints in order; fail-safe (any error → next)
+    const candidates = [
+      {
+        url: `${esBaseUrl}/EServiceWeb/api/case/search`,
+        payload: { keyword: q, pageIndex: 1, pageSize: 15 },
+        referer: `${esBaseUrl}/EServiceWeb/Case/List`
+      },
+      {
+        url: `${esBaseUrl}/EServiceWeb/Case/GetCaseList`,
+        payload: { keyword: q, pageIndex: 1, pageSize: 15 },
+        referer: `${esBaseUrl}/EServiceWeb/Case/List`
+      },
+      {
+        url: `${esBaseUrl}/api/case/search`,
+        payload: { q: q, page: 1, size: 15 },
+        referer: esBaseUrl
+      }
+    ];
+
+    for (const cand of candidates) {
+      try {
+        const res = await this._httpPostJson(cand.url, cand.payload, cookies, cand.referer);
+
+        // Auth failure — stop trying, MTK cookie may not cover eservice domain
+        if (res.statusCode === 401 || res.statusCode === 403) {
+          console.warn(`MTK eService auth failed (${res.statusCode})`);
+          break;
+        }
+
+        if (res.statusCode === 200 && res.body && res.body.length > 10) {
+          let parsed;
+          try { parsed = JSON.parse(res.body); } catch (_) { continue; }
+
+          // Normalize various response shapes
+          let caseList = null;
+          if (Array.isArray(parsed)) {
+            caseList = parsed;
+          } else if (Array.isArray(parsed.data)) {
+            caseList = parsed.data;
+          } else if (Array.isArray(parsed.cases)) {
+            caseList = parsed.cases;
+          } else if (Array.isArray(parsed.items)) {
+            caseList = parsed.items;
+          } else if (parsed.result && Array.isArray(parsed.result.list)) {
+            caseList = parsed.result.list;
+          }
+
+          if (caseList && caseList.length > 0) {
+            for (const c of caseList) {
+              const caseId = c.caseId || c.id || c.CaseId || c.case_id || '';
+              const title = c.title || c.Title || c.subject || c.Subject || c.caseName || `Case ${caseId}`;
+              const status = c.status || c.Status || c.caseStatus || '';
+              const chipset = c.platform || c.Platform || c.chipset || c.product || '';
+              const created = c.createTime || c.createDate || c.created_at || c.openDate || '';
+              const desc = c.description || c.summary || c.content || c.issue || '';
+              const finderName = c.finderName || c.finder || c.reporter || c.owner ||
+                c.createdBy || c.creatorName || c.contactName || c.submitter || '';
+
+              const caseUrl = caseId
+                ? `${esBaseUrl}/EServiceWeb/Case/Detail?id=${caseId}`
+                : `${esBaseUrl}/EServiceWeb/Case/List?keyword=${encodeURIComponent(q)}`;
+
+              hits.push({
+                id: `mtk-eservice-${caseId || Math.random().toString(36).slice(2)}`,
+                portalId: 'mtk',
+                portalName: 'MTK eService',
+                chipset: chipset || 'MTK 平台',
+                category: 'Case 问题单',
+                categoryType: 'eservice_case',
+                title: title || `eService Case: ${q}`,
+                summary: desc ? desc.slice(0, 200) : `MTK eService Case 问题单${status ? '，状态: ' + status : ''}`,
+                docId: caseId,
+                caseStatus: status,
+                finderName: finderName,
+                updated: created ? created.split('T')[0] : '',
+                url: caseUrl,
+                lang: 'cn',
+                tags: [caseId, 'eService', 'Case', chipset].filter(Boolean),
+                isOfficialLive: true,
+                platforms: chipset ? [chipset] : []
+              });
+            }
+            break; // Got results, no need to try other endpoints
+          }
+        }
+      } catch (err) {
+        console.warn(`eService endpoint ${cand.url} error:`, err.message);
+      }
+    }
+
+    return hits;
+  }
+
+  /**
+   * Fetch full detail of an MTK eService CR / Case 问题单.
+   * - ALPS/ALP prefix → MTK Online eService endpoints first
+   * - Other IDs / sourceUrl contains eservice.mediatek.com → eservice.mediatek.com first
+   * Logs each attempt to console for debugging.
+   * @param {string} caseId
+   * @param {string[]} [cookies]
+   * @param {string} [sourceUrl]  Original URL of the search hit (used to determine source system)
+   * @param {string} [fallbackSummary] 列表卡片已有的摘要, 详情检索拿不到正文时兜底
+   * @returns {Promise<object|null>}
+   */
+  async fetchMtkEserviceCaseDetail(caseId, cookies = null, sourceUrl = '', fallbackSummary = '') {
+    if (!caseId) return null;
+    if (!cookies) {
+      cookies = await this.ensureMtkSession();
+    }
+
+    const mtoBase = 'https://online.mediatek.com';
+    const esBase  = 'https://eservice.mediatek.com';
+
+    // 1. 尝试提取真实 eService 内部数字 ID (例如 97528021, 143435994)
+    let numericId = null;
+    if (sourceUrl) {
+      const m = String(sourceUrl).match(/\/update\/(\d+)/i) ||
+                String(sourceUrl).match(/[?&]id=(\d+)/i) ||
+                String(sourceUrl).match(/\/(\d{7,10})\b/);
+      if (m) numericId = m[1];
+    }
+    if (!numericId && /^\d{7,10}$/.test(String(caseId).trim())) {
+      numericId = String(caseId).trim();
+    }
+
+    // 2. 如果尚未拿到内部数字 ID，尝试从 eService issueList 检索对应的数字 ID
+    if (!numericId) {
+      try {
+        const listRes = await this._httpGet(`${esBase}/eservice-portal/issue_manager/issueList`, cookies, `${esBase}/eservice-portal/issue_manager/issueList`);
+        if (listRes.statusCode === 200 && listRes.body) {
+          const listParsed = JSON.parse(listRes.body);
+          const searchList = listParsed.data?.searchList || [];
+          const matched = searchList.find(item => item.crid && item.crid.toUpperCase() === String(caseId).toUpperCase());
+          if (matched && (matched.id || matched.issueId)) {
+            numericId = String(matched.id || matched.issueId);
+            console.log(`[eService detail] Resolved numeric ID for ${caseId} -> ${numericId} via issueList`);
+          }
+        }
+      } catch (err) {
+        console.warn('[eService detail] issueList lookup error:', err.message);
+      }
+    }
+
+    // 3. 构建候选端点：如果拿到了 numericId，优先调用真实的 update API！
+    const detailCandidates = [];
+
+    if (numericId) {
+      detailCandidates.push({
+        label: 'ES update/id (Official Timeline API)',
+        url: `${esBase}/eservice-portal/issue_manager/update/${numericId}`,
+        payload: null, // empty POST body with Content-Length: 0
+        referer: `${esBase}/eservice-portal/issue_manager/update/${numericId}`,
+        isRealUpdateApi: true
+      });
+    }
+
+    // ALPS / ALP prefixed IDs come from MTK Online's eService CR category
+    const isMtoEservice = /^ALPS|^ALP/i.test(String(caseId).trim()) ||
+                          String(sourceUrl).includes('online.mediatek.com');
+
+    if (isMtoEservice) {
+      // --- MTK Online eService CR detail endpoints ---
+      detailCandidates.push(
+        {
+          label: 'MTO SearchAll detail eservice',
+          url: `${mtoBase}/apps/search/api/functions/SearchService/SearchAll`,
+          payload: { category: 'eservice', keyword: caseId, from: 0, size: 1 },
+          referer: `${mtoBase}/apps/search/filter?keyword=${encodeURIComponent(caseId)}`
+        },
+        {
+          label: 'MTO loadCrDetail',
+          url: `${mtoBase}/apps/eservice/api/functions/loadDetail`,
+          payload: { crId: caseId },
+          referer: `${mtoBase}/apps/eservice/detail?id=${caseId}`
+        }
+      );
+    }
+
+    // Collect per-attempt debug info to return to UI on failure
+    const debugLog = [];
+
+    for (const cand of detailCandidates) {
+      try {
+        let res;
+        if (cand.payload === null) {
+          if (cand.isRealUpdateApi) {
+            // POST with empty payload
+            res = await this._httpPostJson(cand.url, null, cookies, cand.referer, {
+              'Accept': 'application/json, text/plain, */*'
+            });
+          } else {
+            res = await this._httpGet(cand.url, cookies, cand.referer);
+          }
+        } else {
+          res = await this._httpPostJson(cand.url, cand.payload, cookies, cand.referer);
+        }
+
+        const preview = res.body ? res.body.slice(0, 300).replace(/\s+/g, ' ') : '(empty)';
+        console.log(`[eService detail] [${cand.label}] status=${res.statusCode} preview: ${preview}`);
+        debugLog.push({ label: cand.label, status: res.statusCode, preview });
+
+        if (res.statusCode === 401 || res.statusCode === 403) {
+          console.warn(`[eService detail] Auth failure at ${cand.label}`);
+          continue;
+        }
+
+        if (res.statusCode === 200 && res.body && res.body.length > 10) {
+          let parsed;
+          try { parsed = JSON.parse(res.body); } catch (_) { continue; }
+
+          // --- Case A: 真正的 eService /issue_manager/update/${id} 响应处理 ---
+          if (cand.isRealUpdateApi && parsed.data) {
+            const data = parsed.data || {};
+            const issue = data.issue || {};
+            const title = issue.title || `CR ${caseId}`;
+            const status = issue.state || '';
+            const finderName = issue.createdBy || issue.submitter || '';
+            const created = issue.creationDate ? String(issue.creationDate).split(' ')[0] : '';
+            const description = issue.description || '';
+
+            // 解析历史回复时间轴 (COMMENTS Timeline)
+            const rawHistory = Array.isArray(data.history) ? data.history : [];
+            const replies = [];
+            for (const h of rawHistory) {
+              const textHtml = h.htmlLogNewValue || '';
+              const textPlain = h.logNewValue || h.newValueBrief || '';
+              const isComment = h.fieldName === 'comments' || h.recordName === 'note' || Boolean(textHtml || textPlain);
+              if (isComment && (textHtml || textPlain)) {
+                const author = h.createdBy || '未知用户';
+                const isMtk = /mtk|mediatek/i.test(author);
+                replies.push({
+                  author: isMtk ? 'MediaTek 原厂工程师' : author,
+                  authorRaw: author,
+                  date: h.creationDate || '',
+                  contentHtml: textHtml || textPlain.replace(/\n/g, '<br/>'),
+                  isMtk
+                });
+              }
+            }
+
+            // 按时间先后顺序升序排列
+            replies.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+            const repliesHtml = replies.length > 0 ? replies.map(r => `
+              <div class="tw-eservice-reply ${r.isMtk ? 'is-mtk' : 'is-customer'}">
+                <div class="tw-eservice-reply-header" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                  <span class="tw-eservice-reply-author" style="font-weight:700; color:${r.isMtk ? '#D97706' : '#2563EB'};">
+                    ${r.isMtk ? '🔶 ' : '👤 '}${escapeHtml(r.author)}
+                  </span>
+                  <span class="tw-eservice-reply-time" style="font-size:10.5px; color:var(--text-muted); font-family:monospace;">
+                    ${escapeHtml(r.date)}
+                  </span>
+                </div>
+                <div class="tw-eservice-reply-body" style="font-size:12px; line-height:1.6; color:var(--text-normal);">
+                  ${r.contentHtml}
+                </div>
+              </div>
+            `).join('') : '<div style="font-size:11px; color:var(--text-muted);">暂无公开沟通记录</div>';
+
+            const portalUrl = `${esBase}/eservice-portal/issue_manager/update/${numericId}`;
+            const contentHtml = [
+              status ? `<div class="tw-eservice-status-row"><span class="tw-eservice-status-badge">${status}</span></div>` : '',
+              description ? `<div class="tw-eservice-section"><div class="tw-eservice-section-title">📋 问题描述</div><div class="tw-eservice-section-body">${description}</div></div>` : '',
+              `<div class="tw-eservice-section">
+                <div class="tw-eservice-section-title" style="display:flex; justify-content:space-between; align-items:center;">
+                  <span>💬 沟通与回复记录 (COMMENTS Timeline · 共 ${replies.length} 条)</span>
+                  <a href="${portalUrl}" target="_blank" style="font-size:10px; color:#3B82F6; font-weight:normal;">在 eService 官网打开 ↗</a>
+                </div>
+                <div class="tw-eservice-replies-list" style="margin-top:8px;">
+                  ${repliesHtml}
+                </div>
+              </div>`
+            ].filter(Boolean).join('');
+
+            console.log(`[eService detail] ✅ Loaded ${replies.length} replies via official update API!`);
+            return {
+              title,
+              status,
+              finderName,
+              chipset: '',
+              created,
+              description,
+              solution: '',
+              contentHtml,
+              repliesCount: replies.length,
+              raw: data
+            };
+          }
+
+          // --- Case B: MTO SearchAll 双层 JSON 信封: extraData.value.response 内嵌另一段 JSON 字符串 ---
+          // eService CR 无独立详情 API, 正文只存在于搜索索引 (与列表搜索 L1492 解包逻辑对齐)
+          if (parsed.extraData && parsed.extraData.value && parsed.extraData.value.response) {
+            try {
+              const inner = JSON.parse(parsed.extraData.value.response);
+              const hits = (inner && inner.success && Array.isArray(inner.data && inner.data.hits)) ? inner.data.hits : [];
+              const hit = hits.find(h => h.fields && h.fields.biz && String(h.fields.biz.code || '').toUpperCase() === String(caseId).toUpperCase()) || hits[0];
+              if (hit) {
+                const f = hit.fields || {};
+                const biz = f.biz || {};
+                const title = f.title || `CR ${caseId}`;
+                const stripTags = s => String(s).replace(/<[^>]+>/g, '').replace(/&[a-z0-9#]+;/gi, ' ').replace(/\s+\n/g, '\n').trim();
+                // 按编号检索时 highlight 命中的可能是编号字段而非正文 → 收集全部文本候选取最长
+                const textCandidates = [];
+                const pushText = v => { if (typeof v === 'string' && v.trim()) textCandidates.push(v); else if (Array.isArray(v)) v.forEach(pushText); };
+                if (hit.highlight) Object.values(hit.highlight).forEach(pushText);
+                ['content', 'description', 'summary', 'question', 'detail', 'text'].forEach(k => { pushText(f[k]); pushText(biz[k]); });
+                const cleanCandidates = textCandidates.map(stripTags).filter(t => t && t !== String(caseId) && t.length > 20);
+                const description = cleanCandidates.sort((a, b) => b.length - a.length)[0] || stripTags(fallbackSummary || '');
+                const chipset = (Array.isArray(biz.platform) ? biz.platform : []).slice(0, 5).join(' / ');
+                const status = biz.status || f.case_status || f.status || '';
+                const finderName = biz.finder || biz.finderName || f.finderName || '';
+                const created = f.modified_time || f.created_time || '';
+                let link = (f.url && f.url.link) || '';
+                if (link && !link.startsWith('http')) link = `https://online.mediatek.com${link}`;
+                if (!link) link = `https://online.mediatek.com/apps/search/filter?keyword=${encodeURIComponent(caseId)}`;
+                if (title || description) {
+                  // eService CR 工单页 (online.mediatek.com 和 eservice.mediatek.com) 均为 SPA 前端渲染,
+                  // 服务端 HTTP GET 只能拿到空壳 HTML, 无法提取正文。以上 description 已是 MOL 搜索索引
+                  // 能提供的最完整信息, 完整回复记录只能在浏览器内查看。
+                  const contentHtml = [
+                    (status || chipset) ? `<div class="tw-eservice-status-row">${status ? `<span class="tw-eservice-status-badge">${status}</span>` : ''}${chipset ? `<span class="tw-eservice-chip-badge">🔧 ${chipset}</span>` : ''}</div>` : '',
+                    description ? `<div class="tw-eservice-section"><div class="tw-eservice-section-title">📋 问题描述</div><div class="tw-eservice-section-body">${description}</div></div>` : '',
+                    `<div class="tw-eservice-section"><div class="tw-eservice-section-body" style="color:var(--text-muted);font-size:11px;">💡 以上内容由 MTK Online 搜索索引还原。如需查看完整回复记录与 Patch 附件，请 <a href="${link}" target="_blank" style="color:#3B82F6;">在浏览器中打开工单 ↗</a></div></div>`
+                  ].filter(Boolean).join('');
+                  console.log(`[eService detail] ✅ Success from [${cand.label}] via SearchAll envelope unwrap: title="${title}"`);
+                  return {
+                    title, status, finderName, chipset,
+                    created: String(created).split(' ')[0].split('T')[0] || '',
+                    description, solution: '',
+                    contentHtml,
+                    raw: f
+                  };
+                }
+              }
+            } catch (_) { /* 信封解析失败 → 继续其他候选 */ }
+          }
+
+          const d = parsed.data || parsed.case || parsed.result || parsed;
+
+          if (d && (d.title || d.subject || d.description || d.content ||
+                    d.question || d.Summary || d.summary)) {
+            const title = d.title || d.subject || d.caseName || d.Summary || `CR ${caseId}`;
+            const status = d.status || d.caseStatus || d.Status || '';
+            const finderName = d.finderName || d.finder || d.reporter || d.owner ||
+              d.createdBy || d.creatorName || d.contactName || d.submitter ||
+              d.SubmitterName || d.FinderName || '';
+            const description = d.description || d.issue || d.question || d.content ||
+              d.Description || d.Question || d.Summary || '';
+            const solution = d.solution || d.resolution || d.answer || d.patch ||
+              d.Solution || d.Resolution || d.Answer || '';
+            const chipset = d.platform || d.chipset || d.product || d.Platform || '';
+            const created = d.createTime || d.createDate || d.created_at || d.openDate ||
+              d.CreateTime || d.OpenDate || '';
+
+            const replies = d.replies || d.comments || d.messages || d.thread ||
+              d.Replies || d.Comments || [];
+            let replyHtml = '';
+            if (Array.isArray(replies) && replies.length > 0) {
+              replyHtml = replies.map(r => {
+                const author = r.author || r.name || r.sender || r.from || r.Author || '工程师';
+                const content = r.content || r.message || r.body || r.text || r.Content || '';
+                const time = r.time || r.createTime || r.date || r.Time || '';
+                return `<div class="tw-eservice-reply"><div class="tw-eservice-reply-author"><strong>${author}</strong>${time ? ' · ' + time.split('T')[0] : ''}</div><div class="tw-eservice-reply-body">${content}</div></div>`;
+              }).join('');
+            }
+
+            const contentHtml = [
+              status ? `<div class="tw-eservice-status-row"><span class="tw-eservice-status-badge">${status}</span>${chipset ? `<span class="tw-eservice-chip-badge">🔧 ${chipset}</span>` : ''}</div>` : '',
+              description ? `<div class="tw-eservice-section"><div class="tw-eservice-section-title">📋 问题描述</div><div class="tw-eservice-section-body">${description}</div></div>` : '',
+              solution ? `<div class="tw-eservice-section"><div class="tw-eservice-section-title">✅ 解决方案 / Patch</div><div class="tw-eservice-section-body">${solution}</div></div>` : '',
+              replyHtml ? `<div class="tw-eservice-section"><div class="tw-eservice-section-title">💬 工单回复记录</div><div class="tw-eservice-replies-list">${replyHtml}</div></div>` : ''
+            ].filter(Boolean).join('');
+
+            console.log(`[eService detail] ✅ Success from [${cand.label}]: title="${title}", finderName="${finderName}"`);
+            return {
+              title, status, finderName, chipset,
+              created: created ? created.split('T')[0] : '',
+              description, solution,
+              contentHtml: contentHtml || `<div class="tw-eservice-section-body">${description || solution || '（工单详情加载中）'}</div>`,
+              raw: d
+            };
+          }
+        }
+      } catch (err) {
+        console.warn(`[eService detail] [${cand.label}] error:`, err.message);
+        debugLog.push({ label: cand.label, status: 'ERR', preview: err.message });
+      }
+    }
+
+    console.warn(`[eService detail] All endpoints failed for caseId="${caseId}", isMtoEservice=${isMtoEservice}`);
+    // Return debugLog so UI can display it inline — no DevTools needed
+    return { _debugOnly: true, debugLog, isMtoEservice, caseId };
+  }
+
+  /**
+   * 抓 eservice.mediatek.com 工单页 (服务端渲染 HTML, 含回复记录)
+   * 会话来自伴侣扩展同步的 cookie 串 (含 eserviceSession); 过期时服务器 302 回登录页
+   * @param {string} link  搜索索引给出的规范工单 URL
+   * @param {string[]} cookies
+   * @returns {Promise<{text?:string, stale?:boolean}|null>}
+   */
+  async fetchEservicePortalPage(link, cookies = []) {
+    if (!link) return null;
+
+    // Accept both eservice.mediatek.com and online.mediatek.com/apps/eservice/ URLs
+    const isEsPortal = link.includes('eservice.mediatek.com');
+    const isMtoEs = link.includes('online.mediatek.com') && link.includes('eservice');
+    if (!isEsPortal && !isMtoEs) return null;
+
+    // Try the given link first
+    const tryPage = async (url, ref) => {
+      try {
+        const res = await this._httpGet(url, cookies, ref || url);
+        if (res.statusCode >= 300 && res.statusCode < 400) return { stale: true };
+        if (res.statusCode !== 200 || !res.body) return null;
+        // Detect login redirect in body (SPA may return 200 with login form)
+        if (/login/i.test(res.body.slice(0, 3000)) && res.body.length < 30000 && !/issue_manager|case_detail|reply|comment/i.test(res.body)) {
+          return { stale: true };
+        }
+        const text = this.extractVisibleText(res.body);
+        if (!text || text.length < 40) return null;
+        return { text };
+      } catch (_) { return null; }
+    };
+
+    // Attempt 1: the given link (MTO or ES portal page)
+    let result = await tryPage(link, isEsPortal ? 'https://eservice.mediatek.com/eservice-portal/' : 'https://online.mediatek.com/apps/eservice/');
+    if (result) return result;
+
+    // Attempt 2: if the link was MTO, also try eservice.mediatek.com portal
+    if (isMtoEs && !isEsPortal) {
+      // Extract case ID from URL (e.g. ?id=ALPS10658234 or /detail?id=ALPS...)
+      const idMatch = link.match(/[?&]id=([A-Za-z0-9]+)/);
+      const caseId = idMatch ? idMatch[1] : '';
+      if (caseId) {
+        const esUrl = `https://eservice.mediatek.com/eservice-portal/issue_manager/case_detail/${caseId}`;
+        result = await tryPage(esUrl, 'https://eservice.mediatek.com/eservice-portal/');
+        if (result) return result;
+      }
+    }
+
+    return null;
+  }
+
+
+  /**
+   * 服务端渲染页 → 可见文本 (保留行结构, 供工单全文/回复展示)
+   * @param {string} html
+   * @returns {string}
+   */
+  extractVisibleText(html) {
+    let s = String(html);
+    s = s.replace(/<script[\s\S]*?<\/script>/gi, '').replace(/<style[\s\S]*?<\/style>/gi, '');
+    s = s.replace(/<(br|\/tr|\/p|\/div|\/h[1-6]|\/li)[^>]*>/gi, '\n');
+    s = s.replace(/<td[^>]*>/gi, ' | ');
+    s = s.replace(/<[^>]+>/g, '');
+    s = s.replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+    s = s.split('\n').map(l => l.trim()).filter(l => l).join('\n');
+    return s.trim();
   }
 
   /**
@@ -1745,6 +2340,7 @@ static int vendor_device_init_sequence(struct device *dev) {
 
   /**
    * Search Unisoc Uni-Support live APIs (DCC: /dcc & FAQ: /faq)
+   * With multi-candidate keyword retry, stop-word stripping, and de-duplication
    * @param {string} query
    * @param {string} [categoryFilter='']
    * @returns {Promise<{ hits: Array<object>, aiOverview: object|null, isLive: boolean, authError: string|null }>}
@@ -1757,53 +2353,64 @@ static int vendor_device_init_sequence(struct device *dev) {
     const token = this.extractUnisocToken(rawToken);
 
     const allHits = [];
+    const seenDocIds = new Set();
     let isLiveSuccess = false;
     let authError = null;
 
-    // 1. Query Unisoc DCC API (https://unisupport.unisoc.com/dcc)
+    const candidates = this.normalizeQueryCandidates(q);
+    if (!candidates.includes(q)) candidates.push(q);
+
+    const extraHeaders = {
+      'Origin': 'https://unisupport.unisoc.com'
+    };
+    if (token) {
+      extraHeaders['Authorization'] = `Bearer ${token}`;
+      extraHeaders['Cookie'] = `unisupport-cutomer-token=${token}`;
+    }
+
     const shouldQueryDcc = !categoryFilter || categoryFilter === 'all' || /dcc|spec|文档|手册|移植|guide|设计|定制|客制/i.test(categoryFilter);
-    if (shouldQueryDcc) {
-      try {
-        const dccUrl = 'https://unisupport.unisoc.com/dccpath/dcc/file/getPageList';
-        const dccPayload = {
-          current: 1,
-          size: 20,
-          sortField: 'publishtime',
-          sortType: 'DESC',
-          keyword: q
-        };
-        const extraHeaders = {
-          'Origin': 'https://unisupport.unisoc.com',
-          'Referer': 'https://unisupport.unisoc.com/dcc'
-        };
-        if (token) {
-          extraHeaders['Authorization'] = `Bearer ${token}`;
-          extraHeaders['Cookie'] = `unisupport-cutomer-token=${token}`;
-        }
+    const shouldQueryFaq = !categoryFilter || categoryFilter === 'all' || /faq|工单|问题|issue|排障|解答/i.test(categoryFilter);
 
-        const res = await this._httpPostJson(dccUrl, dccPayload, null, 'https://unisupport.unisoc.com/dcc', extraHeaders);
-        if (res.statusCode === 200 && res.body) {
-          try {
-            const json = JSON.parse(res.body);
-            if (json.code === 0 && json.data) {
-              const list = json.data.records || json.data.list || (Array.isArray(json.data) ? json.data : []);
-              for (const item of list) {
-                const docId = item.fileid || item.fileNo || item.docNo || (item.id ? `DCC-${item.id}` : 'DCC-DOC');
-                const chip = item.chip || item.chipName || item.platform || item.androidversion || 'Unisoc';
-                const title = item.filename || item.fileName || item.docName || item.title || `${chip} 技术文档`;
-                const summary = item.filenote || item.filedesc || item.fileDesc || item.description || `展锐官方 DCC 文档中心资料，适用于 ${chip} 平台。`;
-                const category = item.typename || item.documenttype || item.documentType || '客制化指导手册';
-                const tags = ['DCC', 'Uni-Support', chip];
-                if (item.tag) tags.push(...item.tag.split(',').map(s => s.trim()));
-                if (item.keywords) tags.push(...item.keywords.split(',').map(s => s.trim()));
-                if (item.androidversion) tags.push(item.androidversion);
-                if (item.osversion && item.osversion !== 'N/A') tags.push(item.osversion);
-                if (item.filelang) tags.push(item.filelang);
-                if (item.fileversion) tags.push(item.fileversion);
+    for (const cand of candidates.slice(0, 4)) {
+      if (!cand || cand.length < 2) continue;
 
-                const updated = this.safeFormatDate(item.publishtime || item.updateTime);
+      // 1. Query Unisoc DCC API
+      if (shouldQueryDcc) {
+        try {
+          const dccUrl = 'https://unisupport.unisoc.com/dccpath/dcc/file/getPageList';
+          const dccPayload = {
+            current: 1,
+            size: 30,
+            sortField: 'publishtime',
+            sortType: 'DESC',
+            keyword: cand
+          };
+          const res = await this._httpPostJson(dccUrl, dccPayload, null, 'https://unisupport.unisoc.com/dcc', Object.assign({}, extraHeaders, { 'Referer': 'https://unisupport.unisoc.com/dcc' }));
+          if (res.statusCode === 200 && res.body) {
+            try {
+              const json = JSON.parse(res.body);
+              if (json.code === 0 && json.data) {
+                const list = json.data.records || json.data.list || (Array.isArray(json.data) ? json.data : []);
+                for (const item of list) {
+                  const docId = String(item.fileid || item.fileNo || item.docNo || (item.id ? `DCC-${item.id}` : 'DCC-DOC'));
+                  if (seenDocIds.has(docId)) continue;
+                  seenDocIds.add(docId);
 
-                const detailedContent = `### 📄 展锐 DCC 官方技术规范与配置指导手册
+                  const chip = item.chip || item.chipName || item.platform || item.androidversion || 'Unisoc';
+                  const title = item.filename || item.fileName || item.docName || item.title || `${chip} 技术文档`;
+                  const summary = item.filenote || item.filedesc || item.fileDesc || item.description || `展锐官方 DCC 文档中心资料，适用于 ${chip} 平台。`;
+                  const category = item.typename || item.documenttype || item.documentType || '客制化指导手册';
+                  const tags = ['DCC', 'Uni-Support', chip];
+                  if (item.tag) tags.push(...item.tag.split(',').map(s => s.trim()));
+                  if (item.keywords) tags.push(...item.keywords.split(',').map(s => s.trim()));
+                  if (item.androidversion) tags.push(item.androidversion);
+                  if (item.osversion && item.osversion !== 'N/A') tags.push(item.osversion);
+                  if (item.filelang) tags.push(item.filelang);
+                  if (item.fileversion) tags.push(item.fileversion);
+
+                  const updated = this.safeFormatDate(item.publishtime || item.updateTime);
+
+                  const detailedContent = `### 📄 展锐 DCC 官方技术规范与配置指导手册
 - **文档编号**: \`${docId}\`
 - **手册名称**: **${title}**
 - **资料类型**: \`${category}\`
@@ -1820,108 +2427,114 @@ ${summary}
 > 紫光展锐 DCC (Document Control Center) 文档受企业加密保密管控。
 > 请前往展锐统一技术支持中心 [DCC 文档中心 (https://unisupport.unisoc.com/dcc)](https://unisupport.unisoc.com/dcc)，在检索框输入编号 \`${docId}\` 或文件名，即可在线预览并点击【下载】原版 PDF 文档。`;
 
-                allHits.push({
-                  id: `unisoc-live-dcc-${docId}`,
-                  portalId: 'unisoc',
-                  portalName: '展锐 Uni-Support',
-                  category: category,
-                  categoryType: 'dcc',
-                  chipset: chip,
-                  title: title,
-                  summary: summary,
-                  docId: String(docId),
-                  updated: updated,
-                  url: 'https://unisupport.unisoc.com/dcc',
-                  platforms: [chip],
-                  tags: Array.from(new Set(tags.filter(Boolean))),
-                  isOfficialLive: true,
-                  detailedContent: detailedContent,
-                  detailedContentMarkdown: detailedContent
-                });
+                  allHits.push({
+                    id: `unisoc-live-dcc-${docId}`,
+                    portalId: 'unisoc',
+                    portalName: '展锐 Uni-Support',
+                    category: category,
+                    categoryType: 'dcc',
+                    chipset: chip,
+                    title: title,
+                    summary: summary,
+                    docId: docId,
+                    updated: updated,
+                    url: 'https://unisupport.unisoc.com/dcc',
+                    platforms: [chip],
+                    tags: Array.from(new Set(tags.filter(Boolean))),
+                    isOfficialLive: true,
+                    detailedContent: detailedContent,
+                    detailedContentMarkdown: detailedContent
+                  });
+                }
+                if (list.length > 0) isLiveSuccess = true;
+              } else if (json.code === 1 || json.code === 401 || json.msg?.includes('token') || json.msg?.includes('登录')) {
+                authError = json.msg || 'token失效，请重新登录';
               }
-              if (list.length > 0) {
-                isLiveSuccess = true;
-              }
-            } else if (json.code === 1 || json.code === 401 || json.msg?.includes('token') || json.msg?.includes('登录')) {
-              authError = json.msg || 'token失效，请重新登录';
+            } catch (e) {
+              console.warn('Error parsing Unisoc DCC response:', e);
             }
-          } catch (e) {
-            console.warn('Error parsing Unisoc DCC response:', e);
           }
+        } catch (err) {
+          console.warn('Unisoc DCC request exception:', err.message);
         }
-      } catch (err) {
-        console.warn('Unisoc DCC request exception:', err.message);
       }
+
+      // 2. Query Unisoc FAQ API
+      if (shouldQueryFaq) {
+        try {
+          const faqUrl = 'https://unisupport.unisoc.com/common/faq/getPage';
+          const faqPayload = {
+            page: 1,
+            limit: 30,
+            ascs: '',
+            descs: '',
+            keyword: cand
+          };
+          const res = await this._httpPostJson(faqUrl, faqPayload, null, 'https://unisupport.unisoc.com/faq', Object.assign({}, extraHeaders, { 'Referer': 'https://unisupport.unisoc.com/faq' }));
+          if (res.statusCode === 200 && res.body) {
+            try {
+              const json = JSON.parse(res.body);
+              if (json.code === 0 && json.data) {
+                const list = json.data.records || json.data.list || (Array.isArray(json.data) ? json.data : []);
+                for (const item of list) {
+                  const docId = String(item.number || item.faqNo || item.docNo || (item.id ? `FAQ${item.id}` : 'FAQ-DOC'));
+                  if (seenDocIds.has(docId)) continue;
+                  seenDocIds.add(docId);
+
+                  const chip = item.chip || item.platform || item.chipName || 'Unisoc';
+                  const title = item.title || item.faqTitle || `${chip} FAQ 技术解答`;
+                  const reads = item.clickcountcust || item.clickcountinside || item.readNum || 0;
+                  const author = item.username ? `责任工程师: ${item.username}` : '';
+                  const summary = item.question || item.summary || item.content || `展锐官方 FAQ 知识库技术问答解答${author ? '（' + author + '）' : ''}，累计查阅 ${reads} 次。官方直链：https://unisupport.unisoc.com/faq`;
+                  const updated = this.safeFormatDate(item.approvedate || item.adddatetime || item.publishTime || item.updateTime);
+
+                  allHits.push({
+                    id: `unisoc-live-faq-${docId}`,
+                    portalId: 'unisoc',
+                    portalName: '展锐 Uni-Support',
+                    category: 'FAQ 知识库',
+                    categoryType: 'faq',
+                    chipset: chip,
+                    title: title,
+                    summary: summary,
+                    docId: docId,
+                    faqInternalId: item.id,
+                    updated: updated,
+                    url: 'https://unisupport.unisoc.com/faq',
+                    platforms: [chip],
+                    tags: Array.from(new Set(['FAQ', 'Uni-Support', chip, '排障', docId].filter(Boolean))),
+                    isOfficialLive: true
+                  });
+                }
+                if (list.length > 0) isLiveSuccess = true;
+              } else if (json.code === 1 || json.code === 401 || json.msg?.includes('token') || json.msg?.includes('授权')) {
+                if (!authError) authError = json.msg || '获取授权人登录信息失败';
+              }
+            } catch (e) {
+              console.warn('Error parsing Unisoc FAQ response:', e);
+            }
+          }
+        } catch (err) {
+          console.warn('Unisoc FAQ request exception:', err.message);
+        }
+      }
+
+      if (allHits.length >= 15) break;
     }
 
-    // 2. Query Unisoc FAQ API (https://unisupport.unisoc.com/faq)
-    const shouldQueryFaq = !categoryFilter || categoryFilter === 'all' || /faq|工单|问题|issue|排障|解答/i.test(categoryFilter);
-    if (shouldQueryFaq) {
-      try {
-        const faqUrl = 'https://unisupport.unisoc.com/common/faq/getPage';
-        const faqPayload = {
-          page: 1,
-          limit: 20,
-          ascs: '',
-          descs: '',
-          keyword: q
-        };
-        const extraHeaders = {
-          'Origin': 'https://unisupport.unisoc.com',
-          'Referer': 'https://unisupport.unisoc.com/faq'
-        };
-        if (token) {
-          extraHeaders['Authorization'] = `Bearer ${token}`;
-          extraHeaders['Cookie'] = `unisupport-cutomer-token=${token}`;
-        }
-
-        const res = await this._httpPostJson(faqUrl, faqPayload, null, 'https://unisupport.unisoc.com/faq', extraHeaders);
-        if (res.statusCode === 200 && res.body) {
-          try {
-            const json = JSON.parse(res.body);
-            if (json.code === 0 && json.data) {
-              const list = json.data.records || json.data.list || (Array.isArray(json.data) ? json.data : []);
-              for (const item of list) {
-                const docId = item.number || item.faqNo || item.docNo || (item.id ? `FAQ${item.id}` : 'FAQ-DOC');
-                const chip = item.chip || item.platform || item.chipName || 'Unisoc';
-                const title = item.title || item.faqTitle || `${chip} FAQ 技术解答`;
-                const reads = item.clickcountcust || item.clickcountinside || item.readNum || 0;
-                const author = item.username ? `责任工程师: ${item.username}` : '';
-                const summary = item.question || item.summary || item.content || `展锐官方 FAQ 知识库技术问答解答${author ? '（' + author + '）' : ''}，累计查阅 ${reads} 次。官方直链：https://unisupport.unisoc.com/faq`;
-                const updated = this.safeFormatDate(item.approvedate || item.adddatetime || item.publishTime || item.updateTime);
-
-                allHits.push({
-                  id: `unisoc-live-faq-${docId}`,
-                  portalId: 'unisoc',
-                  portalName: '展锐 Uni-Support',
-                  category: 'FAQ 知识库',
-                  categoryType: 'faq',
-                  chipset: chip,
-                  title: title,
-                  summary: summary,
-                  docId: String(docId),
-                  faqInternalId: item.id,
-                  updated: updated,
-                  url: 'https://unisupport.unisoc.com/faq',
-                  platforms: [chip],
-                  tags: Array.from(new Set(['FAQ', 'Uni-Support', chip, '排障', String(docId)].filter(Boolean))),
-                  isOfficialLive: true
-                });
-              }
-              if (list.length > 0) {
-                isLiveSuccess = true;
-              }
-            } else if (json.code === 1 || json.code === 401 || json.msg?.includes('token') || json.msg?.includes('授权')) {
-              if (!authError) authError = json.msg || '获取授权人登录信息失败';
-            }
-          } catch (e) {
-            console.warn('Error parsing Unisoc FAQ response:', e);
-          }
-        }
-      } catch (err) {
-        console.warn('Unisoc FAQ request exception:', err.message);
+    // Sort allHits by relevance: items matching more candidate keywords rank first
+    allHits.sort((a, b) => {
+      let scoreA = 0;
+      let scoreB = 0;
+      const tA = (a.title + ' ' + (a.summary || '')).toLowerCase();
+      const tB = (b.title + ' ' + (b.summary || '')).toLowerCase();
+      for (const c of candidates) {
+        const cl = c.toLowerCase();
+        if (tA.includes(cl)) scoreA += 10;
+        if (tB.includes(cl)) scoreB += 10;
       }
-    }
+      return scoreB - scoreA;
+    });
 
     // 3. Fallback to our enriched authoritative Unisoc DCC & FAQ knowledge
     if (allHits.length === 0) {
@@ -1978,6 +2591,10 @@ ${summary}
     let aiOverview = null;
     let isLive = false;
     let error = null;
+    const portalStatus = {
+      mtk: { ok: true, msg: '' },
+      unisoc: { ok: true, msg: '' }
+    };
 
     // MTK Live Search
     if (sf === 'mtk' || sf === 'all') {
@@ -1990,7 +2607,9 @@ ${summary}
         }
       } catch (err) {
         console.warn('MTK Online live search error:', err.message);
-        if (sf === 'mtk') error = err.message || 'MTK 官网连接异常';
+        portalStatus.mtk = { ok: false, msg: err.message || 'MTK 官网连接异常' };
+        // Always surface auth error so user sees the warning, even when both platforms selected
+        if (!error) error = err.message || 'MTK 官网连接异常';
       }
     }
 
@@ -2004,15 +2623,17 @@ ${summary}
           if (uniRes.aiOverview && !aiOverview) aiOverview = uniRes.aiOverview;
         }
         if (uniRes.authError && !isLive) {
+          portalStatus.unisoc = { ok: false, msg: uniRes.authError };
           error = `展锐官网凭据提示：${uniRes.authError}。请点击右上角「账号配置」更新 Token / Cookie 即可开启官网实时抓取。当前呈现展锐官方镜像数据。`;
         }
       } catch (err) {
         console.warn('Unisoc live search error:', err.message);
+        portalStatus.unisoc = { ok: false, msg: err.message || '展锐官网连接异常' };
         if (sf === 'unisoc') error = err.message || '展锐官网连接异常';
       }
     }
 
-    // Fallback if no hits found
+    // Fallback to static curated resources if nothing was found
     if (hits.length === 0) {
       const localHits = this.searchResources(q, sourceFilter, chipsetFilter, categoryFilter);
       hits.push(...localHits);
@@ -2022,7 +2643,8 @@ ${summary}
       hits,
       aiOverview,
       isLive,
-      error
+      error,
+      portalStatus
     };
   }
 }

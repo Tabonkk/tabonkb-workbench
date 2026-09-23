@@ -25,7 +25,12 @@ class ExploreView {
 
     this.containerEl = null;
     this.activeSubTab = this.getSavedSubTab(); // 'ai' | 'search'
-    this.activeSource = 'all'; // 'all' | 'mtk' | 'unisoc'
+    // 平台独立多选: 默认两个都选中 (外框显色=选择)
+    this.selectedSources = new Set(['mtk', 'unisoc']);
+    // 官网联通状态 (字标显色=联通): 默认视为正常, 实检索后按 portalStatus 刷新
+    this.portalStatus = { mtk: { ok: true, msg: '' }, unisoc: { ok: true, msg: '' } };
+    this._sourceTabEls = {}; // 缓存两个平台 Tab 按钮 DOM, 用于检索后刷新联通态
+    this.activeSource = this.computeSourceFilter(); // 'all' | 'mtk' | 'unisoc' (由 selectedSources 派生)
     this.activeChipset = 'all';
     this.activeCategory = 'all';
     this.searchKeyword = '';
@@ -74,99 +79,16 @@ class ExploreView {
 
     const wrap = this.containerEl.createDiv({ cls: 'tw-explore-container' });
 
-    // 1. Top Sub-tabs Switcher Bar: [ 🤖 AI ]  [ 🔍 检索 ]
-    this.renderSubTabsHeader(wrap);
+    // 子页签切换器已迁入左侧主导航二级项 (见 build.py renderNavRail), 页面顶部不再占行;
+    // 切换由工作台视图 setExploreSubTab → 本实例 setSubTab() 驱动, 状态仍持久化在 localStorage
 
-    // 2. Stage Body: dynamically renders AI Hub or Vendor Search View
+    // Stage Body: dynamically renders AI Hub or Vendor Search View
     const stageBody = wrap.createDiv({ cls: 'tw-explore-stage-body' });
 
     if (this.activeSubTab === 'search') {
       this.renderSearchSubView(stageBody);
     } else {
       this.renderAiSubView(stageBody);
-    }
-  }
-
-  /**
-   * Render top segmented sub-tab buttons
-   */
-  /**
-   * Render top segmented sub-tab buttons & integrated portal header
-   */
-  async renderSubTabsHeader(parentEl) {
-    const headerEl = parentEl.createDiv({ cls: 'tw-explore-subtabs-header' });
-
-    // Left: Subtab Segmented Switcher
-    const subtabsGroup = headerEl.createDiv({ cls: 'tw-explore-subtabs-group' });
-
-    const btnAi = subtabsGroup.createEl('button', {
-      cls: `tw-explore-subtab-btn ${this.activeSubTab === 'ai' ? 'active' : ''}`,
-      title: '切换至 AI 研发助手工作区'
-    });
-    btnAi.innerHTML = `
-      <span class="tw-subtab-icon">${getIconPark('robot', 15)}</span>
-      <span class="tw-subtab-label">AI 研发助手</span>
-    `;
-    btnAi.onclick = () => this.setSubTab('ai');
-
-    const btnSearch = subtabsGroup.createEl('button', {
-      cls: `tw-explore-subtab-btn ${this.activeSubTab === 'search' ? 'active' : ''}`,
-      title: '切换至芯片特定资源网检索 (MTK Online / 展锐 Uni-Support)'
-    });
-    btnSearch.innerHTML = `
-      <span class="tw-subtab-icon">${getIconPark('search', 15)}</span>
-      <span class="tw-subtab-label">芯片资源检索</span>
-    `;
-    btnSearch.onclick = () => this.setSubTab('search');
-
-    // Right: Integrated account status + quick portal links
-    const rightActions = headerEl.createDiv({ cls: 'tw-explore-subtabs-right' });
-    if (this.activeSubTab === 'search') {
-      const portals = this.vendorService ? this.vendorService.getPortalsConfig() : {};
-      const mtkPass = await this.vendorService?.getCredential(portals.mtk?.secretName);
-      const mtkConfigured = Boolean(portals.mtk?.username || mtkPass);
-      const unisocPass = await this.vendorService?.getCredential(portals.unisoc?.secretName);
-      const unisocConfigured = Boolean(portals.unisoc?.username || unisocPass);
-
-      rightActions.innerHTML = `
-        <div class="tw-header-portals-group">
-          <button class="tw-explore-account-config-btn" id="twBtnHeaderAccountConfig" title="管理 MTK Online 与 展锐 Uni-Support 账号凭据">
-            <span class="tw-portal-dot ${mtkConfigured ? 'mtk' : ''}" style="${!mtkConfigured ? 'background:#CBD5E1;' : ''}"></span>
-            <span class="tw-portal-dot ${unisocConfigured ? 'unisoc' : ''}" style="${!unisocConfigured ? 'background:#CBD5E1;' : ''}"></span>
-            <span class="tw-btn-label">账号配置</span>
-          </button>
-          <div class="tw-header-divider"></div>
-          <button class="tw-header-portal-link" id="twBtnHeaderMtk" title="在新窗口直达 MTK 官网">
-            ${getIconPark('external', 12)} MTK Online ↗
-          </button>
-          <button class="tw-header-portal-link" id="twBtnHeaderUnisocDcc" title="在新窗口直达 展锐 DCC 文档中心">
-            ${getIconPark('external', 12)} 展锐 DCC ↗
-          </button>
-          <button class="tw-header-portal-link" id="twBtnHeaderUnisocFaq" title="在新窗口直达 展锐 FAQ 知识库">
-            ${getIconPark('external', 12)} 展锐 FAQ ↗
-          </button>
-        </div>
-      `;
-
-      rightActions.querySelector('#twBtnHeaderAccountConfig').onclick = () => this.openAccountModal();
-      rightActions.querySelector('#twBtnHeaderMtk').onclick = () => {
-        window.open(portals.mtk?.url || 'https://online.mediatek.com/', '_blank');
-      };
-      rightActions.querySelector('#twBtnHeaderUnisocDcc').onclick = () => {
-        window.open(portals.unisoc?.dccUrl || 'https://unisupport.unisoc.com/dcc', '_blank');
-      };
-      rightActions.querySelector('#twBtnHeaderUnisocFaq').onclick = () => {
-        window.open(portals.unisoc?.faqUrl || 'https://unisupport.unisoc.com/faq', '_blank');
-      };
-    } else {
-      const agentInfo = this.agentHub ? this.agentHub.getActiveAdapter() : null;
-      const agentName = agentInfo?.name || 'Agent Hub';
-      rightActions.innerHTML = `
-        <span class="tw-explore-agent-badge">
-          <span class="tw-status-dot-pulse"></span>
-          <span>当前智能体: <strong>${escapeHtml(agentName)}</strong></span>
-        </span>
-      `;
     }
   }
 
@@ -206,7 +128,7 @@ class ExploreView {
    * Render Sub-view 2: Chipset Vendor Resource Search
    */
   renderSearchSubView(parentEl) {
-    const searchWrap = parentEl.createDiv({ cls: 'tw-explore-search-pane' });
+    const searchWrap = parentEl.createDiv({ cls: `tw-explore-search-pane tw-src-${this.activeSource}` });
 
     // 1. Search Toolbar (Source Switcher, Keyword Input, Action Buttons)
     this.renderSearchToolbar(searchWrap);
@@ -214,6 +136,12 @@ class ExploreView {
     // 2. Results Container
     const resultsContainer = searchWrap.createDiv({ cls: 'tw-vendor-results-container' });
     this.renderResultsList(resultsContainer);
+
+    // 3. Auto-restore live search: if there's a keyword but no cached results
+    //    (happens after plugin reload or tab switch), re-trigger live search
+    if (this.searchKeyword && this.liveSearchResults.length === 0 && !this.isSearchingLive) {
+      setTimeout(() => this.executeInSituSearch(), 100);
+    }
   }
 
   /**
@@ -222,59 +150,58 @@ class ExploreView {
   renderSearchToolbar(parentEl) {
     const toolbar = parentEl.createDiv({ cls: 'tw-vendor-search-toolbar' });
 
-    // Source Selector Tabs Row
-    const topRow = toolbar.createDiv({ cls: 'tw-source-selector-row' });
-    const sourceTabs = topRow.createDiv({ cls: 'tw-source-segmented-control' });
+    // Search Input Row (搜索框 + 右侧平台字标 Tab)
+    const inputRow = toolbar.createDiv({ cls: 'tw-vendor-input-row' });
+    inputRow.innerHTML = `
+      <div class="tw-vendor-input-wrap">
+        <span class="tw-vendor-search-icon">${getIconPark('search', 16)}</span>
+        <input type="text" class="tw-vendor-search-input" id="twVendorSearchInput"
+          placeholder="在 MTK 与 展锐 中检索：输入关键字、芯片型号、FAQ / DCC 编号后回车 (如 FAQ33702, T820, USB, LCM)..."
+          value="${escapeHtml(this.searchKeyword)}">
+        ${this.searchKeyword ? '<button class="tw-search-clear-btn" id="twBtnClearVendorSearch">✕</button>' : ''}
+      </div>
+    `;
+
+    // 右侧: MTK / 展锐 两个平台字标 Tab: 外框显色=是否选中(默认全选), 字标显色=官网联通是否正常
+    const sourceTabs = inputRow.createDiv({ cls: 'tw-source-segmented-control' });
     const sources = [
-      { id: 'all', label: '全部资源网', icon: 'globe' },
-      { id: 'mtk', label: 'MTK 资源网 (MTO)', icon: 'cpu' },
-      { id: 'unisoc', label: '展锐 Uni-Support (DCC & FAQ)', icon: 'network' }
+      { id: 'mtk', label: 'MTK', icon: 'platform-mtk' },
+      { id: 'unisoc', label: '展锐', icon: 'platform-unisoc' }
     ];
 
+    this._sourceTabEls = {};
     for (const s of sources) {
       const btn = sourceTabs.createEl('button', {
-        cls: `tw-source-tab-btn ${this.activeSource === s.id ? 'active' : ''}`
+        cls: `tw-source-tab-btn tw-source-tab--${s.id}`
       });
-      btn.innerHTML = `${getIconPark(s.icon, 14)} <span>${s.label}</span>`;
+      btn.innerHTML = this.getSourceIcon(s.icon, 16);
+      btn.dataset.conn = (this.portalStatus[s.id] || { ok: true }).ok ? 'up' : 'down';
+      btn.title = this._sourceTabTitle(s);
+      if (this.selectedSources.has(s.id)) btn.classList.add('selected');
       btn.onclick = () => {
-        this.activeSource = s.id;
-        toolbar.querySelectorAll('.tw-source-tab-btn').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        const labelEl = toolbar.querySelector('#twBtnRunVendorSearch .tw-btn-label');
-        if (labelEl) labelEl.textContent = this.getSearchButtonLabel();
+        // 独立切换该平台选中态; 至少保留一个平台被选中
+        if (this.selectedSources.has(s.id)) {
+          if (this.selectedSources.size <= 1) return; // 不允许全部取消
+          this.selectedSources.delete(s.id);
+        } else {
+          this.selectedSources.add(s.id);
+        }
+        this.activeSource = this.computeSourceFilter();
+        this._syncSourceTabsUI();
+        // Re-scope platform brand tint (tw-src-*) on the search pane
+        const pane = toolbar.closest('.tw-explore-search-pane');
+        if (pane) {
+          pane.classList.remove('tw-src-all', 'tw-src-mtk', 'tw-src-unisoc');
+          pane.classList.add(`tw-src-${this.activeSource}`);
+        }
         if (this.searchKeyword) {
           this.executeInSituSearch();
         } else {
           this.refreshResults();
         }
       };
+      this._sourceTabEls[s.id] = btn;
     }
-
-    const hintEl = topRow.createDiv({ cls: 'tw-source-hint' });
-    hintEl.innerHTML = `
-      <span class="tw-hint-dot"></span>
-      <span>数据源: <strong>MTK Online</strong> · <strong>展锐 DCC</strong> · <strong>展锐 FAQ</strong></span>
-    `;
-
-    // Search Input Row
-    const inputRow = toolbar.createDiv({ cls: 'tw-vendor-input-row' });
-    inputRow.innerHTML = `
-      <div class="tw-vendor-input-wrap">
-        <span class="tw-vendor-search-icon">${getIconPark('search', 16)}</span>
-        <input type="text" class="tw-vendor-search-input" id="twVendorSearchInput"
-          placeholder="在 MTK 与 展锐 中检索：输入关键字、芯片型号、FAQ / DCC 编号 (如 FAQ33702, T820, USB, LCM)..."
-          value="${escapeHtml(this.searchKeyword)}">
-        ${this.searchKeyword ? '<button class="tw-search-clear-btn" id="twBtnClearVendorSearch">✕</button>' : ''}
-      </div>
-      <div class="tw-vendor-action-buttons">
-        <button class="tw-vendor-trigger-btn" id="twBtnRunVendorSearch" title="立即检索并在当前页面返回技术资料与方案">
-          ${getIconPark('search', 14)} <span class="tw-btn-label">立即检索</span>
-        </button>
-        <button class="tw-vendor-ai-btn" id="twBtnRunAiSearch" title="让 AI 研发助手深度分析此芯片技术关键词">
-          ${getIconPark('robot', 14)} <span>AI 深度分析</span>
-        </button>
-      </div>
-    `;
 
     const input = inputRow.querySelector('#twVendorSearchInput');
     input.addEventListener('input', (e) => {
@@ -311,27 +238,72 @@ class ExploreView {
       };
     }
 
-    const runBtn = inputRow.querySelector('#twBtnRunVendorSearch');
-    runBtn.onclick = () => this.executeInSituSearch();
+    // 分类胶囊插槽: 位于搜索工具栏外框内, 由结果渲染逻辑动态填充 (空时 CSS :empty 隐藏)
+    toolbar.createDiv({ cls: 'tw-cat-tabs-slot' });
 
-    const aiBtn = inputRow.querySelector('#twBtnRunAiSearch');
-    aiBtn.onclick = () => {
-      const q = this.searchKeyword.trim();
-      if (!q) {
-        const NoticeClass = (typeof Notice !== 'undefined') ? Notice : (this.app?.Notice || (typeof window !== 'undefined' ? window.Notice : null));
-        if (NoticeClass) new NoticeClass('请先在输入框中输入芯片型号、FAQ 编号或技术问题，再发起 AI 解析', 3000);
-        return;
-      }
-      this.sendPromptToAi(`请针对芯片平台技术问题「${q}」，帮我提供原厂级开发与调试参考指南，包括常见寄存器配置、DTS 设备树修改要点、内核代码实现与排障防抖动注意事项。`, q);
-    };
-
+    // 检索通过输入框回车触发 (keydown Enter → executeInSituSearch), 不再放独立按钮
   }
 
   /**
-   * Get search button label based on active source
+   * Source tab icon: 官方平台字标 (MTK / 紫光展锐 UNISOC 官网 logo), 其余走 iconpark
    */
-  getSearchButtonLabel() {
-    return '立即检索';
+  getSourceIcon(iconName, size = 14) {
+    if (iconName === 'platform-mtk') return getVendorPlatformSvg('mtk', size);
+    if (iconName === 'platform-unisoc') return getVendorPlatformSvg('unisoc', size);
+    return getIconPark(iconName, size);
+  }
+
+  /**
+   * 分类胶囊显示文案: 中英混合分类只保留英文部分 (筛选值仍用原始 category, 不受影响)
+   * 例: 'Porting Guide 移植指南' → 'Porting Guide'; 纯中文分类原样保留
+   */
+  _catTabLabel(cat) {
+    const en = cat
+      .replace(/[\u4e00-\u9fff\u3000-\u303f\uff00-\uffef]+/g, ' ')
+      .replace(/[\s&·、,，-]+$/g, '')
+      .replace(/^[\s&·、,，-]+/g, '')
+      .trim();
+    return en || cat;
+  }
+
+  /**
+   * 由多选集合派生传给 vendorService 的 sourceFilter: 两个都选/异常回退='all', 仅一个=该平台 id
+   * @returns {'all'|'mtk'|'unisoc'}
+   */
+  computeSourceFilter() {
+    if (this.selectedSources && this.selectedSources.size === 1) {
+      return this.selectedSources.has('mtk') ? 'mtk' : 'unisoc';
+    }
+    return 'all';
+  }
+
+  /**
+   * 平台 Tab 悬停提示: 同时展示选中态与联通态
+   */
+  _sourceTabTitle(s) {
+    const selected = this.selectedSources.has(s.id);
+    const conn = this.portalStatus[s.id] || { ok: true, msg: '' };
+    const link = conn.ok ? '联通正常' : ('联通异常' + (conn.msg ? '：' + conn.msg : ''));
+    const act = selected ? '点击取消选择' : '点击选择该平台';
+    return `${s.label} 资源网 · ${selected ? '已选中' : '未选中'} · ${link} · ${act}`;
+  }
+
+  /**
+   * 同步两个平台 Tab 的选中类、联通 data-conn 与 title (选择切换 / 检索后联通刷新共用)
+   */
+  _syncSourceTabsUI() {
+    const defs = [
+      { id: 'mtk', label: 'MTK' },
+      { id: 'unisoc', label: '展锐' }
+    ];
+    for (const s of defs) {
+      const btn = this._sourceTabEls && this._sourceTabEls[s.id];
+      if (!btn) continue;
+      const conn = this.portalStatus[s.id] || { ok: true, msg: '' };
+      btn.classList.toggle('selected', this.selectedSources.has(s.id));
+      btn.dataset.conn = conn.ok ? 'up' : 'down';
+      btn.title = this._sourceTabTitle({ id: s.id, label: s.label });
+    }
   }
 
   /**
@@ -355,6 +327,7 @@ class ExploreView {
     this.isSearchingLive = true;
     this.liveSearchError = null;
     this.selectedCategoryTab = 'all';
+    this.expandedCardIds.clear(); // 检索完默认所有工单/资料卡片全部收起
     this.refreshResults();
 
     try {
@@ -370,9 +343,10 @@ class ExploreView {
       this.isLiveSource = Boolean(res.isLive);
       this.liveSearchError = res.error || null;
 
-      // Automatically expand the first card so the user can read the solution right away
-      if (this.liveSearchResults.length > 0 && this.liveSearchResults[0].detailedContent) {
-        this.expandedCardIds.add(this.liveSearchResults[0].id);
+      // 刷新两个平台字标的联通显色 (portalStatus.ok=false → 字标置灰)
+      if (res.portalStatus) {
+        this.portalStatus = Object.assign({ mtk: { ok: true, msg: '' }, unisoc: { ok: true, msg: '' } }, res.portalStatus);
+        this._syncSourceTabsUI();
       }
 
       const NoticeClass = (typeof Notice !== 'undefined') ? Notice : (this.app?.Notice || (typeof window !== 'undefined' ? window.Notice : null));
@@ -449,12 +423,19 @@ class ExploreView {
           <div class="tw-error-title">官网实时检索提示：${escapeHtml(this.liveSearchError)}</div>
           <div class="tw-error-desc">已自动为您回退呈现本地离线工程知识库中匹配的结果</div>
         </div>
-        <button class="tw-error-action-btn" id="twBtnFixAccountConfig">
-          ${getIconPark('lock', 12)} ${this.liveSearchError.includes('展锐') ? '🔑 更新展锐 Token 凭据' : '🔒 配置原厂账号密码'}
-        </button>
+        <div class="tw-error-actions" style="display:flex;gap:8px;align-items:center;flex-shrink:0;">
+          <button class="tw-error-action-btn" id="twBtnFixAccountConfig">
+            ${getIconPark('lock', 12)} ${this.liveSearchError.includes('展锐') ? '🔑 手动更新 Token' : '🔒 配置原厂账号密码'}
+          </button>
+          <button class="tw-error-action-btn tw-btn-companion-guide" id="twBtnOpenCompanionGuide" style="background: linear-gradient(135deg, #10B981, #059669); color: #FFFFFF; border: none; font-weight: 600; box-shadow: 0 2px 6px rgba(16,185,129,0.3);" title="打开 Chrome/Edge 扩展伴侣一键同步指引">
+            ⚡ 浏览器伴侣一键同步
+          </button>
+        </div>
       `;
       const btn = errCard.querySelector('#twBtnFixAccountConfig');
       if (btn) btn.onclick = () => this.openAccountModal();
+      const compBtn = errCard.querySelector('#twBtnOpenCompanionGuide');
+      if (compBtn) compBtn.onclick = () => this.openCompanionGuideModal();
     }
 
     // 3. Official AI Overview banner (MediaTek Online style)
@@ -542,8 +523,10 @@ class ExploreView {
       );
     }
 
-    // 5. Category Tab Pills (Tabs: 全部, FAQ, DCC, etc.)
-    if (results.length > 0) {
+    // 5. Category Tab Pills (渲染到搜索框外框内的插槽; 无"全部"选项, 再次点击已选分类即取消筛选)
+    const catSlot = this.containerEl?.querySelector('.tw-cat-tabs-slot');
+    if (catSlot) catSlot.empty();
+    if (results.length > 0 && catSlot) {
       const catCounts = { all: results.length };
       for (const r of results) {
         const cat = r.category || '其它';
@@ -552,24 +535,17 @@ class ExploreView {
 
       const distinctCats = Object.keys(catCounts).filter(k => k !== 'all');
       if (distinctCats.length > 1) {
-        const catBar = containerEl.createDiv({ cls: 'tw-results-cat-tabs-bar' });
-        
-        const allBtn = catBar.createEl('button', {
-          cls: `tw-cat-tab-pill ${this.selectedCategoryTab === 'all' ? 'active' : ''}`
-        });
-        allBtn.innerHTML = `<span>全部</span><span class="tw-cat-count-badge">${catCounts.all}</span>`;
-        allBtn.onclick = () => {
-          this.selectedCategoryTab = 'all';
-          this.refreshResults();
-        };
+        const catBar = catSlot.createDiv({ cls: 'tw-results-cat-tabs-bar' });
 
         for (const cat of distinctCats) {
           const btn = catBar.createEl('button', {
             cls: `tw-cat-tab-pill ${this.selectedCategoryTab === cat ? 'active' : ''}`
           });
-          btn.innerHTML = `<span>${escapeHtml(cat)}</span><span class="tw-cat-count-badge">${catCounts[cat]}</span>`;
+          btn.innerHTML = `<span>${escapeHtml(this._catTabLabel(cat))}</span><span class="tw-cat-count-badge">${catCounts[cat]}</span>`;
+          btn.title = cat;
           btn.onclick = () => {
-            this.selectedCategoryTab = cat;
+            // 再次点击已激活分类 → 取消筛选 (等效"全部")
+            this.selectedCategoryTab = this.selectedCategoryTab === cat ? 'all' : cat;
             this.refreshResults();
           };
         }
@@ -619,9 +595,12 @@ class ExploreView {
       const isExpanded = this.expandedCardIds.has(res.id);
 
       const isMtk = res.portalId === 'mtk';
-      const portalBadge = isMtk
-        ? `<span class="tw-vendor-badge mtk">${getIconPark('cpu', 12)} MTK Online</span>`
-        : `<span class="tw-vendor-badge unisoc">${getIconPark('network', 12)} 展锐 Uni-Support</span>`;
+      const isEserviceCase = res.categoryType === 'eservice_case' || res.categoryType === 'eservice';
+      const portalBadge = isEserviceCase
+        ? `<span class="tw-vendor-badge mtk-eservice">${getIconPark('ticket', 12)} MTK eService</span>`
+        : isMtk
+          ? `<span class="tw-vendor-badge mtk">${getIconPark('cpu', 12)} MTK Online</span>`
+          : `<span class="tw-vendor-badge unisoc">${getIconPark('network', 12)} 展锐 Uni-Support</span>`;
 
       const liveBadge = res.isOfficialLive
         ? `<span class="tw-live-badge"><span class="tw-live-dot"></span>官网实时</span>`
@@ -629,6 +608,14 @@ class ExploreView {
 
       const platforms = Array.isArray(res.platforms) ? res.platforms : [];
       const branches = Array.isArray(res.branches) ? res.branches : [];
+
+      // Finder Name + Date row for header right side
+      const finderDateHtml = isEserviceCase
+        ? `<div class="tw-vcard-finder-date">
+            ${res.finderName ? `<span class="tw-vcard-finder"><span class="tw-finder-icon">👤</span>${escapeHtml(res.finderName)}</span>` : ''}
+            ${res.updated ? `<span class="tw-vcard-date">${escapeHtml(res.updated)}</span>` : ''}
+          </div>`
+        : `<div class="tw-vcard-date">${escapeHtml(res.updated || '')}</div>`;
 
       card.innerHTML = `
         <div class="tw-vcard-header">
@@ -638,15 +625,16 @@ class ExploreView {
             <span class="tw-chipset-tag">${escapeHtml(res.chipset)}</span>
             <span class="tw-category-tag">${escapeHtml(res.category)}</span>
             <span class="tw-vcard-docid">${escapeHtml(res.docId || '')}</span>
+            ${isEserviceCase && res.caseStatus ? `<span class="tw-eservice-case-status-tag">${escapeHtml(res.caseStatus)}</span>` : ''}
           </div>
-          <div class="tw-vcard-date">${escapeHtml(res.updated || '')}</div>
+          ${finderDateHtml}
         </div>
 
         <div class="tw-vcard-title">${escapeHtml(res.title)}</div>
 
         ${platforms.length > 0 ? `
           <div class="tw-platform-pills-row">
-            <span style="font-size: 10px; color: var(--text-muted); margin-right: 2px;">平台:</span>
+            <span style="font-size: 10px; color: var(--text-muted); margin-right: 2px;">ƽ̨:</span>
             ${platforms.slice(0, 6).map(p => `<span class="tw-platform-pill">${escapeHtml(p)}</span>`).join('')}
             ${platforms.length > 6 ? `<span style="font-size: 10px; color: var(--text-muted);">+${platforms.length - 6}</span>` : ''}
           </div>
@@ -675,14 +663,16 @@ class ExploreView {
           </div>
         ` : ''}
 
-        <div class="tw-vcard-footer">
+          <div class="tw-vcard-footer">
           <div class="tw-vcard-tags">
             ${(res.tags || []).map(t => `<span class="tw-vcard-tag">#${escapeHtml(t)}</span>`).join('')}
           </div>
           <div class="tw-vcard-actions">
-            ${(res.detailedContent || res.detailedContentHtml || (res.categoryType === 'faq' && res.docId)) ? `
+            ${(res.detailedContent || res.detailedContentHtml ||
+               (res.categoryType === 'faq' && res.docId) ||
+               ((res.categoryType === 'eservice_case' || res.categoryType === 'eservice') && res.docId)) ? `
               <button class="tw-vcard-btn-expand ${isExpanded ? 'active' : ''}">
-                ${isExpanded ? getIconPark('up', 13) + ' 收起方案' : getIconPark('down', 13) + ' 展开完整技术方案'}
+                ${isExpanded ? getIconPark('up', 13) + ' 收起工单' : getIconPark('down', 13) + ' 展开/查看工单'}
               </button>
             ` : ''}
             <button class="tw-vcard-btn-save-note" title="将此原厂技术文档保存为当前 Obsidian 库笔记">
@@ -708,8 +698,60 @@ class ExploreView {
             this.expandedCardIds.delete(res.id);
             this.refreshResults();
           } else {
-            // If detailedContent is not yet loaded and this is a live FAQ, fetch it on-demand!
-            if (!res.detailedContent && !res.detailedContentHtml && res.categoryType === 'faq' && (res.faqInternalId || res.docId)) {
+            // --- eService CR 工单按需加载 ---
+            if (!res.detailedContent && !res.detailedContentHtml &&
+                (res.categoryType === 'eservice_case' || res.categoryType === 'eservice') &&
+                res.docId) {
+              expandBtn.innerHTML = `<span>⏳ 加载 eService 工单详情...</span>`;
+              try {
+                const detail = await this.vendorService.fetchMtkEserviceCaseDetail(res.docId, null, res.url || '', res.summary || '');
+                if (detail && !detail._debugOnly) {
+                  res.detailedContentHtml = detail.contentHtml;
+                  res.detailedContent = [
+                    detail.description ? `【问题描述】\n${detail.description}` : '',
+                    detail.solution ? `\n\n【解决方案】\n${detail.solution}` : ''
+                  ].filter(Boolean).join('') || detail.contentHtml;
+                  res.detailedContentMarkdown = res.detailedContent;
+                  if (detail.finderName && !res.finderName) res.finderName = detail.finderName;
+                  if (detail.status && !res.caseStatus) res.caseStatus = detail.status;
+                } else {
+                  // Build inline debug table so user can see exactly what happened
+                  const debugRows = detail && detail.debugLog
+                    ? detail.debugLog.map(d => `
+                        <tr>
+                          <td style="font-family:monospace;font-size:10px;padding:2px 6px;color:var(--text-muted);white-space:nowrap;">${escapeHtml(d.label)}</td>
+                          <td style="font-size:10px;padding:2px 6px;font-weight:600;color:${d.status === 200 ? '#059669' : d.status === 'ERR' ? '#EF4444' : '#D97706'};">${d.status}</td>
+                          <td style="font-family:monospace;font-size:10px;padding:2px 6px;color:var(--text-muted);max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtml(d.preview)}">${escapeHtml(d.preview.slice(0, 80))}</td>
+                        </tr>`).join('')
+                    : '<tr><td colspan="3" style="font-size:10px;color:var(--text-muted);padding:4px 6px;">无调试信息</td></tr>';
+                  res.detailedContentHtml = `
+                    <div class="tw-eservice-section">
+                      <div class="tw-eservice-section-title">🔍 接口探测结果（接入调试）</div>
+                      <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px;">
+                        caseId: <code>${escapeHtml(res.docId)}</code> &nbsp;|&nbsp;
+                        isMtoEservice: <code>${detail && detail.isMtoEservice ? 'true' : 'false'}</code>
+                      </div>
+                      <table style="width:100%;border-collapse:collapse;font-size:10px;">
+                        <thead><tr>
+                          <th style="text-align:left;padding:2px 6px;font-size:10px;color:var(--text-muted);border-bottom:1px solid var(--background-modifier-border);">接口端点</th>
+                          <th style="text-align:left;padding:2px 6px;border-bottom:1px solid var(--background-modifier-border);">状态</th>
+                          <th style="text-align:left;padding:2px 6px;border-bottom:1px solid var(--background-modifier-border);">响应预览</th>
+                        </tr></thead>
+                        <tbody>${debugRows}</tbody>
+                      </table>
+                      <div style="margin-top:10px;">
+                        <a href="${res.url}" target="_blank" style="color:#3B82F6;font-size:11px;">在浏览器中打开工单 ↗</a>
+                        &nbsp;（请将上方表格截图发给 AI，帮助确认正确接口路径）
+                      </div>
+                    </div>`;
+                  res.detailedContent = res.detailedContentHtml;
+                }
+              } catch (err) {
+                console.warn('Failed to load eService case detail on demand:', err);
+              }
+            }
+            // --- FAQ 按需加载（原有逻辑保留）---
+            else if (!res.detailedContent && !res.detailedContentHtml && res.categoryType === 'faq' && (res.faqInternalId || res.docId)) {
               expandBtn.innerHTML = `<span>⏳ 加载原厂完整方案...</span>`;
               try {
                 if (res.portalId === 'unisoc') {
@@ -988,7 +1030,17 @@ ${solutionMarkdown}
 
             <!-- Token Extraction Guide -->
             <div class="tw-token-guide-box">
-              <div class="tw-token-guide-title">📌 快速获取展锐 Token / Cookie 方法（任选一种）：</div>
+              <div class="tw-token-companion-recommend" style="background: rgba(16, 185, 129, 0.12); border: 1px solid rgba(16, 185, 129, 0.35); border-radius: 6px; padding: 10px 12px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; gap: 10px;">
+                <div>
+                  <div style="font-weight: 600; color: #10B981; font-size: 13px; margin-bottom: 2px;">⚡ 极速同步（推荐）：TabonKB 浏览器伴侣扩展</div>
+                  <div style="font-size: 11px; color: var(--text-muted, #94A3B8);">在 Edge / Chrome 加载伴侣扩展后，展锐官网右下角点击「一键同步」即可秒级更新凭据，告别手动复制！</div>
+                </div>
+                <button type="button" class="tw-btn-open-ext-guide" id="twBtnExtGuideFromAccount" style="padding: 5px 10px; font-size: 12px; background: #10B981; color: white; border: none; border-radius: 4px; cursor: pointer; white-space: nowrap; font-weight: 600;">
+                  🧩 查看伴侣指引
+                </button>
+              </div>
+
+              <div class="tw-token-guide-title">📌 其他手动获取展锐 Token / Cookie 方法（任选一种）：</div>
               <ol class="tw-token-guide-list">
                 <li><strong>方法 1（控制台一键命令）</strong>：在已登录展锐的浏览器页面按 <code>F12</code> 打开控制台 (Console)，粘贴运行下方命令回车即可自动复制：
                   <div class="tw-copy-cmd-row">
@@ -1064,6 +1116,15 @@ ${solutionMarkdown}
       };
     }
 
+    // Companion extension guide button inside account modal
+    const extGuideBtn = overlay.querySelector('#twBtnExtGuideFromAccount');
+    if (extGuideBtn) {
+      extGuideBtn.onclick = () => {
+        closeModal();
+        this.openCompanionGuideModal();
+      };
+    }
+
     // Password visibility toggles
     overlay.querySelectorAll('.tw-pwd-toggle').forEach(btn => {
       btn.onclick = () => {
@@ -1106,6 +1167,87 @@ ${solutionMarkdown}
       }
       this.render();
     };
+  }
+
+  /**
+   * Open modal explaining how to install and use TabonKB Browser Companion Extension
+   */
+  openCompanionGuideModal() {
+    const overlay = document.createElement('div');
+    overlay.className = 'tw-modal-overlay';
+
+    const vaultPath = this.app?.vault?.adapter?.basePath || 'd:\\work\\Mgmt\\TabonKB';
+    const pathMod = typeof path !== 'undefined' ? path : (typeof require !== 'undefined' ? require('path') : null);
+    const extFolder = pathMod ? pathMod.join(vaultPath, '.obsidian', 'plugins', 'tabonkb-workbench', 'browser-extension') : `${vaultPath}\\.obsidian\\plugins\\tabonkb-workbench\\browser-extension`;
+
+    overlay.innerHTML = `
+      <div class="tw-modal-card tw-companion-guide-modal" style="max-width: 580px;">
+        <div class="tw-modal-header">
+          <div class="tw-modal-title" style="display:flex;align-items:center;gap:8px;">
+            <span style="font-size: 18px;">💎</span>
+            <span>TabonKB 浏览器伴侣扩展安装与一键同步指引</span>
+          </div>
+          <button class="tw-modal-btn-close" id="twBtnCloseGuideModal">✕</button>
+        </div>
+
+        <div class="tw-modal-body" style="font-size: 13px; line-height: 1.6;">
+          <div style="display: flex; align-items: center; justify-content: space-between; background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3); padding: 8px 12px; border-radius: 6px; margin-bottom: 14px;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span style="width: 8px; height: 8px; border-radius: 50%; background: #10B981; box-shadow: 0 0 6px #10B981;"></span>
+              <strong style="color: #10B981;">本地同步服务已就绪 (127.0.0.1:28123)</strong>
+            </div>
+            <span style="font-size: 11px; color: var(--text-muted, #94A3B8);">Obsidian 端监听中</span>
+          </div>
+
+          <div style="font-weight: 600; margin-bottom: 6px; color: var(--text-normal, #E2E8F0);">🚀 30 秒在 Edge / Chrome 中加载伴侣扩展：</div>
+          <ol style="margin-left: 18px; margin-bottom: 14px; padding: 0; color: var(--text-muted, #94A3B8);">
+            <li style="margin-bottom: 6px;">在浏览器中打开扩展管理页面：
+              <code style="background: rgba(0,0,0,0.25); padding: 2px 5px; border-radius: 3px; color: #60A5FA;">edge://extensions</code> 或 <code style="background: rgba(0,0,0,0.25); padding: 2px 5px; border-radius: 3px; color: #60A5FA;">chrome://extensions</code>
+            </li>
+            <li style="margin-bottom: 6px;">在页面开启 <strong>「开发者模式」(Developer mode)</strong> 开关。</li>
+            <li style="margin-bottom: 6px;">点击 <strong>「加载已解压的扩展程序」(Load unpacked)</strong> 按钮。</li>
+            <li style="margin-bottom: 6px;">在弹出的文件夹选择框中，直接选择以下扩展目录：
+              <div style="background: rgba(0,0,0,0.3); border: 1px dashed rgba(255,255,255,0.2); padding: 6px 10px; border-radius: 4px; font-family: monospace; font-size: 11px; margin-top: 5px; word-break: break-all; color: #FCD34D;">
+                ${escapeHtml(extFolder)}
+              </div>
+            </li>
+          </ol>
+
+          <div style="font-weight: 600; margin-bottom: 6px; color: var(--text-normal, #E2E8F0);">✨ 如何一键同步：</div>
+          <p style="color: var(--text-muted, #94A3B8); margin-bottom: 14px;">
+            在浏览器登录 <a href="https://unisupport.unisoc.com/" target="_blank" style="color: #A00090; text-decoration: underline;">紫光展锐 Uni-Support 官网 ↗</a>，页面右下角会自动出现 <strong>「⚡ 一键同步到工作台」</strong> 浮钮，点击一下即可秒级完成凭据刷新！
+          </p>
+        </div>
+
+        <div class="tw-modal-footer" style="display: flex; justify-content: space-between; align-items: center;">
+          <button type="button" class="tw-modal-btn-cancel" id="twBtnOpenFolderInExplorer" style="background: rgba(99, 102, 241, 0.15); border: 1px solid rgba(99, 102, 241, 0.4); color: #A5B4FC;">
+            📂 打开扩展文件夹
+          </button>
+          <button type="button" class="tw-modal-btn-save" id="twBtnCloseGuideModalDone">
+            我知道了
+          </button>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(overlay);
+
+    const closeGuide = () => overlay.remove();
+    overlay.querySelector('#twBtnCloseGuideModal').onclick = closeGuide;
+    overlay.querySelector('#twBtnCloseGuideModalDone').onclick = closeGuide;
+
+    const openFolderBtn = overlay.querySelector('#twBtnOpenFolderInExplorer');
+    if (openFolderBtn) {
+      openFolderBtn.onclick = () => {
+        try {
+          const cp = typeof child_process !== 'undefined' ? child_process : require('child_process');
+          cp.exec(`explorer.exe "${extFolder}"`);
+        } catch (e) {
+          const NoticeClass = (typeof Notice !== 'undefined') ? Notice : window.Notice;
+          if (NoticeClass) new NoticeClass('扩展目录: ' + extFolder, 4000);
+        }
+      };
+    }
   }
 }
 

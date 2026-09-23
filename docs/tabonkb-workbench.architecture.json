@@ -1,0 +1,188 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "TabonKB 工作台架构",
+    "locale": "zh-CN",
+    "quality_profile": "showcase",
+    "viewBox": [1360, 900],
+    "views": [
+      {
+        "id": "open-path",
+        "label": "打开工作台",
+        "focus": ["vault", "plugin", "pages"],
+        "note": "Obsidian 加载 main.js，插件注册视图，左侧图标或命令打开四页工作台。"
+      },
+      {
+        "id": "topo-path",
+        "label": "知识拓扑",
+        "focus": ["pages", "graph", "vault", "weknora"],
+        "note": "首页先画本地笔记，再按设置合并 WeKnora Wiki 页面链接图。"
+      },
+      {
+        "id": "agent-path",
+        "label": "助手问答",
+        "focus": ["pages", "drawer", "hub", "models"],
+        "note": "抽屉把提示词交给 AgentHub，由当前选中的适配器执行。"
+      },
+      {
+        "id": "outside-path",
+        "label": "外部系统",
+        "focus": ["pages", "jira", "portals", "companion", "secrets"],
+        "note": "任务、原厂检索和浏览器回写密钥都从工作台页出去，不经过图谱。"
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "companion",
+      "type": "external",
+      "label": "浏览器扩展",
+      "sublabel": "127.0.0.1:28123",
+      "pos": [36, 40],
+      "size": [160, 64]
+    },
+    {
+      "id": "secrets",
+      "type": "security",
+      "label": "设置与密钥",
+      "sublabel": "data.json",
+      "pos": [300, 40],
+      "size": [160, 64]
+    },
+    {
+      "id": "jira",
+      "type": "external",
+      "label": "Jira",
+      "sublabel": "任务与走势",
+      "pos": [828, 40],
+      "size": [160, 64]
+    },
+    {
+      "id": "portals",
+      "type": "external",
+      "label": "原厂门户",
+      "sublabel": "展锐 · 联发科",
+      "pos": [1092, 40],
+      "size": [168, 64]
+    },
+    {
+      "id": "vault",
+      "type": "database",
+      "label": "本地笔记库",
+      "sublabel": "Vault",
+      "tag": "Markdown",
+      "pos": [36, 300],
+      "size": [160, 72]
+    },
+    {
+      "id": "plugin",
+      "type": "frontend",
+      "label": "插件入口",
+      "sublabel": "Plugin.onload",
+      "tag": "main.js",
+      "pos": [300, 300],
+      "size": [160, 72]
+    },
+    {
+      "id": "pages",
+      "type": "frontend",
+      "label": "工作台四页",
+      "sublabel": "首页 任务 资讯 探索",
+      "tag": "ItemView",
+      "pos": [564, 284],
+      "size": [168, 104]
+    },
+    {
+      "id": "graph",
+      "type": "frontend",
+      "label": "研发知识拓扑",
+      "sublabel": "ForceGraphCanvas",
+      "tag": "首页",
+      "pos": [828, 300],
+      "size": [160, 72]
+    },
+    {
+      "id": "weknora",
+      "type": "external",
+      "label": "WeKnora Wiki",
+      "sublabel": ":8088",
+      "pos": [1092, 300],
+      "size": [168, 72]
+    },
+    {
+      "id": "drawer",
+      "type": "frontend",
+      "label": "Agent 抽屉",
+      "sublabel": "PiDrawerView",
+      "pos": [564, 600],
+      "size": [168, 68]
+    },
+    {
+      "id": "hub",
+      "type": "backend",
+      "label": "AgentHub",
+      "sublabel": "会话与适配器",
+      "pos": [828, 600],
+      "size": [160, 68]
+    },
+    {
+      "id": "models",
+      "type": "external",
+      "label": "助手进程",
+      "sublabel": "Pi Hermes Gemini",
+      "tag": "NiceAIGC",
+      "pos": [1092, 588],
+      "size": [168, 92]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "Obsidian 插件进程",
+      "wraps": ["plugin", "pages", "graph", "drawer", "hub", "secrets"]
+    }
+  ],
+  "connections": [
+    { "id": "vault-refresh", "from": "vault", "to": "plugin", "label": "笔记变更", "variant": "emphasis" },
+    { "id": "open-view", "from": "plugin", "to": "pages", "label": "打开视图", "variant": "emphasis" },
+    { "id": "mount-graph", "from": "pages", "to": "graph", "label": "首页挂载", "variant": "emphasis" },
+    { "id": "wiki-graph", "from": "graph", "to": "weknora", "label": "wiki/graph", "variant": "emphasis" },
+    { "id": "load-settings", "from": "secrets", "to": "plugin", "label": "读取配置", "fromSide": "bottom", "toSide": "top", "labelDy": 24 },
+    { "id": "sync-secret", "from": "companion", "to": "secrets", "label": "回写凭据", "variant": "dashed" },
+    { "id": "open-drawer", "from": "pages", "to": "drawer", "label": "打开助手", "fromSide": "bottom", "toSide": "top", "labelDy": 24 },
+    { "id": "send-prompt", "from": "drawer", "to": "hub", "label": "提示词", "variant": "emphasis" },
+    { "id": "route-agent", "from": "hub", "to": "models", "label": "适配器", "variant": "emphasis" },
+    { "id": "task-page", "from": "pages", "to": "jira", "label": "任务页", "variant": "dashed", "fromSide": "top", "toSide": "bottom" },
+    { "id": "explore-page", "from": "pages", "to": "portals", "label": "探索检索", "fromSide": "top", "toSide": "bottom", "labelDx": 64 }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "运行入口",
+      "items": [
+        "Obsidian 只加载打包后的 main.js",
+        "onload 创建 Jira、RSS、原厂、AgentHub，并监听 28123",
+        "工作台是一个 ItemView，用 activeTab 切四页"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "四页各自出门",
+      "items": [
+        "首页：走势、热力、拓扑、资料表",
+        "任务：Jira 工单可交给抽屉",
+        "资讯：RSS 或竞品；探索：原厂检索"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "源码怎么拼",
+      "items": [
+        "页面和图谱写在 main.js.bak 后半段",
+        "build.py 把模块接到这段前面，生成 main.js",
+        "weknora-service.js 不进包，给 Pi 扩展单独调用"
+      ]
+    }
+  ]
+}

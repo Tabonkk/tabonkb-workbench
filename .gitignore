@@ -1,5 +1,8 @@
 .secrets.json
 .chat-history.json
+.niceaigc-debug.log
 .DS_Store
 Thumbs.db
 releases/
+__pycache__/
+*.pyc
