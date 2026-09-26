@@ -45,12 +45,36 @@ class CompanionSyncServer {
           ok: true,
           status: 'online',
           app: 'TabonKB Workbench',
-          version: this.plugin?.manifest?.version || '1.2.0',
+          version: this.plugin?.manifest?.version || '1.3.0',
           port: this.port,
           timestamp: Date.now()
         };
         res.writeHead(200);
         res.end(JSON.stringify(payload));
+        return;
+      }
+
+      // 2.1 Hot-reload plugin route: POST /api/reload-plugin
+      if ((req.method === 'POST' || req.method === 'GET') && pathname === '/api/reload-plugin') {
+        try {
+          const plugins = this.app?.plugins;
+          if (plugins && typeof plugins.disablePlugin === 'function' && typeof plugins.enablePlugin === 'function') {
+            res.writeHead(200);
+            res.end(JSON.stringify({ ok: true, msg: 'Reloading tabonkb-workbench plugin...' }));
+            setTimeout(async () => {
+              try {
+                await plugins.disablePlugin('tabonkb-workbench');
+                await plugins.enablePlugin('tabonkb-workbench');
+                console.log('[TabonKB Companion] Plugin reloaded successfully via HTTP API');
+              } catch (e) {
+                console.error('[TabonKB Companion] Reload failed:', e);
+              }
+            }, 50);
+            return;
+          }
+        } catch (e) {}
+        res.writeHead(500);
+        res.end(JSON.stringify({ ok: false, msg: 'Unable to reload plugin' }));
         return;
       }
 

@@ -15,8 +15,14 @@ def clean_code(code):
 files = [
     f"{plugin_dir}\\ui\\iconpark.js",
     f"{plugin_dir}\\providers\\agent-adapter-base.js",
+    f"{plugin_dir}\\services\\intranet-fetcher.js",
     f"{plugin_dir}\\mcp\\vendor-mcp-shared.js",
     f"{plugin_dir}\\mcp\\weknora-mcp-shared.js",
+    f"{plugin_dir}\\mcp\\opengrok-mcp-shared.js",
+    f"{plugin_dir}\\services\\opengrok-service.js",
+    f"{plugin_dir}\\mcp\\gerrit-mcp-shared.js",
+    f"{plugin_dir}\\mcp\\codegraph-mcp-shared.js",
+    f"{plugin_dir}\\services\\gerrit-service.js",
     f"{plugin_dir}\\pi-agent-bridge.js",
     f"{plugin_dir}\\providers\\pi-adapter.js",
     f"{plugin_dir}\\providers\\hermes-adapter.js",
@@ -65,6 +71,9 @@ const crypto = require('crypto');
 const https = require('https');
 const http = require('http');
 const zlib = require('zlib');
+let electronModule = null;
+try { electronModule = require('electron'); } catch (e) {}
+const shell = electronModule ? electronModule.shell : null;
 
 /* ==========================================================================
    Embedded Multi-Agent Hub Modules (Pi, Hermes, Gemini for Obsidian Workbench)
@@ -154,6 +163,12 @@ new_constructor = """class TabonKBWorkbenchView extends ItemView {
     this.homeTrendIssues = null;
     this.homeTrendCardEl = null;
     this.homeTrendTimeRange = this.getHomeTrendTimeRange();
+
+    // Home Tab Heatmap Analytics
+    this.homeHeatCardEl = null;
+    this.heatmapDimension = this.getSavedHeatmapDimension();
+    this._selectedHeatCell = null;
+    this._heatDocClickBound = null;
 
     // Multi-Agent Hub Integration (Pi, Hermes, Gemini)
     const vaultPath = this.app?.vault?.adapter?.basePath || 'd:\\\\work\\\\Mgmt\\\\TabonKB';
@@ -692,10 +707,596 @@ new_constructor = """class TabonKBWorkbenchView extends ItemView {
       if (Array.isArray(issues) && issues.length > 0) {
         this.homeTrendIssues = issues;
         this.updateHomeTrendCard();
+        if (this.homeHeatCardEl) {
+          this.updateHomeHeatmapCard();
+        }
       }
     } catch (e) {
       console.warn('加载首页缺陷走势数据异常:', e);
     }
+  }
+
+  // ==========================================================================
+  // Home Tab Heatmap Analytics Engine (Multi-Source Engineering Aggregator)
+  // ==========================================================================
+
+  getSavedHeatmapDimension() {
+    try {
+      const saved = localStorage.getItem('tabonkb-home-heat-dim');
+      if (['all', 'assets', 'tuning', 'ai'].includes(saved)) return saved;
+    } catch (e) {}
+    return 'all';
+  }
+
+  saveHeatmapDimension(dim) {
+    this.heatmapDimension = dim;
+    try {
+      localStorage.setItem('tabonkb-home-heat-dim', dim);
+    } catch (e) {}
+  }
+
+  loadAiOplogEvents() {
+    const eventsByDate = {};
+    try {
+      const fs = require('fs');
+      const path = require('path');
+      const vaultPath = this.app?.vault?.adapter?.basePath || (process.cwd ? process.cwd() : '');
+      if (!vaultPath) return eventsByDate;
+      const oplogDir = path.join(vaultPath, '99-Meta', '07-AI-Oplog');
+      if (!fs.existsSync(oplogDir)) return eventsByDate;
+
+      const files = fs.readdirSync(oplogDir).filter(f => f.endsWith('.md'));
+      for (const file of files) {
+        const fullPath = path.join(oplogDir, file);
+        const content = fs.readFileSync(fullPath, 'utf8');
+        const lines = content.split('\\n');
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed.startsWith('|')) continue;
+          const m = trimmed.match(/^\\|\\s*(\\d{4}-\\d{2}-\\d{2})[T\\s](\\d{2}:\\d{2})?\\s*\\|\\s*([^|]+)\\|\\s*([^|]+)\\|\\s*([^|]+)\\|\\s*([^|]+)/);
+          if (m) {
+            const dateKey = m[1];
+            const time = m[2] || '';
+            const level = m[3].trim();
+            const action = m[4].trim();
+            const target = m[5].trim();
+            const detail = m[6].trim();
+            if (!eventsByDate[dateKey]) eventsByDate[dateKey] = [];
+            eventsByDate[dateKey].push({
+              type: 'ai',
+              date: dateKey,
+              time,
+              level,
+              action,
+              title: target,
+              detail
+            });
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('[TabonKB Workbench] loadAiOplogEvents error:', e);
+    }
+    return eventsByDate;
+  }
+
+  getKnowledgeAssetEvents() {
+    const eventsByDate = {};
+    const seenPaths = new Set();
+    const docs = Array.isArray(this.realDocs) ? this.realDocs : [];
+    for (const doc of docs) {
+      if (!doc || !doc.path) continue;
+      if (doc.path.startsWith('99-Meta/') || doc.path.startsWith('.obsidian/')) continue;
+      seenPaths.add(doc.path);
+      let dateKey = null;
+      const filename = (doc.path.split('/').pop() || '');
+      const matchDate = filename.match(/(20\\d{2})[-_]?(\\d{2})[-_]?(\\d{2})/);
+      if (matchDate) {
+        dateKey = `${matchDate[1]}-${matchDate[2]}-${matchDate[3]}`;
+      } else if (doc.mtime) {
+        const d = new Date(doc.mtime);
+        dateKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      }
+      if (dateKey) {
+        if (!eventsByDate[dateKey]) eventsByDate[dateKey] = [];
+        eventsByDate[dateKey].push({
+          type: 'assets',
+          date: dateKey,
+          title: doc.title || filename,
+          path: doc.path,
+          module: doc.module || 'General',
+          doctype: doc.type || 'DOC',
+          detail: doc.summary || ''
+        });
+      }
+    }
+    try {
+      if (typeof this.app?.vault?.getFiles === 'function') {
+        const files = this.app.vault.getFiles() || [];
+        for (const file of files) {
+          if (!file || !file.path || seenPaths.has(file.path)) continue;
+          if (file.path.startsWith('99-Meta/') || file.path.startsWith('.obsidian/') || file.path.startsWith('.git/')) continue;
+          if (file.extension !== 'pdf') continue;
+          seenPaths.add(file.path);
+          let dateKey = null;
+          const matchDate = file.name.match(/(20\\d{2})[-_]?(\\d{2})[-_]?(\\d{2})/);
+          if (matchDate) {
+            dateKey = `${matchDate[1]}-${matchDate[2]}-${matchDate[3]}`;
+          } else if (file.stat?.mtime) {
+            const d = new Date(file.stat.mtime);
+            dateKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+          }
+          if (dateKey) {
+            if (!eventsByDate[dateKey]) eventsByDate[dateKey] = [];
+            eventsByDate[dateKey].push({
+              type: 'assets',
+              date: dateKey,
+              title: file.basename || file.name,
+              path: file.path,
+              module: 'Datasheet',
+              doctype: 'PDF',
+              detail: file.path
+            });
+          }
+        }
+      }
+    } catch (e) {}
+    return eventsByDate;
+  }
+
+  getJiraTuningEvents() {
+    const eventsByDate = {};
+    const issues = this.getHomeTrendIssues();
+    if (!Array.isArray(issues) || issues.length === 0) return eventsByDate;
+
+    const toDateKey = (val) => {
+      if (!val) return null;
+      const d = new Date(val);
+      if (isNaN(d.getTime())) return null;
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    };
+
+    const isDone = (iss) => {
+      const cat = (iss.statusCategory || '').toLowerCase();
+      const st = (iss.status || '').toLowerCase();
+      return cat === 'done' || st.includes('已解决') || st.includes('解决') || st.includes('关闭') || st.includes('resolved') || st.includes('closed');
+    };
+
+    for (const iss of issues) {
+      const key = iss.key || '';
+      const title = iss.summary || key;
+      const status = iss.status || '';
+
+      const createdKey = toDateKey(iss.rawCreated || iss.created);
+      const resolvedKey = toDateKey(iss.rawResolved);
+      const updatedKey = toDateKey(iss.rawUpdated || iss.updated);
+
+      if (createdKey) {
+        if (!eventsByDate[createdKey]) eventsByDate[createdKey] = [];
+        eventsByDate[createdKey].push({
+          type: 'tuning',
+          action: 'created',
+          date: createdKey,
+          key,
+          title,
+          status,
+          detail: '新增缺陷'
+        });
+      }
+
+      if (resolvedKey && resolvedKey !== createdKey) {
+        if (!eventsByDate[resolvedKey]) eventsByDate[resolvedKey] = [];
+        eventsByDate[resolvedKey].push({
+          type: 'tuning',
+          action: 'resolved',
+          date: resolvedKey,
+          key,
+          title,
+          status: '已解决',
+          detail: '闭环解决'
+        });
+      } else if (isDone(iss) && updatedKey && updatedKey !== createdKey) {
+        if (!eventsByDate[updatedKey]) eventsByDate[updatedKey] = [];
+        eventsByDate[updatedKey].push({
+          type: 'tuning',
+          action: 'resolved',
+          date: updatedKey,
+          key,
+          title,
+          status: '已解决',
+          detail: '闭环解决'
+        });
+      }
+    }
+    return eventsByDate;
+  }
+
+  calculateHeatmapData() {
+    const assetEvents = this.getKnowledgeAssetEvents();
+    const tuningEvents = this.getJiraTuningEvents();
+    const aiEvents = this.loadAiOplogEvents();
+
+    const now = new Date();
+    const todayDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const todayKey = `${todayDate.getFullYear()}-${String(todayDate.getMonth() + 1).padStart(2, '0')}-${String(todayDate.getDate()).padStart(2, '0')}`;
+    const todayDayOfWeek = todayDate.getDay();
+
+    const currentWeekStart = new Date(todayDate);
+    currentWeekStart.setDate(todayDate.getDate() - todayDayOfWeek);
+
+    const calStart = new Date(currentWeekStart);
+    calStart.setDate(currentWeekStart.getDate() - 19 * 7);
+
+    const daysMap = {};
+    const cells = [];
+    const monthCols = [];
+    let lastMonth = -1;
+
+    let totalInRange = 0;
+    let activeDaysCount = 0;
+
+    const weekdayNames = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+
+    for (let w = 0; w < 20; w++) {
+      const colStartDate = new Date(calStart);
+      colStartDate.setDate(calStart.getDate() + w * 7);
+      const colMonth = colStartDate.getMonth() + 1;
+      let monthLabel = '';
+      if (colMonth !== lastMonth) {
+        monthLabel = `${colMonth}月`;
+        lastMonth = colMonth;
+      }
+      monthCols.push({ weekIdx: w, label: monthLabel });
+
+      for (let d = 0; d < 7; d++) {
+        const cellDate = new Date(calStart);
+        cellDate.setDate(calStart.getDate() + (w * 7 + d));
+        const dateKey = `${cellDate.getFullYear()}-${String(cellDate.getMonth() + 1).padStart(2, '0')}-${String(cellDate.getDate()).padStart(2, '0')}`;
+        const isFuture = cellDate > todayDate;
+        const isToday = (dateKey === todayKey);
+
+        const assets = assetEvents[dateKey] || [];
+        const tuning = tuningEvents[dateKey] || [];
+        const ai = aiEvents[dateKey] || [];
+
+        let count = 0;
+        if (this.heatmapDimension === 'assets') {
+          count = assets.length;
+        } else if (this.heatmapDimension === 'tuning') {
+          count = tuning.length;
+        } else if (this.heatmapDimension === 'ai') {
+          count = ai.length;
+        } else {
+          count = assets.length + tuning.length + ai.length;
+        }
+
+        let level = 0;
+        if (!isFuture && count > 0) {
+          if (count <= 2) level = 1;
+          else if (count <= 4) level = 2;
+          else if (count <= 7) level = 3;
+          else level = 4;
+        }
+
+        if (!isFuture) {
+          totalInRange += count;
+          if (count > 0) activeDaysCount++;
+        }
+
+        const dayData = {
+          dateKey,
+          dayOfWeek: d,
+          dayOfWeekName: weekdayNames[d],
+          isFuture,
+          isToday,
+          count,
+          level,
+          assets,
+          tuning,
+          ai
+        };
+
+        daysMap[dateKey] = dayData;
+        cells.push(dayData);
+      }
+    }
+
+    let currentStreak = 0;
+    let checkDate = new Date(todayDate);
+    const todayCount = (daysMap[todayKey]?.count || 0);
+    if (todayCount === 0) {
+      checkDate.setDate(checkDate.getDate() - 1);
+    }
+    while (true) {
+      const k = `${checkDate.getFullYear()}-${String(checkDate.getMonth() + 1).padStart(2, '0')}-${String(checkDate.getDate()).padStart(2, '0')}`;
+      if (daysMap[k] && daysMap[k].count > 0) {
+        currentStreak++;
+        checkDate.setDate(checkDate.getDate() - 1);
+      } else {
+        break;
+      }
+    }
+
+    return {
+      cells,
+      daysMap,
+      monthCols,
+      totalInRange,
+      activeDaysCount,
+      currentStreak,
+      todayKey
+    };
+  }
+
+  renderHomeHeatmapCard(parentEl) {
+    this.homeHeatCardEl = parentEl.createDiv({ cls: 'tw-card tw-chart-card tw-home-heat-card' });
+    this.updateHomeHeatmapCard();
+  }
+
+  updateHomeHeatmapCard() {
+    if (!this.homeHeatCardEl) return;
+    const data = this.calculateHeatmapData();
+    const dim = this.heatmapDimension || 'all';
+
+    let summaryText = `近 20 周累计 ${data.totalInRange} 次研发沉淀 · 活跃 ${data.activeDaysCount} 天`;
+    if (data.currentStreak > 0) {
+      summaryText += ` (连续 ${data.currentStreak} 天)`;
+    }
+
+    const monthRowHtml = data.monthCols.map(col => `
+      <div class="tw-heat-month-col" title="${col.label || ''}">${col.label || ''}</div>
+    `).join('');
+
+    const cellsHtml = data.cells.map(c => {
+      let cls = `tw-heat-cell tw-heat-l${c.level}`;
+      if (c.isToday) cls += ' tw-heat-today';
+      if (c.isFuture) cls += ' tw-heat-future';
+
+      let tip = `${c.dateKey} (${c.dayOfWeekName})`;
+      if (c.count === 0) {
+        tip += ' · 无研发产出';
+      } else {
+        const parts = [];
+        if (c.assets.length) parts.push(`${c.assets.length} 文档`);
+        if (c.tuning.length) parts.push(`${c.tuning.length} 调机`);
+        if (c.ai.length) parts.push(`${c.ai.length} AI流水`);
+        tip += ` · ${c.count} 次产出 (${parts.join(', ')})`;
+      }
+
+      return `<div class="${cls}" data-date="${c.dateKey}" title="${tip}"></div>`;
+    }).join('');
+
+    this.homeHeatCardEl.innerHTML = `
+      <div class="tw-card-header tw-heat-header">
+        <span>研发调机与资产沉淀热力</span>
+        <div class="tw-heat-controls-right">
+          <select class="tw-trend-range-select tw-heat-dim-select" title="切换统计维度">
+            <option value="all" ${dim === 'all' ? 'selected' : ''}>全部综合</option>
+            <option value="assets" ${dim === 'assets' ? 'selected' : ''}>知识资产</option>
+            <option value="tuning" ${dim === 'tuning' ? 'selected' : ''}>研发调机</option>
+            <option value="ai" ${dim === 'ai' ? 'selected' : ''}>AI 协同</option>
+          </select>
+        </div>
+      </div>
+      <div class="tw-heatmap-content">
+        <div class="tw-heatmap-wrap">
+          <div class="tw-heatmap-month-row">
+            <div class="tw-heatmap-weekday-spacer"></div>
+            <div class="tw-heatmap-months">
+              ${monthRowHtml}
+            </div>
+          </div>
+          <div class="tw-heatmap-main-row">
+            <div class="tw-heatmap-weekdays">
+              <span></span>
+              <span>一</span>
+              <span></span>
+              <span>三</span>
+              <span></span>
+              <span>五</span>
+              <span></span>
+            </div>
+            <div class="tw-heatmap-grid">
+              ${cellsHtml}
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="tw-heat-footer">
+        <span class="tw-heat-summary-text">${summaryText}</span>
+        <div class="tw-heat-legend">
+          <span>少</span>
+          <span class="tw-heat-legend-cell tw-heat-l0"></span>
+          <span class="tw-heat-legend-cell tw-heat-l1"></span>
+          <span class="tw-heat-legend-cell tw-heat-l2"></span>
+          <span class="tw-heat-legend-cell tw-heat-l3"></span>
+          <span class="tw-heat-legend-cell tw-heat-l4"></span>
+          <span>多</span>
+        </div>
+      </div>
+    `;
+
+    const dimSelect = this.homeHeatCardEl.querySelector('.tw-heat-dim-select');
+    if (dimSelect) {
+      dimSelect.onchange = () => {
+        this.saveHeatmapDimension(dimSelect.value);
+        this.closeHeatmapPopover();
+        this.updateHomeHeatmapCard();
+      };
+    }
+
+    const cellEls = this.homeHeatCardEl.querySelectorAll('.tw-heat-cell');
+    cellEls.forEach(el => {
+      el.onclick = (e) => {
+        e.stopPropagation();
+        const dateKey = el.dataset.date;
+        if (!dateKey) return;
+        const cellData = data.daysMap[dateKey];
+        if (!cellData || cellData.isFuture) return;
+        this.openHeatmapPopover(cellData, el);
+      };
+    });
+  }
+
+  closeHeatmapPopover() {
+    if (!this.homeHeatCardEl) return;
+    const existing = this.homeHeatCardEl.querySelector('.tw-heat-popover');
+    if (existing) existing.remove();
+    if (this._selectedHeatCell) {
+      this._selectedHeatCell.classList.remove('tw-heat-selected');
+      this._selectedHeatCell = null;
+    }
+    if (this._heatDocClickBound) {
+      window.removeEventListener('click', this._heatDocClickBound);
+      this._heatDocClickBound = null;
+    }
+  }
+
+  openHeatmapPopover(cellData, targetEl) {
+    this.closeHeatmapPopover();
+
+    this._selectedHeatCell = targetEl;
+    targetEl.classList.add('tw-heat-selected');
+
+    const popover = document.createElement('div');
+    popover.className = 'tw-heat-popover';
+
+    const escapeHtml = (str) => {
+      if (!str) return '';
+      return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    };
+
+    const cardRect = this.homeHeatCardEl.getBoundingClientRect();
+    const cellRect = targetEl.getBoundingClientRect();
+    const relLeft = cellRect.left - cardRect.left;
+
+    if (relLeft < cardRect.width / 2) {
+      popover.style.left = `${Math.max(12, Math.min(cardRect.width - 390, relLeft - 10))}px`;
+      popover.style.right = 'auto';
+    } else {
+      const relRight = cardRect.width - (relLeft + cellRect.width);
+      popover.style.right = `${Math.max(12, Math.min(cardRect.width - 390, relRight - 10))}px`;
+      popover.style.left = 'auto';
+    }
+    popover.style.top = '40px';
+
+    const hasItems = (cellData.count > 0);
+
+    let sectionsHtml = '';
+    if (!hasItems) {
+      sectionsHtml = '<div class="tw-heat-empty-tip">该日暂无沉淀记录</div>';
+    } else {
+      if (cellData.assets && cellData.assets.length > 0) {
+        sectionsHtml += `
+          <div class="tw-heat-section">
+            <div class="tw-heat-section-title">
+              <span>📝 知识资产沉淀 (${cellData.assets.length})</span>
+            </div>
+            <div class="tw-heat-items-list">
+              ${cellData.assets.map(item => `
+                <div class="tw-heat-item tw-heat-item-doc" data-path="${escapeHtml(item.path)}" title="点击在知识库中打开">
+                  <span class="tw-heat-item-tag doc">[${escapeHtml(item.doctype || 'DOC')}]</span>
+                  <span class="tw-heat-item-name">${escapeHtml(item.title)}</span>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        `;
+      }
+
+      if (cellData.tuning && cellData.tuning.length > 0) {
+        sectionsHtml += `
+          <div class="tw-heat-section">
+            <div class="tw-heat-section-title">
+              <span>🐞 研发调机排障 (${cellData.tuning.length})</span>
+            </div>
+            <div class="tw-heat-items-list">
+              ${cellData.tuning.map(item => `
+                <div class="tw-heat-item tw-heat-item-jira" data-key="${escapeHtml(item.key)}">
+                  <span class="tw-heat-item-tag jira">[${escapeHtml(item.key)}]</span>
+                  <span class="tw-heat-item-name" title="${escapeHtml(item.title)}">${escapeHtml(item.title)}</span>
+                  <span class="tw-heat-item-status">${escapeHtml(item.status || '')}</span>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        `;
+      }
+
+      if (cellData.ai && cellData.ai.length > 0) {
+        sectionsHtml += `
+          <div class="tw-heat-section">
+            <div class="tw-heat-section-title">
+              <span>🤖 AI 协同流水 (${cellData.ai.length})</span>
+            </div>
+            <div class="tw-heat-items-list">
+              ${cellData.ai.map(item => `
+                <div class="tw-heat-item tw-heat-item-ai" title="${escapeHtml(item.detail)}">
+                  <span class="tw-heat-item-tag ai">[${escapeHtml(item.level || 'L1')}]</span>
+                  <span class="tw-heat-item-name">${escapeHtml(item.title || item.detail)}</span>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        `;
+      }
+    }
+
+    popover.innerHTML = `
+      <div class="tw-heat-popover-header">
+        <div class="tw-heat-popover-title">
+          <span class="tw-heat-popover-date">${cellData.dateKey}</span>
+          <span class="tw-heat-popover-weekday">${cellData.dayOfWeekName}</span>
+          <span class="tw-heat-popover-badge">${cellData.count} 项产出</span>
+        </div>
+        <button class="tw-heat-popover-close" title="关闭 (Esc)">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        </button>
+      </div>
+      <div class="tw-heat-popover-body">
+        ${sectionsHtml}
+      </div>
+    `;
+
+    popover.querySelectorAll('.tw-heat-item-doc').forEach(itemEl => {
+      itemEl.onclick = (e) => {
+        e.stopPropagation();
+        const docPath = itemEl.dataset.path;
+        if (!docPath) return;
+        try {
+          const file = this.app?.vault?.getAbstractFileByPath(docPath);
+          if (file) {
+            this.app?.workspace?.getLeaf(false)?.openFile(file);
+          } else {
+            this.app?.workspace?.openLinkText(docPath, '', false);
+          }
+        } catch (err) {
+          console.warn('[TabonKB Workbench] Failed to open file:', docPath, err);
+        }
+      };
+    });
+
+    const closeBtn = popover.querySelector('.tw-heat-popover-close');
+    if (closeBtn) {
+      closeBtn.onclick = (e) => {
+        e.stopPropagation();
+        this.closeHeatmapPopover();
+      };
+    }
+
+    this.homeHeatCardEl.appendChild(popover);
+
+    setTimeout(() => {
+      this._heatDocClickBound = (e) => {
+        if (!this.homeHeatCardEl) return;
+        const currentPopover = this.homeHeatCardEl.querySelector('.tw-heat-popover');
+        if (!currentPopover) return;
+        if (!currentPopover.contains(e.target) && !e.target.closest('.tw-heat-cell')) {
+          this.closeHeatmapPopover();
+        }
+      };
+      window.addEventListener('click', this._heatDocClickBound);
+    }, 20);
   }"""
 
 if old_constructor in workbench_part:
@@ -712,6 +1313,7 @@ old_on_close = """  async onClose() {
   }"""
 
 new_on_close = """  async onClose() {
+    this.closeHeatmapPopover();
     if (this.exploreView) {
       this.exploreView = null;
     }
@@ -1099,11 +1701,18 @@ if idx_render != -1 and idx_cpanel != -1:
     multi_tab_render_methods = """render() {
     try {
       this.closeExploreSubmenu();
+      this.closeManageSubmenu();
       const container = this.getContainer();
       if (!container) return;
       this.ensureStylesheet(container.ownerDocument);
+      this.setupCustomHeader();
       container.empty();
       container.addClass('tabonkb-workbench-container', 'with-drawer');
+      const curTheme = (this.plugin && this.plugin.settings && this.plugin.settings.workbenchTheme) || 
+                       (this.app?.plugins?.plugins?.['tabonkb-workbench']?.settings?.workbenchTheme) || 
+                       'standard';
+      container.removeClass('tw-theme-standard', 'tw-theme-fresh');
+      container.addClass(`tw-theme-${curTheme}`);
 
       // Global right-click copy menu for any selected text
       container.oncontextmenu = (e) => {
@@ -1254,6 +1863,77 @@ if idx_render != -1 and idx_cpanel != -1:
     if (menu) menu.remove();
   }
 
+  getManageSubTab() {
+    if (this.weknoraManage && this.weknoraManage.activeSubTab) return this.weknoraManage.activeSubTab;
+    try {
+      if (typeof localStorage !== 'undefined') {
+        const s = localStorage.getItem('tabonkb-manage-subtab');
+        if (s === 'graph' || s === 'documents' || s === 'sync' || s === 'webview') return s;
+      }
+    } catch (e) {}
+    return 'graph';
+  }
+
+  setManageSubTab(sub) {
+    try {
+      if (typeof localStorage !== 'undefined') localStorage.setItem('tabonkb-manage-subtab', sub);
+    } catch (e) {}
+    if (this.weknoraManage) {
+      // 内部持久化并重挂载对应子视图, 保留顶栏心跳/知识库等实例状态 (不整页重绘)
+      this.weknoraManage.setSubTab(sub);
+    } else {
+      this.render();
+    }
+    // 选定后收起子选择菜单
+    this.closeManageSubmenu();
+  }
+
+  toggleManageSubmenu(anchorEl) {
+    const container = this.getContainer ? this.getContainer() : null;
+    if (!container) return;
+    if (container.querySelector('.tw-manage-submenu')) {
+      this.closeManageSubmenu();
+      return;
+    }
+    const cur = this.getManageSubTab();
+    const subs = [
+      { id: 'graph', label: 'Wiki 知识图谱', icon: 'network' },
+      { id: 'documents', label: '资产文档', icon: 'file-text' },
+      { id: 'sync', label: '笔记同步', icon: 'refresh' },
+      { id: 'webview', label: '官方控制台', icon: 'code' }
+    ];
+    const menu = container.createDiv({ cls: 'tw-manage-submenu' });
+    for (const s of subs) {
+      const item = menu.createEl('button', { cls: `tw-manage-submenu-item ${cur === s.id ? 'active' : ''}` });
+      item.innerHTML = `
+        <span class="tw-manage-submenu-icon">${getIconPark(s.icon, 15)}</span>
+        <span class="tw-manage-submenu-label">${s.label}</span>
+      `;
+      item.onclick = () => this.setManageSubTab(s.id);
+    }
+    // 对齐「管理」按钮, 紧贴侧栏右侧弹出 (top 叠加容器滚动偏移)
+    const cRect = container.getBoundingClientRect();
+    const aRect = anchorEl.getBoundingClientRect();
+    menu.style.top = Math.round(aRect.top - cRect.top + container.scrollTop) + 'px';
+    menu.style.left = Math.round(aRect.right - cRect.left + 8) + 'px';
+    // 点击外部 / 再次点击触发器时关闭 (延迟挂接, 避免本次点击立即触发)
+    const closer = (e) => {
+      if (!menu.contains(e.target) && !anchorEl.contains(e.target)) this.closeManageSubmenu();
+    };
+    this._manageSubmenuCloser = closer;
+    setTimeout(() => document.addEventListener('pointerdown', closer, true), 0);
+  }
+
+  closeManageSubmenu() {
+    if (this._manageSubmenuCloser) {
+      try { document.removeEventListener('pointerdown', this._manageSubmenuCloser, true); } catch (e) {}
+      this._manageSubmenuCloser = null;
+    }
+    const container = this.getContainer ? this.getContainer() : null;
+    const menu = container ? container.querySelector('.tw-manage-submenu') : null;
+    if (menu) menu.remove();
+  }
+
   renderNavRail(parentEl) {
     const rail = parentEl.createDiv({ cls: 'tw-nav-rail' });
 
@@ -1263,7 +1943,7 @@ if idx_render != -1 and idx_cpanel != -1:
     const brand = topSec.createDiv({ cls: 'tw-nav-brand' });
     brand.innerHTML = `
       <div class="tw-nav-brand-logo" title="TabonKB 研发知识库与工作台">
-        <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
           <path d="M6.4 7.4h11.2"/>
           <path d="M12 7.4v10.2"/>
           <circle cx="6.4" cy="7.4" r="2" fill="currentColor" stroke="none"/>
@@ -1282,7 +1962,7 @@ if idx_render != -1 and idx_cpanel != -1:
       { id: 'tasks', label: '任务', icon: 'tasks', title: 'Jira 协作与任务看板' },
       { id: 'news', label: '资讯', icon: 'newspaper', title: '技术资讯与规范动态' },
       { id: 'explore', label: '探索', icon: 'compass', title: 'Agent Hub 与芯片资源检索' },
-      { id: 'manage', label: '管理', icon: 'setting-two', title: 'WeKnora 知识库与数据管理' }
+      { id: 'manage', label: '管理', icon: 'database', title: 'WeKnora 知识库与数据管理' }
     ];
 
     for (const t of tabs) {
@@ -1291,7 +1971,7 @@ if idx_render != -1 and idx_cpanel != -1:
         title: t.title
       });
       btn.innerHTML = `
-        <span class="tw-nav-icon">${getIconPark(t.icon, 18)}</span>
+        <span class="tw-nav-icon">${getIconPark(t.icon, 22)}</span>
         <span class="tw-nav-label">${t.label}</span>
       `;
       btn.onclick = () => this.setActiveTab(t.id);
@@ -1306,16 +1986,28 @@ if idx_render != -1 and idx_cpanel != -1:
           this.toggleExploreSubmenu(btn);
         };
       }
+
+      // 管理页: 已在管理页时再次点击「管理」, 弹出子页选择菜单 (图谱/资产/同步/控制台), 与探索页同方案
+      if (t.id === 'manage') {
+        btn.onclick = () => {
+          if (this.activeTab !== 'manage') {
+            this.setActiveTab('manage');
+            return;
+          }
+          this.toggleManageSubmenu(btn);
+        };
+      }
     }
 
-    // Bottom Section: Settings Shortcut
+    // Bottom Section: Divider + Settings Shortcut
     const btmSec = rail.createDiv({ cls: 'tw-nav-rail-bottom' });
+    btmSec.createDiv({ cls: 'tw-nav-divider' });
     const btnSettings = btmSec.createEl('button', {
       cls: 'tw-nav-btn tw-nav-settings-btn',
       title: '打开工作台设置'
     });
     btnSettings.innerHTML = `
-      <span class="tw-nav-icon">${getIconPark('setting-config', 18)}</span>
+      <span class="tw-nav-icon">${getIconPark('setting-config', 22)}</span>
       <span class="tw-nav-label">设置</span>
     `;
     btnSettings.onclick = () => {
@@ -1488,32 +2180,8 @@ if idx_render != -1 and idx_cpanel != -1:
     // Trend Chart (dynamically bound to real Jira data with time dimension pills)
     this.renderHomeTrendCard(chartsGrid);
 
-    // Heatmap Card
-    const heatCard = chartsGrid.createDiv({ cls: 'tw-card tw-chart-card' });
-    const heatGridHtml = this.generateHeatmapHtml();
-    heatCard.innerHTML = `
-      <div class="tw-card-header">
-        <span>研发调机与资产沉淀热力</span>
-        <span style="color: var(--text-muted, #64748B); font-family: monospace; font-size: 10px;">近 20 周</span>
-      </div>
-      <div class="tw-heatmap-content">
-        <div class="tw-heatmap-grid">
-          ${heatGridHtml}
-        </div>
-      </div>
-      <div style="display: flex; justify-content: space-between; align-items: center; font-size: 10px; color: var(--text-muted, #64748B); padding-top: 6px;">
-        <span>累计 142 次产出记录</span>
-        <div style="display: flex; align-items: center; gap: 3px;">
-          <span>少</span>
-          <span class="tw-heat-legend-cell tw-heat-l0"></span>
-          <span class="tw-heat-legend-cell tw-heat-l1"></span>
-          <span class="tw-heat-legend-cell tw-heat-l2"></span>
-          <span class="tw-heat-legend-cell tw-heat-l3"></span>
-          <span class="tw-heat-legend-cell tw-heat-l4"></span>
-          <span>多</span>
-        </div>
-      </div>
-    `;
+    // Heatmap Card (dynamically bound to multi-source engineering data)
+    this.renderHomeHeatmapCard(chartsGrid);
 
     // Layer 3: Knowledge Workspace (Graph + Dynamic Context Panel)
     const workspaceWrap = wrap.createDiv({ cls: 'tw-knowledge-workspace dashboard-knowledge-workspace', id: 'twKnowledgeWorkspace' });
@@ -1671,6 +2339,8 @@ if idx_render != -1 and idx_cpanel != -1:
     const rssService = plugin?.rssService || new RssService({ app: this.app, getFeeds: () => DEFAULT_SETTINGS.rss?.feeds || [] });
 
     this.rssCenter = new RssCenterView({
+      plugin: plugin,
+      agentDrawer: this.agentDrawer,
       rssService: rssService,
       app: this.app,
       onOpenSettings: () => {
@@ -1748,6 +2418,7 @@ new_plugin_class = """var TW_BRAND_ICON_OK = false;
 module.exports = class TabonKBWorkbenchPlugin extends Plugin {
   async onload() {
     await this.loadSettings();
+    this.applyWorkbenchTheme(this.settings.workbenchTheme);
 
     this.jiraService = new JiraService({
       app: this.app,
@@ -1782,7 +2453,11 @@ module.exports = class TabonKBWorkbenchPlugin extends Plugin {
 
     this.registerView(
       VIEW_TYPE_WORKBENCH,
-      (leaf) => new TabonKBWorkbenchView(leaf)
+      (leaf) => {
+        const view = new TabonKBWorkbenchView(leaf);
+        view.plugin = this;
+        return view;
+      }
     );
 
     const refreshWorkbench = () => {
@@ -1918,6 +2593,7 @@ module.exports = class TabonKBWorkbenchPlugin extends Plugin {
       delete this.settings.niceaigc.apiKey;
     }
     await this.saveData(this.settings);
+    this.applyWorkbenchTheme(this.settings.workbenchTheme);
 
     // Notify active workbench views to refresh if config changed
     const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_WORKBENCH);
@@ -1934,6 +2610,27 @@ module.exports = class TabonKBWorkbenchPlugin extends Plugin {
         }
         if (leaf.view.rssCard) {
           leaf.view.rssCard.refresh(true);
+        }
+      }
+    });
+  }
+
+  applyWorkbenchTheme(theme) {
+    const targetTheme = theme || this.settings?.workbenchTheme || 'fresh';
+    try {
+      if (typeof document !== 'undefined' && document.body) {
+        document.body.classList.toggle('tw-theme-fresh-active', targetTheme === 'fresh');
+      }
+    } catch (e) {}
+
+    const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_WORKBENCH);
+    leaves.forEach(leaf => {
+      if (leaf.view) {
+        if (!leaf.view.plugin) leaf.view.plugin = this;
+        const container = leaf.view.getContainer ? leaf.view.getContainer() : null;
+        if (container) {
+          container.classList.remove('tw-theme-standard', 'tw-theme-fresh');
+          container.classList.add(`tw-theme-${targetTheme}`);
         }
       }
     });

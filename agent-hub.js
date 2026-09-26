@@ -1,4 +1,4 @@
-﻿const { AgentSessionManager } = require('./agent-session-manager.js');
+const { AgentSessionManager } = require('./agent-session-manager.js');
 const { getAgentBrandSvg } = require('./providers/agent-adapter-base.js');
 const { PiAdapter } = require('./providers/pi-adapter.js');
 const { HermesAdapter } = require('./providers/hermes-adapter.js');
@@ -119,6 +119,15 @@ class AgentHub {
       });
       adapter.on('turn_start', (d) => {
         if (this.activeAgentId === id) this.emit('turn_start', d);
+      });
+      adapter.on('thinking_start', (d) => {
+        if (this.activeAgentId === id) this.emit('thinking_start', d);
+      });
+      adapter.on('thinking_delta', (d) => {
+        if (this.activeAgentId === id) this.emit('thinking_delta', d);
+      });
+      adapter.on('thinking_end', (d) => {
+        if (this.activeAgentId === id) this.emit('thinking_end', d);
       });
       adapter.on('text_delta', (d) => {
         if (this.activeAgentId === id) this.emit('text_delta', d);

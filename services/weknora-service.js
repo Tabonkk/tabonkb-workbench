@@ -114,7 +114,7 @@ class WeknoraService {
 
   async getWikiGraph(kb, limit = 300, timeoutMs = 10000) {
     const id = await this.resolveKbId(kb);
-    const n = Math.max(20, Math.min(1000, limit || 300));
+    const n = Math.max(20, Math.min(2500, limit || 300));
     const raw = await this._req('GET', `/knowledgebase/${id}/wiki/graph?mode=overview&limit=${n}`, undefined, timeoutMs);
     return {
       nodes: raw.nodes || [],
@@ -124,19 +124,36 @@ class WeknoraService {
     };
   }
 
+  async searchWiki(kb, query, limit = 10, timeoutMs = 8000) {
+    const id = await this.resolveKbId(kb);
+    const q = (query || '').trim();
+    if (!q) return { pages: [], total: 0 };
+    const raw = await this._req('GET', `/knowledgebase/${id}/wiki/search?q=${encodeURIComponent(q)}`, undefined, timeoutMs);
+    const pages = (raw && raw.pages) || [];
+    return {
+      pages: pages.slice(0, limit),
+      total: (raw && raw.total != null) ? raw.total : pages.length
+    };
+  }
+
   async getWikiEgo(kb, slug, cap = 30, depth = 1, timeoutMs = 8000) {
     const id = await this.resolveKbId(kb);
     const raw = await this._req('GET', `/knowledgebase/${id}/wiki/graph?mode=ego&center=${encodeURIComponent(slug)}&depth=${depth}`, undefined, timeoutMs);
     let nodes = raw.nodes || [];
     const keep = Math.max(10, cap || 30);
-    const centerNode = nodes.find(n => n.slug === slug);
+    let centerNode = nodes.find(n => n.slug === slug);
+    if (!centerNode) {
+      centerNode = { slug, title: slug.split('/').pop(), page_type: 'entity', link_count: (raw.edges || []).length };
+    }
     if (nodes.length > keep) {
       let otherNodes = nodes.filter(n => n.slug !== slug);
       otherNodes.sort((a, b) => (b.link_count || 0) - (a.link_count || 0));
-      otherNodes = otherNodes.slice(0, keep - (centerNode ? 1 : 0));
-      nodes = centerNode ? [centerNode, ...otherNodes] : otherNodes;
+      otherNodes = otherNodes.slice(0, keep - 1);
+      nodes = [centerNode, ...otherNodes];
       const kept = new Set(nodes.map(n => n.slug));
       raw.edges = (raw.edges || []).filter(e => kept.has(e.source) && kept.has(e.target));
+    } else {
+      nodes = [centerNode, ...nodes.filter(n => n.slug !== slug)];
     }
     return {
       nodes,

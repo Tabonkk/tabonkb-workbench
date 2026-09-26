@@ -3,6 +3,7 @@ const { DEFAULT_JIRA_JQL } = require('../services/jira-service');
 const { DEFAULT_FEEDS } = require('../services/rss-service');
 
 const DEFAULT_SETTINGS = {
+  workbenchTheme: 'fresh', // 'standard' | 'fresh'
   jira: {
     type: 'datacenter', // 'cloud' | 'datacenter'
     authType: 'basic', // 'basic' | 'cookie' | 'pat'
@@ -49,7 +50,9 @@ const DEFAULT_SETTINGS = {
       '04-Debug',
       '05-Toolchain',
       '06-Spec',
-      '07-Project'
+      '07-Project',
+      '09-Hardware',
+      '10-Test-Cert'
     ]
   },
   clipInliner: {
@@ -59,6 +62,18 @@ const DEFAULT_SETTINGS = {
     maxBytes: 10485760,
     minBytes: 2048,
     debounceMs: 1200
+  },
+  opengrok: {
+    baseUrl: 'http://192.168.1.12:7080/source',
+    defaultProject: 'W_sprd_os_dev',
+    timeout: 15000
+  },
+  gerrit: {
+    baseUrl: 'http://192.168.1.17:8090',
+    username: '',
+    secretName: 'tabonkb-gerrit-password',
+    timeout: 15000,
+    readonly: true
   }
 };
 
@@ -148,6 +163,26 @@ class TabonKBSettingTab extends PluginSettingTab {
     containerEl.empty();
 
     containerEl.createEl('h2', { text: 'TabonKB 研发工作台设置' });
+
+    // =========================================================================
+    // SECTION 0: 工作台主题外观 (Theme Appearance)
+    // =========================================================================
+    containerEl.createEl('h3', { text: '🎨 界面外观与工作台主题' });
+    new Setting(containerEl)
+      .setName('工作台视觉主题')
+      .setDesc('选择工作台的色彩与质感主题：标准（工程极简深浅适配）或 清新（通透毛玻璃与柔和天空渐变）')
+      .addDropdown(drop => {
+        drop.addOption('standard', '标准 (Standard - 经典极简)');
+        drop.addOption('fresh', '清新 (Fresh - 毛玻璃极简)');
+        drop.setValue(this.plugin.settings.workbenchTheme || 'standard');
+        drop.onChange(async (val) => {
+          this.plugin.settings.workbenchTheme = val;
+          await this.plugin.saveSettings();
+          if (typeof this.plugin.applyWorkbenchTheme === 'function') {
+            this.plugin.applyWorkbenchTheme(val);
+          }
+        });
+      });
 
     // =========================================================================
     // SECTION 1: Jira 研发缺陷与事项配置
@@ -866,7 +901,7 @@ class TabonKBSettingTab extends PluginSettingTab {
     // 5.3.1 Sync Folders
     const currentSyncFolders = Array.isArray(wk.syncFolders) && wk.syncFolders.length > 0
       ? wk.syncFolders
-      : ['01-Platform', '02-OS-Kernel', '03-Driver', '04-Debug', '05-Toolchain', '06-Spec', '07-Project'];
+      : ['01-Platform', '02-OS-Kernel', '03-Driver', '04-Debug', '05-Toolchain', '06-Spec', '07-Project', '09-Hardware', '10-Test-Cert'];
     new Setting(containerEl)
       .setName('知识库同步对比目录 (Sync Folders)')
       .setDesc(`选择纳入与 WeKnora 对比的根目录清单（逗号分隔，默认已排除 08-Learning）`)
@@ -1028,6 +1063,197 @@ class TabonKBSettingTab extends PluginSettingTab {
           ci.enabled = val;
           await this.plugin.saveSettings();
         });
+      });
+
+    // SECTION 6: OpenGrok 企业代码搜索引擎配置
+    containerEl.createEl('h3', { text: '🔍 OpenGrok 代码搜索引擎配置' });
+    const ogDesc = containerEl.createEl('p', { cls: 'setting-item-description' });
+    ogDesc.textContent = '接入公司内网 OpenGrok 代码检索服务。配置后，Pi 与 Hermes 两个 Agent 将获得 opengrok_search_code / opengrok_read_file / opengrok_list_projects 等源码检索与切片阅读工具。';
+
+    if (!this.plugin.settings.opengrok) {
+      this.plugin.settings.opengrok = Object.assign({}, DEFAULT_SETTINGS.opengrok);
+    }
+    const og = this.plugin.settings.opengrok;
+
+    new Setting(containerEl)
+      .setName('OpenGrok 服务地址 (Base URL)')
+      .setDesc('OpenGrok 部署地址, 例如 http://192.168.1.12:7080/source (未加 /source 会自动补全)')
+      .addText(text => {
+        text
+          .setPlaceholder('http://192.168.1.12:7080/source')
+          .setValue(og.baseUrl || '')
+          .onChange(async (val) => {
+            og.baseUrl = val.trim();
+            await this.plugin.saveSettings();
+          });
+      });
+
+    new Setting(containerEl)
+      .setName('默认检索工程 (Default Project)')
+      .setDesc('在未显式指定工程或无法推断时使用的默认工程库 (如 W_sprd_os_dev=展锐主线, W_mp1_os_dev=MTK主线)')
+      .addText(text => {
+        text
+          .setPlaceholder('W_sprd_os_dev')
+          .setValue(og.defaultProject || 'W_sprd_os_dev')
+          .onChange(async (val) => {
+            og.defaultProject = val.trim();
+            await this.plugin.saveSettings();
+          });
+      });
+
+    new Setting(containerEl)
+      .setName('请求超时时间 (Timeout ms)')
+      .setDesc('内网请求超时时间，单位毫秒，默认 15000ms')
+      .addText(text => {
+        text
+          .setPlaceholder('15000')
+          .setValue(String(og.timeout || 15000))
+          .onChange(async (val) => {
+            const num = parseInt(val.trim(), 10);
+            og.timeout = isNaN(num) ? 15000 : num;
+            await this.plugin.saveSettings();
+          });
+      });
+
+    new Setting(containerEl)
+      .setName('测试 OpenGrok 连通性')
+      .setDesc('向 OpenGrok 发送检测请求，验证服务网络可用性并获取当前已索引工程库')
+      .addButton(btn => {
+        btn
+          .setButtonText('测试 OpenGrok 连通性')
+          .setCta()
+          .onClick(async () => {
+            const rawUrl = (og.baseUrl || '').trim();
+            if (!rawUrl) {
+              new Notice('❌ 请先填写 OpenGrok 服务地址 (Base URL)', 8000);
+              return;
+            }
+            btn.setDisabled(true);
+            btn.setButtonText('正在探测 OpenGrok...');
+            try {
+              let svc;
+              if (typeof OpengrokService !== 'undefined') {
+                svc = new OpengrokService({ baseUrl: rawUrl, defaultProject: og.defaultProject, timeoutMs: og.timeout });
+              } else {
+                const mod = require('../services/opengrok-service.js');
+                svc = new mod.OpengrokService({ baseUrl: rawUrl, defaultProject: og.defaultProject, timeoutMs: og.timeout });
+              }
+              const res = await svc.testConnection();
+              if (res.ok) {
+                new Notice(`✓ OpenGrok 连接成功！共索引 ${res.projectsCount} 个工程库。\n前几个工程: ${res.projects.slice(0, 5).join(', ')}`, 8000);
+              } else {
+                new Notice(`❌ OpenGrok 连接失败: ${res.error || '无法访问服务'}`, 8000);
+              }
+            } catch (err) {
+              new Notice(`❌ OpenGrok 探测异常: ${err.message}`, 8000);
+            } finally {
+              btn.setDisabled(false);
+              btn.setButtonText('测试 OpenGrok 连通性');
+            }
+          });
+      });
+
+    // SECTION 7: Gerrit 代码评审系统配置 (严格只读)
+    containerEl.createEl('h3', { text: '🔍 Gerrit 代码评审系统配置 (只读模式)' });
+    const gerritDesc = containerEl.createEl('p', { cls: 'setting-item-description' });
+    gerritDesc.textContent = '接入公司内网 Gerrit 代码评审系统。Agent 可执行 gerrit_search_changes、gerrit_get_change、gerrit_get_diff、gerrit_get_comments 等只读检索与审查分析工具。系统已启用只读锁，严禁任何 Review/Vote/Submit 操作。';
+
+    if (!this.plugin.settings.gerrit) {
+      this.plugin.settings.gerrit = Object.assign({}, DEFAULT_SETTINGS.gerrit);
+    }
+    const gerritCfg = this.plugin.settings.gerrit;
+
+    new Setting(containerEl)
+      .setName('Gerrit 服务地址 (Base URL)')
+      .setDesc('Gerrit 部署地址, 例如 http://192.168.1.17:8090')
+      .addText(text => {
+        text
+          .setPlaceholder('http://192.168.1.17:8090')
+          .setValue(gerritCfg.baseUrl || '')
+          .onChange(async (val) => {
+            gerritCfg.baseUrl = val.trim();
+            await this.plugin.saveSettings();
+          });
+      });
+
+    new Setting(containerEl)
+      .setName('用户名 (Username, 可选)')
+      .setDesc('Gerrit 登录用户名。留空则使用匿名只读模式访问公开项目。')
+      .addText(text => {
+        text
+          .setPlaceholder('例如 tankaikun')
+          .setValue(gerritCfg.username || '')
+          .onChange(async (val) => {
+            gerritCfg.username = val.trim();
+            await this.plugin.saveSettings();
+          });
+      });
+
+    new Setting(containerEl)
+      .setName('密码 / HTTP 访问口令 (Password / Token, 可选)')
+      .setDesc('需在 Gerrit 网页「Settings → HTTP Credentials」点击「Generate Password」生成专用口令 (日常登录密码无法用于 API 认证)。留空则以公开匿名模式访问。')
+      .addText(async (text) => {
+        text.inputEl.type = 'password';
+        text.setPlaceholder('••••••••');
+        const token = await this.getCredential(gerritCfg.secretName || 'tabonkb-gerrit-password');
+        if (token) text.setValue(token);
+        text.onChange(async (val) => {
+          await this.setCredential(gerritCfg.secretName || 'tabonkb-gerrit-password', val.trim());
+        });
+      });
+
+    new Setting(containerEl)
+      .setName('请求超时时间 (Timeout ms)')
+      .setDesc('内网请求超时时间，单位毫秒，默认 15000ms')
+      .addText(text => {
+        text
+          .setPlaceholder('15000')
+          .setValue(String(gerritCfg.timeout || 15000))
+          .onChange(async (val) => {
+            const num = parseInt(val.trim(), 10);
+            gerritCfg.timeout = isNaN(num) ? 15000 : num;
+            await this.plugin.saveSettings();
+          });
+      });
+
+    new Setting(containerEl)
+      .setName('测试 Gerrit 连通性')
+      .setDesc('向 Gerrit 发送只读检测请求，验证服务网络可用性并获取当前 Gerrit 版本信息')
+      .addButton(btn => {
+        btn
+          .setButtonText('测试 Gerrit 连通性')
+          .setCta()
+          .onClick(async () => {
+            const rawUrl = (gerritCfg.baseUrl || '').trim();
+            if (!rawUrl) {
+              new Notice('❌ 请先填写 Gerrit 服务地址 (Base URL)', 8000);
+              return;
+            }
+            btn.setDisabled(true);
+            btn.setButtonText('正在探测 Gerrit...');
+            try {
+              const pwd = await this.getCredential(gerritCfg.secretName || 'tabonkb-gerrit-password');
+              let svc;
+              if (typeof GerritService !== 'undefined') {
+                svc = new GerritService({ baseUrl: rawUrl, username: gerritCfg.username, password: pwd, timeoutMs: gerritCfg.timeout });
+              } else {
+                const mod = require('../services/gerrit-service.js');
+                svc = new mod.GerritService({ baseUrl: rawUrl, username: gerritCfg.username, password: pwd, timeoutMs: gerritCfg.timeout });
+              }
+              const res = await svc.testConnection();
+              if (res.ok) {
+                const authMsg = res.authenticated ? ` (已认证: ${gerritCfg.username})` : ' (公开只读模式)';
+                new Notice(`✓ Gerrit 连接成功！版本: ${res.version || '2.16.x'}${authMsg}`, 8000);
+              } else {
+                new Notice(`❌ Gerrit 连接失败: ${res.error || '无法访问服务'}`, 10000);
+              }
+            } catch (err) {
+              new Notice(`❌ Gerrit 探测异常: ${err.message}`, 8000);
+            } finally {
+              btn.setDisabled(false);
+              btn.setButtonText('测试 Gerrit 连通性');
+            }
+          });
       });
   }
 }

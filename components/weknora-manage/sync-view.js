@@ -38,7 +38,9 @@ const DEFAULT_SYNC_FOLDERS = [
   '04-Debug',
   '05-Toolchain',
   '06-Spec',
-  '07-Project'
+  '07-Project',
+  '09-Hardware',
+  '10-Test-Cert'
 ]; // 默认排除 08-Learning
 
 class WeKnoraSyncView {
@@ -69,6 +71,18 @@ class WeKnoraSyncView {
     this.statusFilter = 'pending'; // 默认仅展示待推送项 ('pending' | 'all' | 'LOCAL_NEW' | 'LOCAL_UPDATED' | 'SYNCED')
     this.searchKeyword = '';
 
+    // 表格排序状态 (默认按本地修改时间倒序排列，最新修改在前)
+    this.sortField = 'localMtime'; // 'localMtime' | 'title'
+    this.sortOrder = 'desc'; // 'desc' (倒序) | 'asc' (正序)
+    try {
+      if (typeof localStorage !== 'undefined') {
+        const sf = localStorage.getItem('tabonkb-sync-sort-field');
+        const so = localStorage.getItem('tabonkb-sync-sort-order');
+        if (sf && sf !== 'remoteMtime') this.sortField = sf;
+        if (so) this.sortOrder = so;
+      }
+    } catch (e) {}
+
     this.initDOM();
   }
 
@@ -78,6 +92,10 @@ class WeKnoraSyncView {
       if (Array.isArray(fromSettings) && fromSettings.length > 0) {
         const s = new Set(fromSettings);
         s.delete('08-Learning'); // 08-Learning 不纳入上传
+        if (s.size === 7 && !s.has('09-Hardware') && !s.has('10-Test-Cert')) {
+          s.add('09-Hardware');
+          s.add('10-Test-Cert');
+        }
         return s;
       }
       if (typeof localStorage !== 'undefined') {
@@ -87,6 +105,10 @@ class WeKnoraSyncView {
           if (Array.isArray(parsed) && parsed.length > 0) {
             const s = new Set(parsed);
             s.delete('08-Learning');
+            if (s.size === 7 && !s.has('09-Hardware') && !s.has('10-Test-Cert')) {
+              s.add('09-Hardware');
+              s.add('10-Test-Cert');
+            }
             return s;
           }
         }
@@ -611,6 +633,31 @@ class WeKnoraSyncView {
       items = items.filter(i => (i.title || '').toLowerCase().includes(kw) || (i.path || '').toLowerCase().includes(kw));
     }
 
+    // 表格列排序 (默认按本地修改时间倒序排列，最新修改在前)
+    items = [...items];
+    if (this.sortField) {
+      items.sort((a, b) => {
+        let valA, valB;
+        if (this.sortField === 'localMtime') {
+          valA = a.localMtime || 0;
+          valB = b.localMtime || 0;
+        } else if (this.sortField === 'remoteMtime') {
+          valA = a.remoteMtime || 0;
+          valB = b.remoteMtime || 0;
+        } else if (this.sortField === 'title') {
+          valA = (a.title || '').toLowerCase();
+          valB = (b.title || '').toLowerCase();
+        } else {
+          valA = (a.path || '').toLowerCase();
+          valB = (b.path || '').toLowerCase();
+        }
+
+        if (valA < valB) return this.sortOrder === 'asc' ? -1 : 1;
+        if (valA > valB) return this.sortOrder === 'asc' ? 1 : -1;
+        return 0;
+      });
+    }
+
     if (!items.length) {
       if (this.viewMode === 'ignored') {
         tableWrap.innerHTML = `
@@ -650,7 +697,6 @@ class WeKnoraSyncView {
     for (const item of items) {
       const isChecked = this.selectedPaths.has(item.path);
       const localDate = item.localMtime ? new Date(item.localMtime).toLocaleDateString() : '-';
-      const remoteDate = item.remoteMtime ? new Date(item.remoteMtime).toLocaleDateString() : '-';
 
       let statusBadge = '';
       let actionBtns = '';
@@ -686,7 +732,6 @@ class WeKnoraSyncView {
             <div style="font-size:10.5px; color:var(--text-muted); font-family:monospace;">${escapeHtml(item.path)}</div>
           </td>
           <td style="font-size:11px; font-family:monospace; color:var(--text-muted);">${localDate}</td>
-          <td style="font-size:11px; font-family:monospace; color:var(--text-muted);">${remoteDate}</td>
           <td>${statusBadge}</td>
           <td style="white-space: nowrap;">${actionBtns}</td>
         </tr>
@@ -700,9 +745,18 @@ class WeKnoraSyncView {
             <th style="width: 40px; text-align:center;">
               <input type="checkbox" id="chkSyncAll" ${this.selectedPaths.size > 0 && items.every(i => this.selectedPaths.has(i.path)) ? 'checked' : ''} />
             </th>
-            <th style="width: 40%;">文件名 / 本地路径</th>
-            <th style="width: 15%;">本地修改时间</th>
-            <th style="width: 15%;">远端修改时间</th>
+            <th style="width: 52%; cursor: pointer; user-select: none;" id="thSortTitle" title="点击切换按文件名正序/倒序排列">
+              <span style="display:inline-flex; align-items:center; gap:4px;">
+                <span>文件名 / 本地路径</span>
+                <span style="font-size:10.5px; color:${this.sortField === 'title' ? 'var(--interactive-accent, #0284c7)' : 'var(--text-muted)'};">${this.sortField === 'title' ? (this.sortOrder === 'desc' ? '▼' : '▲') : '↕'}</span>
+              </span>
+            </th>
+            <th style="width: 18%; cursor: pointer; user-select: none;" id="thSortLocalMtime" title="点击切换：按本地修改时间正序/倒序排列（当前：${this.sortField === 'localMtime' ? (this.sortOrder === 'desc' ? '倒序 - 最新在前' : '正序 - 最旧在前') : '未排序'}）">
+              <span style="display:inline-flex; align-items:center; gap:4px;">
+                <span>本地修改时间</span>
+                <span style="font-size:10.5px; color:${this.sortField === 'localMtime' ? 'var(--interactive-accent, #0284c7)' : 'var(--text-muted)'};">${this.sortField === 'localMtime' ? (this.sortOrder === 'desc' ? '▼' : '▲') : '↕'}</span>
+              </span>
+            </th>
             <th style="width: 15%;">同步状态</th>
             <th style="width: 15%;">操作</th>
           </tr>
@@ -725,6 +779,44 @@ class WeKnoraSyncView {
         tableWrap.querySelectorAll('.chk-sync-item').forEach(c => {
           c.checked = checked;
         });
+      };
+    }
+
+    const saveSortPreference = () => {
+      try {
+        if (typeof localStorage !== 'undefined') {
+          localStorage.setItem('tabonkb-sync-sort-field', this.sortField);
+          localStorage.setItem('tabonkb-sync-sort-order', this.sortOrder);
+        }
+      } catch (e) {}
+    };
+
+    // 表头排序点击切换事件
+    const thLocal = tableWrap.querySelector('#thSortLocalMtime');
+    if (thLocal) {
+      thLocal.onclick = () => {
+        if (this.sortField === 'localMtime') {
+          this.sortOrder = this.sortOrder === 'desc' ? 'asc' : 'desc';
+        } else {
+          this.sortField = 'localMtime';
+          this.sortOrder = 'desc';
+        }
+        saveSortPreference();
+        this.renderTable();
+      };
+    }
+
+    const thTitle = tableWrap.querySelector('#thSortTitle');
+    if (thTitle) {
+      thTitle.onclick = () => {
+        if (this.sortField === 'title') {
+          this.sortOrder = this.sortOrder === 'asc' ? 'desc' : 'asc';
+        } else {
+          this.sortField = 'title';
+          this.sortOrder = 'asc';
+        }
+        saveSortPreference();
+        this.renderTable();
       };
     }
 

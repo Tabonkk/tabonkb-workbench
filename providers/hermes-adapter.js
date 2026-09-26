@@ -1,6 +1,9 @@
 const { AgentAdapter, getAgentBrandSvg } = require('./agent-adapter-base.js');
 const { buildVendorEnv, ensureHermesVendorMcp, VENDOR_MCP_TOOL_HINT } = require('../mcp/vendor-mcp-shared.js');
 const { buildWeknoraEnv, ensureHermesWeknoraMcp, WEKNORA_MCP_TOOL_HINT } = require('../mcp/weknora-mcp-shared.js');
+const { buildOpengrokEnv, ensureHermesOpengrokMcp, OPENGROK_MCP_TOOL_HINT } = require('../mcp/opengrok-mcp-shared.js');
+const { buildGerritEnv, ensureHermesGerritMcp, GERRIT_MCP_TOOL_HINT } = require('../mcp/gerrit-mcp-shared.js');
+const { ensureHermesCodegraphMcp, CODEGRAPH_MCP_TOOL_HINT } = require('../mcp/codegraph-mcp-shared.js');
 const child_process = require('child_process');
 const fs = require('fs');
 const path = require('path');
@@ -145,6 +148,8 @@ class HermesAdapter extends AgentAdapter {
       this.setStatus('connected', 'Hermes CLI connected');
       await this.ensureVendorMcp();
       await this.ensureWeknoraMcp();
+      await this.ensureOpengrokMcp();
+      await this.ensureCodegraphMcp();
     }
     return result.available;
   }
@@ -179,6 +184,51 @@ class HermesAdapter extends AgentAdapter {
     }
   }
 
+  /**
+   * 幂等注册 OpenGrok 代码检索 MCP server (tabonkb-opengrok)
+   */
+  async ensureOpengrokMcp() {
+    if (this._opengrokMcpEnsured) return;
+    this._opengrokMcpEnsured = true;
+    try {
+      const bin = this.resolveBinary();
+      const res = await ensureHermesOpengrokMcp(bin.cmd, bin.prefixArgs, this.vaultBasePath);
+      if (!res.ok) console.warn('[Hermes] opengrok MCP 注册失败:', res.error || res.output);
+    } catch (e) {
+      console.warn('[Hermes] opengrok MCP 注册异常:', e.message);
+    }
+  }
+
+  /**
+   * 幂等注册 Gerrit 代码评审 MCP server (tabonkb-gerrit)
+   */
+  async ensureGerritMcp() {
+    if (this._gerritMcpEnsured) return;
+    this._gerritMcpEnsured = true;
+    try {
+      const bin = this.resolveBinary();
+      const res = await ensureHermesGerritMcp(bin.cmd, bin.prefixArgs, this.vaultBasePath);
+      if (!res.ok) console.warn('[Hermes] gerrit MCP 注册失败:', res.error || res.output);
+    } catch (e) {
+      console.warn('[Hermes] gerrit MCP 注册异常:', e.message);
+    }
+  }
+
+  /**
+   * 幂等注册 62 上的 CodeGraph（内核 + 项目私有驱动）
+   */
+  async ensureCodegraphMcp() {
+    if (this._codegraphMcpEnsured) return;
+    this._codegraphMcpEnsured = true;
+    try {
+      const bin = this.resolveBinary();
+      const res = await ensureHermesCodegraphMcp(bin.cmd, bin.prefixArgs);
+      if (!res.ok) console.warn('[Hermes] codegraph MCP 注册失败:', JSON.stringify(res.results || []).slice(-500));
+    } catch (e) {
+      console.warn('[Hermes] codegraph MCP 注册异常:', e.message);
+    }
+  }
+
   async stop() {
     await this.abort();
     this.setStatus('disconnected', 'Stopped');
@@ -191,6 +241,9 @@ class HermesAdapter extends AgentAdapter {
     if (this.isStreaming) return { success: false, error: 'Another Hermes request is still running' };
     await this.ensureVendorMcp();
     await this.ensureWeknoraMcp();
+    await this.ensureOpengrokMcp();
+    await this.ensureGerritMcp();
+    await this.ensureCodegraphMcp();
 
     this.isStreaming = true;
     this.stdoutBuffer = '';
@@ -201,7 +254,7 @@ class HermesAdapter extends AgentAdapter {
     this.setStatus('thinking', 'Hermes is thinking');
     this.emit('turn_start');
 
-    const prompt = (contextPayload ? `${text}\n\n${JSON.stringify(contextPayload)}` : text) + VENDOR_MCP_TOOL_HINT + WEKNORA_MCP_TOOL_HINT;
+    const prompt = (contextPayload ? `${text}\n\n${JSON.stringify(contextPayload)}` : text) + VENDOR_MCP_TOOL_HINT + WEKNORA_MCP_TOOL_HINT + OPENGROK_MCP_TOOL_HINT + GERRIT_MCP_TOOL_HINT + CODEGRAPH_MCP_TOOL_HINT;
     const bin = this.resolveBinary();
     const modelId = (this.selectedModel && this.selectedModel.id) || this.readDefaultModel().id;
     const modelArgs = modelId && modelId !== 'default' ? ['-m', modelId] : [];
@@ -221,7 +274,7 @@ class HermesAdapter extends AgentAdapter {
       try {
         this.process = child_process.spawn(bin.cmd, spawnArgs, {
           cwd: this.vaultBasePath || process.cwd(),
-          env: Object.assign({}, process.env, buildVendorEnv(this.vaultBasePath), buildWeknoraEnv(this.vaultBasePath)),
+          env: Object.assign({}, process.env, buildVendorEnv(this.vaultBasePath), buildWeknoraEnv(this.vaultBasePath), buildOpengrokEnv(this.vaultBasePath), buildGerritEnv(this.vaultBasePath)),
           stdio: ['pipe', 'pipe', 'pipe'],
           windowsHide: true
         });
@@ -307,7 +360,7 @@ class HermesAdapter extends AgentAdapter {
     // 1. Tool execution started
     if (event.type === 'tool_use') {
       const rawName = event.name || '';
-      const toolName = rawName.replace(/^mcp__tabonkb_vendor__/, '').replace(/^mcp__tabonkb_weknora__/, '');
+      const toolName = rawName.replace(/^mcp__tabonkb_vendor__/, '').replace(/^mcp__tabonkb_weknora__/, '').replace(/^mcp__tabonkb_opengrok__/, '').replace(/^mcp__tabonkb_gerrit__/, '').replace(/^mcp__codegraph_kernel__/, '').replace(/^mcp__codegraph_driver__/, '');
       const toolCallId = `hermes_${toolName}_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
       this.currentToolCallId = toolCallId;
       this.currentToolName = toolName;
@@ -341,6 +394,31 @@ class HermesAdapter extends AgentAdapter {
         actionDesc = `正在更新知识文档: ${event.input?.knowledge_id || ''}`;
       } else if (toolName === 'weknora_delete_document') {
         actionDesc = `正在删除知识文档: ${event.input?.knowledge_id || ''}`;
+      } else if (toolName === 'opengrok_search_code') {
+        const q = event.input?.query || '';
+        const p = event.input?.project ? ` [${event.input.project}]` : '';
+        actionDesc = `正在检索 OpenGrok 代码${p}: "${q}"`;
+      } else if (toolName === 'opengrok_read_file') {
+        const f = event.input?.file_path ? path.basename(event.input.file_path) : '';
+        actionDesc = `正在阅读 OpenGrok 源码: ${f || event.input?.file_path || ''}`;
+      } else if (toolName === 'opengrok_list_projects') {
+        actionDesc = '正在获取 OpenGrok 代码工程清单...';
+      } else if (toolName === 'gerrit_search_changes') {
+        const q = event.input?.query || (event.input?.project ? `工程: ${event.input.project}` : '');
+        actionDesc = `正在检索 Gerrit 代码评审${q ? `: "${q}"` : ''}`;
+      } else if (toolName === 'gerrit_get_change') {
+        actionDesc = `正在查阅 Gerrit 评审详情: #${event.input?.change_id || ''}`;
+      } else if (toolName === 'gerrit_get_diff') {
+        const f = event.input?.file_path ? ` (${path.basename(event.input.file_path)})` : '';
+        actionDesc = `正在查阅 Gerrit 代码变更 Diff: #${event.input?.change_id || ''}${f}`;
+      } else if (toolName === 'gerrit_get_comments') {
+        actionDesc = `正在查阅 Gerrit 行内评审意见: #${event.input?.change_id || ''}`;
+      } else if (toolName === 'gerrit_list_projects') {
+        actionDesc = '正在获取 Gerrit 代码工程仓库清单...';
+      } else if (toolName === 'codegraph_explore') {
+        const tree = /kernel/.test(rawName) ? '内核' : (/driver/.test(rawName) ? '私有驱动' : '');
+        const q = event.input?.query || '';
+        actionDesc = `正在查询 CodeGraph${tree ? ' ' + tree : ''}${q ? `: "${q}"` : ''}`;
       }
 
       this.setStatus('running_tool', actionDesc);
@@ -358,7 +436,7 @@ class HermesAdapter extends AgentAdapter {
     if (event.type === 'tool_result') {
       const toolCallId = this.currentToolCallId || `hermes_tool_${Date.now()}`;
       const rawName = event.name || '';
-      const toolName = rawName.replace(/^mcp__tabonkb_vendor__/, '').replace(/^mcp__tabonkb_weknora__/, '') || this.currentToolName || 'tool';
+      const toolName = rawName.replace(/^mcp__tabonkb_vendor__/, '').replace(/^mcp__tabonkb_weknora__/, '').replace(/^mcp__tabonkb_opengrok__/, '').replace(/^mcp__tabonkb_gerrit__/, '').replace(/^mcp__codegraph_kernel__/, '').replace(/^mcp__codegraph_driver__/, '') || this.currentToolName || 'tool';
       const durationMs = event.duration_ms || (Date.now() - (this.currentToolStartTime || Date.now()));
 
       this.emit('tool_end', {

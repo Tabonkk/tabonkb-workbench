@@ -17,7 +17,9 @@ class WeKnoraWikiDrawer {
     this.app = options.app || (typeof window !== 'undefined' ? window.app : null);
     this.service = options.service;
     this.onExpandEgo = options.onExpandEgo || (() => {});
+    this.onExitEgo = options.onExitEgo || (() => {});
     this.onClose = options.onClose || (() => {});
+    this.onDrawerStateChange = options.onDrawerStateChange || null;
 
     // LRU 缓存 (slug -> { title, pageType, summary, content, cachedAt })
     this.lruCache = new Map();
@@ -30,6 +32,8 @@ class WeKnoraWikiDrawer {
     this.currentKbId = null;
     this.abortController = null;
     this.isOpen = false;
+    this.isEgoMode = false;
+    this.isEgoCenter = false;
 
     this.initDOM();
   }
@@ -41,12 +45,27 @@ class WeKnoraWikiDrawer {
     this.parentEl.appendChild(this.drawerEl);
   }
 
-  async open(node, kbId) {
+  formatTypeLabel(type) {
+    if (!type) return '实体';
+    const t = String(type).toLowerCase();
+    if (t === 'summary') return '文档摘要';
+    if (t === 'entity') return '实体';
+    if (t === 'concept') return '概念';
+    if (t === 'relation') return '关系';
+    if (t === 'topic') return '主题';
+    return type;
+  }
+
+  async open(node, kbId, options = {}) {
     if (!node) return;
     this.currentNode = node;
     this.currentKbId = kbId;
+    this.isEgoMode = options.isEgoMode || false;
+    this.isEgoCenter = options.isEgoCenter || false;
     this.isOpen = true;
+    this.parentEl?.classList.add('drawer-open');
     this.drawerEl.style.transform = 'translateX(0)';
+    if (this.onDrawerStateChange) this.onDrawerStateChange(true);
 
     this.renderLoading(node);
 
@@ -91,6 +110,7 @@ class WeKnoraWikiDrawer {
   close() {
     this.isOpen = false;
     this.currentNode = null;
+    this.isEgoCenter = false;
     if (this.abortController) {
       try { this.abortController.abort(); } catch (e) {}
       this.abortController = null;
@@ -98,21 +118,32 @@ class WeKnoraWikiDrawer {
     if (this.drawerEl) {
       this.drawerEl.style.transform = 'translateX(100%)';
     }
+    this.parentEl?.classList.remove('drawer-open');
+    if (this.onDrawerStateChange) this.onDrawerStateChange(false);
     this.onClose();
   }
 
   renderLoading(node) {
+    const pType = node.pageType || 'entity';
+    const typeLabel = this.formatTypeLabel(pType);
     this.drawerEl.innerHTML = `
-      <div class="tw-drawer-header">
-        <div class="tw-drawer-title-row">
-          <span class="tw-drawer-title" title="${escapeHtml(node.title)}">${escapeHtml(node.title)}</span>
-          <button class="tw-drawer-close-btn" id="btnWikiDrawerClose" title="关闭 (Esc)">✕</button>
+      <div class="tw-wiki-drawer-header">
+        <div class="tw-wiki-drawer-title-row">
+          <div class="tw-wiki-drawer-title" title="${escapeHtml(node.title)}">${escapeHtml(node.title)}</div>
+          <button class="tw-wiki-drawer-close-btn" id="btnWikiDrawerClose" title="关闭详情面板 (Esc)">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
         </div>
-        <div class="tw-drawer-meta-row">
-          <span class="tw-chip" style="background:${node.color}22; color:${node.color}; font-size:11px; padding:2px 8px;">
-            ${escapeHtml(node.pageType || 'entity')}
-          </span>
-          <span class="tw-drawer-degree">关联度: ${node.degree || 0}</span>
+        <div class="tw-wiki-drawer-meta-row">
+          <div class="tw-wiki-drawer-meta-left">
+            <span class="tw-wiki-type-badge" style="background:${node.color || '#3B82F6'}1a; color:${node.color || '#3B82F6'}; border: 1px solid ${node.color || '#3B82F6'}33;">
+              ${escapeHtml(typeLabel)}
+            </span>
+            <span class="tw-wiki-meta-pill">关联度 <strong>${node.degree || 0}</strong></span>
+          </div>
         </div>
       </div>
       <div class="tw-drawer-body">
@@ -127,10 +158,15 @@ class WeKnoraWikiDrawer {
 
   renderError(node, errMsg) {
     this.drawerEl.innerHTML = `
-      <div class="tw-drawer-header">
-        <div class="tw-drawer-title-row">
-          <span class="tw-drawer-title">${escapeHtml(node.title)}</span>
-          <button class="tw-drawer-close-btn" id="btnWikiDrawerClose" title="关闭 (Esc)">✕</button>
+      <div class="tw-wiki-drawer-header">
+        <div class="tw-wiki-drawer-title-row">
+          <div class="tw-wiki-drawer-title">${escapeHtml(node.title)}</div>
+          <button class="tw-wiki-drawer-close-btn" id="btnWikiDrawerClose" title="关闭详情面板 (Esc)">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
         </div>
       </div>
       <div class="tw-drawer-body">
@@ -144,30 +180,37 @@ class WeKnoraWikiDrawer {
     `;
     this.bindHeaderEvents(node);
     const retryBtn = this.drawerEl.querySelector('#btnWikiDrawerRetry');
-    if (retryBtn) retryBtn.onclick = () => this.open(node, this.currentKbId);
+    if (retryBtn) retryBtn.onclick = () => this.open(node, this.currentKbId, { isEgoMode: this.isEgoMode, isEgoCenter: this.isEgoCenter });
   }
 
   async renderContent(node, pageData) {
     const pType = pageData.pageType || node.pageType || 'entity';
+    const typeLabel = this.formatTypeLabel(pType);
     const title = pageData.title || node.title || node.slug;
     const content = pageData.content || pageData.summary || '> 暂无正文内容。';
 
     this.drawerEl.innerHTML = `
-      <div class="tw-drawer-header">
-        <div class="tw-drawer-title-row">
-          <span class="tw-drawer-title" title="${escapeHtml(title)}">${escapeHtml(title)}</span>
-          <button class="tw-drawer-close-btn" id="btnWikiDrawerClose" title="关闭 (Esc)">✕</button>
-        </div>
-        <div class="tw-drawer-meta-row">
-          <div style="display:flex; align-items:center; gap:6px;">
-            <span class="tw-chip" style="background:${node.color}22; color:${node.color}; font-size:11px; padding:2px 8px; font-weight:600;">
-              ${escapeHtml(pType)}
-            </span>
-            <span class="tw-drawer-degree" title="全库与该实体关联的边数量">全库度数: ${node.degree || 0}</span>
-          </div>
-          <button class="tw-drawer-ego-btn" id="btnWikiDrawerEgo" title="进入 Ego 模式，聚焦展示该节点的关联网络">
-            <span>展开邻居</span>
+      <div class="tw-wiki-drawer-header">
+        <div class="tw-wiki-drawer-title-row">
+          <div class="tw-wiki-drawer-title" title="${escapeHtml(title)}">${escapeHtml(title)}</div>
+          <button class="tw-wiki-drawer-close-btn" id="btnWikiDrawerClose" title="关闭 (Esc)">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
           </button>
+        </div>
+        <div class="tw-wiki-drawer-meta-row">
+          <div class="tw-wiki-drawer-meta-left">
+            <span class="tw-wiki-type-badge" style="background:${node.color || '#3B82F6'}1a; color:${node.color || '#3B82F6'}; border: 1px solid ${node.color || '#3B82F6'}33;">
+              ${escapeHtml(typeLabel)}
+            </span>
+            <span class="tw-wiki-meta-pill">关联度 <strong>${node.degree || 0}</strong></span>
+            ${node.referenceCount ? `<span class="tw-wiki-meta-pill">引用 <strong>${node.referenceCount}</strong></span>` : ''}
+          </div>
+          <div class="tw-wiki-drawer-actions">
+            ${this.getEgoButtonHtml(this.isEgoCenter, this.isEgoMode)}
+          </div>
         </div>
       </div>
       <div class="tw-drawer-body">
@@ -178,10 +221,10 @@ class WeKnoraWikiDrawer {
 
     this.bindHeaderEvents(node);
 
-    // Ego 展开触发
+    // Ego 展开/退出触发
     const egoBtn = this.drawerEl.querySelector('#btnWikiDrawerEgo');
     if (egoBtn) {
-      egoBtn.onclick = () => this.onExpandEgo(node);
+      this.bindEgoBtnClick(egoBtn, node);
     }
 
     // Markdown 正文渲染
@@ -252,6 +295,52 @@ class WeKnoraWikiDrawer {
     const closeBtn = this.drawerEl.querySelector('#btnWikiDrawerClose');
     if (closeBtn) {
       closeBtn.onclick = () => this.close();
+    }
+  }
+
+  getEgoButtonHtml(isEgoCenter, isEgoMode) {
+    if (isEgoCenter) {
+      return `
+        <button class="tw-drawer-ego-btn ego-back" id="btnWikiDrawerEgo" title="退出专注模式，返回全局图谱">
+          <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path>
+          </svg>
+          <span>返回全图</span>
+        </button>
+      `;
+    }
+    return `
+      <button class="tw-drawer-ego-btn" id="btnWikiDrawerEgo" title="${isEgoMode ? '切换并聚焦展示该节点的关联网络' : '进入专注模式，聚焦展示该节点的关联网络'}">
+        <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+        </svg>
+        <span>${isEgoMode ? '切换专注' : '展开邻居'}</span>
+      </button>
+    `;
+  }
+
+  bindEgoBtnClick(egoBtn, node) {
+    if (!egoBtn || !node) return;
+    egoBtn.onclick = () => {
+      if (this.isEgoCenter && this.onExitEgo) {
+        this.onExitEgo();
+        this.updateEgoButtonState(false, false);
+      } else if (this.onExpandEgo) {
+        this.onExpandEgo(node);
+        this.updateEgoButtonState(true, true);
+      }
+    };
+  }
+
+  updateEgoButtonState(isEgoCenter, isEgoMode) {
+    this.isEgoCenter = isEgoCenter;
+    this.isEgoMode = isEgoMode;
+    const actionsEl = this.drawerEl?.querySelector('.tw-wiki-drawer-actions');
+    if (!actionsEl) return;
+    actionsEl.innerHTML = this.getEgoButtonHtml(isEgoCenter, isEgoMode);
+    const egoBtn = actionsEl.querySelector('#btnWikiDrawerEgo');
+    if (egoBtn && this.currentNode) {
+      this.bindEgoBtnClick(egoBtn, this.currentNode);
     }
   }
 

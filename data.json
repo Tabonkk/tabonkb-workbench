@@ -1,4 +1,5 @@
 {
+  "workbenchTheme": "fresh",
   "jira": {
     "type": "datacenter",
     "authType": "basic",
@@ -19,27 +20,73 @@
   "rss": {
     "feeds": [
       {
+        "id": "bootlin",
+        "name": "Bootlin (嵌入式内核驱动)",
+        "url": "https://bootlin.com/feed/",
+        "category": "kernel",
+        "enabled": true
+      },
+      {
+        "id": "cnx-software",
+        "name": "CNX Software (芯片与嵌入式硬件)",
+        "url": "https://www.cnx-software.com/feed/",
+        "category": "kernel",
+        "enabled": true
+      },
+      {
+        "id": "phoronix",
+        "name": "Phoronix (Linux 内核与硬件评测)",
+        "url": "https://www.phoronix.com/rss.php",
+        "category": "kernel",
+        "enabled": true
+      },
+      {
         "id": "lwn",
-        "name": "LWN Kernel",
+        "name": "LWN Kernel (Linux 内核前沿)",
         "url": "https://lwn.net/headlines/rss",
+        "category": "kernel",
         "enabled": true
       },
       {
         "id": "android-dev",
-        "name": "Android Developers",
+        "name": "Android Developers (官方演进)",
         "url": "https://android-developers.googleblog.com/feeds/posts/default",
+        "category": "kernel",
         "enabled": true
       },
       {
-        "id": "feed_1789533159100",
-        "name": "IT之家",
-        "url": "https://www.ithome.com/rss/",
+        "id": "embedded-artistry",
+        "name": "Embedded Artistry (嵌入式架构)",
+        "url": "https://embeddedartistry.com/feed/",
+        "category": "kernel",
         "enabled": true
       },
       {
-        "id": "feed_1790081415224",
-        "name": "艾为",
-        "url": "https://www.awinic.com/cn/11/tech.html",
+        "id": "huggingface",
+        "name": "Hugging Face (端侧模型与开源AI)",
+        "url": "https://huggingface.co/blog/feed.xml",
+        "category": "ai",
+        "enabled": true
+      },
+      {
+        "id": "openai",
+        "name": "OpenAI News (AI 前沿研究)",
+        "url": "https://openai.com/news/rss.xml",
+        "category": "ai",
+        "enabled": true
+      },
+      {
+        "id": "simonwillison",
+        "name": "Simon Willison (AI 应用实战)",
+        "url": "https://simonwillison.net/atom/everything/",
+        "category": "ai",
+        "enabled": true
+      },
+      {
+        "id": "github-blog",
+        "name": "GitHub Engineering (AI 辅助工程)",
+        "url": "https://github.blog/feed/",
+        "category": "ai",
         "enabled": true
       }
     ],
@@ -84,5 +131,17 @@
     "maxBytes": 10485760,
     "minBytes": 2048,
     "debounceMs": 1200
+  },
+  "opengrok": {
+    "baseUrl": "http://192.168.1.12:7080/source",
+    "defaultProject": "W_sprd_os_dev",
+    "timeout": 15000
+  },
+  "gerrit": {
+    "baseUrl": "http://192.168.1.17:8090",
+    "username": "tankaikun",
+    "secretName": "tabonkb-gerrit-password",
+    "timeout": 15000,
+    "readonly": true
   }
 }

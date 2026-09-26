@@ -18,15 +18,73 @@
 
 const DEFAULT_FEEDS = [
   {
+    id: 'bootlin',
+    name: 'Bootlin (嵌入式内核驱动)',
+    url: 'https://bootlin.com/feed/',
+    category: 'kernel',
+    enabled: true
+  },
+  {
+    id: 'cnx-software',
+    name: 'CNX Software (芯片与嵌入式硬件)',
+    url: 'https://www.cnx-software.com/feed/',
+    category: 'kernel',
+    enabled: true
+  },
+  {
+    id: 'phoronix',
+    name: 'Phoronix (Linux 内核与硬件评测)',
+    url: 'https://www.phoronix.com/rss.php',
+    category: 'kernel',
+    enabled: true
+  },
+  {
     id: 'lwn',
-    name: 'LWN Kernel',
+    name: 'LWN Kernel (Linux 内核前沿)',
     url: 'https://lwn.net/headlines/rss',
+    category: 'kernel',
     enabled: true
   },
   {
     id: 'android-dev',
-    name: 'Android Developers',
+    name: 'Android Developers (官方演进)',
     url: 'https://android-developers.googleblog.com/feeds/posts/default',
+    category: 'kernel',
+    enabled: true
+  },
+  {
+    id: 'embedded-artistry',
+    name: 'Embedded Artistry (嵌入式架构)',
+    url: 'https://embeddedartistry.com/feed/',
+    category: 'kernel',
+    enabled: true
+  },
+  {
+    id: 'huggingface',
+    name: 'Hugging Face (端侧模型与开源AI)',
+    url: 'https://huggingface.co/blog/feed.xml',
+    category: 'ai',
+    enabled: true
+  },
+  {
+    id: 'openai',
+    name: 'OpenAI News (AI 前沿研究)',
+    url: 'https://openai.com/news/rss.xml',
+    category: 'ai',
+    enabled: true
+  },
+  {
+    id: 'simonwillison',
+    name: 'Simon Willison (AI 应用实战)',
+    url: 'https://simonwillison.net/atom/everything/',
+    category: 'ai',
+    enabled: true
+  },
+  {
+    id: 'github-blog',
+    name: 'GitHub Engineering (AI 辅助工程)',
+    url: 'https://github.blog/feed/',
+    category: 'ai',
     enabled: true
   }
 ];
@@ -159,6 +217,7 @@ class RssService {
         items.push({
           feedId: feedConfig.id,
           feedName: feedConfig.name,
+          category: feedConfig.category || 'kernel',
           title,
           link: safeLink,
           publishedAt: publishedAt || new Date(),
@@ -195,6 +254,7 @@ class RssService {
         items.push({
           feedId: feedConfig.id,
           feedName: feedConfig.name,
+          category: feedConfig.category || 'kernel',
           title,
           link: safeLink,
           publishedAt: publishedAt || new Date(),

@@ -25,6 +25,7 @@ class PiAgentBridge {
     this.pendingCommands = new Map();
     this.currentTurnHasText = false;
     this.lastTurnError = null;
+    this._inInlineThink = false;
     this.activeProvider = (typeof localStorage !== 'undefined' && localStorage.getItem('tabonkb-pi-active-provider')) || 'cc-switch-deep-seek';
     this.activeModelId = (typeof localStorage !== 'undefined' && localStorage.getItem('tabonkb-pi-active-model')) || 'deepseek-v4-flash';
 
@@ -130,10 +131,10 @@ class PiAgentBridge {
     }
   }
 
-  // 返回所有可用的 Pi 原生扩展路径 (vendor-portal + weknora-portal)
+  // 返回所有可用的 Pi 原生扩展路径 (vendor-portal + weknora-portal + opengrok-portal + gerrit-portal + codegraph-portal)
   // 优先级: .pi/extensions > plugin/extensions; 供 --extension 多次传入
   getExtensionPaths() {
-    const names = ['vendor-portal.ts', 'weknora-portal.ts'];
+    const names = ['vendor-portal.ts', 'weknora-portal.ts', 'opengrok-portal.ts', 'gerrit-portal.ts', 'codegraph-portal.ts'];
     const result = [];
     for (const name of names) {
       const candidates = [
@@ -160,7 +161,10 @@ class PiAgentBridge {
       ? 'read,write,edit,grep,find,ls'
       : 'read,grep,find,ls';
     const weknoraTools = ',weknora_list_knowledge_bases,weknora_search,weknora_ask,weknora_list_documents,weknora_read_document,weknora_add_document,weknora_update_document,weknora_delete_document';
-    const tools = `${baseTools},vendor_portal_search,vendor_portal_get_detail${weknoraTools}`;
+    const opengrokTools = ',opengrok_list_projects,opengrok_search_code,opengrok_read_file';
+    const gerritTools = ',gerrit_search_changes,gerrit_get_change,gerrit_get_diff,gerrit_get_comments,gerrit_list_projects';
+    const codegraphTools = ',codegraph_explore';
+    const tools = `${baseTools},vendor_portal_search,vendor_portal_get_detail${weknoraTools}${opengrokTools}${gerritTools}${codegraphTools}`;
 
     const extPaths = this.getExtensionPaths();
     const extArgs = [];
@@ -321,13 +325,23 @@ class PiAgentBridge {
           }
         }
       } catch (_) {}
+      // Extract OpenGrok code search config (env > plugin.settings > data.json)
+      let opengrokBase = process.env.OPENGROK_BASE_URL || '';
+      let opengrokProject = process.env.OPENGROK_DEFAULT_PROJECT || '';
       try {
-        if (!weknoraBase || !weknoraKb) {
+        const plugin = this.plugin || (typeof window !== 'undefined' && (window.app?.plugins?.getPlugin?.('tabonkb-workbench') || window.app?.plugins?.plugins?.['tabonkb-workbench']));
+        if (plugin) {
+          if (!opengrokBase && plugin.settings?.opengrok?.baseUrl) opengrokBase = plugin.settings.opengrok.baseUrl;
+          if (!opengrokProject && plugin.settings?.opengrok?.defaultProject) opengrokProject = plugin.settings.opengrok.defaultProject;
+        }
+      } catch (_) {}
+      try {
+        if (!opengrokBase || !opengrokProject) {
           const dataJsonPath = path.join(this.vaultBasePath, '.obsidian', 'plugins', 'tabonkb-workbench', 'data.json');
           if (fs.existsSync(dataJsonPath)) {
             const dj = JSON.parse(fs.readFileSync(dataJsonPath, 'utf8'));
-            if (!weknoraBase) weknoraBase = dj?.weknora?.baseUrl || '';
-            if (!weknoraKb) weknoraKb = dj?.weknora?.defaultKb || '';
+            if (!opengrokBase) opengrokBase = dj?.opengrok?.baseUrl || '';
+            if (!opengrokProject) opengrokProject = dj?.opengrok?.defaultProject || '';
           }
         }
       } catch (_) {}
@@ -344,7 +358,9 @@ class PiAgentBridge {
           TABONKB_MTK_PASSWORD: mtkPassword,
           WEKNORA_BASE_URL: weknoraBase,
           WEKNORA_API_KEY: weknoraKey,
-          WEKNORA_DEFAULT_KB: weknoraKb
+          WEKNORA_DEFAULT_KB: weknoraKb,
+          OPENGROK_BASE_URL: opengrokBase,
+          OPENGROK_DEFAULT_PROJECT: opengrokProject
         }),
         stdio: ['pipe', 'pipe', 'pipe']
       });
@@ -445,6 +461,7 @@ class PiAgentBridge {
       this.isStreaming = true;
       this.currentTurnHasText = false;
       this.lastTurnError = null;
+      this._inInlineThink = false;
       this.setStatus('thinking', '正在思考与规划...');
       this.emit('turn_start', data);
       return;
@@ -462,6 +479,7 @@ class PiAgentBridge {
     if (type === 'agent_end' || type === 'agent_settled') {
       this.isStreaming = false;
       this.activeTools.clear();
+      this._inInlineThink = false;
       this.setStatus('connected', '已连接 (就绪)');
       this.emit('agent_settled', data);
       return;
@@ -483,6 +501,7 @@ class PiAgentBridge {
         }
         this.emit('error', { message: errMsg, stopReason: msg.stopReason });
       }
+      this._inInlineThink = false;
       this.emit('turn_end', data);
       return;
     }
@@ -492,8 +511,17 @@ class PiAgentBridge {
       const ev = data.assistantMessageEvent;
       if (!ev) return;
 
-      // STRICT REQUIREMENT: Suppress Chain-of-Thought (thinking_delta)
+      // Handle native thinking / CoT events (DeepSeek, Anthropic, OpenAI reasoning)
       if (typeof ev.type === 'string' && ev.type.startsWith('thinking_')) {
+        if (ev.type === 'thinking_start') {
+          this.emit('thinking_start', ev);
+        } else if (ev.type === 'thinking_delta' && typeof ev.delta === 'string') {
+          if (ev.delta.length > 0) {
+            this.emit('thinking_delta', ev.delta);
+          }
+        } else if (ev.type === 'thinking_end') {
+          this.emit('thinking_end', ev);
+        }
         return;
       }
 
@@ -501,7 +529,7 @@ class PiAgentBridge {
         if (ev.delta.length > 0) {
           this.currentTurnHasText = true;
         }
-        this.emit('text_delta', ev.delta);
+        this._handleTextOrThinkingDelta(ev.delta);
       }
       return;
     }
@@ -554,6 +582,30 @@ class PiAgentBridge {
         actionDesc = `正在更新知识文档: ${args?.knowledge_id || ''}`;
       } else if (toolName === 'weknora_delete_document') {
         actionDesc = `正在删除知识文档: ${args?.knowledge_id || ''}`;
+      } else if (toolName === 'opengrok_search_code') {
+        const q = args?.query || '';
+        const p = args?.project ? ` [${args.project}]` : '';
+        actionDesc = `正在检索 OpenGrok 代码${p}: "${q}"`;
+      } else if (toolName === 'opengrok_read_file') {
+        const f = args?.file_path ? path.basename(args.file_path) : '';
+        actionDesc = `正在阅读 OpenGrok 源码: ${f || args?.file_path || ''}`;
+      } else if (toolName === 'opengrok_list_projects') {
+        actionDesc = '正在获取 OpenGrok 代码工程清单...';
+      } else if (toolName === 'gerrit_search_changes') {
+        const q = args?.query || (args?.project ? `工程: ${args.project}` : '');
+        actionDesc = `正在检索 Gerrit 代码评审${q ? `: "${q}"` : ''}`;
+      } else if (toolName === 'gerrit_get_change') {
+        actionDesc = `正在查阅 Gerrit 评审详情: #${args?.change_id || ''}`;
+      } else if (toolName === 'gerrit_get_diff') {
+        const f = args?.file_path ? ` (${path.basename(args.file_path)})` : '';
+        actionDesc = `正在查阅 Gerrit 代码变更 Diff: #${args?.change_id || ''}${f}`;
+      } else if (toolName === 'gerrit_get_comments') {
+        actionDesc = `正在查阅 Gerrit 行内评审意见: #${args?.change_id || ''}`;
+      } else if (toolName === 'gerrit_list_projects') {
+        actionDesc = '正在获取 Gerrit 代码工程仓库清单...';
+      } else if (toolName === 'codegraph_explore') {
+        const tree = args?.tree === 'driver' ? '私有驱动' : '内核';
+        actionDesc = `正在查询 CodeGraph ${tree}: "${args?.query || ''}"`;
       }
 
       this.setStatus('running_tool', actionDesc);
@@ -584,6 +636,42 @@ class PiAgentBridge {
         this.setStatus('thinking', '正在整理分析回复...');
       }
       return;
+    }
+  }
+
+  /**
+   * Handle text delta stream, cleanly routing inline <think>...</think> blocks to thinking_delta
+   * @private
+   */
+  _handleTextOrThinkingDelta(chunk) {
+    if (!chunk || typeof chunk !== 'string') return;
+    let remaining = chunk;
+    while (remaining.length > 0) {
+      if (!this._inInlineThink) {
+        const thinkOpenIdx = remaining.indexOf('<think>');
+        if (thinkOpenIdx !== -1) {
+          const before = remaining.slice(0, thinkOpenIdx);
+          if (before) this.emit('text_delta', before);
+          this._inInlineThink = true;
+          this.emit('thinking_start', {});
+          remaining = remaining.slice(thinkOpenIdx + 7);
+        } else {
+          this.emit('text_delta', remaining);
+          break;
+        }
+      } else {
+        const thinkCloseIdx = remaining.indexOf('</think>');
+        if (thinkCloseIdx !== -1) {
+          const inside = remaining.slice(0, thinkCloseIdx);
+          if (inside) this.emit('thinking_delta', inside);
+          this._inInlineThink = false;
+          this.emit('thinking_end', {});
+          remaining = remaining.slice(thinkCloseIdx + 8);
+        } else {
+          this.emit('thinking_delta', remaining);
+          break;
+        }
+      }
     }
   }
 

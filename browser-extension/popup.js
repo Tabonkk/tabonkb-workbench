@@ -29,7 +29,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         isServerOnline = true;
         serverStatusEl.innerHTML = `
           <span class="status-dot online"></span>
-          <span class="status-text">工作台在线 (${res.data.version || 'v1.2.0'})</span>
+          <span class="status-text">工作台在线 (${res.data.version || 'v1.3.0'})</span>
         `;
       } else {
         isServerOnline = false;

@@ -20,6 +20,242 @@ function escapeHtml(str) {
     .replace(/'/g, '&#039;');
 }
 
+function escapeAttr(str) {
+  return escapeHtml(str);
+}
+
+function hexToRgba(hex, alpha = 1) {
+  if (!hex || typeof hex !== 'string') return `rgba(56, 189, 248, ${alpha})`;
+  if (hex.startsWith('rgba')) return hex;
+  if (hex.startsWith('rgb')) {
+    return hex.replace('rgb', 'rgba').replace(')', `, ${alpha})`);
+  }
+  let c = hex.replace('#', '');
+  if (c.length === 3) c = c.split('').map(x => x + x).join('');
+  const num = parseInt(c, 16);
+  if (isNaN(num)) return `rgba(56, 189, 248, ${alpha})`;
+  const r = (num >> 16) & 255;
+  const g = (num >> 8) & 255;
+  const b = num & 255;
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+/**
+ * 银河全景雷达导航仪 HUD (Spaceship Galaxy Radar Mini-map)
+ * 具备微缩星系点阵拓扑、摄像机实时视锥取景框以及点击/拖拽空间飞跃能力
+ */
+class WeKnoraGraphRadar {
+  /**
+   * @param {HTMLElement} parentEl - 画布容器
+   * @param {WeKnoraGraphEngine} graphEngine - 图谱引擎
+   */
+  constructor(parentEl, graphEngine) {
+    this.parentEl = parentEl;
+    this.graphEngine = graphEngine;
+    this.isCollapsed = false;
+    this.radarWidth = 140;
+    this.radarHeight = 100;
+    this.radarEl = null;
+    this.canvasEl = null;
+    this.radarCtx = null;
+    this._isDragging = false;
+
+    this.initDOM();
+    this.bindEvents();
+  }
+
+  initDOM() {
+    this.radarEl = document.createElement('div');
+    this.radarEl.className = 'tw-graph-radar-hud';
+    this.radarEl.innerHTML = `
+      <div class="tw-radar-header" title="点击折叠/展开银河全景雷达">
+        <div class="tw-radar-title-wrap">
+          <span class="tw-radar-blip"></span>
+          <span class="tw-radar-title">RADAR</span>
+        </div>
+        <button class="tw-radar-toggle-btn" id="btnToggleRadar" title="折叠/展开">─</button>
+      </div>
+      <div class="tw-radar-body">
+        <canvas class="tw-radar-canvas" width="${this.radarWidth}" height="${this.radarHeight}"></canvas>
+      </div>
+    `;
+    this.parentEl.appendChild(this.radarEl);
+
+    this.canvasEl = this.radarEl.querySelector('.tw-radar-canvas');
+    this.radarCtx = this.canvasEl.getContext('2d');
+  }
+
+  bindEvents() {
+    const toggleBtn = this.radarEl.querySelector('#btnToggleRadar');
+    const headerEl = this.radarEl.querySelector('.tw-radar-header');
+
+    const doToggle = (e) => {
+      e.stopPropagation();
+      this.isCollapsed = !this.isCollapsed;
+      this.radarEl.classList.toggle('collapsed', this.isCollapsed);
+      if (toggleBtn) toggleBtn.textContent = this.isCollapsed ? '⤢' : '─';
+      if (!this.isCollapsed) this.render();
+    };
+
+    if (toggleBtn) toggleBtn.onclick = doToggle;
+    if (headerEl) headerEl.onclick = doToggle;
+
+    // 点击与拖拽雷达小地图触发空间跃迁
+    this.canvasEl.addEventListener('mousedown', (e) => {
+      e.stopPropagation();
+      this._isDragging = true;
+      this.handleRadarInteraction(e);
+    });
+
+    this._onWindowMouseMove = (e) => {
+      if (this._isDragging && !this.isCollapsed) {
+        this.handleRadarInteraction(e);
+      }
+    };
+    this._onWindowMouseUp = () => {
+      this._isDragging = false;
+    };
+
+    window.addEventListener('mousemove', this._onWindowMouseMove);
+    window.addEventListener('mouseup', this._onWindowMouseUp);
+
+    // 挂载到引擎渲染流水线完成钩子
+    if (this.graphEngine) {
+      this.graphEngine.onRenderCallback = () => {
+        if (!this.isCollapsed) {
+          this.render();
+        }
+      };
+    }
+  }
+
+  handleRadarInteraction(e) {
+    if (!this.canvasEl || !this.graphEngine) return;
+    const rect = this.canvasEl.getBoundingClientRect();
+    const rx = Math.max(0, Math.min(rect.width, e.clientX - rect.left));
+    const ry = Math.max(0, Math.min(rect.height, e.clientY - rect.top));
+
+    const bounds = this.graphEngine.getGraphBounds();
+    const cw = this.radarWidth;
+    const ch = this.radarHeight;
+
+    const scale = Math.min((cw - 18) / bounds.width, (ch - 18) / bounds.height);
+    const offsetX = (cw - bounds.width * scale) / 2;
+    const offsetY = (ch - bounds.height * scale) / 2;
+
+    const worldX = bounds.minX + (rx - offsetX) / scale;
+    const worldY = bounds.minY + (ry - offsetY) / scale;
+
+    this.graphEngine.flyToWorld(worldX, worldY, 400);
+  }
+
+  render() {
+    if (this.isCollapsed || !this.radarCtx || !this.graphEngine) return;
+    const ctx = this.radarCtx;
+    const cw = this.radarWidth;
+    const ch = this.radarHeight;
+
+    ctx.clearRect(0, 0, cw, ch);
+
+    const bounds = this.graphEngine.getGraphBounds();
+    const scale = Math.min((cw - 18) / bounds.width, (ch - 18) / bounds.height);
+    const offsetX = (cw - bounds.width * scale) / 2;
+    const offsetY = (ch - bounds.height * scale) / 2;
+
+    const toRadarX = (wx) => offsetX + (wx - bounds.minX) * scale;
+    const toRadarY = (wy) => offsetY + (wy - bounds.minY) * scale;
+
+    const th = this.graphEngine.currentTheme || 'cosmic';
+
+    // 1. 战术雷达网格背景
+    ctx.save();
+    ctx.strokeStyle = (th === 'cosmic') ? 'rgba(56, 189, 248, 0.14)' : 'rgba(148, 163, 184, 0.22)';
+    ctx.lineWidth = 0.5;
+
+    // 十字刻度线
+    const midX = cw / 2;
+    const midY = ch / 2;
+    ctx.beginPath();
+    ctx.moveTo(midX, 4); ctx.lineTo(midX, ch - 4);
+    ctx.moveTo(4, midY); ctx.lineTo(cw - 4, midY);
+    ctx.stroke();
+
+    // 距离同心圆环
+    ctx.beginPath();
+    ctx.arc(midX, midY, Math.min(cw, ch) * 0.36, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+
+    // 2. 绘制微缩星系点阵
+    const nodes = this.graphEngine.nodes || [];
+    for (let i = 0; i < nodes.length; i++) {
+      const n = nodes[i];
+      if (!Number.isFinite(n.x) || !Number.isFinite(n.y)) continue;
+      const rx = toRadarX(n.x);
+      const ry = toRadarY(n.y);
+      if (rx < 0 || rx > cw || ry < 0 || ry > ch) continue;
+
+      const isCore = n.isCoreAnchor || (n.degree && n.degree >= 6);
+      ctx.fillStyle = n.color || ((th === 'cosmic') ? '#38BDF8' : '#2563EB');
+      ctx.globalAlpha = isCore ? 0.95 : 0.60;
+      ctx.beginPath();
+      ctx.arc(rx, ry, isCore ? 1.8 : 1.1, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // 3. 绘制当前视野视锥取景框 (Camera Frustum Box)
+    const vp = this.graphEngine.getWorldViewport();
+    const rx1 = toRadarX(vp.left);
+    const ry1 = toRadarY(vp.top);
+    const rx2 = toRadarX(vp.right);
+    const ry2 = toRadarY(vp.bottom);
+
+    const bx = Math.max(0, Math.min(rx1, rx2));
+    const by = Math.max(0, Math.min(ry1, ry2));
+    const bw = Math.min(cw, Math.abs(rx2 - rx1));
+    const bh = Math.min(ch, Math.abs(ry2 - ry1));
+
+    ctx.save();
+    ctx.strokeStyle = (th === 'cosmic') ? '#38BDF8' : '#2563EB';
+    ctx.lineWidth = 1.2;
+    ctx.fillStyle = (th === 'cosmic') ? 'rgba(56, 189, 248, 0.16)' : 'rgba(37, 99, 235, 0.12)';
+    ctx.fillRect(bx, by, bw, bh);
+    ctx.strokeRect(bx, by, bw, bh);
+
+    // 视野中心十字微准星
+    const vcx = bx + bw / 2;
+    const vcy = by + bh / 2;
+    if (vcx >= 0 && vcx <= cw && vcy >= 0 && vcy <= ch) {
+      ctx.strokeStyle = (th === 'cosmic') ? '#BAE6FD' : '#1D4ED8';
+      ctx.lineWidth = 0.8;
+      ctx.beginPath();
+      ctx.moveTo(vcx - 3, vcy); ctx.lineTo(vcx + 3, vcy);
+      ctx.moveTo(vcx, vcy - 3); ctx.lineTo(vcx, vcy + 3);
+      ctx.stroke();
+    }
+
+    ctx.restore();
+  }
+
+  dispose() {
+    if (this._onWindowMouseMove) {
+      window.removeEventListener('mousemove', this._onWindowMouseMove);
+      this._onWindowMouseMove = null;
+    }
+    if (this._onWindowMouseUp) {
+      window.removeEventListener('mouseup', this._onWindowMouseUp);
+      this._onWindowMouseUp = null;
+    }
+    if (this.graphEngine && this.graphEngine.onRenderCallback) {
+      this.graphEngine.onRenderCallback = null;
+    }
+    this.radarEl?.remove();
+    this.radarEl = null;
+    this.canvasEl = null;
+    this.radarCtx = null;
+  }
+}
+
 class WeKnoraWikiGraphView {
   /**
    * @param {HTMLElement} parentEl
@@ -30,11 +266,18 @@ class WeKnoraWikiGraphView {
     this.app = options.app || (typeof window !== 'undefined' ? window.app : null);
     this.service = options.service;
     this.getCurrentKbId = options.getCurrentKbId || (() => '');
+    this.getKnowledgeBases = options.getKnowledgeBases || (() => []);
+    this.getConnectionStatus = options.getConnectionStatus || (() => ({ ok: true, latencyMs: 0, checking: false }));
+    this.onCheckConnection = options.onCheckConnection || (() => {});
+    this.onKnowledgeBaseChanged = options.onKnowledgeBaseChanged || (() => {});
+    this.onOpenExternal = options.onOpenExternal || (() => {});
+    this.onOpenSettings = options.onOpenSettings || (() => {});
 
     this.containerEl = null;
     this.graphEngine = null;
     this.wikiDrawer = null;
     this.tooltip = null;
+    this.radarHud = null;
     this.settingsPopover = null;
 
     // 数据与状态
@@ -45,6 +288,7 @@ class WeKnoraWikiGraphView {
     this.egoCenterNode = null;
     this.searchKeyword = '';
     this.searchDebounceTimer = null;
+    this.isSearchExpanded = false;
 
     // 高亮缓存 (key -> { result: string[], timestamp: number })
     this.highlightCache = new Map();
@@ -63,43 +307,51 @@ class WeKnoraWikiGraphView {
     this.toolbarEl.className = 'tw-weknora-graph-toolbar';
     this.containerEl.appendChild(this.toolbarEl);
 
-    // 2. Ego 模式提示横幅 (初始隐藏)
-    this.egoBannerEl = document.createElement('div');
-    this.egoBannerEl.className = 'tw-weknora-ego-banner';
-    this.egoBannerEl.style.display = 'none';
-    this.containerEl.appendChild(this.egoBannerEl);
-
-    // 3. 画布容器
+    // 2. 画布容器
     this.canvasContainerEl = document.createElement('div');
     this.canvasContainerEl.className = 'tw-weknora-canvas-container';
     this.containerEl.appendChild(this.canvasContainerEl);
 
-    // 4. 悬停 Tooltip 浮层
+    // 3. 悬停 Tooltip 浮层
     this.tooltip = document.createElement('div');
     this.tooltip.className = 'tw-graph-tooltip';
     this.canvasContainerEl.appendChild(this.tooltip);
 
-    // 5. 初始化图谱引擎 (默认使用石墨疏朗 graphite)
+    // 4. 初始化图谱引擎 (默认使用科技星云 immersive)
     this.graphEngine = new WeKnoraGraphEngine(this.canvasContainerEl, {
       onNodeClick: (node) => this.handleNodeClick(node),
       onNodeHover: (node, pos) => this.handleNodeHover(node, pos),
       onCanvasClick: () => this.handleCanvasClick()
     });
+    const defaultTheme = this.graphEngine?.currentTheme || 'immersive';
+    this.canvasContainerEl.dataset.theme = defaultTheme;
+    this.containerEl.dataset.theme = defaultTheme;
 
-    // 6. 初始化侧边 Wiki 抽屉
+    // 4.5 初始化银河全景雷达导航仪 HUD
+    this.radarHud = new WeKnoraGraphRadar(this.canvasContainerEl, this.graphEngine);
+
+    // 5. 初始化侧边 Wiki 抽屉
     this.wikiDrawer = new WeKnoraWikiDrawer(this.containerEl, {
       app: this.app,
       service: this.service,
       onExpandEgo: (node) => this.enterEgoMode(node),
+      onExitEgo: () => this.exitEgoMode(),
       onClose: () => {
         if (this.graphEngine) {
           this.graphEngine.selectedNode = null;
+          this.graphEngine.viewportPaddingRight = 0;
+          this.graphEngine.fitBounds(0.96, true);
           this.graphEngine.requestRender();
+        }
+      },
+      onDrawerStateChange: (isOpen) => {
+        if (this.graphEngine) {
+          this.graphEngine.viewportPaddingRight = isOpen ? 380 : 0;
         }
       }
     });
 
-    // 7. 视觉与力学配置面板
+    // 6. 视觉与力学配置面板
     this.settingsPopover = document.createElement('div');
     this.settingsPopover.className = 'tw-graph-settings-popover';
     this.containerEl.appendChild(this.settingsPopover);
@@ -116,9 +368,13 @@ class WeKnoraWikiGraphView {
         }
         if (this.wikiDrawer?.isOpen) this.wikiDrawer.close();
         if (this.searchKeyword) {
-          const input = this.toolbarEl.querySelector('.tw-graph-search-input');
+          const input = this.toolbarEl?.querySelector('.tw-graph-search-input');
           if (input) input.value = '';
           this.handleSearch('');
+        }
+        if (this.isSearchExpanded) {
+          this.isSearchExpanded = false;
+          this.toolbarEl?.querySelector('#graphSearchHud')?.classList.remove('expanded');
         }
       }
     };
@@ -131,90 +387,167 @@ class WeKnoraWikiGraphView {
           this.settingsPopover.classList.remove('open');
         }
       }
+      const searchHud = this.toolbarEl?.querySelector('#graphSearchHud');
+      if (searchHud && this.isSearchExpanded && !this.searchKeyword) {
+        if (!searchHud.contains(e.target)) {
+          this.isSearchExpanded = false;
+          searchHud.classList.remove('expanded');
+        }
+      }
     };
     document.addEventListener('click', this._onDocClick);
   }
 
   renderToolbar() {
+    const st = this.getConnectionStatus ? this.getConnectionStatus() : { ok: true, latencyMs: 0, checking: false };
+    let statusDotColor = '#10B981';
+    let statusText = `${st.latencyMs || 0}ms`;
+    if (st.checking) {
+      statusDotColor = '#F59E0B';
+      statusText = '检测中...';
+    } else if (!st.ok) {
+      statusDotColor = '#EF4444';
+      statusText = '离线';
+    }
+
     this.toolbarEl.innerHTML = `
       <div class="tw-graph-tb-left">
-        <div class="tw-graph-search-box">
-          <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
-          </svg>
-          <input type="text" class="tw-graph-search-input" placeholder="搜索 Wiki 实体 / 概念 (Enter 聚焦)..." value="${escapeHtml(this.searchKeyword)}" />
-          <button class="tw-graph-search-clear" id="btnGraphSearchClear" title="清空搜索 (Esc)" style="display:${this.searchKeyword ? 'block' : 'none'};">✕</button>
+        <div class="tw-graph-search-hud ${this.isSearchExpanded ? 'expanded' : ''}" id="graphSearchHud">
+          <button class="tw-graph-search-toggle-btn" id="btnGraphSearchToggle" title="搜索 Wiki 实体 / 概念">
+            <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+            </svg>
+          </button>
+          <div class="tw-graph-search-input-wrap">
+            <input type="text" class="tw-graph-search-input" id="graphSearchInput" placeholder="搜索 Wiki 实体 / 概念 (Enter 聚焦)..." value="${escapeHtml(this.searchKeyword)}" />
+            <button class="tw-graph-search-clear" id="btnGraphSearchClear" title="清空搜索 (Esc)" style="display:${this.searchKeyword ? 'inline-flex' : 'none'};">
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+              </svg>
+            </button>
+          </div>
+          <div class="tw-graph-search-dropdown" id="graphSearchDropdown" style="display:none;"></div>
         </div>
-        <div class="tw-graph-limit-box" title="控制渲染节点数量, 减轻系统负载">
-          <span style="font-size:11px; color:var(--text-muted);">显示上限:</span>
-          <select class="tw-graph-limit-select" id="selGraphLimit">
-            <option value="100" ${this.currentLimit === 100 ? 'selected' : ''}>100 节点</option>
-            <option value="200" ${this.currentLimit === 200 ? 'selected' : ''}>200 节点</option>
-            <option value="300" ${this.currentLimit === 300 ? 'selected' : ''}>300 节点 (推荐)</option>
-            <option value="500" ${this.currentLimit === 500 ? 'selected' : ''}>500 节点 (高配)</option>
-          </select>
+        <div class="tw-graph-ego-hud" id="graphEgoHud" style="display:${this.isEgoMode && this.egoCenterNode ? 'inline-flex' : 'none'};">
+          <span class="tw-graph-ego-badge">⚡ 专注</span>
+          <span class="tw-graph-ego-title" id="graphEgoTitle" title="${this.egoCenterNode ? escapeAttr(this.egoCenterNode.title) : ''}">中心: <strong>${this.egoCenterNode ? escapeHtml(this.egoCenterNode.title) : ''}</strong></span>
+          <button class="tw-graph-ego-exit-btn" id="btnExitEgoMode" title="退出专注模式">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
         </div>
       </div>
       <div class="tw-graph-tb-right">
-        <div class="tw-graph-legend" id="graphLegend">
-          ${this.getLegendHtml()}
-        </div>
-        <div class="tw-graph-actions">
-          <button class="tw-chip" id="btnGraphSettings" title="打开图谱视觉与力学配置 (主题、斥力、字号微调)">
+        <div class="tw-graph-hud-pill">
+          <div class="tw-manage-conn-badge" id="btnGraphConnRefresh" title="WeKnora 服务 (点击重新检测)">
+            <span class="tw-manage-dot" style="background:${statusDotColor};"></span>
+            <span class="tw-manage-conn-latency">${statusText}</span>
+          </div>
+          <div class="tw-graph-divider"></div>
+          <button class="tw-chip tw-chip-subtle" id="btnGraphCenter" title="居中还原画布">
+            <span>🎯 居中</span>
+          </button>
+          <button class="tw-chip tw-chip-subtle" id="btnGraphRefresh" title="重新从 WeKnora 获取图谱">
+            <span>🔄 刷新</span>
+          </button>
+          <button class="tw-chip tw-chip-subtle" id="btnGraphSettings" title="打开图谱配置">
             <span>⚙ 配置</span>
           </button>
-          <button class="tw-chip" id="btnGraphCenter" title="居中还原画布">
-            <span>🎯 适应屏幕</span>
-          </button>
-          <button class="tw-chip" id="btnGraphRefresh" title="重新从 WeKnora 获取图谱">
-            <span>🔄 刷新</span>
+          <div class="tw-graph-divider"></div>
+          <button class="tw-chip tw-chip-icon tw-chip-subtle" id="btnGraphOpenExternal" title="在系统默认浏览器中打开当前知识库">
+            <span>↗</span>
           </button>
         </div>
       </div>
     `;
 
-    // 绑定搜索与清除
+    // 绑定连接重新检测
+    const connBtn = this.toolbarEl.querySelector('#btnGraphConnRefresh');
+    if (connBtn) {
+      connBtn.onclick = () => {
+        if (this.onCheckConnection) this.onCheckConnection(true);
+      };
+    }
+
+    // 绑定 Ego 专注模式退出
+    const egoExitBtn = this.toolbarEl.querySelector('#btnExitEgoMode');
+    if (egoExitBtn) {
+      egoExitBtn.onclick = (e) => {
+        e.stopPropagation();
+        this.exitEgoMode();
+      };
+    }
+
+    // 绑定搜索与展开/收起
+    const searchHud = this.toolbarEl.querySelector('#graphSearchHud');
+    const searchToggleBtn = this.toolbarEl.querySelector('#btnGraphSearchToggle');
     const searchInput = this.toolbarEl.querySelector('.tw-graph-search-input');
     const clearBtn = this.toolbarEl.querySelector('#btnGraphSearchClear');
+
+    if (searchToggleBtn && searchHud && searchInput) {
+      searchToggleBtn.onclick = (e) => {
+        e.stopPropagation();
+        this.isSearchExpanded = !this.isSearchExpanded;
+        searchHud.classList.toggle('expanded', this.isSearchExpanded);
+        if (this.isSearchExpanded) {
+          searchInput.focus();
+        } else if (!this.searchKeyword) {
+          // 收起无搜索词
+        } else {
+          this.executeSearch(searchInput.value, true);
+        }
+      };
+    }
+
     if (searchInput) {
+      searchInput.onfocus = () => {
+        if (!this.isSearchExpanded) {
+          this.isSearchExpanded = true;
+          searchHud?.classList.add('expanded');
+        }
+      };
       searchInput.oninput = (e) => {
         const val = e.target.value;
-        if (clearBtn) clearBtn.style.display = val ? 'block' : 'none';
+        if (clearBtn) clearBtn.style.display = val ? 'inline-flex' : 'none';
         this.debounceSearch(val);
       };
       searchInput.onkeydown = (e) => {
         if (e.key === 'Enter') {
           this.executeSearch(searchInput.value, true);
+        } else if (e.key === 'Escape') {
+          this.hideSearchDropdown();
+          if (this.isSearchExpanded && !searchInput.value) {
+            this.isSearchExpanded = false;
+            searchHud?.classList.remove('expanded');
+          }
         }
       };
     }
     if (clearBtn) {
-      clearBtn.onclick = () => {
-        if (searchInput) searchInput.value = '';
+      clearBtn.onclick = (e) => {
+        e.stopPropagation();
+        if (searchInput) {
+          searchInput.value = '';
+          searchInput.focus();
+        }
         clearBtn.style.display = 'none';
+        this.hideSearchDropdown();
         this.handleSearch('');
       };
     }
 
-    // 节点上限切换
-    const limitSelect = this.toolbarEl.querySelector('#selGraphLimit');
-    if (limitSelect) {
-      limitSelect.onchange = () => {
-        this.currentLimit = parseInt(limitSelect.value, 10) || 300;
-        this.loadGraphData();
-      };
-    }
+    // 点击搜索框外区域自动关闭推荐浮层
+    this._onDocClickCloseSearch = (e) => {
+      if (!this.toolbarEl?.querySelector('#graphSearchHud')?.contains(e.target)) {
+        this.hideSearchDropdown();
+      }
+    };
+    document.addEventListener('click', this._onDocClickCloseSearch);
 
-    // 配置弹窗切换
-    const settingsBtn = this.toolbarEl.querySelector('#btnGraphSettings');
-    if (settingsBtn) {
-      settingsBtn.onclick = (e) => {
-        e.stopPropagation();
-        this.settingsPopover?.classList.toggle('open');
-      };
-    }
-
-    // 适应屏幕居中
+    // 居中还原
     const centerBtn = this.toolbarEl.querySelector('#btnGraphCenter');
     if (centerBtn) {
       centerBtn.onclick = () => {
@@ -230,29 +563,61 @@ class WeKnoraWikiGraphView {
         this.loadGraphData().finally(() => refreshBtn.classList.remove('spinning'));
       };
     }
+
+    // 配置弹窗切换
+    const settingsBtn = this.toolbarEl.querySelector('#btnGraphSettings');
+    if (settingsBtn) {
+      settingsBtn.onclick = (e) => {
+        e.stopPropagation();
+        this.settingsPopover?.classList.toggle('open');
+      };
+    }
+
+    // 外部浏览器打开
+    const extBtn = this.toolbarEl.querySelector('#btnGraphOpenExternal');
+    if (extBtn) {
+      extBtn.onclick = () => {
+        if (this.onOpenExternal) this.onOpenExternal();
+      };
+    }
+  }
+
+  updateConnStatus() {
+    if (!this.toolbarEl) return;
+    const st = this.getConnectionStatus ? this.getConnectionStatus() : { ok: true, latencyMs: 0, checking: false };
+    let statusDotColor = '#10B981';
+    let statusText = `${st.latencyMs || 0}ms`;
+    if (st.checking) {
+      statusDotColor = '#F59E0B';
+      statusText = '检测中...';
+    } else if (!st.ok) {
+      statusDotColor = '#EF4444';
+      statusText = '离线';
+    }
+
+    const dotEl = this.toolbarEl.querySelector('.tw-manage-dot');
+    if (dotEl) dotEl.style.background = statusDotColor;
+    const latencyEl = this.toolbarEl.querySelector('.tw-manage-conn-latency');
+    if (latencyEl) latencyEl.textContent = statusText;
+
+    // 同步配置弹窗内的知识库选择下拉列表
+    const kbs = this.getKnowledgeBases ? this.getKnowledgeBases() : [];
+    const curKbId = this.getCurrentKbId ? this.getCurrentKbId() : '';
+    const kbSelect = this.settingsPopover?.querySelector('#spKbSelect');
+    if (kbSelect && kbs.length > 0) {
+      const currentSelected = kbSelect.value;
+      kbSelect.innerHTML = kbs.map(k => {
+        return `<option value="${escapeAttr(k.id)}" ${k.id === (curKbId || currentSelected) ? 'selected' : ''}>${escapeHtml(k.name || k.id)}</option>`;
+      }).join('');
+    }
   }
 
   getLegendHtml() {
-    const th = this.graphEngine?.currentTheme || 'graphite';
-    if (th === 'graphite') {
-      return `
-        <span class="tw-legend-item"><span class="tw-legend-dot" style="background:#4B4B4B;"></span>核心枢纽 (度数≥6)</span>
-        <span class="tw-legend-item"><span class="tw-legend-dot" style="background:#6F6F6F;"></span>骨干关联 (3-5)</span>
-        <span class="tw-legend-item"><span class="tw-legend-dot" style="background:#9A9A9A;"></span>扇簇与外环 (1-2)</span>
-      `;
-    }
-    return `
-      <span class="tw-legend-item"><span class="tw-legend-dot" style="background:#2563EB;"></span>核心枢纽</span>
-      <span class="tw-legend-item"><span class="tw-legend-dot" style="background:#0EA5E9;"></span>骨干分支</span>
-      <span class="tw-legend-item"><span class="tw-legend-dot" style="background:#94A3B8;"></span>扇簇与外环</span>
-    `;
+    return '';
   }
 
   updateLegend() {
-    const legendEl = this.toolbarEl?.querySelector('#graphLegend');
-    if (legendEl) {
-      legendEl.innerHTML = this.getLegendHtml();
-    }
+    // 兼容调用: 图谱已全面升级多彩天体光谱, 不再占用工具栏显示过时度数图例
   }
 
   // --------------------------------------------------------------------------
@@ -260,115 +625,163 @@ class WeKnoraWikiGraphView {
   // --------------------------------------------------------------------------
   renderSettingsPopover() {
     if (!this.settingsPopover) return;
-    const curTheme = this.graphEngine?.currentTheme || 'graphite';
+    const curTheme = this.graphEngine?.currentTheme || 'immersive';
     const params = this.graphEngine?.params || {
-      clusterSpread: 1.0,
-      repulsion: 800,
-      nodeScale: 0.6,
-      fontSize: 3,
+      clusterSpread: 1.15,
+      repulsion: 1800,
+      nodeScale: 0.75,
+      fontSize: 3.2,
       edgeOpacity: 0.50,
-      clusterStrength: 0.08,
-      centerForce: 0.005
+      clusterStrength: 0.07,
+      centerForce: 0.003
     };
 
     const themeDescs = {
-      graphite: '浅底灰阶 · 疏朗宁静',
-      immersive: '浅色微光晕 · 科技质感'
+      immersive: '科技星云 · 微光蓝调',
+      cosmic: '深空星系 · 瑰丽沉浸',
+      graphite: '石墨银河 · 疏朗纸墨'
     };
 
+    const kbs = this.getKnowledgeBases ? this.getKnowledgeBases() : [];
+    const curKbId = this.getCurrentKbId ? this.getCurrentKbId() : '';
+    let kbOptionsHtml = '';
+    if (kbs.length > 0) {
+      kbOptionsHtml = kbs.map(k => {
+        return `<option value="${escapeAttr(k.id)}" ${k.id === curKbId ? 'selected' : ''}>${escapeHtml(k.name || k.id)}</option>`;
+      }).join('');
+    } else {
+      kbOptionsHtml = `<option value="${escapeAttr(curKbId)}">TabonKB</option>`;
+    }
+
     this.settingsPopover.innerHTML = `
-      <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--background-modifier-border, #E2E8F0); padding-bottom:6px; margin-bottom:8px;">
-        <span style="font-weight:600; color:var(--text-normal, #0F172A); font-size:12px;">图谱视觉与力学配置</span>
-        <span style="font-size:10px; color:var(--text-muted, #64748B); font-family:monospace;">Parameters & Theme</span>
+      <div class="tw-popover-header">
+        <span class="tw-popover-title">图谱配置</span>
+        <span class="tw-popover-subtitle">Config</span>
       </div>
 
-      <!-- 1. Theme Selection Dropdown (仅保留用户精选的双主题) -->
-      <div style="margin-bottom:10px;">
-        <div style="font-weight:600; font-size:11px; margin-bottom:5px; color:var(--text-normal, #0F172A); display:flex; justify-content:space-between; align-items:center;">
-          <span>视觉方案选择</span>
-          <span style="font-size:10px; color:var(--interactive-accent, #2563EB); font-weight:normal;" id="spActiveThemeDesc">${themeDescs[curTheme] || ''}</span>
-        </div>
-        <select class="tw-settings-theme-select" id="spThemeSelect">
-          <option value="graphite" ${curTheme==='graphite'?'selected':''}>石墨疏朗 (浅底灰阶 · 疏朗宁静)</option>
-          <option value="immersive" ${curTheme==='immersive'?'selected':''}>柔和科技沉浸 (浅色微光晕 · 科技质感)</option>
+      <!-- 1. 知识库选择 (TabonKB) -->
+      <div class="tw-popover-row">
+        <span class="tw-popover-label">知识库</span>
+        <select class="tw-popover-select" id="spKbSelect">
+          ${kbOptionsHtml}
         </select>
       </div>
 
-      <!-- 2. Topology Parameters Section -->
-      <div style="border-top:1px solid var(--background-modifier-border, #E2E8F0); padding-top:8px; display:flex; flex-direction:column; gap:6px;">
-        <div style="font-weight:600; font-size:11px; color:var(--text-normal, #0F172A); display:flex; justify-content:space-between;">
-          <span>力学与视觉微调</span>
-          <span style="font-size:10px; color:var(--text-muted, #64748B);">实时渲染生效</span>
-        </div>
-
-        <!-- Cluster Spread -->
-        <div class="tw-setting-row" data-param="clusterSpread">
-          <div class="tw-setting-label">
-            <span class="tw-setting-title">簇群间距 (Cluster Spread)</span>
-            <span id="valSpread" style="font-family:monospace; font-weight:600;">${params.clusterSpread}x</span>
-          </div>
-          <input type="range" class="tw-setting-slider" id="rngSpread" min="0.4" max="2.2" step="0.1" value="${params.clusterSpread}">
-        </div>
-
-        <!-- Repulsion -->
-        <div class="tw-setting-row" data-param="repulsion">
-          <div class="tw-setting-label">
-            <span class="tw-setting-title">节点呼吸斥力 (Repulsion)</span>
-            <span id="valRep" style="font-family:monospace; font-weight:600;">${params.repulsion}</span>
-          </div>
-          <input type="range" class="tw-setting-slider" id="rngRep" min="40" max="1200" step="20" value="${params.repulsion}">
-        </div>
-
-        <!-- Node Scale -->
-        <div class="tw-setting-row" data-param="nodeScale">
-          <div class="tw-setting-label">
-            <span class="tw-setting-title">节点大小缩放 (Node Scale)</span>
-            <span id="valNodeScale" style="font-family:monospace; font-weight:600;">${params.nodeScale}x</span>
-          </div>
-          <input type="range" class="tw-setting-slider" id="rngNodeScale" min="0.4" max="2.2" step="0.1" value="${params.nodeScale}">
-        </div>
-
-        <!-- Font Size -->
-        <div class="tw-setting-row" data-param="fontSize">
-          <div class="tw-setting-label">
-            <span class="tw-setting-title">图谱文字大小 (Font Size)</span>
-            <span id="valFontSize" style="font-family:monospace; font-weight:600;">${params.fontSize || 3}px</span>
-          </div>
-          <input type="range" class="tw-setting-slider" id="rngFontSize" min="1" max="5" step="0.5" value="${params.fontSize || 3}">
-        </div>
-
-        <!-- Edge Opacity -->
-        <div class="tw-setting-row" data-param="edgeOpacity">
-          <div class="tw-setting-label">
-            <span class="tw-setting-title">连线显隐粗细 (Edge Opacity)</span>
-            <span id="valEdgeOpacity" style="font-family:monospace; font-weight:600;">${params.edgeOpacity}</span>
-          </div>
-          <input type="range" class="tw-setting-slider" id="rngEdgeOpacity" min="0.1" max="1.0" step="0.05" value="${params.edgeOpacity}">
-        </div>
-
-        <!-- Cluster Force -->
-        <div class="tw-setting-row" data-param="clusterStrength">
-          <div class="tw-setting-label">
-            <span class="tw-setting-title">向心聚合力 (Cluster Force)</span>
-            <span id="valCluster" style="font-family:monospace; font-weight:600;">${params.clusterStrength}</span>
-          </div>
-          <input type="range" class="tw-setting-slider" id="rngCluster" min="0.02" max="0.20" step="0.01" value="${params.clusterStrength}">
-        </div>
-
-        <!-- Center Force -->
-        <div class="tw-setting-row" data-param="centerForce">
-          <div class="tw-setting-label">
-            <span class="tw-setting-title">全局居中力 (Center Pull)</span>
-            <span id="valCenter" style="font-family:monospace; font-weight:600;">${params.centerForce}</span>
-          </div>
-          <input type="range" class="tw-setting-slider" id="rngCenter" min="0.001" max="0.020" step="0.001" value="${params.centerForce}">
-        </div>
+      <!-- 2. 节点数量上限 -->
+      <div class="tw-popover-row">
+        <span class="tw-popover-label">节点上限</span>
+        <select class="tw-popover-select" id="spLimitSelect">
+          <option value="100" ${this.currentLimit === 100 ? 'selected' : ''}>100 节点</option>
+          <option value="300" ${this.currentLimit === 300 ? 'selected' : ''}>300 节点</option>
+          <option value="500" ${this.currentLimit === 500 ? 'selected' : ''}>500 节点</option>
+          <option value="800" ${this.currentLimit === 800 ? 'selected' : ''}>800 节点</option>
+          <option value="1000" ${this.currentLimit === 1000 ? 'selected' : ''}>1000 节点</option>
+          <option value="1500" ${this.currentLimit === 1500 ? 'selected' : ''}>1500 节点</option>
+          <option value="2000" ${this.currentLimit === 2000 ? 'selected' : ''}>2000 节点</option>
+        </select>
       </div>
 
-      <button class="tw-chip" id="btnResetPhysics" style="margin-top:8px; width:100%; text-align:center; padding:6px 0; justify-content:center; cursor:pointer;">
-        恢复默认推荐参数
-      </button>
+      <!-- 3. 视觉样式选择 (样式作为配置的一个设置项) -->
+      <div class="tw-popover-row">
+        <span class="tw-popover-label">样式方案</span>
+        <select class="tw-popover-select" id="spThemeSelect">
+          <option value="immersive" ${curTheme==='immersive'?'selected':''}>科技星云 (清新蓝调)</option>
+          <option value="cosmic" ${curTheme==='cosmic'?'selected':''}>深空星系 (沉浸瑰丽)</option>
+          <option value="graphite" ${curTheme==='graphite'?'selected':''}>石墨银河 (疏朗纸墨)</option>
+        </select>
+      </div>
+
+      <!-- 4. 力学微调 -->
+      <div class="tw-popover-divider"></div>
+      <div class="tw-popover-section-title">
+        <span>力学微调</span>
+        <span style="font-size:10px; color:var(--text-muted, #64748B);">实时生效</span>
+      </div>
+
+      <div class="tw-setting-row" data-param="clusterSpread">
+        <div class="tw-setting-label">
+          <span class="tw-setting-title">星团展开</span>
+          <span id="valSpread" style="font-family:monospace; font-weight:600;">${params.clusterSpread}x</span>
+        </div>
+        <input type="range" class="tw-setting-slider" id="rngSpread" min="0.5" max="2.4" step="0.05" value="${params.clusterSpread}">
+      </div>
+
+      <div class="tw-setting-row" data-param="repulsion">
+        <div class="tw-setting-label">
+          <span class="tw-setting-title">呼吸斥力</span>
+          <span id="valRep" style="font-family:monospace; font-weight:600;">${params.repulsion}</span>
+        </div>
+        <input type="range" class="tw-setting-slider" id="rngRep" min="200" max="3200" step="50" value="${params.repulsion}">
+      </div>
+
+      <div class="tw-setting-row" data-param="nodeScale">
+        <div class="tw-setting-label">
+          <span class="tw-setting-title">星核缩放</span>
+          <span id="valNodeScale" style="font-family:monospace; font-weight:600;">${params.nodeScale}x</span>
+        </div>
+        <input type="range" class="tw-setting-slider" id="rngNodeScale" min="0.3" max="2.0" step="0.05" value="${params.nodeScale}">
+      </div>
+
+      <div class="tw-setting-row" data-param="fontSize">
+        <div class="tw-setting-label">
+          <span class="tw-setting-title">文字大小</span>
+          <span id="valFontSize" style="font-family:monospace; font-weight:600;">${params.fontSize || 3.2}px</span>
+        </div>
+        <input type="range" class="tw-setting-slider" id="rngFontSize" min="1" max="5" step="0.5" value="${params.fontSize || 3.2}">
+      </div>
+
+      <div class="tw-setting-row" data-param="edgeOpacity">
+        <div class="tw-setting-label">
+          <span class="tw-setting-title">星轨显隐</span>
+          <span id="valEdgeOpacity" style="font-family:monospace; font-weight:600;">${params.edgeOpacity}</span>
+        </div>
+        <input type="range" class="tw-setting-slider" id="rngEdgeOpacity" min="0.1" max="1.0" step="0.05" value="${params.edgeOpacity}">
+      </div>
+
+      <div class="tw-setting-row" data-param="clusterStrength">
+        <div class="tw-setting-label">
+          <span class="tw-setting-title">星团凝聚</span>
+          <span id="valCluster" style="font-family:monospace; font-weight:600;">${params.clusterStrength}</span>
+        </div>
+        <input type="range" class="tw-setting-slider" id="rngCluster" min="0.02" max="0.20" step="0.01" value="${params.clusterStrength}">
+      </div>
+
+      <div class="tw-setting-row" data-param="centerForce">
+        <div class="tw-setting-label">
+          <span class="tw-setting-title">居中引力</span>
+          <span id="valCenter" style="font-family:monospace; font-weight:600;">${params.centerForce}</span>
+        </div>
+        <input type="range" class="tw-setting-slider" id="rngCenter" min="0.001" max="0.020" step="0.001" value="${params.centerForce}">
+      </div>
+
+      <div class="tw-popover-footer-btns">
+        <button class="tw-chip" id="btnResetPhysics" style="flex:1; justify-content:center; cursor:pointer;">
+          恢复默认
+        </button>
+        <button class="tw-chip" id="spBtnOpenWorkbenchSettings" style="flex:1; justify-content:center; cursor:pointer;" title="打开工作台主设置面板">
+          ⚙️ 设置
+        </button>
+      </div>
     `;
+
+    // 绑定知识库切换
+    const kbSelect = this.settingsPopover.querySelector('#spKbSelect');
+    if (kbSelect) {
+      kbSelect.onchange = () => {
+        const newKb = kbSelect.value;
+        if (this.onKnowledgeBaseChanged) this.onKnowledgeBaseChanged(newKb);
+        else this.loadGraphData();
+      };
+    }
+
+    // 绑定节点上限切换
+    const limitSelect = this.settingsPopover.querySelector('#spLimitSelect');
+    if (limitSelect) {
+      limitSelect.onchange = () => {
+        this.currentLimit = parseInt(limitSelect.value, 10) || 300;
+        this.loadGraphData();
+      };
+    }
 
     // 绑定主题切换
     const themeSelect = this.settingsPopover.querySelector('#spThemeSelect');
@@ -376,9 +789,8 @@ class WeKnoraWikiGraphView {
       themeSelect.onchange = (e) => {
         const themeKey = e.target.value;
         this.graphEngine?.setTheme(themeKey);
-        const descEl = this.settingsPopover.querySelector('#spActiveThemeDesc');
-        if (descEl) descEl.textContent = themeDescs[themeKey] || '';
-        this.updateLegend();
+        this.canvasContainerEl.dataset.theme = themeKey;
+        this.containerEl.dataset.theme = themeKey;
       };
     }
 
@@ -407,8 +819,19 @@ class WeKnoraWikiGraphView {
     if (resetBtn) {
       resetBtn.onclick = () => {
         this.graphEngine?.resetParams();
+        const defTh = this.graphEngine?.currentTheme || 'immersive';
+        this.canvasContainerEl.dataset.theme = defTh;
+        this.containerEl.dataset.theme = defTh;
         this.renderSettingsPopover();
-        this.updateLegend();
+      };
+    }
+
+    // 打开工作台设置
+    const setBtn = this.settingsPopover.querySelector('#spBtnOpenWorkbenchSettings');
+    if (setBtn) {
+      setBtn.onclick = () => {
+        this.settingsPopover?.classList.remove('open');
+        if (this.onOpenSettings) this.onOpenSettings();
       };
     }
   }
@@ -560,10 +983,123 @@ class WeKnoraWikiGraphView {
 
     this.graphEngine?.setHighlightedNodes(matchedIds);
 
-    if (shouldFocusFirst && matchedIds.length > 0) {
-      this.graphEngine?.focusNode(matchedIds[0]);
-      const node = this.graphEngine?.nodeMap?.get(matchedIds[0]);
-      if (node) this.handleNodeClick(node);
+    if (matchedIds.length > 0) {
+      this.hideSearchDropdown();
+      if (shouldFocusFirst) {
+        this.graphEngine?.focusNode(matchedIds[0]);
+        const node = this.graphEngine?.nodeMap?.get(matchedIds[0]);
+        if (node) this.handleNodeClick(node);
+      }
+    } else {
+      // 本地画布未匹配到节点（超出初始上限未加载）：自动触发全库深搜与子图透传
+      this.executeRemoteSearch(keyword, shouldFocusFirst);
+    }
+  }
+
+  async executeRemoteSearch(keyword, autoEnter = false) {
+    const kbId = this.getCurrentKbId();
+    if (!kbId || !this.service?.searchWiki || !keyword) return;
+
+    try {
+      const res = await this.service.searchWiki(kbId, keyword, 5);
+      const pages = res?.pages || [];
+
+      if (pages.length === 0) {
+        this.hideSearchDropdown();
+        if (autoEnter) {
+          new Notice(`知识库全库未找到与「${keyword}」匹配的知识点`);
+        }
+        return;
+      }
+
+      if (autoEnter) {
+        // 用户按回车直接聚焦：穿透拉取首个匹配知识点的 1 跳关联子图网络！
+        const topHit = pages[0];
+        this.hideSearchDropdown();
+        new Notice(`已从全库定位「${topHit.title}」，正在拉取关联网络...`, 2000);
+        await this.enterEgoMode({
+          id: topHit.slug || topHit.id,
+          slug: topHit.slug,
+          title: topHit.title,
+          pageType: topHit.page_type || 'entity',
+          page_type: topHit.page_type || 'entity'
+        });
+        const nodeObj = this.graphEngine?.nodeMap?.get(topHit.slug || topHit.id) || {
+          id: topHit.slug || topHit.id,
+          slug: topHit.slug,
+          title: topHit.title,
+          pageType: topHit.page_type || 'entity'
+        };
+        this.handleNodeClick(nodeObj);
+      } else {
+        // 用户输入中：渲染极简下拉提示浮层
+        this.renderSearchDropdown(pages);
+      }
+    } catch (err) {
+      console.warn('[WeKnora Search] 远程深搜失败:', err);
+    }
+  }
+
+  renderSearchDropdown(pages) {
+    const dropdown = this.toolbarEl?.querySelector('#graphSearchDropdown');
+    if (!dropdown) return;
+
+    if (!pages || pages.length === 0) {
+      dropdown.style.display = 'none';
+      dropdown.innerHTML = '';
+      return;
+    }
+
+    const typeLabels = {
+      entity: '实体',
+      concept: '概念',
+      summary: '摘要',
+      synthesis: '综合'
+    };
+
+    dropdown.innerHTML = pages.map(p => {
+      const typeLabel = typeLabels[p.page_type] || '实体';
+      return `
+        <div class="tw-graph-search-item" data-slug="${escapeAttr(p.slug)}" title="${escapeAttr(p.title)}">
+          <span class="tw-search-item-badge tw-badge-${escapeAttr(p.page_type || 'entity')}">${escapeHtml(typeLabel)}</span>
+          <span class="tw-search-item-title">${escapeHtml(p.title)}</span>
+          <span class="tw-search-item-hint">全库</span>
+        </div>
+      `;
+    }).join('');
+
+    dropdown.querySelectorAll('.tw-graph-search-item').forEach((itemEl, idx) => {
+      itemEl.onclick = async (e) => {
+        e.stopPropagation();
+        const p = pages[idx];
+        if (!p) return;
+        this.hideSearchDropdown();
+        new Notice(`正在拉取「${p.title}」的关联子图...`, 1500);
+        await this.enterEgoMode({
+          id: p.slug || p.id,
+          slug: p.slug,
+          title: p.title,
+          pageType: p.page_type || 'entity',
+          page_type: p.page_type || 'entity'
+        });
+        const nodeObj = this.graphEngine?.nodeMap?.get(p.slug || p.id) || {
+          id: p.slug || p.id,
+          slug: p.slug,
+          title: p.title,
+          pageType: p.page_type || 'entity'
+        };
+        this.handleNodeClick(nodeObj);
+      };
+    });
+
+    dropdown.style.display = 'flex';
+  }
+
+  hideSearchDropdown() {
+    const dropdown = this.toolbarEl?.querySelector('#graphSearchDropdown');
+    if (dropdown) {
+      dropdown.style.display = 'none';
+      dropdown.innerHTML = '';
     }
   }
 
@@ -588,11 +1124,19 @@ class WeKnoraWikiGraphView {
       this.egoCenterNode = centerNode;
       this.graphData = egoData;
 
-      this.graphEngine.setData(egoData);
-      this.graphEngine.focusNode(centerNode.id);
+      if (this.graphEngine) {
+        this.graphEngine.isEgoMode = true;
+        this.graphEngine.viewportPaddingRight = (this.wikiDrawer && this.wikiDrawer.isOpen) ? 380 : 0;
+        this.graphEngine.setData(egoData);
+      }
       this.clearLoadingPlaceholder();
 
       this.updateEgoBanner();
+
+      // 如果侧边抽屉当前正显示该中心节点，同步更新为返回全图按钮
+      if (this.wikiDrawer && this.wikiDrawer.isOpen && this.wikiDrawer.currentNode?.id === centerNode.id) {
+        this.wikiDrawer.updateEgoButtonState(true, true);
+      }
     } catch (err) {
       new Notice(`Ego 模式展开失败: ${err.message}`);
       this.clearLoadingPlaceholder();
@@ -603,11 +1147,20 @@ class WeKnoraWikiGraphView {
     if (!this.isEgoMode) return;
     this.isEgoMode = false;
     this.egoCenterNode = null;
+    if (this.graphEngine) {
+      this.graphEngine.isEgoMode = false;
+      this.graphEngine.viewportPaddingRight = (this.wikiDrawer && this.wikiDrawer.isOpen) ? 380 : 0;
+    }
     this.updateEgoBanner();
+
+    // 如果侧边抽屉当前打开，同步还原其展开按钮状态
+    if (this.wikiDrawer && this.wikiDrawer.isOpen) {
+      this.wikiDrawer.updateEgoButtonState(false, false);
+    }
 
     if (this.backupFullGraphData) {
       this.graphData = this.backupFullGraphData;
-      this.graphEngine.setData(this.backupFullGraphData);
+      this.graphEngine?.setData(this.backupFullGraphData);
       this.backupFullGraphData = null;
     } else {
       this.loadGraphData();
@@ -615,25 +1168,36 @@ class WeKnoraWikiGraphView {
   }
 
   updateEgoBanner() {
+    const egoHud = this.toolbarEl?.querySelector('#graphEgoHud');
+    const egoTitle = this.toolbarEl?.querySelector('#graphEgoTitle');
+    const exitBtn = this.toolbarEl?.querySelector('#btnExitEgoMode');
+
     if (!this.isEgoMode || !this.egoCenterNode) {
-      this.egoBannerEl.style.display = 'none';
+      if (egoHud) egoHud.style.display = 'none';
       return;
     }
     const node = this.egoCenterNode;
     const neighborCount = Math.max(0, (this.graphEngine?.nodes?.length || 1) - 1);
-    this.egoBannerEl.innerHTML = `
-      <div class="tw-ego-banner-content">
-        <span class="tw-ego-badge">🎯 Ego 专注模式</span>
-        <span class="tw-ego-title">中心节点: <strong>${escapeHtml(node.title)}</strong> (展示关联: ${neighborCount} 项)</span>
-      </div>
-      <button class="tw-ego-exit-btn" id="btnExitEgoMode" title="退出 Ego 模式，返回全库宏观图谱">
-        <span>← 返回全局图谱</span>
-      </button>
-    `;
-    this.egoBannerEl.style.display = 'flex';
+    if (egoTitle) {
+      egoTitle.title = node.title;
+      egoTitle.innerHTML = `中心: <strong>${escapeHtml(node.title)}</strong> (${neighborCount}项)`;
+    }
+    if (egoHud) egoHud.style.display = 'inline-flex';
 
-    const exitBtn = this.egoBannerEl.querySelector('#btnExitEgoMode');
-    if (exitBtn) exitBtn.onclick = () => this.exitEgoMode();
+    if (exitBtn) {
+      if (!exitBtn.querySelector('svg')) {
+        exitBtn.innerHTML = `
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        `;
+      }
+      exitBtn.onclick = (e) => {
+        e.stopPropagation();
+        this.exitEgoMode();
+      };
+    }
   }
 
   // --------------------------------------------------------------------------
@@ -641,7 +1205,11 @@ class WeKnoraWikiGraphView {
   // --------------------------------------------------------------------------
   handleNodeClick(node) {
     const kbId = this.getCurrentKbId();
-    this.wikiDrawer?.open(node, kbId);
+    const isEgoCenter = this.isEgoMode && this.egoCenterNode?.id === node.id;
+    this.wikiDrawer?.open(node, kbId, {
+      isEgoMode: this.isEgoMode,
+      isEgoCenter: isEgoCenter
+    });
   }
 
   handleNodeHover(node, pos) {
@@ -652,20 +1220,46 @@ class WeKnoraWikiGraphView {
     }
 
     const wrapRect = this.canvasContainerEl.getBoundingClientRect();
-    const x = Math.min(pos.clientX - wrapRect.left + 14, wrapRect.width - 240);
-    const y = Math.min(pos.clientY - wrapRect.top + 14, wrapRect.height - 85);
+    const tooltipWidth = 260;
+    const tooltipHeight = 110;
+
+    let x = pos.clientX - wrapRect.left + 16;
+    let y = pos.clientY - wrapRect.top + 16;
+
+    // 边缘智能翻转检测，防止超出画布边界
+    if (x + tooltipWidth > wrapRect.width - 12) {
+      x = pos.clientX - wrapRect.left - tooltipWidth - 12;
+    }
+    if (y + tooltipHeight > wrapRect.height - 12) {
+      y = pos.clientY - wrapRect.top - tooltipHeight - 12;
+    }
 
     const titleText = node.displayName || node.title || node.slug;
+    const nodeColor = node.color || '#38BDF8';
+    const tagBg = hexToRgba(nodeColor, 0.16);
+    const tagBorder = hexToRgba(nodeColor, 0.40);
+
     this.tooltip.innerHTML = `
-      <div style="font-weight:600; color:#1E293B; margin-bottom:3px; font-size:11.5px; line-height:1.3;">${escapeHtml(titleText)}</div>
-      <div style="font-size:10px; color:#64748B; margin-bottom:4px; font-family:monospace; display:flex; gap:6px; align-items:center;">
-        <span class="tw-type-tag" style="padding:1px 5px; border-radius:3px; background:#F1F5F9; color:#475569; border:1px solid #E2E8F0; font-weight:600;">${escapeHtml(node.pageType || 'entity')}</span>
-        <span>关联度数: <strong style="color:#0F172A;">${node.degree || 0}</strong></span>
+      <div class="tw-hud-header">
+        <span class="tw-hud-badge" style="background:${tagBg}; color:${nodeColor}; border:1px solid ${tagBorder};">
+          <span style="display:inline-block; width:5px; height:5px; border-radius:50%; background:${nodeColor}; box-shadow:0 0 4px ${nodeColor};"></span>
+          ${escapeHtml(node.pageType || 'entity')}
+        </span>
+        ${node.isCoreAnchor ? '<span class="tw-hud-core-tag">⭐ 核心枢纽</span>' : ''}
       </div>
-      ${node.summary ? `<div style="font-size:10.5px; color:#475569; line-height:1.35; max-height:44px; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(node.summary)}</div>` : ''}
+      <div class="tw-hud-title">${escapeHtml(titleText)}</div>
+      <div class="tw-hud-meta">
+        <span>引力连线: <strong>${node.degree || 0}</strong></span>
+        ${node.referenceCount ? `<span>引用: <strong>${node.referenceCount}</strong></span>` : ''}
+      </div>
+      ${node.summary ? `<div class="tw-hud-summary">${escapeHtml(node.summary)}</div>` : ''}
+      <div class="tw-hud-hint">
+        <span>🖱 单击展开抽屉</span>
+        <span>⚡ 双击空间跃迁</span>
+      </div>
     `;
-    this.tooltip.style.left = `${Math.max(10, x)}px`;
-    this.tooltip.style.top = `${Math.max(10, y)}px`;
+    this.tooltip.style.left = `${Math.max(8, x)}px`;
+    this.tooltip.style.top = `${Math.max(8, y)}px`;
     this.tooltip.style.display = 'block';
   }
 
@@ -690,7 +1284,12 @@ class WeKnoraWikiGraphView {
       document.removeEventListener('click', this._onDocClick);
       this._onDocClick = null;
     }
+    if (this._onDocClickCloseSearch) {
+      document.removeEventListener('click', this._onDocClickCloseSearch);
+      this._onDocClickCloseSearch = null;
+    }
     this.highlightCache.clear();
+    this.radarHud?.dispose();
     this.graphEngine?.dispose();
     this.wikiDrawer?.dispose();
     this.containerEl?.remove();

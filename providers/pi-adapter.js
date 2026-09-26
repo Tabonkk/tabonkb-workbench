@@ -107,6 +107,9 @@ class PiAdapter extends AgentAdapter {
 
     // Forward conversational events
     this.bridge.on('turn_start', (d) => this.emit('turn_start', d));
+    this.bridge.on('thinking_start', (d) => this.emit('thinking_start', d));
+    this.bridge.on('thinking_delta', (d) => this.emit('thinking_delta', d));
+    this.bridge.on('thinking_end', (d) => this.emit('thinking_end', d));
     this.bridge.on('text_delta', (d) => this.emit('text_delta', d));
     this.bridge.on('tool_start', (d) => this.emit('tool_start', d));
     this.bridge.on('tool_end', (d) => this.emit('tool_end', d));

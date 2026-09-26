@@ -95,6 +95,22 @@ class PiDrawerView {
     this.modelListEl = null;
     this.reasoningPopoverEl = null;
 
+    // Bottom-Left OpenGrok Project Selector elements
+    this.projectWrapEl = null;
+    this.projectPillEl = null;
+    this.projectIconEl = null;
+    this.projectNameEl = null;
+    this.projectPopoverEl = null;
+    this.projectSearchInput = null;
+    this.projectListEl = null;
+    this.selectedProject = this.getSavedProject();
+    this.selectedGerritFilter = this.getSavedGerritFilter();
+    this.optGerritItem = null;
+    this.optGerritDropdownPanel = null;
+    this.gerritFilterEl = null;
+    this.gerritSearchInput = null;
+    this.gerritListEl = null;
+
     this.isOpenState = false;
     this.width = this.getSavedWidth();
     this.inputHeight = this.getSavedInputHeight();
@@ -135,11 +151,11 @@ class PiDrawerView {
   getSavedInputHeight() {
     try {
       const saved = parseInt(localStorage.getItem('tabonkb-dialog-input-height'), 10);
-      if (!isNaN(saved) && saved >= 38 && saved <= 500) {
-        return saved;
+      if (!isNaN(saved) && saved >= 42 && saved <= 350) {
+        return Math.max(52, Math.min(saved, 120));
       }
     } catch (e) {}
-    return 54;
+    return 52; // Comfortably sized base height (elevated from 42px to 52px)
   }
 
   saveInputHeight(h) {
@@ -334,19 +350,14 @@ class PiDrawerView {
     this.historyPanelEl.innerHTML = `
       <div class="tw-history-panel-header">
         <div class="tw-history-panel-title">
-          <span>${getIconPark('time', 13)}</span>
-          <span>历史会话分段记录</span>
+          <span class="tw-history-title-icon">${getIconPark('time', 13)}</span>
+          <span>历史会话记录</span>
+          <span class="tw-history-count-badge" id="twHistoryCountBadge">0</span>
         </div>
-        <button class="tw-history-new-btn" id="twHistoryNewBtn" title="新建空白会话">
-          ${getIconPark('edit', 12)}
-          <span>新会话</span>
-        </button>
       </div>
       <div class="tw-history-list" id="twHistoryList"></div>
     `;
     contentWrap.appendChild(this.historyPanelEl);
-    const histNewBtn = this.historyPanelEl.querySelector('#twHistoryNewBtn');
-    if (histNewBtn) histNewBtn.onclick = () => this.handleNewSession();
 
     // 3. Warning Banner (if CLI not installed)
     this.warningBannerEl = document.createElement('div');
@@ -360,7 +371,7 @@ class PiDrawerView {
     const headerLeftEl = header.querySelector('.tw-drawer-header-left');
     if (headerLeftEl) headerLeftEl.appendChild(this.contextCapsuleEl);
 
-    // 5. Messages Container
+// 5. Messages Container
     this.messagesEl = document.createElement('div');
     this.messagesEl.className = 'tw-drawer-messages';
     
@@ -400,10 +411,12 @@ class PiDrawerView {
             }
             codeCopyBtn.classList.add('copied');
             const prevHtml = codeCopyBtn.innerHTML;
-            codeCopyBtn.innerHTML = `${getIconPark('check', 12, { color: '#10B981' })} <span class="tw-code-copy-text" style="color: #10B981;">已复制</span>`;
+            codeCopyBtn.innerHTML = getIconPark('check', 13, { color: '#10B981' });
+            codeCopyBtn.setAttribute('title', '已复制!');
             setTimeout(() => {
               codeCopyBtn.classList.remove('copied');
               codeCopyBtn.innerHTML = prevHtml;
+              codeCopyBtn.setAttribute('title', '复制代码');
             }, 1800);
             const app = this.app || (typeof window !== 'undefined' ? window.app : null);
             const NoticeCls = typeof Notice !== 'undefined' ? Notice : (app?.Notice || class{});
@@ -448,21 +461,19 @@ class PiDrawerView {
 
       // 2. Intercept clicks on links inside message bubbles to open in external browser
       const link = e.target.closest('a');
-      if (link && link.href) {
-        const href = link.getAttribute('href') || link.href;
-        if (href.startsWith('http://') || href.startsWith('https://')) {
+      if (link) {
+        const href = link.getAttribute('href') || link.href || '';
+        const text = link.textContent || '';
+        const targetUrl = resolveLinkToUrl(href, text, link, this.vaultBasePath);
+        if (targetUrl) {
           e.preventDefault();
-          try {
-            const { shell } = require('electron');
-            if (shell && typeof shell.openExternal === 'function') {
-              shell.openExternal(href);
-              return;
-            }
-          } catch (err) {}
-          window.open(href, '_blank');
+          e.stopPropagation();
+          openExternalUrl(targetUrl);
+          return;
         }
       }
     };
+
 
     contentWrap.appendChild(this.messagesEl);
 
@@ -536,17 +547,90 @@ class PiDrawerView {
               </div>
               <div class="tw-reasoning-popover" id="twReasoningPopover" style="display:none;"></div>
             </div>
-            <button class="tw-card-upload-btn" id="twBtnUploadImage" title="上传图片附件 (支持相册选择 / Ctrl+V 截图直接粘贴 / 拖拽图片)">
-              ${getIconPark('pic', 14)}
+            <button class="tw-card-upload-btn" id="twBtnUploadImage" title="上传图片 (支持相册选择 / Ctrl+V 截图直接粘贴 / 拖拽图片)">
+              ${getIconPark('pic', 15)}
             </button>
             <input type="file" id="twImageFileInput" accept="image/png,image/jpeg,image/webp,image/gif" multiple style="display:none;" />
+            <div class="tw-card-options-wrap" id="twCardOptionsWrap">
+              <button class="tw-card-options-btn" id="twCardOptionsBtn" title="选项配置">
+                ${getIconPark('options', 15)}
+                <span class="tw-options-badge-dot" id="twOptionsBadgeDot" style="display:none;"></span>
+              </button>
+              <div class="tw-options-popover" id="twOptionsPopover" style="display:none;">
+                <div class="tw-options-menu">
+                  <!-- 1. OpenGrok 代码工程 -->
+                  <div class="tw-opt-menu-item active has-submenu" id="twOptOpenGrokItem" title="OpenGrok 代码工程切换">
+                    <div class="tw-opt-item-left">
+                      <span class="tw-opt-item-icon" style="color:#10B981">${getIconPark('code', 14)}</span>
+                      <span class="tw-opt-item-name">OpenGrok</span>
+                    </div>
+                    <div class="tw-opt-item-right">
+                      <span class="tw-opt-item-val" id="twCardProjectName">Auto</span>
+                      <span class="tw-opt-item-arrow">${getIconPark('right', 10)}</span>
+                    </div>
+                  </div>
+
+                  <!-- 2. Gerrit 代码评审 (只读接入) -->
+                  <div class="tw-opt-menu-item active has-submenu" id="twOptGerritItem" title="Gerrit 代码评审">
+                    <div class="tw-opt-item-left">
+                      <span class="tw-opt-item-icon" style="color:#6366F1">${getIconPark('link', 14)}</span>
+                      <span class="tw-opt-item-name">Gerrit</span>
+                    </div>
+                    <div class="tw-opt-item-right">
+                      <span class="tw-opt-item-val" id="twCardGerritFilter">全部</span>
+                      <span class="tw-opt-item-arrow">${getIconPark('right', 10)}</span>
+                    </div>
+                  </div>
+
+                  <!-- 3. Jira 缺陷工单 (预留) -->
+                  <div class="tw-opt-menu-item disabled" title="待接入">
+                    <div class="tw-opt-item-left">
+                      <span class="tw-opt-item-icon" style="color:#0EA5E9">${getIconPark('tasks', 14)}</span>
+                      <span class="tw-opt-item-name">Jira 工单</span>
+                    </div>
+                    <div class="tw-opt-item-right">
+                      <span class="tw-opt-badge-tag">待接入</span>
+                    </div>
+                  </div>
+
+                  <!-- 4. 项目本地代码 (预留) -->
+                  <div class="tw-opt-menu-item disabled" title="待接入">
+                    <div class="tw-opt-item-left">
+                      <span class="tw-opt-item-icon" style="color:#F59E0B">${getIconPark('folder', 14)}</span>
+                      <span class="tw-opt-item-name">本地工程</span>
+                    </div>
+                    <div class="tw-opt-item-right">
+                      <span class="tw-opt-badge-tag">待接入</span>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- 浮窗形式的工程选择面板 -->
+                <div class="tw-opt-proj-floating-panel" id="twOptProjDropdownPanel" style="display:none;">
+                  <div class="tw-project-search-wrap">
+                    <span class="tw-project-search-icon">${getIconPark('search', 11)}</span>
+                    <input type="text" class="tw-project-search-input" id="twProjectSearchInput" placeholder="搜索工程..." />
+                  </div>
+                  <div class="tw-project-popover-list" id="twProjectPopoverList"></div>
+                </div>
+
+                <!-- 浮窗形式的 Gerrit 过滤面板 -->
+                <div class="tw-opt-proj-floating-panel" id="twOptGerritDropdownPanel" style="display:none;">
+                  <div class="tw-project-search-wrap">
+                    <span class="tw-project-search-icon">${getIconPark('search', 11)}</span>
+                    <input type="text" class="tw-project-search-input" id="twGerritSearchInput" placeholder="过滤模式..." />
+                  </div>
+                  <div class="tw-project-popover-list" id="twGerritPopoverList"></div>
+                </div>
+              </div>
+            </div>
           </div>
           <div class="tw-card-toolbar-right">
             <button class="tw-card-abort-btn" id="twBtnAbort" style="display:none;" title="停止生成 (Esc)">
               <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor"><rect x="5.5" y="5.5" width="13" height="13" rx="2.5"/></svg>
             </button>
             <button class="tw-card-send-btn disabled" id="twBtnSend" title="发送 (Enter)" disabled>
-              ${getIconPark('send', 14)}
+              ${getIconPark('send', 16)}
             </button>
           </div>
         </div>
@@ -554,12 +638,6 @@ class PiDrawerView {
           ${getIconPark('paperclip', 16)}
           <span>松开以附加图片或文档到对话</span>
         </div>
-      </div>
-      <div class="tw-drawer-footer-hint">
-        <span class="tw-hint-left" id="twDrawerPermHint">
-          <span class="tw-hint-dot"></span>
-          <span class="tw-hint-text">读写模式</span>
-        </span>
       </div>
     `;
     contentWrap.appendChild(footer);
@@ -583,6 +661,30 @@ class PiDrawerView {
     this.modelListEl = footer.querySelector('#twModelPopoverList');
     this.reasoningPopoverEl = footer.querySelector('#twReasoningPopover');
 
+    this.optionsWrapEl = footer.querySelector('#twCardOptionsWrap');
+    this.optionsBtnEl = footer.querySelector('#twCardOptionsBtn');
+    this.optionsBadgeDot = footer.querySelector('#twOptionsBadgeDot');
+    this.optionsPopoverEl = footer.querySelector('#twOptionsPopover');
+    this.btnCloseOptions = footer.querySelector('#twBtnCloseOptions');
+
+    this.optOpenGrokItem = footer.querySelector('#twOptOpenGrokItem');
+    this.optProjTrigger = this.optOpenGrokItem;
+    this.optProjDropdownPanel = footer.querySelector('#twOptProjDropdownPanel');
+    this.projectNameEl = footer.querySelector('#twCardProjectName');
+    this.projectSearchInput = footer.querySelector('#twProjectSearchInput');
+    this.projectListEl = footer.querySelector('#twProjectPopoverList');
+
+    this.optGerritItem = footer.querySelector('#twOptGerritItem');
+    this.optGerritDropdownPanel = footer.querySelector('#twOptGerritDropdownPanel');
+    this.gerritFilterEl = footer.querySelector('#twCardGerritFilter');
+    this.gerritSearchInput = footer.querySelector('#twGerritSearchInput');
+    this.gerritListEl = footer.querySelector('#twGerritPopoverList');
+
+    // Backward-compatibility aliases
+    this.projectWrapEl = this.optionsWrapEl;
+    this.projectPillEl = this.optionsBtnEl;
+    this.projectPopoverEl = this.optionsPopoverEl;
+
     if (this.inputEl) {
       this.inputEl.style.height = `${this.inputHeight}px`;
     }
@@ -591,6 +693,8 @@ class PiDrawerView {
     this.bindInputEvents();
     this.bindModelSelectorEvents();
     this.updateModelSelectorPill();
+    this.bindProjectSelectorEvents();
+    this.updateProjectSelectorPill();
     this.updateContextCapsule();
     this.updateSendButtonState();
 
@@ -695,6 +799,7 @@ class PiDrawerView {
 
   openModelPopover() {
     if (!this.modelPopoverEl) return;
+    this.closeProjectPopover();
     if (this.modelSearchInput) this.modelSearchInput.value = '';
     this.renderModelPopover('');
     this.modelPopoverEl.style.display = 'flex';
@@ -999,6 +1104,431 @@ class PiDrawerView {
     if (this.modelNameEl) this.modelNameEl.textContent = displayName;
   }
 
+  getSavedProject() {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        const p = localStorage.getItem('tabonkb-opengrok-selected-project');
+        if (p) return p;
+      }
+    } catch (e) {}
+    return 'auto';
+  }
+
+  saveProject(proj) {
+    this.selectedProject = proj || 'auto';
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('tabonkb-opengrok-selected-project', this.selectedProject);
+      }
+    } catch (e) {}
+    this.updateProjectSelectorPill();
+  }
+
+  getAvailableProjects() {
+    return [
+      { id: 'auto', name: 'Auto (智能推断)', desc: '按提问及平台智能推断' },
+      { id: 'W_sprd_os_dev', name: 'W_sprd_os_dev', desc: '展锐主线 (Android 14/15)' },
+      { id: 'V_sprd_os_dev', name: 'V_sprd_os_dev', desc: '展锐分支 (V_dev)' },
+      { id: 'W_mp1_os_dev', name: 'W_mp1_os_dev', desc: 'MTK 主线 (MT6768/6833)' },
+      { id: 'A17_mp1_os_dev', name: 'A17_mp1_os_dev', desc: 'MTK A17 项目机型' },
+      { id: 'T_U_sprd_oversea_release', name: 'T_U_sprd_oversea_release', desc: '展锐海外发布版' },
+      { id: 'T_U_mp1_oversea_release', name: 'T_U_mp1_oversea_release', desc: 'MTK 海外发布版' },
+      { id: 'V_oversea_release', name: 'V_oversea_release', desc: '海外发布分支' },
+      { id: 'S_U_aiot_oversea_release', name: 'S_U_aiot_oversea_release', desc: 'AIoT 物联网版' },
+      { id: 'Aselsan_release_A16_1.57', name: 'Aselsan_release_A16_1.57', desc: 'Aselsan 专网定制' }
+    ];
+  }
+
+  getSavedGerritFilter() {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        const f = localStorage.getItem('tabonkb-gerrit-selected-filter');
+        if (f) return f;
+      }
+    } catch (e) {}
+    return 'all';
+  }
+
+  saveGerritFilter(filterId) {
+    this.selectedGerritFilter = filterId || 'all';
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('tabonkb-gerrit-selected-filter', this.selectedGerritFilter);
+      }
+    } catch (e) {}
+    this.updateProjectSelectorPill();
+  }
+
+  getAvailableGerritFilters() {
+    return [
+      { id: 'all', name: '全部变更', desc: '检索全库代码评审' },
+      { id: 'open', name: '开放中', desc: '当前处于评审中' },
+      { id: 'merged', name: '已合入', desc: '已通过并合入主干' },
+      { id: 'mine', name: '我提交', desc: '本人创建的变更单' },
+      { id: 'reviewing', name: '待我审', desc: '指派给我的待评审单' }
+    ];
+  }
+
+  bindProjectSelectorEvents() {
+    if (!this.optionsBtnEl || !this.optionsPopoverEl) return;
+
+    this.optionsBtnEl.onclick = (e) => {
+      e.stopPropagation();
+      const isVisible = this.optionsPopoverEl.style.display === 'flex';
+      if (isVisible) {
+        this.closeProjectPopover();
+      } else {
+        this.openProjectPopover();
+      }
+    };
+
+    // 1. OpenGrok 级联子菜单交互
+    if (this.optOpenGrokItem && this.optProjDropdownPanel) {
+      this.optOpenGrokItem.onclick = (e) => {
+        e.stopPropagation();
+        const isOpen = this.optProjDropdownPanel.style.display !== 'none';
+        if (isOpen) {
+          this.closeProjectDropdown();
+        } else {
+          this.closeGerritDropdown();
+          this.openProjectDropdown();
+        }
+      };
+
+      this.optOpenGrokItem.addEventListener('mouseenter', () => {
+        this.closeGerritDropdown();
+        this.openProjectDropdown();
+      });
+    }
+
+    // 2. Gerrit 级联子菜单交互
+    if (this.optGerritItem && this.optGerritDropdownPanel) {
+      this.optGerritItem.onclick = (e) => {
+        e.stopPropagation();
+        const isOpen = this.optGerritDropdownPanel.style.display !== 'none';
+        if (isOpen) {
+          this.closeGerritDropdown();
+        } else {
+          this.closeProjectDropdown();
+          this.openGerritDropdown();
+        }
+      };
+
+      this.optGerritItem.addEventListener('mouseenter', () => {
+        this.closeProjectDropdown();
+        this.openGerritDropdown();
+      });
+    }
+
+    // 3. 悬停在其他未激活菜单项时自动收起两个子面板
+    if (this.optionsPopoverEl) {
+      this.optionsPopoverEl.querySelectorAll('.tw-opt-menu-item:not(#twOptOpenGrokItem):not(#twOptGerritItem)').forEach(el => {
+        el.addEventListener('mouseenter', () => {
+          this.closeProjectDropdown();
+          this.closeGerritDropdown();
+        });
+      });
+    }
+
+    // 4. OpenGrok 搜索框
+    if (this.projectSearchInput) {
+      this.projectSearchInput.onclick = (e) => e.stopPropagation();
+      this.projectSearchInput.oninput = (e) => {
+        this.renderProjectPopover(e.target.value.trim());
+      };
+    }
+
+    // 5. Gerrit 搜索框
+    if (this.gerritSearchInput) {
+      this.gerritSearchInput.onclick = (e) => e.stopPropagation();
+      this.gerritSearchInput.oninput = (e) => {
+        this.renderGerritPopover(e.target.value.trim());
+      };
+    }
+
+    // Close on click outside - 点击任意空白处关闭退出选项
+    document.addEventListener('click', (e) => {
+      if (!this.optionsPopoverEl || this.optionsPopoverEl.style.display === 'none') return;
+
+      // 如果点击在浮窗内部，不关闭
+      if (this.optProjDropdownPanel && this.optProjDropdownPanel.contains(e.target)) {
+        return;
+      }
+      if (this.optGerritDropdownPanel && this.optGerritDropdownPanel.contains(e.target)) {
+        return;
+      }
+
+      // 如果点击在 optionsWrap 外部空白处，直接全部退出
+      if (this.optionsWrapEl && !this.optionsWrapEl.contains(e.target)) {
+        this.closeProjectPopover();
+        return;
+      }
+
+      // 如果点击在 optionsPopover 内部但不在项上，收起相应子浮窗
+      if (this.optionsPopoverEl.contains(e.target)) {
+        if (this.optProjDropdownPanel && this.optProjDropdownPanel.style.display !== 'none') {
+          if (this.optOpenGrokItem && !this.optOpenGrokItem.contains(e.target)) {
+            this.closeProjectDropdown();
+          }
+        }
+        if (this.optGerritDropdownPanel && this.optGerritDropdownPanel.style.display !== 'none') {
+          if (this.optGerritItem && !this.optGerritItem.contains(e.target)) {
+            this.closeGerritDropdown();
+          }
+        }
+      }
+    });
+
+    // Close on Esc
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && this.optionsPopoverEl && this.optionsPopoverEl.style.display === 'flex') {
+        this.closeProjectPopover();
+      }
+    });
+  }
+
+  openProjectDropdown() {
+    if (!this.optProjDropdownPanel) return;
+    this.positionProjectDropdown();
+    this.optProjDropdownPanel.style.display = 'flex';
+    if (this.optOpenGrokItem) this.optOpenGrokItem.classList.add('open');
+    this.renderProjectPopover(this.projectSearchInput ? this.projectSearchInput.value.trim() : '');
+  }
+
+  closeProjectDropdown() {
+    if (this.optProjDropdownPanel) {
+      this.optProjDropdownPanel.style.display = 'none';
+    }
+    if (this.optOpenGrokItem) {
+      this.optOpenGrokItem.classList.remove('open');
+    }
+  }
+
+  positionProjectDropdown() {
+    if (!this.optOpenGrokItem || !this.optProjDropdownPanel || !this.optionsPopoverEl) return;
+    try {
+      const popoverRect = this.optionsPopoverEl.getBoundingClientRect();
+      const windowWidth = typeof window !== 'undefined' ? window.innerWidth : 1000;
+
+      // 水平定位：向左稍微叠加 6px 在主框上，无缝衔接消除间隔；右侧超界自适应翻转
+      if (popoverRect.right + 250 > windowWidth) {
+        this.optProjDropdownPanel.style.left = 'auto';
+        this.optProjDropdownPanel.style.right = 'calc(100% - 6px)';
+      } else {
+        this.optProjDropdownPanel.style.left = 'calc(100% - 6px)';
+        this.optProjDropdownPanel.style.right = 'auto';
+      }
+
+      // 垂直定位：向上抬高底端对齐（bottom: 0），避免浮窗过长探出屏幕底部/被任务栏遮挡
+      this.optProjDropdownPanel.style.top = 'auto';
+      this.optProjDropdownPanel.style.bottom = '0px';
+    } catch (_) {}
+  }
+
+  openGerritDropdown() {
+    if (!this.optGerritDropdownPanel) return;
+    this.positionGerritDropdown();
+    this.optGerritDropdownPanel.style.display = 'flex';
+    if (this.optGerritItem) this.optGerritItem.classList.add('open');
+    this.renderGerritPopover(this.gerritSearchInput ? this.gerritSearchInput.value.trim() : '');
+  }
+
+  closeGerritDropdown() {
+    if (this.optGerritDropdownPanel) {
+      this.optGerritDropdownPanel.style.display = 'none';
+    }
+    if (this.optGerritItem) {
+      this.optGerritItem.classList.remove('open');
+    }
+  }
+
+  positionGerritDropdown() {
+    if (!this.optGerritItem || !this.optGerritDropdownPanel || !this.optionsPopoverEl) return;
+    try {
+      const popoverRect = this.optionsPopoverEl.getBoundingClientRect();
+      const windowWidth = typeof window !== 'undefined' ? window.innerWidth : 1000;
+
+      // 水平定位：向左稍微叠加 6px 在主框上，无缝衔接消除间隔；右侧超界自适应翻转
+      if (popoverRect.right + 250 > windowWidth) {
+        this.optGerritDropdownPanel.style.left = 'auto';
+        this.optGerritDropdownPanel.style.right = 'calc(100% - 6px)';
+      } else {
+        this.optGerritDropdownPanel.style.left = 'calc(100% - 6px)';
+        this.optGerritDropdownPanel.style.right = 'auto';
+      }
+
+      // 垂直定位：向上抬高底端对齐（bottom: 0），避免浮窗过长探出屏幕底部/被任务栏遮挡
+      this.optGerritDropdownPanel.style.top = 'auto';
+      this.optGerritDropdownPanel.style.bottom = '0px';
+    } catch (_) {}
+  }
+
+  openProjectPopover() {
+    if (!this.optionsPopoverEl) return;
+    this.closeModelPopover();
+    if (this.projectSearchInput) this.projectSearchInput.value = '';
+    if (this.gerritSearchInput) this.gerritSearchInput.value = '';
+    // 默认不要展开子浮窗列表
+    this.closeProjectDropdown();
+    this.closeGerritDropdown();
+    this.optionsPopoverEl.style.display = 'flex';
+  }
+
+  closeProjectPopover() {
+    if (this.optionsPopoverEl) {
+      this.optionsPopoverEl.style.display = 'none';
+    }
+    this.closeProjectDropdown();
+    this.closeGerritDropdown();
+  }
+
+  renderProjectPopover(filterText = '') {
+    if (!this.projectListEl) return;
+    const cleanFilter = filterText.toLowerCase();
+    const projects = this.getAvailableProjects();
+    const filtered = projects.filter(p => {
+      if (!cleanFilter) return true;
+      return p.id.toLowerCase().includes(cleanFilter) || p.name.toLowerCase().includes(cleanFilter) || p.desc.toLowerCase().includes(cleanFilter);
+    });
+
+    if (filtered.length === 0) {
+      this.projectListEl.innerHTML = `
+        <div style="padding: 12px; text-align: center; color: var(--text-muted); font-size: 11px;">
+          未匹配到包含 "${escapeHtml(filterText)}" 的工程
+        </div>
+      `;
+      return;
+    }
+
+    let html = '';
+    for (const p of filtered) {
+      const isSelected = p.id === (this.selectedProject || 'auto');
+      html += `
+        <div class="tw-project-item ${isSelected ? 'active' : ''}" data-project-id="${escapeAttr(p.id)}">
+          <div class="tw-project-item-info">
+            <div class="tw-project-item-title">
+              <span>${escapeHtml(p.name)}</span>
+            </div>
+            <div class="tw-project-item-desc">${escapeHtml(p.desc)}</div>
+          </div>
+          ${isSelected ? `<span class="tw-project-item-check">${getIconPark('check', 12)}</span>` : ''}
+        </div>
+      `;
+    }
+
+    this.projectListEl.innerHTML = html;
+
+    const items = this.projectListEl.querySelectorAll('.tw-project-item');
+    items.forEach(el => {
+      el.onclick = (e) => {
+        e.stopPropagation();
+        const projId = el.getAttribute('data-project-id');
+        this.saveProject(projId);
+        this.closeProjectPopover();
+        this.updateProjectSelectorPill();
+        const app = this.app || (typeof window !== 'undefined' ? window.app : null);
+        const NoticeCls = typeof Notice !== 'undefined' ? Notice : (app?.Notice || class{});
+        new NoticeCls(`✓ OpenGrok: ${projId === 'auto' ? 'Auto (智能推断)' : projId}`, 1800);
+      };
+    });
+  }
+
+  renderGerritPopover(filterText = '') {
+    if (!this.gerritListEl) return;
+    const cleanFilter = filterText.toLowerCase();
+    const filters = this.getAvailableGerritFilters();
+    const filtered = filters.filter(f => {
+      if (!cleanFilter) return true;
+      return f.id.toLowerCase().includes(cleanFilter) || f.name.toLowerCase().includes(cleanFilter) || f.desc.toLowerCase().includes(cleanFilter);
+    });
+
+    if (filtered.length === 0) {
+      this.gerritListEl.innerHTML = `
+        <div style="padding: 12px; text-align: center; color: var(--text-muted); font-size: 11px;">
+          未匹配到包含 "${escapeHtml(filterText)}" 的模式
+        </div>
+      `;
+      return;
+    }
+
+    let html = '';
+    for (const f of filtered) {
+      const isSelected = f.id === (this.selectedGerritFilter || 'all');
+      html += `
+        <div class="tw-project-item ${isSelected ? 'active' : ''}" data-gerrit-filter="${escapeAttr(f.id)}">
+          <div class="tw-project-item-info">
+            <div class="tw-project-item-title">
+              <span>${escapeHtml(f.name)}</span>
+            </div>
+            <div class="tw-project-item-desc">${escapeHtml(f.desc)}</div>
+          </div>
+          ${isSelected ? `<span class="tw-project-item-check">${getIconPark('check', 12)}</span>` : ''}
+        </div>
+      `;
+    }
+
+    this.gerritListEl.innerHTML = html;
+
+    const items = this.gerritListEl.querySelectorAll('.tw-project-item');
+    items.forEach(el => {
+      el.onclick = (e) => {
+        e.stopPropagation();
+        const filterId = el.getAttribute('data-gerrit-filter');
+        this.saveGerritFilter(filterId);
+        this.closeProjectPopover();
+        this.updateProjectSelectorPill();
+        const app = this.app || (typeof window !== 'undefined' ? window.app : null);
+        const NoticeCls = typeof Notice !== 'undefined' ? Notice : (app?.Notice || class{});
+        const currentF = filters.find(x => x.id === filterId);
+        new NoticeCls(`✓ Gerrit: ${currentF ? currentF.name : filterId}`, 1800);
+      };
+    });
+  }
+
+  updateProjectSelectorPill() {
+    if (!this.optionsWrapEl) return;
+    const isNiceAigc = this.hub.activeAgentId === 'niceaigc';
+    if (isNiceAigc) {
+      this.optionsWrapEl.style.display = 'none';
+      return;
+    }
+    this.optionsWrapEl.style.display = 'inline-flex';
+
+    // 1. OpenGrok 标签与状态
+    const isAuto = !this.selectedProject || this.selectedProject === 'auto';
+    const label = isAuto ? 'Auto' : this.selectedProject;
+    if (this.projectNameEl) {
+      this.projectNameEl.textContent = label;
+      this.projectNameEl.title = isAuto ? 'Auto (智能推断)' : this.selectedProject;
+    }
+
+    // 2. Gerrit 标签与状态 (极简短标签 <= 6 字符)
+    const gerritMap = { all: '全部', open: '开放中', merged: '已合入', mine: '我提交', reviewing: '待我审' };
+    const gerritLabel = gerritMap[this.selectedGerritFilter || 'all'] || '全部';
+    if (this.gerritFilterEl) {
+      this.gerritFilterEl.textContent = gerritLabel;
+      this.gerritFilterEl.title = `Gerrit: ${gerritLabel}`;
+    }
+
+    // 3. 激活高亮与红点逻辑 (当任意配置非默认时触发)
+    const isCustomGerrit = this.selectedGerritFilter && this.selectedGerritFilter !== 'all';
+    const hasCustomOption = !isAuto || isCustomGerrit;
+    if (this.optionsBadgeDot) {
+      this.optionsBadgeDot.style.display = hasCustomOption ? 'block' : 'none';
+    }
+    if (this.optionsBtnEl) {
+      if (hasCustomOption) {
+        this.optionsBtnEl.classList.add('has-active');
+      } else {
+        this.optionsBtnEl.classList.remove('has-active');
+      }
+      let tipParts = [];
+      if (!isAuto) tipParts.push(`OpenGrok: ${label}`);
+      if (isCustomGerrit) tipParts.push(`Gerrit: ${gerritLabel}`);
+      this.optionsBtnEl.title = tipParts.length ? `选项 (${tipParts.join(' | ')})` : '选项配置';
+    }
+  }
+
   async switchAgent(agentId) {
     if (this.hub.activeAgentId === agentId) {
       this.syncActiveAgentUI();
@@ -1069,6 +1599,7 @@ class PiDrawerView {
     if (this.cardModelNameEl) this.cardModelNameEl.textContent = meta.displayName || meta.name;
 
     this.updateModelSelectorPill();
+    this.updateProjectSelectorPill();
 
     const currentModel = typeof adapter.getModel === 'function' ? adapter.getModel() : null;
     let modelSuffix = '';
@@ -1176,6 +1707,17 @@ class PiDrawerView {
     const authorName = msg.model || adapter.displayName;
     const authorIcon = adapter.id === 'hermes' ? adapter.icon : (msg.model ? getOfficialModelSvg(msg.model, 16) : adapter.icon);
 
+    // Extract inline <think> if stored in msg.text
+    let displayThinking = msg.thinking || '';
+    let displayText = msg.text || '';
+    if (!displayThinking && displayText.includes('<think>')) {
+      const thinkMatch = displayText.match(/<think>([\s\S]*?)<\/think>/i);
+      if (thinkMatch) {
+        displayThinking = thinkMatch[1].trim();
+        displayText = displayText.replace(/<think>[\s\S]*?<\/think>/i, '').trim();
+      }
+    }
+
     bubbleWrap.innerHTML = `
       <div class="tw-msg-avatar">
         <div class="tw-msg-avatar-info">
@@ -1184,11 +1726,42 @@ class PiDrawerView {
         </div>
         <button class="tw-msg-copy-btn" title="一键复制回答全文">${getIconPark('copy', 12)} <span>复制</span></button>
       </div>
-      <div class="tw-msg-content" data-raw="${escapeAttr(msg.text || '')}"></div>
+      <div class="tw-msg-content" data-raw="${escapeAttr(displayText || '')}"></div>
     `;
 
     const contentEl = bubbleWrap.querySelector('.tw-msg-content');
-    this.formatMessageContent(contentEl, msg.text || '');
+    this.formatMessageContent(contentEl, displayText || '');
+
+    // Render dedicated thinking process box strictly below answer content
+    if (displayThinking && displayThinking.trim().length > 0) {
+      const thinkingBox = document.createElement('div');
+      thinkingBox.className = 'tw-msg-thinking-box collapsed';
+      thinkingBox.innerHTML = `
+        <div class="tw-thinking-header">
+          <div class="tw-thinking-title">
+            <span class="tw-thinking-icon">${getIconPark('sparkles', 13)}</span>
+            <span class="tw-thinking-title-text">思考过程</span>
+            <span class="tw-thinking-status">(已完成思考 · 共 ${displayThinking.length}字 · 点击展开)</span>
+          </div>
+          <div class="tw-thinking-toggle">
+            <span class="tw-thinking-toggle-icon">${getIconPark('right', 11)}</span>
+          </div>
+        </div>
+        <div class="tw-thinking-body"></div>
+      `;
+      const bodyEl = thinkingBox.querySelector('.tw-thinking-body');
+      bodyEl.textContent = displayThinking;
+      const headerEl = thinkingBox.querySelector('.tw-thinking-header');
+      headerEl.onclick = () => {
+        thinkingBox.classList.toggle('collapsed');
+        const icon = headerEl.querySelector('.tw-thinking-toggle-icon');
+        if (icon) {
+          icon.innerHTML = thinkingBox.classList.contains('collapsed') ? getIconPark('right', 11) : getIconPark('down', 11);
+        }
+      };
+      bubbleWrap.appendChild(thinkingBox);
+    }
+
     this.messagesEl.appendChild(bubbleWrap);
   }
 
@@ -1239,7 +1812,7 @@ class PiDrawerView {
       if (!isResizing) return;
       const dy = startY - e.clientY; // drag up increases height
       let newH = startH + dy;
-      newH = Math.max(38, Math.min(500, newH));
+      newH = Math.max(32, Math.min(350, newH));
       this.inputHeight = newH;
       this.inputEl.style.height = `${newH}px`;
     };
@@ -1269,12 +1842,46 @@ class PiDrawerView {
 
   adjustInputHeight() {
     if (!this.inputEl) return;
-    const minH = this.inputHeight || 38;
+    const minH = this.inputHeight || 52;
+    if (!this.inputEl.value || !this.inputEl.value.trim()) {
+      this.inputEl.style.height = `${minH}px`;
+      return;
+    }
     const scrollH = this.inputEl.scrollHeight;
-    const targetH = scrollH > minH ? Math.min(500, scrollH) : minH;
+    // Cap height to max 200px or 32% of window height to avoid pushing toolbar out of viewport
+    const maxAllowed = Math.min(200, Math.max(minH, Math.floor(window.innerHeight * 0.32)));
+    const targetH = scrollH > minH ? Math.min(maxAllowed, scrollH) : minH;
     const currentH = parseInt(this.inputEl.style.height, 10) || this.inputEl.offsetHeight || minH;
     if (Math.abs(targetH - currentH) > 2) {
       this.inputEl.style.height = `${targetH}px`;
+    }
+  }
+
+  autoResizeInput() {
+    this.adjustInputHeight();
+  }
+
+  setInputValue(text, focus = true) {
+    if (!this.inputEl) return;
+    this.inputEl.value = text || '';
+    this.adjustInputHeight();
+    this.updateSendButtonState();
+    if (this.hub && this.hub.sessionManager) {
+      this.hub.sessionManager.setDraft(this.hub.activeAgentId, text || '');
+    }
+    if (focus) {
+      this.inputEl.focus();
+    }
+    this.inputEl.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+
+  sendPrompt(promptText, autoSend = false) {
+    if (!this.isOpen()) {
+      this.open();
+    }
+    this.setInputValue(promptText, true);
+    if (autoSend) {
+      this.handleSend();
     }
   }
 
@@ -1804,12 +2411,12 @@ class PiDrawerView {
           <span class="tw-ctx-icon">${getIconPark('target', 13)}</span>
           <span class="tw-ctx-title">${escapeHtml(info.title)}</span>
           <span class="tw-ctx-sub">(${escapeHtml(info.module || '通用')})</span>
-          <button class="tw-ctx-clear-btn" title="清除节点聚焦，切回全局知识库">${getIconPark('close', 11)}</button>
+          <span class="tw-ctx-clear-btn" role="button" tabindex="0" title="清除节点聚焦，切回全局知识库">${getIconPark('close', 11)}</span>
         </div>
       `;
       const clearBtn = this.contextCapsuleEl.querySelector('.tw-ctx-clear-btn');
       if (clearBtn) {
-        clearBtn.onclick = (e) => {
+        const doClear = (e) => {
           e.stopPropagation();
           if (typeof this.contextProvider.clearContext === 'function') {
             this.contextProvider.clearContext();
@@ -1817,6 +2424,13 @@ class PiDrawerView {
             this.contextProvider.clearKnowledgeNode();
           }
           this.updateCardAttachments();
+        };
+        clearBtn.onclick = doClear;
+        clearBtn.onkeydown = (e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            doClear(e);
+          }
         };
       }
     } else {
@@ -1846,12 +2460,12 @@ class PiDrawerView {
         <div class="tw-card-attachment-chip" title="${escapeAttr(activeFile.path)}">
           <span class="tw-chip-icon">${getIconPark('file-text', 13)}</span>
           <span class="tw-chip-name">${escapeHtml(activeFile.basename || activeFile.name || '当前笔记')}</span>
-          <button class="tw-chip-remove" title="移除附加文档">${getIconPark('close', 11)}</button>
+          <span class="tw-chip-remove" role="button" tabindex="0" title="移除附加文档">${getIconPark('close', 11)}</span>
         </div>
       `;
       const removeBtn = this.cardAttachmentsEl.querySelector('.tw-chip-remove');
       if (removeBtn) {
-        removeBtn.onclick = (e) => {
+        const doRemove = (e) => {
           e.stopPropagation();
           if (typeof this.contextProvider.clearContext === 'function') {
             this.contextProvider.clearContext();
@@ -1860,6 +2474,13 @@ class PiDrawerView {
           }
           this.updateCardAttachments();
           this.updateContextCapsule();
+        };
+        removeBtn.onclick = doRemove;
+        removeBtn.onkeydown = (e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            doRemove(e);
+          }
         };
       }
     } else {
@@ -2125,6 +2746,18 @@ class PiDrawerView {
       }
     });
 
+    this.hub.on('thinking_start', (data) => {
+      this.handleThinkingStart(data);
+    });
+
+    this.hub.on('thinking_delta', (delta) => {
+      this.appendAssistantThinkingDelta(delta);
+    });
+
+    this.hub.on('thinking_end', (data) => {
+      this.handleThinkingEnd(data);
+    });
+
     this.hub.on('text_delta', (delta) => {
       this.appendAssistantDelta(delta);
     });
@@ -2249,6 +2882,39 @@ class PiDrawerView {
     content.style.display = 'none';
     bubbleWrap.appendChild(content);
 
+    // 4. Dedicated Thinking Process Box (placed strictly BELOW the answer content)
+    const thinkingBox = document.createElement('div');
+    thinkingBox.className = 'tw-msg-thinking-box';
+    thinkingBox.style.display = 'none'; // Hidden until thinking arrives
+
+    const thinkingHeader = document.createElement('div');
+    thinkingHeader.className = 'tw-thinking-header';
+    thinkingHeader.innerHTML = `
+      <div class="tw-thinking-title">
+        <span class="tw-thinking-icon">${getIconPark('sparkles', 13)}</span>
+        <span class="tw-thinking-title-text">思考过程</span>
+        <span class="tw-thinking-status">(思考中...)</span>
+      </div>
+      <div class="tw-thinking-toggle">
+        <span class="tw-thinking-toggle-icon">${getIconPark('down', 11)}</span>
+      </div>
+    `;
+    thinkingBox.appendChild(thinkingHeader);
+
+    const thinkingBody = document.createElement('div');
+    thinkingBody.className = 'tw-thinking-body';
+    thinkingBox.appendChild(thinkingBody);
+
+    thinkingHeader.onclick = () => {
+      thinkingBox.classList.toggle('collapsed');
+      const icon = thinkingHeader.querySelector('.tw-thinking-toggle-icon');
+      if (icon) {
+        icon.innerHTML = thinkingBox.classList.contains('collapsed') ? getIconPark('right', 11) : getIconPark('down', 11);
+      }
+    };
+
+    bubbleWrap.appendChild(thinkingBox);
+
     this.messagesEl.appendChild(bubbleWrap);
     this.scrollToBottom();
 
@@ -2258,12 +2924,72 @@ class PiDrawerView {
       processBoxEl: processBox,
       processHeaderEl: processHeader,
       processBodyEl: processBody,
+      thinkingBoxEl: thinkingBox,
+      thinkingHeaderEl: thinkingHeader,
+      thinkingBodyEl: thinkingBody,
+      thinkingText: '',
+      thinkingStartTime: null,
+      isThinking: false,
       toolCount: 0,
       rawText: '',
       activeTools: new Map()
     };
 
     return this.currentAssistantMessage;
+  }
+
+  handleThinkingStart(data) {
+    if (!this.currentAssistantMessage) {
+      this.createAssistantMessageBubble();
+    }
+    const msg = this.currentAssistantMessage;
+    msg.isThinking = true;
+    if (!msg.thinkingStartTime) msg.thinkingStartTime = Date.now();
+    msg.thinkingBoxEl.style.display = 'flex';
+    msg.thinkingBoxEl.classList.add('thinking');
+    msg.thinkingBoxEl.classList.remove('collapsed');
+    const icon = msg.thinkingHeaderEl?.querySelector('.tw-thinking-toggle-icon');
+    if (icon) icon.innerHTML = getIconPark('down', 11);
+    const statusEl = msg.thinkingHeaderEl?.querySelector('.tw-thinking-status');
+    if (statusEl) statusEl.textContent = '(正在深度思考...)';
+    this.scrollToBottom();
+  }
+
+  appendAssistantThinkingDelta(delta) {
+    if (!this.currentAssistantMessage) {
+      this.createAssistantMessageBubble();
+    }
+    const msg = this.currentAssistantMessage;
+    msg.isThinking = true;
+    if (!msg.thinkingStartTime) msg.thinkingStartTime = Date.now();
+    msg.thinkingText = (msg.thinkingText || '') + delta;
+    msg.thinkingBoxEl.style.display = 'flex';
+    msg.thinkingBoxEl.classList.add('thinking');
+
+    const statusEl = msg.thinkingHeaderEl?.querySelector('.tw-thinking-status');
+    if (statusEl) {
+      const elapsed = Math.max(1, Math.floor((Date.now() - msg.thinkingStartTime) / 1000));
+      statusEl.textContent = `(深度思考中 ${elapsed}s · ${msg.thinkingText.length}字)`;
+    }
+
+    msg.thinkingBodyEl.textContent = msg.thinkingText;
+    msg.thinkingBodyEl.scrollTop = msg.thinkingBodyEl.scrollHeight;
+    this.scrollToBottom();
+  }
+
+  handleThinkingEnd(data) {
+    if (!this.currentAssistantMessage) return;
+    const msg = this.currentAssistantMessage;
+    msg.isThinking = false;
+    msg.thinkingBoxEl.classList.remove('thinking');
+
+    // DO NOT say "已完成思考" here because tool execution or text generation is still actively running!
+    if (msg.thinkingText && msg.thinkingText.trim().length > 0) {
+      const statusEl = msg.thinkingHeaderEl?.querySelector('.tw-thinking-status');
+      if (statusEl) {
+        statusEl.textContent = `(阶段推演就绪 · ${msg.thinkingText.length}字 · 正在调用工具与撰写回复...)`;
+      }
+    }
   }
 
   appendAssistantDelta(delta) {
@@ -2288,6 +3014,22 @@ class PiDrawerView {
       this.createAssistantMessageBubble();
     }
     const msg = this.currentAssistantMessage;
+
+    // If thinking was in progress or ready, and now tools started executing:
+    if (msg.thinkingText && msg.thinkingText.trim().length > 0) {
+      msg.isThinking = false;
+      if (msg.thinkingBoxEl) {
+        msg.thinkingBoxEl.classList.remove('thinking');
+        // Auto-collapse thinking box when tools start so the user's attention stays on the running tool
+        msg.thinkingBoxEl.classList.add('collapsed');
+        const icon = msg.thinkingHeaderEl?.querySelector('.tw-thinking-toggle-icon');
+        if (icon) icon.innerHTML = getIconPark('right', 11);
+      }
+      const statusEl = msg.thinkingHeaderEl?.querySelector('.tw-thinking-status');
+      if (statusEl) {
+        statusEl.textContent = `(阶段推演就绪 · ${msg.thinkingText.length}字 · 正在调用工具排查...)`;
+      }
+    }
 
     // Reveal process box and update count
     msg.processBoxEl.style.display = 'flex';
@@ -2483,6 +3225,22 @@ class PiDrawerView {
       }
     }
 
+    // Finalize thinking box state
+    if (msg.thinkingText && msg.thinkingText.trim().length > 0) {
+      msg.isThinking = false;
+      if (msg.thinkingBoxEl) {
+        msg.thinkingBoxEl.classList.remove('thinking');
+        msg.thinkingBoxEl.classList.add('collapsed');
+      }
+      const statusEl = msg.thinkingHeaderEl?.querySelector('.tw-thinking-status');
+      if (statusEl) {
+        const duration = msg.thinkingStartTime ? Math.max(1, Math.round((Date.now() - msg.thinkingStartTime) / 1000)) : 1;
+        statusEl.textContent = `(已完成思考 · 共 ${msg.thinkingText.length}字 · 耗时${duration}s · 点击展开)`;
+      }
+      const icon = msg.thinkingHeaderEl?.querySelector('.tw-thinking-toggle-icon');
+      if (icon) icon.innerHTML = getIconPark('right', 11);
+    }
+
     // Persist to session manager
     const adapter = this.hub.getActiveAdapter();
     const currentModel = typeof adapter.getModel === 'function' ? adapter.getModel() : null;
@@ -2496,7 +3254,8 @@ class PiDrawerView {
       role: 'assistant',
       text: msg.rawText,
       toolCount: msg.toolCount,
-      model: authorModel
+      model: authorModel,
+      thinking: msg.thinkingText || ''
     });
 
     this.currentAssistantMessage = null;
@@ -2505,17 +3264,42 @@ class PiDrawerView {
 
   async formatMessageContent(el, text) {
     if (!text) return;
+    const normalizedText = prepareMarkdownForRender(text, this.vaultBasePath);
     const app = this.app || (typeof window !== 'undefined' ? window.app : null);
-    if (app && typeof MarkdownRenderer !== 'undefined' && MarkdownRenderer.render) {
+    if (app && typeof MarkdownRenderer !== 'undefined') {
+      let comp = this.markdownComponent;
+      if (!comp) {
+        let CompCls = typeof Component !== 'undefined' ? Component : null;
+        if (!CompCls && typeof require !== 'undefined') {
+          try { CompCls = require('obsidian')?.Component; } catch (e) {}
+        }
+        if (CompCls) {
+          try {
+            comp = new CompCls();
+            comp.load();
+            this.markdownComponent = comp;
+          } catch (e) {}
+        }
+      }
+
       el.innerHTML = '';
       try {
-        await MarkdownRenderer.render(
-          app,
-          text,
-          el,
-          '',
-          this
-        );
+        if (typeof MarkdownRenderer.render === 'function') {
+          await MarkdownRenderer.render(
+            app,
+            normalizedText,
+            el,
+            '',
+            comp
+          );
+        } else if (typeof MarkdownRenderer.renderMarkdown === 'function') {
+          await MarkdownRenderer.renderMarkdown(
+            normalizedText,
+            el,
+            '',
+            comp
+          );
+        }
         this.postProcessRenderedMarkdown(el);
         setTimeout(() => this.postProcessRenderedMarkdown(el), 60);
         setTimeout(() => this.postProcessRenderedMarkdown(el), 250);
@@ -2525,18 +3309,29 @@ class PiDrawerView {
       }
     }
 
-    el.innerHTML = formatMarkdownFallback(text);
+    el.innerHTML = formatMarkdownFallback(normalizedText);
     this.postProcessRenderedMarkdown(el);
   }
 
   postProcessRenderedMarkdown(containerEl) {
     if (!containerEl) return;
 
-    // 1. Add rel and target to external links
+    // 1. Add rel, target, and direct click handler to external links
     containerEl.querySelectorAll('a').forEach(a => {
-      a.setAttribute('target', '_blank');
-      a.setAttribute('rel', 'noopener noreferrer');
-      a.classList.add('external-link');
+      const href = a.getAttribute('href') || a.href || '';
+      const text = a.textContent || '';
+      const targetUrl = resolveLinkToUrl(href, text, a, this.vaultBasePath);
+      if (targetUrl) {
+        a.setAttribute('href', targetUrl);
+        a.setAttribute('target', '_blank');
+        a.setAttribute('rel', 'noopener noreferrer');
+        a.classList.add('external-link');
+        a.onclick = (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          openExternalUrl(targetUrl);
+        };
+      }
     });
 
     // 2. Enhance code blocks with styled header bar, language label, and compact copy button
@@ -2573,13 +3368,22 @@ class PiDrawerView {
       headerBar.className = 'tw-code-header-bar';
       headerBar.innerHTML = `
         <span class="tw-code-lang-tag">${escapeHtml(lang)}</span>
-        <button class="tw-code-copy-btn" title="复制代码内容">
-          ${getIconPark('copy', 12)}
-          <span class="tw-code-copy-text">复制</span>
+        <button class="tw-code-copy-btn" title="复制代码">
+          ${getIconPark('copy', 13)}
         </button>
       `;
 
       preEl.insertBefore(headerBar, preEl.firstChild);
+    });
+
+    // 3. Enhance tables with horizontal scroll wrapper
+    containerEl.querySelectorAll('table').forEach(table => {
+      if (!table.parentElement.classList.contains('tw-chat-table-wrap')) {
+        const wrap = document.createElement('div');
+        wrap.className = 'tw-chat-table-wrap';
+        table.parentNode.insertBefore(wrap, table);
+        wrap.appendChild(table);
+      }
     });
   }
 
@@ -2661,6 +3465,16 @@ class PiDrawerView {
     let fullPrompt = (!isNiceAigc && this.contextProvider)
       ? this.contextProvider.formatPromptWithContext(text)
       : text;
+
+    // OpenGrok 代码检索工程约束注入 (Pi / Hermes / Gemini 等 Agent)
+    if (!isNiceAigc) {
+      if (this.selectedProject && this.selectedProject !== 'auto') {
+        fullPrompt += `\n\n[OpenGrok Target Project] 用户在工作台指定本次提问优先关联代码工程库为: \`${this.selectedProject}\`。若调用 opengrok_search_code 或 opengrok_read_file，请务必传入 project="${this.selectedProject}"。`;
+        try { process.env.OPENGROK_DEFAULT_PROJECT = this.selectedProject; } catch (_) {}
+      } else if (ctxInfo && ctxInfo.hasContext && ctxInfo.platform && ctxInfo.platform !== 'Common') {
+        fullPrompt += `\n\n[OpenGrok Target Project] 当前笔记关联手机硬件平台为: ${ctxInfo.platform}。在调用 OpenGrok 工具检索时请优先匹配对应工程。`;
+      }
+    }
 
     // 非 Pi / Hermes Agent（无内置或原生 MCP vendor 工具的 Agent）此处才做插件侧前置检索注入；
     // Pi 与 Hermes 已通过 Extension / MCP 接入 vendor_portal 工具链，支持自主按需调用与执行卡片渲染
@@ -2962,8 +3776,47 @@ class PiDrawerView {
     if (isHidden) {
       this.renderHistoryPanel();
       this.historyPanelEl.style.display = 'flex';
+      this.historyPanelEl.classList.add('open');
+      if (this.btnHistory) this.btnHistory.classList.add('active');
+      setTimeout(() => {
+        if (this._historyOutsideClickBound) {
+          window.removeEventListener('click', this._historyOutsideClickBound);
+        }
+        this._historyOutsideClickBound = (e) => {
+          if (!this.historyPanelEl || this.historyPanelEl.style.display === 'none') return;
+          if (!this.historyPanelEl.contains(e.target) && !this.btnHistory?.contains(e.target)) {
+            this.closeHistoryPanel();
+          }
+        };
+        window.addEventListener('click', this._historyOutsideClickBound);
+
+        if (this._historyKeydownBound) {
+          window.removeEventListener('keydown', this._historyKeydownBound);
+        }
+        this._historyKeydownBound = (e) => {
+          if (e.key === 'Escape') {
+            this.closeHistoryPanel();
+          }
+        };
+        window.addEventListener('keydown', this._historyKeydownBound);
+      }, 20);
     } else {
-      this.historyPanelEl.style.display = 'none';
+      this.closeHistoryPanel();
+    }
+  }
+
+  closeHistoryPanel() {
+    if (!this.historyPanelEl) return;
+    this.historyPanelEl.style.display = 'none';
+    this.historyPanelEl.classList.remove('open');
+    if (this.btnHistory) this.btnHistory.classList.remove('active');
+    if (this._historyOutsideClickBound) {
+      window.removeEventListener('click', this._historyOutsideClickBound);
+      this._historyOutsideClickBound = null;
+    }
+    if (this._historyKeydownBound) {
+      window.removeEventListener('keydown', this._historyKeydownBound);
+      this._historyKeydownBound = null;
     }
   }
 
@@ -2976,10 +3829,16 @@ class PiDrawerView {
     const sessions = (this.hub && this.hub.sessionManager) ? this.hub.sessionManager.getSessions(agentId) : [];
     const activeSessionId = (this.hub && this.hub.sessionManager) ? this.hub.sessionManager.getActiveSessionId(agentId) : null;
 
+    const countBadge = this.historyPanelEl.querySelector('#twHistoryCountBadge');
+    if (countBadge) {
+      countBadge.textContent = sessions ? `${sessions.length}` : '0';
+    }
+
     if (!sessions || sessions.length === 0) {
       listEl.innerHTML = `
-        <div style="padding: 16px; text-align: center; color: var(--text-muted); font-size: 11.5px;">
-          暂无历史会话分段记录
+        <div class="tw-history-empty-tip">
+          <div class="tw-history-empty-icon">${getIconPark('topic', 24)}</div>
+          <span>暂无历史会话记录</span>
         </div>
       `;
       return;
@@ -3000,13 +3859,19 @@ class PiDrawerView {
               <div class="tw-history-item-meta">
                 <span>${escapeHtml(timeStr)}</span>
                 <span>·</span>
-                <span>${msgCount} 条对话</span>
+                <span class="tw-history-msg-tag">${msgCount} 条对话</span>
               </div>
             </div>
           </div>
-          <button class="tw-history-delete-btn" data-delete-id="${escapeAttr(s.id)}" title="删除此会话记录">
-            ${getIconPark('delete', 12)}
-          </button>
+          <span class="tw-history-delete-btn" data-delete-id="${escapeAttr(s.id)}" title="删除此记录" role="button" tabindex="0" aria-label="删除会话记录">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M4 7h16"/>
+              <path d="M10 11v6"/>
+              <path d="M14 11v6"/>
+              <path d="M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2l1-12"/>
+              <path d="M9 7V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3"/>
+            </svg>
+          </span>
         </div>
       `;
     }
@@ -3023,10 +3888,17 @@ class PiDrawerView {
 
     // Bind delete clicks
     listEl.querySelectorAll('.tw-history-delete-btn').forEach(btn => {
-      btn.onclick = (e) => {
+      const handleDelete = (e) => {
         e.stopPropagation();
+        e.preventDefault();
         const sid = btn.getAttribute('data-delete-id');
         this.deleteHistorySession(sid);
+      };
+      btn.onclick = handleDelete;
+      btn.onkeydown = (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          handleDelete(e);
+        }
       };
     });
   }
@@ -3037,9 +3909,7 @@ class PiDrawerView {
       this.hub.sessionManager.switchSession(agentId, sessionId);
     }
     this.restoreSessionMessages(agentId);
-    if (this.historyPanelEl) {
-      this.historyPanelEl.style.display = 'none';
-    }
+    this.closeHistoryPanel();
   }
 
   deleteHistorySession(sessionId) {
@@ -3050,6 +3920,9 @@ class PiDrawerView {
       if (wasActive && this.messagesEl) {
         this.messagesEl.innerHTML = '';
       }
+      const app = this.app || (typeof window !== 'undefined' ? window.app : null);
+      const NoticeCls = typeof Notice !== 'undefined' ? Notice : (app?.Notice || class{});
+      new NoticeCls('✓ 会话记录已删除', 1600);
     }
     this.renderHistoryPanel();
   }
@@ -3084,13 +3957,16 @@ class PiDrawerView {
     if (this.messagesEl) {
       this.messagesEl.innerHTML = '';
     }
+    if (this.stickyHeaderEl) {
+      this.stickyHeaderEl.classList.remove('visible');
+    }
     if (this.inputEl) {
       this.inputEl.value = '';
       this.inputEl.style.height = `${this.inputHeight}px`;
       this.inputEl.focus();
     }
     if (this.historyPanelEl) {
-      this.historyPanelEl.style.display = 'none';
+      this.closeHistoryPanel();
     }
     this.updateSendButtonState();
     const app = this.app || (typeof window !== 'undefined' ? window.app : null);
@@ -3104,35 +3980,50 @@ class PiDrawerView {
     }
   }
 
-  // 滚动时找出最后一条已滚出可视区顶部的用户提问, 钉到吸顶条上
+  // 滚动时找出当前已被滚出顶部的最新用户提问，钉到吸顶条上 (绝对定位脱流防抖动)
   updateStickyQuestion() {
     if (!this.messagesEl || !this.stickyHeaderEl) return;
-    // 动态对齐消息区顶部 (同为 .tw-drawer-content 子元素, 需避开 header/历史面板/警告横幅)
-    this.stickyHeaderEl.style.top = this.messagesEl.offsetTop + 'px';
-    const bubbles = this.messagesEl.querySelectorAll('.tw-msg-bubble-wrap.user');
+    const bubbles = Array.from(this.messagesEl.querySelectorAll('.tw-msg-bubble-wrap.user'));
+    if (!bubbles.length) {
+      this.stickyHeaderEl.classList.remove('visible');
+      return;
+    }
+
     const boxTop = this.messagesEl.getBoundingClientRect().top;
+
+    // 找出所有已滚出可视区顶部的用户提问中最新的那一条
     let active = null;
     for (const b of bubbles) {
-      if (b.getBoundingClientRect().top < boxTop) active = b;
-      else break;
+      if (b.getBoundingClientRect().top < boxTop) {
+        active = b;
+      } else {
+        break;
+      }
     }
+
     if (!active) {
       this.stickyHeaderEl.classList.remove('visible');
       return;
     }
-    // 原始提问气泡仍在本帧内被部分可见时不重复显示
+
+    // 若该提问气泡本身还部分露在可视区顶部（用户还能直接看到原文），不重复展示吸顶条
     const contentEl = active.querySelector('.tw-msg-content');
     if (contentEl && contentEl.getBoundingClientRect().bottom > boxTop) {
       this.stickyHeaderEl.classList.remove('visible');
       return;
     }
+
     const textEl = active.querySelector('.tw-msg-content') || active;
     const line = (textEl.textContent || '').trim().replace(/\s+/g, ' ');
     if (!line) {
       this.stickyHeaderEl.classList.remove('visible');
       return;
     }
-    this.stickyHeaderEl.querySelector('.tw-sticky-q-text').textContent = line;
+
+    const qTextEl = this.stickyHeaderEl.querySelector('.tw-sticky-q-text');
+    if (qTextEl && qTextEl.textContent !== line) {
+      qTextEl.textContent = line;
+    }
     this.stickyHeaderEl.classList.add('visible');
   }
 
@@ -3208,12 +4099,14 @@ class PiDrawerView {
       if (this.inputEl && typeof this.inputEl.focus === 'function') {
         this.inputEl.focus();
       }
-      // 抽屉从 display:none 打开后高度才确定, 重新对齐导航条
+      // 抽屉从 display:none 打开后高度才确定, 重新对齐导航条与吸顶提问条
       this.buildChatMinimap();
+      this.updateStickyQuestion();
     }, 100);
   }
 
   close() {
+    this.closeHistoryPanel();
     if (!this.isOpenState) return;
     this.isOpenState = false;
     this.drawerEl.style.display = 'none';
@@ -3296,6 +4189,21 @@ function cleanAssistantMarkdown(text) {
 }
 
 /**
+ * Normalizes markdown text to ensure compatibility with CommonMark parser.
+ * Specifically ensures an empty line exists before table header rows if preceded
+ * by a paragraph line without an empty line, and normalizes Gerrit change links.
+ */
+function prepareMarkdownForRender(text, vaultBasePath) {
+  if (!text) return '';
+  let out = text.replace(/([^\n\r])\r?\n\s*(\|[^\n\r]+\|\r?\n\s*\|[\s\-:|]+\|)/g, '$1\n\n$2');
+  const gerritBase = getGerritBaseUrl(vaultBasePath);
+  out = out.replace(/\[#?(\d{4,8})\]\((?!(?:https?:\/\/))([^\)]+)\)/gi, (match, num) => {
+    return `[#${num}](${gerritBase}/#/c/${num}/)`;
+  });
+  return out;
+}
+
+/**
  * Fallback markdown renderer in case native Obsidian MarkdownRenderer is unavailable
  * @param {string} text
  * @returns {string} HTML
@@ -3316,10 +4224,52 @@ function formatMarkdownFallback(text) {
     return placeholder;
   });
 
+  // Table parser: detect markdown table blocks (headers + delimiter row + rows)
+  const tables = [];
+  temp = temp.replace(/(?:^|\n)((?:[ \t]*\|[^\n]+\|[ \t]*\r?\n)+[ \t]*\|[ \t]*:?-+:?[ \t]*(?:\|[ \t]*:?-+:?[ \t]*)*\|[ \t]*(?:\r?\n[ \t]*\|[^\n]+\|[ \t]*)*)/g, (match, tableBlock) => {
+    const lines = tableBlock.trim().split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    if (lines.length < 2) return match;
+    const headerLine = lines[0];
+    const sepLine = lines[1];
+    if (!sepLine.includes('-') || !sepLine.includes('|')) return match;
+
+    const parseRow = (line) => {
+      let cells = line.split('|');
+      if (cells.length > 0 && cells[0].trim() === '') cells.shift();
+      if (cells.length > 0 && cells[cells.length - 1].trim() === '') cells.pop();
+      return cells.map(c => c.trim());
+    };
+
+    const headers = parseRow(headerLine);
+    const rows = lines.slice(2).map(parseRow);
+
+    let html = '<div class="tw-chat-table-wrap"><table class="tw-table"><thead><tr>';
+    for (const h of headers) {
+      html += `<th>${escapeHtml(h)}</th>`;
+    }
+    html += '</tr></thead><tbody>';
+    for (const row of rows) {
+      html += '<tr>';
+      for (let i = 0; i < headers.length; i++) {
+        let cell = escapeHtml(row[i] || '');
+        cell = cell.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, '<a href="$2" class="external-link" target="_blank" rel="noopener noreferrer">$1</a>');
+        cell = cell.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+        cell = cell.replace(/`([^`]+)`/g, '<code class="tw-inline-code">$1</code>');
+        html += `<td>${cell}</td>`;
+      }
+      html += '</tr>';
+    }
+    html += '</tbody></table></div>';
+
+    const placeholder = `%%%TB${tables.length}%%%`;
+    tables.push(html);
+    return '\n' + placeholder + '\n';
+  });
+
   temp = escapeHtml(temp);
 
   // Links: [text](url)
-  temp = temp.replace(/\[([^\]]+)\]\((https?:\/\/[^\s\)]+)\)/g, '<a href="$2" class="external-link" target="_blank" rel="noopener">$1</a>');
+  temp = temp.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, '<a href="$2" class="external-link" target="_blank" rel="noopener noreferrer">$1</a>');
 
   // Bold & Italic
   temp = temp.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
@@ -3342,10 +4292,144 @@ function formatMarkdownFallback(text) {
     temp = temp.replace(`%%%IC${i}%%%`, inlineCodes[i]);
   }
   for (let i = 0; i < codeBlocks.length; i++) {
-    temp = temp.replace(`%%%CB${i}%%%`, codeBlocks[i]);
+    const cbRegex = new RegExp(`(?:<br>\\s*)*%%%CB${i}%%%(?:\\s*<br>)*`, 'g');
+    temp = temp.replace(cbRegex, codeBlocks[i]);
+  }
+  for (let i = 0; i < tables.length; i++) {
+    const tbRegex = new RegExp(`(?:<br>\\s*)*%%%TB${i}%%%(?:\\s*<br>)*`, 'g');
+    temp = temp.replace(tbRegex, tables[i]);
   }
 
   return temp;
 }
 
-module.exports = { PiDrawerView, cleanAssistantMarkdown, formatMarkdownFallback };
+/**
+ * Returns configured Gerrit base URL from data.json or fallback default
+ */
+function getGerritBaseUrl(vaultBasePath) {
+  try {
+    const fs = require('fs');
+    const path = require('path');
+    const basePath = vaultBasePath || (typeof window !== 'undefined' && window.app?.vault?.adapter?.basePath) || (process.cwd ? process.cwd() : '');
+    if (basePath) {
+      const dataFile = path.join(basePath, '.obsidian', 'plugins', 'tabonkb-workbench', 'data.json');
+      if (fs.existsSync(dataFile)) {
+        const d = JSON.parse(fs.readFileSync(dataFile, 'utf8'));
+        if (d && d.gerrit && d.gerrit.baseUrl) {
+          return d.gerrit.baseUrl.replace(/\/+$/, '');
+        }
+      }
+    }
+  } catch (e) {}
+  return 'http://192.168.1.17:8090';
+}
+
+/**
+ * Resolves any link (URL, Gerrit change triplet, commit ID, or relative path)
+ * to an absolute browser-navigable URL if it represents an external resource.
+ * Returns null if it should remain an internal Obsidian vault link.
+ */
+function resolveLinkToUrl(href, text, linkEl, vaultBasePath) {
+  const rawHref = (href || '').trim();
+  const rawText = (text || '').trim();
+
+  // 1. Direct web URL
+  if (rawHref.startsWith('http://') || rawHref.startsWith('https://')) {
+    return rawHref;
+  }
+
+  const gerritBase = getGerritBaseUrl(vaultBasePath);
+
+  // 2. Relative Gerrit URL
+  if (rawHref.startsWith('/c/') || rawHref.startsWith('/#/c/') || rawHref.startsWith('#/c/')) {
+    const clean = rawHref.replace(/^(?:\/|#\/)+/, '');
+    return `${gerritBase}/${clean}`;
+  }
+
+  // 3. Gerrit change number in text (e.g. #440502 or 440502) or href
+  const numMatch = rawText.match(/#?(\d{4,8})\b/) || rawHref.match(/#?(\d{4,8})\b/);
+  const isGerritCandidate = rawHref.includes('~I') ||
+                            rawHref.includes('prize_code') ||
+                            rawHref.includes('pri_project') ||
+                            rawHref.includes('sprd') ||
+                            rawHref.includes('mp1') ||
+                            rawHref.includes('oversea') ||
+                            rawHref.includes('release') ||
+                            rawText.startsWith('#') ||
+                            rawHref.startsWith('#') ||
+                            Boolean(linkEl && linkEl.closest('.tw-chat-table-wrap, .tw-table, .tw-msg-content table'));
+
+  if (numMatch && isGerritCandidate) {
+    return `${gerritBase}/#/c/${numMatch[1]}/`;
+  }
+
+  // 4. Gerrit Triplet without clear number
+  if (rawHref.includes('~I') || rawHref.includes('prize_code')) {
+    return `${gerritBase}/c/${rawHref}/`;
+  }
+
+  return null;
+}
+
+/**
+ * Safely opens an external URL using Electron's shell.openExternal,
+ * Node's OS-level process spawn, or falls back to window.open.
+ * @param {string} href
+ */
+function openExternalUrl(href) {
+  if (!href) return;
+  const target = String(href).trim();
+  if (!target) return;
+
+  // 1. Try Electron shell.openExternal
+  try {
+    let elShell = (typeof shell !== 'undefined' && shell) ? shell : null;
+    if (!elShell && typeof require !== 'undefined') {
+      try { elShell = require('electron')?.shell; } catch (e) {}
+    }
+    if (elShell && typeof elShell.openExternal === 'function') {
+      const p = elShell.openExternal(target);
+      if (p && typeof p.catch === 'function') {
+        p.catch(err => {
+          console.warn('[PiDrawerView] shell.openExternal rejected, trying OS fallback:', err);
+          _openViaOsCommand(target);
+        });
+      }
+      return;
+    }
+  } catch (err) {
+    console.warn('[PiDrawerView] shell.openExternal failed:', err);
+  }
+
+  // 2. Try Node child_process start on Windows
+  _openViaOsCommand(target);
+}
+
+function _openViaOsCommand(target) {
+  try {
+    const cp = (typeof child_process !== 'undefined' && child_process) ? child_process : (typeof require !== 'undefined' ? require('child_process') : null);
+    if (cp && typeof cp.spawn === 'function') {
+      const isWin = typeof process !== 'undefined' && process.platform === 'win32';
+      const cmd = isWin ? 'cmd.exe' : (process.platform === 'darwin' ? 'open' : 'xdg-open');
+      const args = isWin ? ['/c', 'start', '', target] : [target];
+      const child = cp.spawn(cmd, args, {
+        detached: true,
+        stdio: 'ignore',
+        windowsHide: true
+      });
+      child.unref();
+      return;
+    }
+  } catch (err) {
+    console.warn('[PiDrawerView] OS command open failed:', err);
+  }
+
+  // 3. Fallback to window.open
+  try {
+    window.open(target, '_blank', 'noopener,noreferrer');
+  } catch (err) {
+    console.warn('[PiDrawerView] window.open failed:', err);
+  }
+}
+
+module.exports = { PiDrawerView, cleanAssistantMarkdown, formatMarkdownFallback, prepareMarkdownForRender, openExternalUrl, resolveLinkToUrl, getGerritBaseUrl };

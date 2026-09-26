@@ -786,7 +786,20 @@ class ExploreView {
       const saveNoteBtn = card.querySelector('.tw-vcard-btn-save-note');
       if (saveNoteBtn) {
         saveNoteBtn.onclick = async () => {
-          await this.saveResourceAsVaultNote(res);
+          const originalHtml = saveNoteBtn.innerHTML;
+          saveNoteBtn.innerHTML = `${getIconPark('refresh', 13)} 保存中...`;
+          saveNoteBtn.disabled = true;
+          try {
+            await this.saveResourceAsVaultNote(res);
+            saveNoteBtn.innerHTML = `${getIconPark('check', 13)} 已保存`;
+            setTimeout(() => {
+              saveNoteBtn.innerHTML = originalHtml;
+              saveNoteBtn.disabled = false;
+            }, 2500);
+          } catch (e) {
+            saveNoteBtn.innerHTML = originalHtml;
+            saveNoteBtn.disabled = false;
+          }
         };
       }
 
@@ -814,9 +827,12 @@ class ExploreView {
           const codeEl = wrap ? wrap.querySelector('code') : null;
           if (codeEl) {
             await navigator.clipboard.writeText(codeEl.innerText);
-            const oldText = btn.innerText;
-            btn.innerText = '已复制';
-            setTimeout(() => { btn.innerText = oldText; }, 1800);
+            btn.innerHTML = getIconPark('check', 13, { color: '#10B981' });
+            btn.setAttribute('title', '已复制!');
+            setTimeout(() => {
+              btn.innerHTML = getIconPark('copy', 13);
+              btn.setAttribute('title', '复制代码');
+            }, 1800);
           }
         };
       });
@@ -842,43 +858,117 @@ class ExploreView {
 
 
   /**
-   * Save vendor document as a markdown note in the Obsidian vault
+   * Save vendor document as a markdown note in the Obsidian vault (00-Inbox)
    * @param {object} res
    */
   async saveResourceAsVaultNote(res) {
     const vault = this.app?.vault;
     if (!vault) return;
 
-    const safeDocId = (res.docId || 'DOC').replace(/[^a-zA-Z0-9_-]/g, '_');
-    const folderPath = `原厂技术资料/${res.portalId.toUpperCase()}`;
-    const filePath = `${folderPath}/${safeDocId}.md`;
+    // 按需自动补全未展开获取的详情内容，确保保存的笔记包含完整排障源码和方案
+    if (!res.detailedContent && !res.detailedContentHtml) {
+      if ((res.categoryType === 'eservice_case' || res.categoryType === 'eservice') && res.docId) {
+        try {
+          const detail = await this.vendorService?.fetchMtkEserviceCaseDetail(res.docId, null, res.url || '', res.summary || '');
+          if (detail && !detail._debugOnly) {
+            res.detailedContentHtml = detail.contentHtml;
+            res.detailedContent = [
+              detail.description ? `【问题描述】\n${detail.description}` : '',
+              detail.solution ? `\n\n【解决方案】\n${detail.solution}` : ''
+            ].filter(Boolean).join('') || detail.contentHtml;
+            res.detailedContentMarkdown = res.detailedContent;
+            if (detail.finderName && !res.finderName) res.finderName = detail.finderName;
+            if (detail.status && !res.caseStatus) res.caseStatus = detail.status;
+          }
+        } catch (err) {
+          console.warn('Auto fetch eService case detail before saving note failed:', err);
+        }
+      } else if (res.categoryType === 'faq' && (res.faqInternalId || res.docId)) {
+        try {
+          if (res.portalId === 'unisoc') {
+            const idToFetch = res.faqInternalId || String(res.docId).replace(/^FAQ/i, '');
+            const detail = await this.vendorService?.fetchUnisocFaqDetail(idToFetch);
+            if (detail) {
+              const qText = detail.question || '';
+              const contentHtml = detail.content || detail.answer || '';
+              res.detailedContentHtml = (qText ? `<div class="tw-faq-question-box" style="margin-bottom: 12px; padding: 10px 12px; background: rgba(37,99,235,0.06); border-radius: 6px; border-left: 3px solid #2563EB;"><strong>【原厂提问与工程现场】：</strong><p style="margin: 4px 0 0 0;">${escapeHtml(qText)}</p></div>` : '') +
+                `<div class="tw-faq-answer-box"><strong>【官方技术解答与排障源码】：</strong>\n${contentHtml}</div>`;
+              res.detailedContent = (qText ? `【问题描述】\n${qText}\n\n` : '') + `【官方解答】\n` + (detail.content || detail.answer || '');
+              res.detailedContentMarkdown = (qText ? `### 问题描述\n${qText}\n\n### 官方解答\n` : '') + (this.vendorService ? this.vendorService.convertHtmlToMarkdown(contentHtml) : contentHtml);
+            }
+          } else {
+            const detail = await this.vendorService?.fetchMtkFaqDetail(res.docId, 'SW');
+            if (detail && detail.content) {
+              res.detailedContentHtml = detail.content;
+              res.detailedContent = detail.content;
+              res.detailedContentMarkdown = this.vendorService ? this.vendorService.convertHtmlToMarkdown(detail.content) : detail.content;
+            }
+          }
+        } catch (err) {
+          console.warn('Auto fetch FAQ detail before saving note failed:', err);
+        }
+      }
+    }
+
+    const portalIdUpper = (res.portalId || 'VENDOR').toUpperCase();
+    const safeDocId = (res.docId || '').replace(/[^a-zA-Z0-9_-]/g, '_');
+    const cleanTitle = (res.title || 'Untitled')
+      .replace(/[\\/:*?"<>|]/g, '-')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    let fileBasename = '';
+    if (safeDocId && cleanTitle.toLowerCase().includes(safeDocId.toLowerCase())) {
+      fileBasename = `[${portalIdUpper}] ${cleanTitle}`;
+    } else if (safeDocId) {
+      fileBasename = `[${portalIdUpper}] [${safeDocId}] ${cleanTitle}`;
+    } else {
+      fileBasename = `[${portalIdUpper}] ${cleanTitle}`;
+    }
+    if (fileBasename.length > 80) {
+      fileBasename = fileBasename.slice(0, 80).trim();
+    }
+
+    const folderPath = '00-Inbox';
+    const filePath = `${folderPath}/${fileBasename}.md`;
 
     const solutionMarkdown = res.detailedContentMarkdown
       || (this.vendorService ? this.vendorService.convertHtmlToMarkdown(res.detailedContentHtml || res.detailedContent) : '')
       || (res.detailedContent ? res.detailedContent : '');
 
+    const now = new Date();
+    const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const cleanDocTitle = (res.title || '').replace(/"/g, '\\"');
+    const portalTag = (res.portalId || 'vendor').toLowerCase();
+
     const noteContent = `---
-title: "${res.title.replace(/"/g, '\\"')}"
-vendor: "${res.portalName}"
-chipset: "${res.chipset}"
-category: "${res.category}"
+title: "${cleanDocTitle}"
+date: "${dateStr}"
+updated: "${res.updated || dateStr}"
+platform: [${portalIdUpper}]
+chip: [${res.chipset ? `"${res.chipset}"` : ''}]
+doctype: REF
+status: inbox
+source: vendor
+vendor: "${res.portalName || portalIdUpper}"
 docId: "${res.docId || ''}"
-date: "${res.updated || ''}"
 url: "${res.url || ''}"
 tags:
-  - 芯片原厂资料
-  - ${res.portalId}
+  - "#platform/${portalTag}"
+  - "#type/vendor-doc"
+  - "#stage/inbox"
+owner: human
 ---
 
 # ${res.title}
 
-> **供应商**: ${res.portalName} | **芯片平台**: ${res.chipset} | **文档编号**: \`${res.docId || '无'}\`
-> **官方原帖**: [${res.url}](${res.url})
+> **供应商**: ${res.portalName || portalIdUpper} | **芯片平台**: ${res.chipset || portalIdUpper} | **文档编号**: \`${res.docId || '无'}\`
+> **官方原帖**: [${res.url || '无'}](${res.url || '#'})
 
 ## 摘要说明
-${res.summary}
+${res.summary || '（无摘要）'}
 
-${solutionMarkdown}
+${solutionMarkdown ? `## 官方解答与方案详情\n\n${solutionMarkdown}\n` : ''}
 `;
 
     try {
@@ -900,7 +990,7 @@ ${solutionMarkdown}
 
       const NoticeClass = (typeof Notice !== 'undefined') ? Notice : (this.app?.Notice || (typeof window !== 'undefined' ? window.Notice : null));
       if (NoticeClass) {
-        new NoticeClass(`✓ 已成功保存至本地笔记：${filePath}`, 4000);
+        new NoticeClass(`✓ 已成功保存至 00-Inbox：${filePath}`, 4000);
       }
     } catch (err) {
       console.error('Failed to save vault note', err);
@@ -939,10 +1029,18 @@ ${solutionMarkdown}
     // 2. Deliver prompt to agentDrawer input
     setTimeout(() => {
       if (this.agentDrawer) {
-        if (this.agentDrawer.inputEl) {
+        if (typeof this.agentDrawer.setInputValue === 'function') {
+          this.agentDrawer.setInputValue(promptText, true);
+        } else if (this.agentDrawer.inputEl) {
           this.agentDrawer.inputEl.value = promptText;
           this.agentDrawer.inputEl.focus();
-          if (typeof this.agentDrawer.autoResizeInput === 'function') {
+          this.agentDrawer.inputEl.dispatchEvent(new Event('input', { bubbles: true }));
+          if (typeof this.agentDrawer.updateSendButtonState === 'function') {
+            this.agentDrawer.updateSendButtonState();
+          }
+          if (typeof this.agentDrawer.adjustInputHeight === 'function') {
+            this.agentDrawer.adjustInputHeight();
+          } else if (typeof this.agentDrawer.autoResizeInput === 'function') {
             this.agentDrawer.autoResizeInput();
           }
         }
@@ -1284,7 +1382,7 @@ function formatMarkdownToHtml(content) {
       return `<div class="tw-code-block-wrap">
         <div class="tw-code-block-header">
           <span class="tw-code-lang">${codeLang}</span>
-          <button class="tw-code-copy-btn" type="button">复制代码</button>
+          <button class="tw-code-copy-btn" type="button" title="复制代码">${getIconPark('copy', 13)}</button>
         </div>
         <pre><code class="language-${codeLang}">${cleanCode}</code></pre>
       </div>`;
@@ -1297,7 +1395,7 @@ function formatMarkdownToHtml(content) {
       return `<div class="tw-code-block-wrap">
         <div class="tw-code-block-header">
           <span class="tw-code-lang">${codeLang}</span>
-          <button class="tw-code-copy-btn" type="button">复制代码</button>
+          <button class="tw-code-copy-btn" type="button" title="复制代码">${getIconPark('copy', 13)}</button>
         </div>
         <pre><code class="language-${codeLang}">${cleanCode}</code></pre>
       </div>`;
@@ -1309,7 +1407,7 @@ function formatMarkdownToHtml(content) {
       return `<div class="tw-code-block-wrap">
         <div class="tw-code-block-header">
           <span class="tw-code-lang">code</span>
-          <button class="tw-code-copy-btn" type="button">复制代码</button>
+          <button class="tw-code-copy-btn" type="button" title="复制代码">${getIconPark('copy', 13)}</button>
         </div>
         <pre><code class="language-c">${cleanCode}</code></pre>
       </div>`;
@@ -1336,7 +1434,7 @@ function formatMarkdownToHtml(content) {
     return `<div class="tw-code-block-wrap">
       <div class="tw-code-block-header">
         <span class="tw-code-lang">${lang || 'code'}</span>
-        <button class="tw-code-copy-btn" type="button">复制代码</button>
+        <button class="tw-code-copy-btn" type="button" title="复制代码">${getIconPark('copy', 13)}</button>
       </div>
       <pre><code>${code.trim()}</code></pre>
     </div>`;

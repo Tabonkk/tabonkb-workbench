@@ -2,7 +2,7 @@
    WeKnora Manage View — 工作台「管理」主视图总控制器
    模块定位:
    1. 顶部总控条: 心跳状态灯 (30s 守护)、Base URL、知识库切换器
-   2. SubTab 四合一路由:
+   2. SubTab 四合一路由 (子页切换入口在左侧导航栏「管理」弹出子菜单, 与「探索」页同方案, 顶栏不再常驻占位):
       - graph (默认): Wiki 知识图谱 (LOD / 视口裁剪 / 搜索高亮 / Ego 模式)
       - documents: 知识库资产与文档表格 (分类树 / 重新索引)
       - sync: 本地笔记双向比对与批量推送
@@ -76,7 +76,6 @@ class WeKnoraManageView {
       }
     } catch (e) {}
 
-    this.updateSubTabButtons();
     this.mountCurrentSubView();
   }
 
@@ -106,6 +105,16 @@ class WeKnoraManageView {
 
   updateTopControlBar() {
     if (!this.topBarEl) return;
+
+    if (this.activeSubTab === 'graph') {
+      this.topBarEl.style.display = 'none';
+      if (this.wikiGraphView?.updateConnStatus) {
+        this.wikiGraphView.updateConnStatus();
+      }
+      return;
+    } else {
+      this.topBarEl.style.display = 'flex';
+    }
 
     const st = this.connectionStatus;
     let statusDotColor = '#10B981';
@@ -137,58 +146,28 @@ class WeKnoraManageView {
 
     this.topBarEl.innerHTML = `
       <div class="tw-manage-hb-left">
-        <div class="tw-manage-conn-badge" id="btnManageConnRefresh" title="点击重新检测 WeKnora 服务状态">
+        <div class="tw-manage-conn-badge" id="btnManageConnRefresh" title="WeKnora 服务: ${escapeAttr(baseDisplay)} (点击重新检测)">
           <span class="tw-manage-dot" style="background:${statusDotColor};"></span>
-          <span class="tw-manage-conn-host">${escapeHtml(baseDisplay)}</span>
-          <span class="tw-manage-conn-latency">(${statusText})</span>
+          <span class="tw-manage-conn-latency">${statusText}</span>
         </div>
-        <div class="tw-manage-kb-selector" title="切换当前聚焦的 WeKnora 知识库">
-          <span style="font-size:11px; color:var(--text-muted);">知识库:</span>
+        <div class="tw-manage-kb-selector" title="切换 WeKnora 知识库">
           <select class="tw-manage-select" id="selManageKb">
             ${kbOptionsHtml}
           </select>
         </div>
       </div>
 
-      <div class="tw-manage-hb-center">
-        <div class="tw-manage-subtabs">
-          <button class="tw-manage-tab-btn ${this.activeSubTab === 'graph' ? 'active' : ''}" data-tab="graph">
-            <span class="tw-manage-tab-icon">${getIconPark('data-sheet', 14)}</span>
-            <span>Wiki 知识图谱</span>
-          </button>
-          <button class="tw-manage-tab-btn ${this.activeSubTab === 'documents' ? 'active' : ''}" data-tab="documents">
-            <span class="tw-manage-tab-icon">${getIconPark('folder-focus', 14)}</span>
-            <span>资产文档</span>
-          </button>
-          <button class="tw-manage-tab-btn ${this.activeSubTab === 'sync' ? 'active' : ''}" data-tab="sync">
-            <span class="tw-manage-tab-icon">${getIconPark('refresh', 14)}</span>
-            <span>笔记同步</span>
-          </button>
-          <button class="tw-manage-tab-btn ${this.activeSubTab === 'webview' ? 'active' : ''}" data-tab="webview">
-            <span class="tw-manage-tab-icon">${getIconPark('application-one', 14)}</span>
-            <span>官方控制台</span>
-          </button>
-        </div>
-      </div>
-
       <div class="tw-manage-hb-right">
-        <button class="tw-chip" id="btnManageOpenExternal" title="在系统默认浏览器中打开当前知识库">
-          <span>↗ 浏览器打开</span>
+        <button class="tw-chip tw-chip-icon" id="btnManageOpenExternal" title="在系统默认浏览器中打开当前知识库">
+          <span>↗</span>
         </button>
-        <button class="tw-chip" id="btnManageOpenSettings" title="打开工作台设置">
-          <span>⚙️ 设置</span>
+        <button class="tw-chip tw-chip-icon" id="btnManageOpenSettings" title="打开工作台设置">
+          <span>⚙️</span>
         </button>
       </div>
     `;
 
     // 绑定事件
-    this.topBarEl.querySelectorAll('.tw-manage-tab-btn').forEach(btn => {
-      btn.onclick = () => {
-        const tab = btn.getAttribute('data-tab');
-        if (tab) this.setSubTab(tab);
-      };
-    });
-
     const connBtn = this.topBarEl.querySelector('#btnManageConnRefresh');
     if (connBtn) {
       connBtn.onclick = () => this.checkConnection(true);
@@ -233,52 +212,87 @@ class WeKnoraManageView {
     }
   }
 
-  updateSubTabButtons() {
-    if (!this.topBarEl) return;
-    this.topBarEl.querySelectorAll('.tw-manage-tab-btn').forEach(btn => {
-      const tab = btn.getAttribute('data-tab');
-      if (tab === this.activeSubTab) btn.classList.add('active');
-      else btn.classList.remove('active');
-    });
-  }
-
   mountCurrentSubView() {
     if (!this.stageEl) return;
+
+    if (this.wikiGraphView) {
+      try { this.wikiGraphView.dispose(); } catch (e) {}
+      this.wikiGraphView = null;
+    }
 
     // 清空现有视图
     this.stageEl.empty();
 
     if (this.activeSubTab === 'graph') {
+      if (this.topBarEl) this.topBarEl.style.display = 'none';
       this.wikiGraphView = new WeKnoraWikiGraphView(this.stageEl, {
         app: this.app,
         service: this.service,
-        getCurrentKbId: () => this.currentKbId
+        getCurrentKbId: () => this.currentKbId,
+        getKnowledgeBases: () => this.knowledgeBases,
+        getConnectionStatus: () => this.connectionStatus,
+        onCheckConnection: (showNotice) => this.checkConnection(showNotice),
+        onKnowledgeBaseChanged: (newKbId) => {
+          this.currentKbId = newKbId;
+          this.onKnowledgeBaseChanged();
+        },
+        onOpenSettings: () => {
+          if (this.onOpenSettings) this.onOpenSettings();
+          else {
+            this.app.setting?.open?.();
+            this.app.setting?.openTabById?.('tabonkb-workbench');
+          }
+        },
+        onOpenExternal: () => {
+          let base = this.service.baseUrl.replace(/\/api\/v\d+$/i, '').replace(/\/+$/, '');
+          if (base.includes(':8080')) base = base.replace(':8080', ':8088');
+          const u = `${base}/platform/knowledge-bases/${this.currentKbId}`;
+          try {
+            if (typeof require !== 'undefined') {
+              const { shell } = require('electron');
+              if (shell?.openExternal) {
+                shell.openExternal(u);
+                return;
+              }
+            }
+          } catch (e) {}
+          window.open(u, '_blank');
+        }
       });
       this.wikiGraphView.loadGraphData();
-    } else if (this.activeSubTab === 'documents') {
-      this.documentsView = new WeKnoraDocumentsView(this.stageEl, {
-        app: this.app,
-        service: this.service,
-        getCurrentKbId: () => this.currentKbId
-      });
-      this.documentsView.loadDocuments();
-    } else if (this.activeSubTab === 'sync') {
-      this.syncView = new WeKnoraSyncView(this.stageEl, {
-        app: this.app,
-        plugin: this.plugin,
-        service: this.service,
-        getCurrentKbId: () => this.currentKbId
-      });
-    } else if (this.activeSubTab === 'webview') {
-      this.webviewEmbed = new WeKnoraWebviewEmbed(this.stageEl, {
-        getBaseUrl: () => this.service.baseUrl,
-        getCurrentKbId: () => this.currentKbId
-      });
+    } else {
+      if (this.topBarEl) this.topBarEl.style.display = 'flex';
+      if (this.activeSubTab === 'documents') {
+        this.documentsView = new WeKnoraDocumentsView(this.stageEl, {
+          app: this.app,
+          service: this.service,
+          getCurrentKbId: () => this.currentKbId
+        });
+        this.documentsView.loadDocuments();
+      } else if (this.activeSubTab === 'sync') {
+        this.syncView = new WeKnoraSyncView(this.stageEl, {
+          app: this.app,
+          plugin: this.plugin,
+          service: this.service,
+          getCurrentKbId: () => this.currentKbId
+        });
+      } else if (this.activeSubTab === 'webview') {
+        this.webviewEmbed = new WeKnoraWebviewEmbed(this.stageEl, {
+          getBaseUrl: () => this.service.baseUrl,
+          getCurrentKbId: () => this.currentKbId
+        });
+      }
     }
   }
 
   onKnowledgeBaseChanged() {
+    const selManageKb = this.topBarEl?.querySelector('#selManageKb');
+    if (selManageKb && selManageKb.value !== this.currentKbId) {
+      selManageKb.value = this.currentKbId;
+    }
+
     if (this.activeSubTab === 'graph' && this.wikiGraphView) {
+      this.wikiGraphView.updateConnStatus?.();
       this.wikiGraphView.loadGraphData();
     } else if (this.activeSubTab === 'documents' && this.documentsView) {
       this.documentsView.loadDocuments();

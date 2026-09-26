@@ -1528,6 +1528,104 @@ class NiceAigcAdapter extends AgentAdapter {
       req.end();
     });
   }
+
+  /**
+   * One-shot completion without modifying chat session state, history, or emitting UI events.
+   * Perfect for background RSS tech analysis, summaries, and tagging.
+   * @param {string} promptText
+   * @param {string} [systemPrompt]
+   * @returns {Promise<string>}
+   */
+  async oneShot(promptText, systemPrompt = '') {
+    const config = typeof this.getConfig === 'function' ? this.getConfig() : {};
+    let baseUrl = (config.baseUrl || 'https://node7.nice188.com').trim().replace(/\/+$/, '');
+    if (baseUrl.includes('nice188.cc')) baseUrl = baseUrl.replace('nice188.cc', 'nice188.com');
+
+    const secretKey = config.secretName || 'tabonkb-niceaigc-token';
+    let token = await this.getCredential(secretKey);
+    if (!token) throw new Error('未配置 NiceAIGC 凭据，请在设置中配置');
+    token = token.trim();
+    if ((token.startsWith("'") && token.endsWith("'")) || (token.startsWith('"') && token.endsWith('"'))) {
+      token = token.slice(1, -1).trim();
+    }
+
+    const rawModel = this.activeModelId || config.model || 'gpt-5-6-thinking';
+    const model = normalizeModel(rawModel);
+
+    let hostDomain = '';
+    try { hostDomain = new URL(baseUrl).hostname; } catch (e) {}
+
+    const isFullCookie = token.includes('=');
+    let cookieHeader = '';
+    let bearerHeader = token;
+    let xuserid = '';
+    let xtoken = '';
+    let xyUuid = '';
+    let sessionToken = '';
+
+    if (isFullCookie) {
+      cookieHeader = token;
+      const mUid = token.match(/(?:^|;\s*)xuserid=([^;]+)/);
+      if (mUid) xuserid = decodeURIComponent(mUid[1].trim());
+      const mTok = token.match(/(?:^|;\s*)xtoken=([^;]+)/);
+      if (mTok) xtoken = decodeURIComponent(mTok[1].trim());
+      const mUuid = token.match(/(?:^|;\s*)xy_uuid_token=([^;]+)/);
+      if (mUuid) xyUuid = decodeURIComponent(mUuid[1].trim());
+      const mSess = token.match(/(?:^|;\s*)(?:__Secure-next-auth\.session-token|sessionToken|token)=([^;]+)/);
+      if (mSess) sessionToken = decodeURIComponent(mSess[1].trim());
+      else {
+        sessionToken = '20zf9j0ykdgkw0dlbhlxxszdbwgztutf';
+        cookieHeader = `__Secure-next-auth.session-token=${sessionToken}; token=${sessionToken}; ${cookieHeader}`;
+      }
+      bearerHeader = sessionToken || xtoken || token;
+    } else {
+      sessionToken = token.trim();
+      bearerHeader = sessionToken;
+      cookieHeader = `__Secure-next-auth.session-token=${sessionToken}; token=${sessionToken}; sessionToken=${sessionToken}`;
+    }
+
+    const headers = {
+      'Content-Type': 'application/json',
+      'Accept': 'text/event-stream, application/json, text/plain, */*',
+      'Authorization': `Bearer ${bearerHeader.trim()}`,
+      'Cookie': cookieHeader,
+      'X-Auth-Token': bearerHeader.trim(),
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 TabonKB-Workbench/1.0',
+      'Origin': baseUrl,
+      'Referer': `${baseUrl}/`,
+      'X-Site-Domain': hostDomain
+    };
+    if (xuserid) headers['xuserid'] = xuserid;
+    if (xtoken) headers['xtoken'] = xtoken;
+    if (xyUuid) headers['xy_uuid_token'] = xyUuid;
+    if (sessionToken) headers['Chatgpt-Account-Id'] = sessionToken;
+
+    const fullPrompt = systemPrompt ? `${systemPrompt}\n\n${promptText}` : promptText;
+    const apiUrl = `${baseUrl}/backend-api/conversation`;
+    const messageId = generateUuid();
+    const parentId = generateUuid();
+
+    const payload = {
+      action: 'next',
+      messages: [{
+        id: messageId,
+        author: { role: 'user' },
+        content: { content_type: 'text', parts: [fullPrompt] }
+      }],
+      model,
+      parent_message_id: parentId,
+      timezone_offset_min: -480,
+      history_and_training_disabled: true
+    };
+    const reqBody = JSON.stringify(payload);
+
+    let resultText = '';
+    await this._streamNode(apiUrl, headers, reqBody, (chunk) => {
+      resultText += chunk;
+    });
+
+    return cleanAssistantMarkdown(resultText);
+  }
 }
 
 /**

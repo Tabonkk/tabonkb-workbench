@@ -5183,6 +5183,38 @@ class TabonKBWorkbenchView extends ItemView {
     return (typeof TW_BRAND_ICON_OK !== 'undefined' && TW_BRAND_ICON_OK) ? 'tabonkb-brand' : 'layout-dashboard';
   }
 
+  updateHeader() {
+    try {
+      if (typeof super.updateHeader === 'function') {
+        super.updateHeader();
+      }
+    } catch (e) {}
+    this.setupCustomHeader();
+  }
+
+  setupCustomHeader() {
+    try {
+      const leafContent = this.containerEl;
+      const headerEl = this.headerEl || leafContent?.parentElement?.querySelector('.view-header') || leafContent?.querySelector('.view-header');
+      if (!headerEl) return;
+      const titleEl = this.titleEl || headerEl.querySelector('.view-header-title');
+      if (!titleEl) return;
+
+      titleEl.classList.add('tw-tech-header-title');
+      titleEl.setAttribute('title', 'TabonKB 研发工作台');
+
+      if (!titleEl.querySelector('.tw-tech-header-badge')) {
+        titleEl.empty();
+        const badge = titleEl.createDiv({ cls: 'tw-tech-header-badge' });
+        badge.createSpan({ cls: 'tw-tech-header-brand', text: 'TabonKB' });
+        badge.createSpan({ cls: 'tw-tech-header-sep', text: '/' });
+        badge.createSpan({ cls: 'tw-tech-header-name', text: '研发工作台' });
+      }
+    } catch (e) {
+      console.warn('[TabonKB Workbench] setupCustomHeader error:', e);
+    }
+  }
+
   getContainer() {
     return this.contentEl || 
       (this.containerEl && this.containerEl.querySelector && this.containerEl.querySelector('.view-content')) || 
@@ -5192,6 +5224,7 @@ class TabonKBWorkbenchView extends ItemView {
 
   async onOpen() {
     try {
+      this.setupCustomHeader();
       this.render();
     } catch (err) {
       console.error('[TabonKB Workbench] Initial render failed:', err);
