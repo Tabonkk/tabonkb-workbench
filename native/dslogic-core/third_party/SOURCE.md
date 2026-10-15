@@ -1,0 +1,79 @@
+# third_party 官方源码清单与逐文件 SHA-256
+
+- 来源: `D:/work/Mgmt/TabonKB/07-Project/2026-dsview/DSView-master` (DSView v1.3.2 开源代码)
+- 规则: 原样复制、只编译不修改；如需补丁见 `../patches/` 单独保存并须验收方批准
+- 哈希算法: SHA-256，按明文内容计算（本机 DLP 对 vault 内源码透明加密，非白名单工具如 sha256sum 读到密文；本表经 python 白名单进程计算）
+- 生成时间: 2026-10-14
+
+| 文件 | SHA-256 |
+|---|---|
+| `common/ds_types.h` | `a4a1c97bfe69035929ae4985752de35f0e58d82ecc8a753bdad754c9d5fab5cd` |
+| `common/log/xlog.c` | `90db5adee2cc3daf0ece6c3284ba3e6cd38db90b14cc022b1f3e477f5c607af2` |
+| `common/log/xlog.h` | `b44b51aa33036af36adb1d24af69b102897970689abd84dc8f101217136a6fa8` |
+| `common/minizip/crypt.h` | `8e872b60255b8447da99885c7159c2e1f1bb8143523bdbe71784e60f98bfd67b` |
+| `common/minizip/ioapi.c` | `43b8daa2bdf5939bcc4b96bb68c1f2dd5c4b09f9e566c8c342aa277652b254f3` |
+| `common/minizip/ioapi.h` | `d2f90aa68ae0a35f0fee13c514a39124cc35c5c187369e9960a3322b480773d6` |
+| `common/minizip/iowin32.c` | `2c05bc374d3d847c6a9f29eac9d674abba7659d1e91e34e172248fcb5c274d51` |
+| `common/minizip/iowin32.h` | `586f22b9c3c64da253ce2b518e0fad61f19a7b47b289fc704cc9708242294c49` |
+| `common/minizip/miniunz.c` | `ced49f20c62536a8ffb270b35cfa4994a1dcdce45f8cf059b941c94ca0022666` |
+| `common/minizip/minizip.c` | `fdfcf83979ef2324c1455d369e8add8678c804939d412ce53f8b024578ceabad` |
+| `common/minizip/mztools.c` | `30f21e72c6a6628b7f88f66b06aba712e2efee5aada18c28778a23680e5038f0` |
+| `common/minizip/mztools.h` | `b7c877b877883f5a84971988af829eee5d47e6605959d925afc115c7d69b3a80` |
+| `common/minizip/of.h` | `9a19b8104870180315245ef4a766c3d46685a84e6c5a6ddba8714f1e27935de8` |
+| `common/minizip/unzip.c` | `497adf676b1cae2a7afa834e4aba86383f7b697f5fdd03a8179ea9024a431cf9` |
+| `common/minizip/unzip.h` | `c072ea70df7efbccf3c016da94023f75a33f41e9fb3618c9da500e4a1f19a366` |
+| `common/minizip/zip.c` | `00f403cb7810578b4b2687dd55fb132c850c3630fba2f3704a8ab896fcc8209a` |
+| `common/minizip/zip.h` | `a61c929d683de6f95e8a1fdd028d04fb4059205eddac763927e53d825fd7c7e9` |
+| `libsigrok4DSL/COPYING` | `8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903` |
+| `libsigrok4DSL/backend.c` | `6e064e5f83da610ef1b0ead6b3238b4f8853ce63c946f323e1561bc784ff7eee` |
+| `libsigrok4DSL/config.h` | `5bbbb8d149ae8e9dc2d76e792c083a4adee5190f67104d1ab80549276247b6ea` |
+| `libsigrok4DSL/dsdevice.c` | `70931989de550ae0c552194913cf510f04a41bc5ba0cc5511b4293595ab62313` |
+| `libsigrok4DSL/error.c` | `e46cf8fb9f49b2250a06a607187d3781dac7341672fdccc4177586144afae05a` |
+| `libsigrok4DSL/hwdriver.c` | `bcc83329561b5616d104e3f2dd0b5a4d52aac54387d67fbd8c943bf430d5d0f0` |
+| `libsigrok4DSL/lib_main.c` | `1c122c0a2076a3c19ada48c4f5ab39a29bccb37095decf85201f918c6847d8c7` |
+| `libsigrok4DSL/libsigrok-internal.h` | `fe3f406027befb21180b43a7c576fe9b8abc7bf5258c76626ddc6dc8ba321e51` |
+| `libsigrok4DSL/libsigrok.h` | `bdfdf233e78ac22e55022f8b95795231ba6894add210c7a645daceb3accb6e32` |
+| `libsigrok4DSL/log.c` | `705922d2304cd6f22ad420b087a305372494731c04d8acaf8183d472028c2065` |
+| `libsigrok4DSL/log.h` | `d887b68ef456ad3d074e3cd7d18177c663eed7779790278073ba9959d6810a8e` |
+| `libsigrok4DSL/session.c` | `1a44743396d3576249b121ca3737e674323406d2235bd6e44b5a847cdb095544` |
+| `libsigrok4DSL/session_driver.c` | `9099cf8926969d9edd9ae83e9c628b1b57d67b75f22e850ac7c98cd1d4eaaf01` |
+| `libsigrok4DSL/std.c` | `caea13c1ef7af2334de2d3a5d402b7e0d63d8e2e0f80a77b38a249aba066001c` |
+| `libsigrok4DSL/strutil.c` | `1df9fad9a3a3ca49696dddaa8386fd0df7b971ada26c560679763d3fecc34443` |
+| `libsigrok4DSL/trigger.c` | `3769e18ab9a26d9873c4e4aa8ac09778d0f380082af730d18b9477d158647ad8` |
+| `libsigrok4DSL/version.c` | `4aef02daeff1db10f4244eb1e80914dfe99f0e129e9500b5bfdcba029a6ca2e2` |
+| `libsigrok4DSL/version.h` | `2ff96477a72dd4f93f9bac44a3a48cc4e2d20f0f4fd48d1a7d157f3cd0a6524f` |
+| `libsigrok4DSL/hardware/DSL/command.c` | `ad5fe3fbada73b31a88f457deecd5d44eae0bdd93e8d9a52970b57f59ba5edab` |
+| `libsigrok4DSL/hardware/DSL/command.h` | `7811d89da87cff526ffc8bc2e7bd5483c350a78e2b179b3e67be5c571c0b15b5` |
+| `libsigrok4DSL/hardware/DSL/dscope.c` | `04ef91c8e8e0d91656ae4979729786c9cf059c1bd9a3eef24dbea63f38d13ed0` |
+| `libsigrok4DSL/hardware/DSL/dsl.c` | `3dd269d3d4cbfae8fd30ea4855dbfe5de9c3b4494de82cb4c6bbe521d2a7c2a9` |
+| `libsigrok4DSL/hardware/DSL/dsl.h` | `bb5cd3c024bf4a85fe82c7d7e7ca489bb6028df262793f8860b550d0d5053ed2` |
+| `libsigrok4DSL/hardware/DSL/dslogic.c` | `463466a69ef6d4d8532ff8a5b10ff0ffd9c721ccc44acef06f02f739c252f8f6` |
+| `libsigrok4DSL/hardware/common/ezusb.c` | `5358d6946998eba2257337a3282a306bc7c73bdecae742614e5d7312e34a88fa` |
+| `libsigrok4DSL/hardware/common/usb.c` | `4dc33e22ad9ef45a96f406f97fa63c7823785572a912bcd2b449365f4f79d456` |
+| `libsigrok4DSL/hardware/demo/demo.c` | `2a6fe7983bf1807e4ec8d949878d27bef8e458448f9fe5f514bb933eabc89daf` |
+| `libsigrok4DSL/hardware/demo/demo.h` | `63e92bbbd164a04d99e8c77297883a6066c2254fb48fad3d01877c3790e4cbd0` |
+| `libsigrok4DSL/input/in_binary.c` | `fb13f3c8cb1c15208efff4c20aa59cd23fc59d47332e0c9ebfc099356e952f0a` |
+| `libsigrok4DSL/input/in_vcd.c` | `af5186e82559083c87d34fcb905c78573125db67c58cbd35bbec2eb61956350c` |
+| `libsigrok4DSL/input/in_wav.c` | `7c497a2d3585f803c0e29b244ac1cef751817b7b4bb0f9f21d7ce4db1b5da2da` |
+| `libsigrok4DSL/input/input.c` | `dcaeec98547956057504fa766cf824e0a8de482fdb73746fa072d4ab6c98035e` |
+| `libsigrok4DSL/output/csv.c` | `72136dde05709a224511fe9d8026dda6b39a219bf4cbd3c3c7ca03c3f139c052` |
+| `libsigrok4DSL/output/gnuplot.c` | `6b0e8dd884dfc0b5bcdcad3c7c3073b62b62952db5b036b4bd70b1dc030b2fd2` |
+| `libsigrok4DSL/output/output.c` | `aa0455fab5ba348d8bcffd0d7dc0b9efc8c455324609d0014051a98fe72cef17` |
+| `libsigrok4DSL/output/srzip.c` | `55155c55b3a85b0ac96bc36650454d868780d14c8d766c4e9f085a133d971fb5` |
+| `libsigrok4DSL/output/vcd.c` | `c0572c8c45e8dfabcc20e097dc5d597f816ba59617bf1845d91662e3f3e6dcd0` |
+| `libsigrokdecode4DSL/config.h` | `d3fd159c3f9eb26518793cfd12dcac739a59e8c20db04ccdedad2470c32f834c` |
+| `libsigrokdecode4DSL/decoder.c` | `e72656ff1a3b1d9b897e8a35ded3af42e45c3f2e0748fbe429b254b51ee582d4` |
+| `libsigrokdecode4DSL/error.c` | `ca8fc58b17ccc938e77ec55b40993261946f93b153cf34b6128a75ddb01c52a8` |
+| `libsigrokdecode4DSL/exception.c` | `dbfe927ec77206fdd9c141a5f66fddfcbe5261993826e8981debd385db9e4629` |
+| `libsigrokdecode4DSL/instance.c` | `b024378826742751094223d65165fa618ba34cb07bdf3c3218d412bca8fd6eb4` |
+| `libsigrokdecode4DSL/libsigrokdecode-internal.h` | `42c512783c8905d168acfb92526546d9c3adf3ccc3ee80f94ec83a3aa9c11774` |
+| `libsigrokdecode4DSL/libsigrokdecode.h` | `8ae7b3099313691e26b6e93a877d7acc6f672b80f33319068618865521e6e05d` |
+| `libsigrokdecode4DSL/log.c` | `7806d26842ffff4428fad0183be9fa35a59fc369928fa1800eacc160d136b0b6` |
+| `libsigrokdecode4DSL/log.h` | `d08f7135f1bb2ebf620a08a2f48a5b97bdb7d05c6b2bab8d44198f3d625ab862` |
+| `libsigrokdecode4DSL/module_sigrokdecode.c` | `552b03e30f641f3d73befa2607edc16223c295fffd8186378ad3a7180c2c026a` |
+| `libsigrokdecode4DSL/session.c` | `d87ce4bc1148d1e3b07019f8c41db37987613188e5647481156b51c3c1ff413f` |
+| `libsigrokdecode4DSL/srd.c` | `305cc6249541e2bc9b8524567c7323a83ceb6a9bb70a5f2c84e0eaa9bc5cfe30` |
+| `libsigrokdecode4DSL/type_decoder.c` | `a02e3ed1ff48f165e513be2a88c2dbdd80b7488cb6141ec5a558bcafaa26175c` |
+| `libsigrokdecode4DSL/util.c` | `f1bfcbbc9ec5d9bf7f10e37e2a244168d04857be2ee7d264a9c2c317631dc648` |
+| `libsigrokdecode4DSL/version.c` | `6faa4161a2d9a86acda7588629349502bd2198bb633dafc375f3fbcfaacbfe9e` |
+| `libsigrokdecode4DSL/version.h` | `64d97e859b5b1657d13411db3f911867787b1ae28339538e81e808b88cfc4eb2` |

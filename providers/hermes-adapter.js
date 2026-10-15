@@ -3,7 +3,9 @@ const { buildVendorEnv, ensureHermesVendorMcp, VENDOR_MCP_TOOL_HINT } = require(
 const { buildWeknoraEnv, ensureHermesWeknoraMcp, WEKNORA_MCP_TOOL_HINT } = require('../mcp/weknora-mcp-shared.js');
 const { buildOpengrokEnv, ensureHermesOpengrokMcp, OPENGROK_MCP_TOOL_HINT } = require('../mcp/opengrok-mcp-shared.js');
 const { buildGerritEnv, ensureHermesGerritMcp, GERRIT_MCP_TOOL_HINT } = require('../mcp/gerrit-mcp-shared.js');
+const { buildJiraEnv, ensureHermesJiraMcp, JIRA_MCP_TOOL_HINT } = require('../mcp/jira-mcp-shared.js');
 const { ensureHermesCodegraphMcp, CODEGRAPH_MCP_TOOL_HINT } = require('../mcp/codegraph-mcp-shared.js');
+const { ensureHermesDrawioMcp, DRAWIO_MCP_TOOL_HINT } = require('../mcp/drawio-mcp-shared.js');
 const child_process = require('child_process');
 const fs = require('fs');
 const path = require('path');
@@ -23,6 +25,7 @@ class HermesAdapter extends AgentAdapter {
     this.currentToolCallId = null;
     this.currentToolName = null;
     this.currentToolStartTime = null;
+    this.reasoningEffort = '';
   }
 
   resolveBinary() {
@@ -79,14 +82,14 @@ class HermesAdapter extends AgentAdapter {
       group: `${topProvider} · 当前提供商`,
       isTop: true,
       iconPark: 'star',
-      models: catalog[topProvider].map((id) => ({ id, name: id, desc: topProvider }))
+      models: catalog[topProvider].map((id) => ({ id, name: id, desc: topProvider, supportsReasoningEffort: true }))
     }];
     for (const prov of providers) {
       if (prov === topProvider) continue;
       groups.push({
         group: prov,
         iconPark: 'cloud',
-        models: catalog[prov].map((id) => ({ id, name: id, desc: prov }))
+        models: catalog[prov].map((id) => ({ id, name: id, desc: prov, supportsReasoningEffort: true }))
       });
     }
     return groups;
@@ -98,7 +101,77 @@ class HermesAdapter extends AgentAdapter {
     return { id: def.id || 'default', name: def.id || '默认模型' };
   }
 
-  setModel(modelId, displayName) {
+  supportsReasoningEffort() {
+    return true;
+  }
+
+  getReasoningEffort() {
+    if (!this.reasoningEffort) this.reasoningEffort = this._loadReasoningEffort();
+    return this.reasoningEffort;
+  }
+
+  getReasoningEffortConfig() {
+    const level = this.getReasoningEffort();
+    const map = {
+      off: { id: 'off', label: '关闭思考', desc: '直接输出' },
+      low: { id: 'low', label: '低推理', desc: '快速轻度思考' },
+      medium: { id: 'medium', label: '中推理', desc: '思考与速度平衡' },
+      high: { id: 'high', label: '高推理', desc: '复杂问题深度思考' },
+      max: { id: 'max', label: '极高推理', desc: '最深入的全量思考' }
+    };
+    return map[level] || map.high;
+  }
+
+  setReasoningEffort(level) {
+    const allowed = ['off', 'low', 'medium', 'high', 'max'];
+    this.reasoningEffort = allowed.indexOf(level) >= 0 ? level : 'high';
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('tabonkb-hermes-reasoning-effort', this.reasoningEffort);
+      }
+    } catch (e) {}
+  }
+
+  reasoningCliArg() {
+    const map = { off: 'none', low: 'low', medium: 'medium', high: 'high', max: 'max' };
+    return map[this.getReasoningEffort()] || 'high';
+  }
+
+  buildChatArgs(modelId) {
+    const bin = this.resolveBinary();
+    const id = modelId || (this.selectedModel && this.selectedModel.id) || this.readDefaultModel().id;
+    const modelArgs = id && id !== 'default' ? ['-m', id] : [];
+    return [
+      ...bin.prefixArgs,
+      'chat',
+      '--query-file', '-',
+      '--format', 'stream-json',
+      '--yolo',
+      '--accept-hooks',
+      '--reasoning', this.reasoningCliArg(),
+      ...modelArgs
+    ];
+  }
+
+  _loadReasoningEffort() {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        const saved = localStorage.getItem('tabonkb-hermes-reasoning-effort');
+        if (saved && ['off', 'low', 'medium', 'high', 'max'].indexOf(saved) >= 0) return saved;
+      }
+    } catch (e) {}
+    try {
+      const txt = fs.readFileSync(path.join(this.hermesHome(), 'config.yaml'), 'utf8');
+      const matched = txt.match(/^\s*reasoning_effort:\s*(\S+)\s*$/m);
+      const raw = matched ? matched[1].toLowerCase() : '';
+      if (raw === 'none' || raw === 'false' || raw === 'minimal') return 'off';
+      if (raw === 'xhigh' || raw === 'ultra') return 'max';
+      if (['low', 'medium', 'high'].indexOf(raw) >= 0) return raw;
+    } catch (e) {}
+    return 'high';
+  }
+
+  setModel(modelId, displayName, reasoningEffort = null) {
     const catalog = this.loadModelCatalog();
     let provider = this.readDefaultModel().provider;
     for (const prov of Object.keys(catalog)) {
@@ -108,6 +181,9 @@ class HermesAdapter extends AgentAdapter {
       }
     }
     this.selectedModel = { id: modelId, name: displayName || modelId, provider };
+    if (reasoningEffort !== null && reasoningEffort !== undefined) {
+      this.setReasoningEffort(reasoningEffort);
+    }
   }
 
   async detect() {
@@ -150,6 +226,7 @@ class HermesAdapter extends AgentAdapter {
       await this.ensureWeknoraMcp();
       await this.ensureOpengrokMcp();
       await this.ensureCodegraphMcp();
+      await this.ensureDrawioMcp();
     }
     return result.available;
   }
@@ -215,8 +292,35 @@ class HermesAdapter extends AgentAdapter {
   }
 
   /**
-   * 幂等注册 62 上的 CodeGraph（内核 + 项目私有驱动）
+   * 幂等注册 Jira 缺陷工单 MCP server (tabonkb-jira)
    */
+  async ensureJiraMcp() {
+    if (this._jiraMcpEnsured) return;
+    this._jiraMcpEnsured = true;
+    try {
+      const bin = this.resolveBinary();
+      const res = await ensureHermesJiraMcp(bin.cmd, bin.prefixArgs, this.vaultBasePath);
+      if (!res.ok) console.warn('[Hermes] jira MCP 注册失败:', res.error || res.output);
+    } catch (e) {
+      console.warn('[Hermes] jira MCP 注册异常:', e.message);
+    }
+  }
+
+  /**
+   * 幂等注册 Draw.io 绘图 MCP（tabonkb-drawio）
+   */
+  async ensureDrawioMcp() {
+    if (this._drawioMcpEnsured) return;
+    this._drawioMcpEnsured = true;
+    try {
+      const bin = this.resolveBinary();
+      const res = await ensureHermesDrawioMcp(bin.cmd, bin.prefixArgs, this.vaultBasePath);
+      if (!res.ok) console.warn('[Hermes] drawio MCP 注册失败:', res.error || res.output);
+    } catch (e) {
+      console.warn('[Hermes] drawio MCP 注册异常:', e.message);
+    }
+  }
+
   async ensureCodegraphMcp() {
     if (this._codegraphMcpEnsured) return;
     this._codegraphMcpEnsured = true;
@@ -243,7 +347,9 @@ class HermesAdapter extends AgentAdapter {
     await this.ensureWeknoraMcp();
     await this.ensureOpengrokMcp();
     await this.ensureGerritMcp();
+    await this.ensureJiraMcp();
     await this.ensureCodegraphMcp();
+    await this.ensureDrawioMcp();
 
     this.isStreaming = true;
     this.stdoutBuffer = '';
@@ -254,27 +360,16 @@ class HermesAdapter extends AgentAdapter {
     this.setStatus('thinking', 'Hermes is thinking');
     this.emit('turn_start');
 
-    const prompt = (contextPayload ? `${text}\n\n${JSON.stringify(contextPayload)}` : text) + VENDOR_MCP_TOOL_HINT + WEKNORA_MCP_TOOL_HINT + OPENGROK_MCP_TOOL_HINT + GERRIT_MCP_TOOL_HINT + CODEGRAPH_MCP_TOOL_HINT;
+    const prompt = (contextPayload ? `${text}\n\n${JSON.stringify(contextPayload)}` : text) + VENDOR_MCP_TOOL_HINT + WEKNORA_MCP_TOOL_HINT + OPENGROK_MCP_TOOL_HINT + GERRIT_MCP_TOOL_HINT + CODEGRAPH_MCP_TOOL_HINT + DRAWIO_MCP_TOOL_HINT + JIRA_MCP_TOOL_HINT;
     const bin = this.resolveBinary();
     const modelId = (this.selectedModel && this.selectedModel.id) || this.readDefaultModel().id;
-    const modelArgs = modelId && modelId !== 'default' ? ['-m', modelId] : [];
-
-    // Use stream-json mode with --query-file - via stdin pipe for robust UTF-8 handling
-    const spawnArgs = [
-      ...bin.prefixArgs,
-      'chat',
-      '--query-file', '-',
-      '--format', 'stream-json',
-      '--yolo',
-      '--accept-hooks',
-      ...modelArgs
-    ];
+    const spawnArgs = this.buildChatArgs(modelId);
 
     return new Promise((resolve) => {
       try {
         this.process = child_process.spawn(bin.cmd, spawnArgs, {
           cwd: this.vaultBasePath || process.cwd(),
-          env: Object.assign({}, process.env, buildVendorEnv(this.vaultBasePath), buildWeknoraEnv(this.vaultBasePath), buildOpengrokEnv(this.vaultBasePath), buildGerritEnv(this.vaultBasePath)),
+          env: Object.assign({}, process.env, buildVendorEnv(this.vaultBasePath), buildWeknoraEnv(this.vaultBasePath), buildOpengrokEnv(this.vaultBasePath), buildGerritEnv(this.vaultBasePath), buildJiraEnv(this.vaultBasePath)),
           stdio: ['pipe', 'pipe', 'pipe'],
           windowsHide: true
         });
@@ -304,7 +399,8 @@ class HermesAdapter extends AgentAdapter {
     });
   }
 
-  finish(success, error, resolve) {
+  async finish(success, error, resolve) {
+    await this._settleDrawioArtifact();
     if (this.stdoutBuffer) {
       this.handleStdoutLine(this.stdoutBuffer);
       this.stdoutBuffer = '';
@@ -360,7 +456,7 @@ class HermesAdapter extends AgentAdapter {
     // 1. Tool execution started
     if (event.type === 'tool_use') {
       const rawName = event.name || '';
-      const toolName = rawName.replace(/^mcp__tabonkb_vendor__/, '').replace(/^mcp__tabonkb_weknora__/, '').replace(/^mcp__tabonkb_opengrok__/, '').replace(/^mcp__tabonkb_gerrit__/, '').replace(/^mcp__codegraph_kernel__/, '').replace(/^mcp__codegraph_driver__/, '');
+      const toolName = rawName.replace(/^mcp__tabonkb_vendor__/, '').replace(/^mcp__tabonkb_weknora__/, '').replace(/^mcp__tabonkb_opengrok__/, '').replace(/^mcp__tabonkb_gerrit__/, '').replace(/^mcp__tabonkb_drawio__/, '').replace(/^mcp__codegraph_mtk_bootloader__/, '').replace(/^mcp__codegraph_mtk_kernel__/, '').replace(/^mcp__codegraph_mtk_driver__/, '').replace(/^mcp__codegraph_kernel__/, '').replace(/^mcp__codegraph_driver__/, '');
       const toolCallId = `hermes_${toolName}_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
       this.currentToolCallId = toolCallId;
       this.currentToolName = toolName;
@@ -416,9 +512,15 @@ class HermesAdapter extends AgentAdapter {
       } else if (toolName === 'gerrit_list_projects') {
         actionDesc = '正在获取 Gerrit 代码工程仓库清单...';
       } else if (toolName === 'codegraph_explore') {
-        const tree = /kernel/.test(rawName) ? '内核' : (/driver/.test(rawName) ? '私有驱动' : '');
+        const tree = /bootloader/.test(rawName) ? '联发科 bootloader' : (/mtk/.test(rawName) && /kernel/.test(rawName) ? '联发科内核' : (/mtk/.test(rawName) && /driver/.test(rawName) ? '联发科私有驱动' : (/kernel/.test(rawName) ? '展锐内核' : (/driver/.test(rawName) ? '展锐私有驱动' : ''))));
         const q = event.input?.query || '';
         actionDesc = `正在查询 CodeGraph${tree ? ' ' + tree : ''}${q ? `: "${q}"` : ''}`;
+      } else if (toolName === 'drawio_create' || toolName === 'drawio_edit' || toolName === 'drawio_add_page') {
+        actionDesc = '正在绘制图表';
+      } else if (toolName === 'drawio_export') {
+        actionDesc = '正在导出图表';
+      } else if (String(toolName).indexOf('drawio_') === 0) {
+        actionDesc = '正在读取图表';
       }
 
       this.setStatus('running_tool', actionDesc);
@@ -436,7 +538,7 @@ class HermesAdapter extends AgentAdapter {
     if (event.type === 'tool_result') {
       const toolCallId = this.currentToolCallId || `hermes_tool_${Date.now()}`;
       const rawName = event.name || '';
-      const toolName = rawName.replace(/^mcp__tabonkb_vendor__/, '').replace(/^mcp__tabonkb_weknora__/, '').replace(/^mcp__tabonkb_opengrok__/, '').replace(/^mcp__tabonkb_gerrit__/, '').replace(/^mcp__codegraph_kernel__/, '').replace(/^mcp__codegraph_driver__/, '') || this.currentToolName || 'tool';
+      const toolName = rawName.replace(/^mcp__tabonkb_vendor__/, '').replace(/^mcp__tabonkb_weknora__/, '').replace(/^mcp__tabonkb_opengrok__/, '').replace(/^mcp__tabonkb_gerrit__/, '').replace(/^mcp__tabonkb_drawio__/, '').replace(/^mcp__codegraph_mtk_bootloader__/, '').replace(/^mcp__codegraph_mtk_kernel__/, '').replace(/^mcp__codegraph_mtk_driver__/, '').replace(/^mcp__codegraph_kernel__/, '').replace(/^mcp__codegraph_driver__/, '') || this.currentToolName || 'tool';
       const durationMs = event.duration_ms || (Date.now() - (this.currentToolStartTime || Date.now()));
 
       this.emit('tool_end', {
@@ -458,6 +560,12 @@ class HermesAdapter extends AgentAdapter {
       return;
     }
 
+    // 3b. Reasoning deltas (jojo / DeepSeek reasoning_content). Shown while the model is still thinking.
+    if ((event.type === 'reasoning' || event.type === 'thinking') && typeof event.text === 'string' && event.text) {
+      this.emit('thinking_delta', event.text);
+      return;
+    }
+
     // 4. Session init
     if (event.type === 'system' && event.subtype === 'init') {
       // session ready
@@ -472,8 +580,17 @@ class HermesAdapter extends AgentAdapter {
     this.process = null;
     this.isStreaming = false;
     this.currentToolCallId = null;
+    await this._settleDrawioArtifact();
     this.setStatus('connected', 'Aborted');
     this.emit('agent_settled');
+  }
+
+  async _settleDrawioArtifact() {
+    if (typeof tabonkbSettleDrawio !== 'function') return;
+    try {
+      const art = await tabonkbSettleDrawio();
+      if (art && art.relPng) this.emit('text_delta', `\n\n![[${art.relPng}]]\n`);
+    } catch (e) {}
   }
 
   async newSession() {

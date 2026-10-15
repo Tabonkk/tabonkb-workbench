@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "TabonKB 研发工作台伴侣",
   "version": "1.3.0",
-  "description": "一键将紫光展锐 Uni-Support (DCC & FAQ) 与 MTK 官网登录凭据同步至 TabonKB Obsidian 研发工作台",
+  "description": "一键将紫光展锐 (Uni-Support)、MTK 官网与 NiceAIGC 登录凭据同步至 TabonKB Obsidian 研发工作台",
   "permissions": [
     "cookies",
     "storage",
@@ -13,6 +13,8 @@
     "*://*.unisoc.com/*",
     "*://online.mediatek.com/*",
     "*://*.mediatek.com/*",
+    "*://*.nice188.com/*",
+    "*://*.niceaigc.com/*",
     "http://127.0.0.1/*",
     "http://localhost/*"
   ],
@@ -36,7 +38,9 @@
         "*://unisupport.unisoc.com/*",
         "*://*.unisoc.com/*",
         "*://online.mediatek.com/*",
-        "*://*.mediatek.com/*"
+        "*://*.mediatek.com/*",
+        "*://*.nice188.com/*",
+        "*://*.niceaigc.com/*"
       ],
       "js": ["content.js"],
       "css": ["content.css"],

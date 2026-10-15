@@ -8,12 +8,16 @@ class AgentSessionManager {
     this.vaultBasePath = options.vaultBasePath || (process.cwd ? process.cwd() : '');
     this.app = options.app || null;
     this.agents = new Map();
+    this.lastActiveAgentId = null;
     this._saveDebounceTimer = null;
+    this._isWriting = false;
+    this._pendingWritePayload = null;
 
     this.initAgent('pi');
     this.initAgent('codex');
     this.initAgent('gemini');
     this.initAgent('niceaigc');
+    this.initAgent('antigravity');
 
     this.loadSessions();
   }
@@ -81,28 +85,38 @@ class AgentSessionManager {
     }
 
     if (rawData && typeof rawData === 'object') {
+      if (rawData._meta && rawData._meta.lastActiveAgentId) {
+        this.lastActiveAgentId = rawData._meta.lastActiveAgentId;
+      }
       for (const [agentId, data] of Object.entries(rawData)) {
+        if (agentId === '_meta') continue;
         const agent = this.getAgent(agentId);
         agent.draft = data.draft || '';
 
         // Case A: New segmented format with sessions array
         if (Array.isArray(data.sessions)) {
           agent.sessions = data.sessions;
-          // By default start fresh with activeSessionId = null (default hidden)
-          agent.activeSessionId = null;
+          if (data.activeSessionId && agent.sessions.some(s => s.id === data.activeSessionId)) {
+            agent.activeSessionId = data.activeSessionId;
+          } else if (agent.sessions.length > 0) {
+            agent.activeSessionId = agent.sessions[0].id;
+          } else {
+            agent.activeSessionId = null;
+          }
         } 
         // Case B: Legacy format with flat messages array -> migrate to a segmented session
         else if (Array.isArray(data.messages) && data.messages.length > 0) {
           const firstUser = data.messages.find(m => m.role === 'user');
           const title = firstUser ? (firstUser.text || '').slice(0, 36).replace(/\n/g, ' ') : '历史对话';
-          agent.sessions = [{
+          const legacySession = {
             id: 'sess_legacy_' + (data.updatedAt || Date.now()),
             title: title,
             createdAt: data.updatedAt || Date.now(),
             updatedAt: data.updatedAt || Date.now(),
             messages: data.messages
-          }];
-          agent.activeSessionId = null;
+          };
+          agent.sessions = [legacySession];
+          agent.activeSessionId = legacySession.id;
         } else {
           agent.sessions = [];
           agent.activeSessionId = null;
@@ -112,7 +126,7 @@ class AgentSessionManager {
     }
   }
 
-  saveSessionsDebounced(delay = 600) {
+  saveSessionsDebounced(delay = 500) {
     if (this._saveDebounceTimer) {
       clearTimeout(this._saveDebounceTimer);
     }
@@ -122,12 +136,13 @@ class AgentSessionManager {
     }, delay);
   }
 
-  saveSessions() {
-    if (this._saveDebounceTimer) {
-      clearTimeout(this._saveDebounceTimer);
-      this._saveDebounceTimer = null;
-    }
-    const payload = {};
+  serializeSessions() {
+    const payload = {
+      _meta: {
+        lastActiveAgentId: this.lastActiveAgentId || this.getMostRecentActiveAgentId(),
+        updatedAt: Date.now()
+      }
+    };
     for (const [agentId, agent] of this.agents.entries()) {
       // Keep up to 50 sessions per agent, each session up to 100 messages
       const cleanSessions = (agent.sessions || []).slice(0, 50).map(s => ({
@@ -144,9 +159,26 @@ class AgentSessionManager {
           text: m.text,
           badge: m.badge || null,
           model: m.model || null,
-          images: Array.isArray(m.images) ? m.images : null,
+          // 彻底剔除体积巨大的 base64 dataUrl, 仅持久化轻量元数据 (相对路径/哈希/尺寸)
+          images: Array.isArray(m.images) ? m.images.map(img => {
+            if (!img) return null;
+            return {
+              name: img.name || 'image',
+              path: img.path || null,
+              hash: img.hash || null,
+              size: img.size || 0,
+              width: img.width || null,
+              height: img.height || null
+            };
+          }).filter(Boolean) : null,
           toolCount: m.toolCount || 0,
-          timestamp: m.timestamp || Date.now()
+          toolCalls: Array.isArray(m.toolCalls) ? m.toolCalls : null,
+          timestamp: m.timestamp || Date.now(),
+          thinking: m.thinking || '',
+          duration: m.duration || null,
+          durationText: m.durationText || null,
+          usage: m.usage || null,
+          processSteps: Array.isArray(m.processSteps) ? m.processSteps : null
         }))
       }));
 
@@ -159,8 +191,42 @@ class AgentSessionManager {
       };
     }
 
-    const jsonStr = JSON.stringify(payload, null, 2);
+    return JSON.stringify(payload, null, 2);
+  }
 
+  saveSessions(forceAsync = false) {
+    if (this._saveDebounceTimer) {
+      clearTimeout(this._saveDebounceTimer);
+      this._saveDebounceTimer = null;
+    }
+    const jsonStr = this.serializeSessions();
+    const isBrowser = typeof window !== 'undefined';
+    if (forceAsync || isBrowser) {
+      return this._queueWrite(jsonStr);
+    } else {
+      return this._writeSync(jsonStr);
+    }
+  }
+
+  saveSessionsAsync() {
+    if (this._saveDebounceTimer) {
+      clearTimeout(this._saveDebounceTimer);
+      this._saveDebounceTimer = null;
+    }
+    const jsonStr = this.serializeSessions();
+    return this._queueWrite(jsonStr);
+  }
+
+  saveSessionsSync() {
+    if (this._saveDebounceTimer) {
+      clearTimeout(this._saveDebounceTimer);
+      this._saveDebounceTimer = null;
+    }
+    const jsonStr = this.serializeSessions();
+    return this._writeSync(jsonStr);
+  }
+
+  _writeSync(jsonStr) {
     try {
       const fs = require('fs');
       const filePath = this._getStorageFile();
@@ -168,14 +234,57 @@ class AgentSessionManager {
         fs.writeFileSync(filePath, jsonStr, 'utf8');
       }
     } catch (e) {
-      console.warn('[AgentSessionManager] Failed to write .chat-history.json:', e);
+      console.warn('[AgentSessionManager] Failed to write .chat-history.json synchronously:', e);
     }
-
     try {
-      if (typeof localStorage !== 'undefined') {
+      if (typeof localStorage !== 'undefined' && jsonStr.length < 1.5 * 1024 * 1024) {
         localStorage.setItem('tabonkb-chat-history', jsonStr);
       }
-    } catch (e) {}
+    } catch (_) {}
+  }
+
+  _queueWrite(jsonStr) {
+    this._pendingWritePayload = jsonStr;
+    if (this._isWriting) {
+      return this._writePromise || Promise.resolve();
+    }
+    this._writePromise = this._flushWriteQueue();
+    return this._writePromise;
+  }
+
+  async _flushWriteQueue() {
+    if (this._isWriting) return;
+    this._isWriting = true;
+
+    while (this._pendingWritePayload) {
+      const jsonStr = this._pendingWritePayload;
+      this._pendingWritePayload = null;
+
+      try {
+        const fs = require('fs');
+        const filePath = this._getStorageFile();
+        if (filePath) {
+          if (fs.promises && typeof fs.promises.writeFile === 'function') {
+            await fs.promises.writeFile(filePath, jsonStr, 'utf8');
+          } else {
+            await new Promise((resolve) => {
+              fs.writeFile(filePath, jsonStr, 'utf8', () => resolve());
+            });
+          }
+        }
+      } catch (e) {
+        console.warn('[AgentSessionManager] Failed to write .chat-history.json asynchronously:', e);
+      }
+
+      try {
+        if (typeof localStorage !== 'undefined' && jsonStr.length < 1.5 * 1024 * 1024) {
+          localStorage.setItem('tabonkb-chat-history', jsonStr);
+        }
+      } catch (_) {}
+    }
+
+    this._isWriting = false;
+    this._writePromise = null;
   }
 
   getSessions(agentId) {
@@ -203,7 +312,43 @@ class AgentSessionManager {
     return agent.activeSessionId;
   }
 
+  setLastActiveAgentId(agentId) {
+    if (agentId && typeof agentId === 'string') {
+      this.lastActiveAgentId = agentId;
+      this.saveSessionsDebounced(300);
+    }
+  }
+
+  getMostRecentActiveAgentId() {
+    let latestAgentId = null;
+    let latestTime = 0;
+    for (const [agentId, agent] of this.agents.entries()) {
+      let time = agent.updatedAt || 0;
+      const activeSess = this.getActiveSession(agentId);
+      if (activeSess) {
+        if (activeSess.updatedAt && activeSess.updatedAt > time) time = activeSess.updatedAt;
+        if (Array.isArray(activeSess.messages) && activeSess.messages.length > 0) {
+          const lastMsg = activeSess.messages[activeSess.messages.length - 1];
+          if (lastMsg && lastMsg.timestamp && lastMsg.timestamp > time) {
+            time = lastMsg.timestamp;
+          }
+        }
+      }
+      if (time > latestTime) {
+        latestTime = time;
+        latestAgentId = agentId;
+      }
+    }
+    return latestAgentId || 'antigravity';
+  }
+
+  getLastActiveAgentId() {
+    if (this.lastActiveAgentId) return this.lastActiveAgentId;
+    return this.getMostRecentActiveAgentId();
+  }
+
   createSession(agentId, title = '新对话') {
+    this.lastActiveAgentId = agentId;
     const agent = this.getAgent(agentId);
     const newSession = {
       id: 'sess_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
@@ -220,6 +365,7 @@ class AgentSessionManager {
   }
 
   switchSession(agentId, sessionId) {
+    this.lastActiveAgentId = agentId;
     const agent = this.getAgent(agentId);
     agent.activeSessionId = sessionId;
     agent.updatedAt = Date.now();
@@ -241,7 +387,7 @@ class AgentSessionManager {
     const agent = this.getAgent(agentId);
     agent.sessions = agent.sessions.filter(s => s.id !== sessionId);
     if (agent.activeSessionId === sessionId) {
-      agent.activeSessionId = null;
+      agent.activeSessionId = agent.sessions.length > 0 ? agent.sessions[0].id : null;
     }
     agent.updatedAt = Date.now();
     this.saveSessions();
@@ -273,7 +419,8 @@ class AgentSessionManager {
     };
   }
 
-  addMessage(agentId, msg) {
+  addMessage(agentId, msg, immediate = false) {
+    this.lastActiveAgentId = agentId;
     const agent = this.getAgent(agentId);
     let active = this.getActiveSession(agentId);
     if (!active) {
@@ -282,14 +429,30 @@ class AgentSessionManager {
       active = this.createSession(agentId, title);
     } else if (active.title === '新对话' && msg.role === 'user') {
       const title = (msg.text || '').trim().slice(0, 36).replace(/\n/g, ' ') || 
-                    (msg.images && msg.images.length > 0 ? `[ͼƬ] ${msg.images[0].name || ''}`.trim() : '');
+                    (msg.images && msg.images.length > 0 ? `[图片] ${msg.images[0].name || ''}`.trim() : '');
       if (title) active.title = title;
     }
 
     active.messages.push(msg);
     active.updatedAt = Date.now();
     agent.updatedAt = Date.now();
+    if (immediate) {
+      this.saveSessions();
+    } else {
+      this.saveSessionsDebounced(500);
+    }
+  }
+
+  // 会话回退（pi fork）：移除 fromIndex 起及其后所有消息，与 pi 侧分支截断保持一致
+  truncateMessages(agentId, fromIndex) {
+    const active = this.getActiveSession(agentId);
+    if (!active || !Array.isArray(active.messages)) return 0;
+    if (!(fromIndex >= 0) || fromIndex >= active.messages.length) return 0;
+    const removed = active.messages.length - fromIndex;
+    active.messages.splice(fromIndex);
+    active.updatedAt = Date.now();
     this.saveSessions();
+    return removed;
   }
 
   clearSession(agentId) {
@@ -297,6 +460,7 @@ class AgentSessionManager {
   }
 
   clearAll() {
+    this.lastActiveAgentId = null;
     for (const agent of this.agents.values()) {
       agent.sessions = [];
       agent.activeSessionId = null;
@@ -313,6 +477,7 @@ class AgentSessionManager {
   }
 
   setDraft(agentId, draft) {
+    this.lastActiveAgentId = agentId;
     const agent = this.getAgent(agentId);
     agent.draft = draft || '';
     this.saveSessionsDebounced(600);

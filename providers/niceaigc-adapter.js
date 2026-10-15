@@ -40,22 +40,58 @@ function getImageDimensions(buffer) {
   return { width: 1024, height: 768 };
 }
 
+const NICEAIGC_BUILTIN_MODELS = [
+  { slug: 'gpt-6-thinking', title: 'GPT-6', description: '最新默认旗舰，思考推演充分，推荐使用！' },
+  { slug: 'gpt-6.1-sol-wm', title: 'GPT-6.1 Sol', description: '最新旗舰模型 [官方原生整合，可在网页对话中直接调用 Codex 模型]' },
+  { slug: 'gpt-6-sol-wm', title: 'GPT-6 Sol', description: '新一代旗舰模型 [官方原生整合，可在网页对话中直接调用 Codex 模型]' },
+  { slug: 'gpt-6-luna-wm', title: 'GPT-6 Luna', description: '新一代轻量模型' },
+  { slug: 'gpt-6-astra-wm', title: 'GPT-6 Astra', description: 'Work 分组的 Pro 级模型 [官方原生整合]' },
+  { slug: 'gpt-5.6-sol-wm', title: 'GPT-5.6 Sol', description: '旗舰模型 [官方原生整合]' },
+  { slug: 'gpt-5.6-terra-wm', title: 'GPT-5.6 Terra', description: '高性能模型' },
+  { slug: 'gpt-5.6-luna-wm', title: 'GPT-5.6 Luna', description: '轻量模型' },
+  { slug: 'gpt-6-pro', title: 'GPT-6 Pro', description: '研究级智能模型' },
+  { slug: 'gpt-5-6-pro', title: 'GPT-5.6 Pro', description: '研究级智能模型' },
+  { slug: 'gpt-5-6-thinking', title: 'GPT-5.6 Sol', description: '经典旗舰，思考充分' },
+  { slug: 'gpt-5-6', title: 'Auto', description: '自动按问题复杂度匹配模型' },
+  { slug: 'gpt-6', title: 'GPT-6 (Instant)', description: '最新、最高级的模型' },
+  { slug: 'o3-pro', title: 'o3-pro', description: '我们最强大的模型，非常适用于需要创造力和高级推理能力的任务。' },
+  { slug: 'o4-mini', title: 'o4-mini', description: '我们最新、最高级的模型' },
+  { slug: 'research', title: 'Deep Research', description: '多轮自主深度学术调研' },
+  { slug: 'gemini-3.8-flash', title: 'Gemini 3.8 Flash', description: '最新超高速生成 (推荐)' },
+  { slug: 'gemini-3.6-flash', title: 'Gemini 3.6 Flash', description: '超长上下文，高速高准确度' },
+  { slug: 'gemini-3.1-pro', title: 'Gemini 3.1 Pro', description: '复杂逻辑深度推理' },
+  { slug: 'claude-opus-4-8', title: 'Claude 4.8 Opus', description: 'Claude超高性能模型，适合文字创作与代码生成' },
+  { slug: 'claude-opus-4-7', title: 'Claude 4.7 Opus', description: 'Claude超高性能模型，适合文字创作与代码生成' },
+  { slug: 'claude-opus-4-6', title: 'Claude 4.6 Opus', description: 'Claude超高性能模型，适合文字创作与代码生成' },
+  { slug: 'claude-sonnet-4-6', title: 'Claude 4.6 Sonnet', description: 'Claude超高性能模型，适合文字创作与代码生成' },
+  { slug: 'grok-4.6', title: 'Grok 4.6', description: '马斯克xAI旗下顶级模型 (推荐)' },
+  { slug: 'grok-4.5', title: 'Grok 4.5', description: '马斯克xAI旗下顶级模型' },
+  { slug: 'gpt-5-chat-latest', title: 'GPT-5', description: 'GPT-5官方通用备用通道' },
+  { slug: 'gpt-4o-mini', title: 'GPT-4o Mini', description: '极速经济轻量模型' },
+  { slug: 'gpt-4', title: 'GPT-4 (All Tools)', description: '浏览、高级数据分析和 DALL·E 现已集成到 GPT-4 中' },
+  { slug: 'text-davinci-002-render-sha', title: 'Default (GPT-3.5)', description: '我们最快的模型，非常适合大多数日常任务。' },
+  { slug: 'gemini-3-pro-image-preview-2k', title: 'Nano Banana Pro 绘图', description: 'Google火爆全网绘图模型Pro 版，支持高质量图像生成' },
+  { slug: 'nano-banana-2', title: 'Nano Banana 2.0 绘图', description: 'Google绘图模型2.0版，支持高质量图像生成' },
+  { slug: 'gpt-image-2-1', title: 'GPT Image 2.5（通道 1）', description: 'ChatGPT 最新 2.5 画图，支持垫图' },
+  { slug: 'gpt-image-2-2', title: 'GPT Image 2.5（通道 2）', description: '备用通道生图' },
+  { slug: 'NiceArticleNoAI-Pro', title: 'NiceArticleNoAI-Pro', description: 'Nature/Science等期刊专用降低文章 AI 识别率增强版' },
+  { slug: 'NiceArticleNoAI', title: 'NiceArticleNoAI', description: 'Nature/Science等期刊专用降低文章 AI 识别率' },
+  { slug: 'NiceArticleNoAI-Pro 通道2', title: 'NiceArticleNoAI-Pro 通道2', description: '备用增强版通道' },
+  { slug: 'NiceArticleNoAI 通道2', title: 'NiceArticleNoAI 通道2', description: '备用标准版通道' }
+];
+
 function normalizeModel(modelStr) {
-  if (!modelStr) return 'gpt-5-6-thinking';
+  if (!modelStr) return 'gpt-6-thinking';
   const m = modelStr.trim();
-  // Protect exact slugs from backend models
-  if (m === 'gpt-5.6-sol-wm' || m === 'gpt-5.6-terra-wm' || m === 'gpt-5.6-luna-wm' || m === 'gpt-6-astra-wm' || m === 'gpt-5.5-wm') {
-    return m;
-  }
   const lower = m.toLowerCase();
   if (lower === 'chatgpt 5.6 sol' || lower === '5.6 sol' || lower === 'gpt-5.6 sol' || lower === 'gpt-5-6-thinking') {
     return 'gpt-5-6-thinking';
   }
+  if (lower === 'chatgpt 6' || lower === 'gpt-6' || lower === 'gpt-6 sol' || lower === 'gpt-6-thinking') {
+    return 'gpt-6-thinking';
+  }
   if (lower === 'auto' || lower === 'gpt-5-6') return 'gpt-5-6';
-  if (lower.includes('5.5') && lower.includes('codex')) return 'gpt-5.5';
-  if (lower.includes('5.4') && lower.includes('codex')) return 'gpt-5.4-codex';
   if (lower.includes('4o-mini') || lower === 'gpt-4o mini') return 'gpt-4o-mini';
-  if (lower === 'gpt-4o') return 'gpt-5-6';
   return m;
 }
 
@@ -83,8 +119,8 @@ class NiceAigcAdapter extends AgentAdapter {
     }));
 
     const initialConfig = this.getConfig() || {};
-    this.activeModelId = options.model || initialConfig.model || 'gpt-5-6-thinking';
-    this.activeModelName = options.modelDisplayName || initialConfig.modelDisplayName || 'GPT-5.6 Sol';
+    this.activeModelId = options.model || initialConfig.model || 'gpt-6-thinking';
+    this.activeModelName = options.modelDisplayName || initialConfig.modelDisplayName || 'GPT-6';
     this.reasoningEffort = options.reasoningEffort || initialConfig.reasoningEffort || 'max';
 
     // In-memory conversation history & server conversation IDs
@@ -98,12 +134,18 @@ class NiceAigcAdapter extends AgentAdapter {
     this.abortController = null;
     this._memorySecret = null;
     this._cachedUserId = null;
+
+    // 动态模型列表与持久化缓存机制
+    this._modelGroups = null;
+    this._modelsList = null;
+    this._lastModelsFetchTime = 0;
+    this._initCachedModels();
   }
 
   getModel() {
     return {
-      id: this.activeModelId || 'gpt-5-6-thinking',
-      name: this.activeModelName || 'GPT-5.6 Sol',
+      id: this.activeModelId || 'gpt-6-thinking',
+      name: this.activeModelName || 'GPT-6',
       reasoningEffort: this.reasoningEffort || 'max'
     };
   }
@@ -174,128 +216,334 @@ class NiceAigcAdapter extends AgentAdapter {
     return map[level] || map['max'];
   }
 
+  _initCachedModels() {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        const cached = localStorage.getItem('tabonkb-niceaigc-cached-models');
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (Array.isArray(parsed.models) && parsed.models.length > 0) {
+            this._modelsList = parsed.models;
+            this._modelGroups = this._parseServerModels(parsed.models);
+            this._lastModelsFetchTime = parsed.time || Date.now();
+          }
+        }
+      }
+    } catch (e) {}
+
+    if (!this._modelGroups) {
+      this._modelGroups = this._getDefaultModelGroups();
+    }
+
+    // 后台静默预取最新模型列表 (1 秒延迟避免阻塞初始化)
+    setTimeout(() => {
+      this.fetchModels().catch(() => {});
+    }, 1000);
+  }
+
   supportsReasoningEffort(modelId) {
     const id = (modelId || this.activeModelId || '').toLowerCase();
-    return id.includes('thinking') || id.includes('sol') || id.includes('terra') || id.includes('luna') || id.startsWith('o1') || id.startsWith('o3');
+    return id.includes('thinking') || id.includes('sol') || id.includes('terra') || id.includes('luna') || id.includes('astra') || id.startsWith('o1') || id.startsWith('o3') || id.startsWith('o4') || id.includes('pro');
+  }
+
+  /**
+   * 动态拉取服务端最新模型列表并缓存
+   * @param {boolean} [force=false] 是否强制跳过缓存刷新
+   * @returns {Promise<Array>}
+   */
+  async fetchModels(force = false) {
+    const now = Date.now();
+    if (!force && this._modelGroups && (now - this._lastModelsFetchTime < 300000)) {
+      return this.getModelGroups();
+    }
+
+    const token = await this.getCredential('tabonkb-niceaigc-token');
+    if (!token) {
+      return this.getModelGroups();
+    }
+
+    const config = typeof this.getConfig === 'function' ? this.getConfig() : {};
+    let baseUrl = (config.baseUrl || 'https://node7.nice188.com').trim().replace(/\/+$/, '');
+    if (baseUrl.includes('nice188.cc')) baseUrl = baseUrl.replace('nice188.cc', 'nice188.com');
+
+    const url = `${baseUrl}/backend-api/models?history_and_training_disabled=false`;
+    let hostDomain = '';
+    try { hostDomain = new URL(baseUrl).hostname; } catch (e) {}
+
+    const headers = {
+      'Cookie': `session=${token}; __Secure-next-auth.session-token=${token}; token=${token}`,
+      'Authorization': `Bearer ${token}`,
+      'X-Site-Domain': hostDomain || '',
+      'Origin': baseUrl,
+      'Referer': `${baseUrl}/`,
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 TabonKB/1.0'
+    };
+
+    let data = null;
+    const isNode = typeof process !== 'undefined' && process.versions && process.versions.node && typeof requestUrl === 'undefined';
+    if (!isNode && typeof requestUrl !== 'undefined') {
+      try {
+        const res = await requestUrl({ url, method: 'GET', headers });
+        data = res.json;
+      } catch (e) {
+        console.warn('[NiceAigcAdapter] requestUrl fetchModels failed:', e && e.message);
+      }
+    } else {
+      try {
+        data = await this._httpGetJson(url, headers);
+      } catch (e) {
+        console.warn('[NiceAigcAdapter] node http fetchModels failed:', e && e.message);
+      }
+    }
+
+    if (data && Array.isArray(data.models) && data.models.length > 0) {
+      this._modelsList = data.models;
+      this._modelGroups = this._parseServerModels(data.models);
+      this._lastModelsFetchTime = Date.now();
+
+      try {
+        if (typeof localStorage !== 'undefined') {
+          localStorage.setItem('tabonkb-niceaigc-cached-models', JSON.stringify({
+            time: this._lastModelsFetchTime,
+            models: data.models
+          }));
+        }
+      } catch (e) {}
+    }
+
+    return this.getModelGroups();
+  }
+
+  /**
+   * 刷新模型列表 (供前端刷新按钮调用)
+   */
+  async reloadModels() {
+    return await this.fetchModels(true);
   }
 
   getModelGroups() {
-    return [
-      {
-        group: '常用模型',
-        brand: 'openai',
-        iconPark: 'star',
-        isTop: true,
-        models: [
-          { 
-            id: 'gpt-5-6-thinking', 
-            name: 'GPT-5.6 Sol', 
-            desc: '思考更充分，回答更优质，推荐使用！', 
-            brand: 'openai',
-            supportsReasoningEffort: true 
-          },
-          { 
-            id: 'gpt-5-6', 
-            name: 'Auto', 
-            desc: '自动决定使用 5.6 Instant 或 5.6 Sol', 
-            brand: 'openai',
-            supportsReasoningEffort: false 
-          }
-        ]
-      },
-      {
-        group: 'ChatGPT Work [原生] (需企业订阅)',
-        brand: 'openai',
-        iconPark: 'briefcase',
-        models: [
-          { id: 'gpt-5.6-sol-wm', name: 'GPT-5.6 Sol', desc: '需开通 Work 企业订阅', brand: 'openai' },
-          { id: 'gpt-5.6-terra-wm', name: 'GPT-5.6 Terra', desc: '需开通 Work 企业订阅', brand: 'openai' },
-          { id: 'gpt-5.6-luna-wm', name: 'GPT-5.6 Luna', desc: '需开通 Work 企业订阅', brand: 'openai' },
-          { id: 'gpt-5.5-wm', name: 'GPT-5.5', desc: '需开通 Work 企业订阅', brand: 'openai' },
-          { id: 'gpt-6-astra-wm', name: 'GPT-6 Astra', desc: '需开通 Work 企业订阅', brand: 'openai' }
-        ]
-      },
-      {
-        group: 'Google Gemini模型 (可用推荐)',
-        brand: 'gemini',
-        iconPark: 'diamond',
-        models: [
-          { id: 'gemini-3.5-flash', name: 'Gemini 3.5 Flash', desc: '超长上下文，响应极速且稳定 (推荐)', brand: 'gemini' },
-          { id: 'gemini-3.8-flash', name: 'Gemini 3.8 Flash', desc: '最新超高速生成', brand: 'gemini' },
-          { id: 'gemini-3.6-flash', name: 'Gemini 3.6 Flash', desc: '高速高准确度', brand: 'gemini' },
-          { id: 'gemini-3.1-pro', name: 'Gemini 3.1 Pro', desc: '复杂逻辑深度推理', brand: 'gemini' },
-          { id: 'gemini-3-flash-preview', name: 'Gemini 3.0 Flash', desc: '极速响应', brand: 'gemini' }
-        ]
-      },
-      {
-        group: 'Anthropic Claude (上游通道不稳定)',
-        brand: 'claude',
-        iconPark: 'code',
-        models: [
-          { id: 'claude-sonnet-4-6', name: 'Claude 4.6 Sonnet', desc: '极强代码编写（上游通道可能维护中）', brand: 'claude' },
-          { id: 'claude-opus-4-6', name: 'Claude 4.6 Opus', desc: '高深推理（上游通道可能维护中）', brand: 'claude' },
-          { id: 'claude-opus-4-7', name: 'Claude 4.7 Opus', desc: '深度理解（上游通道可能维护中）', brand: 'claude' },
-          { id: 'claude-opus-4-8', name: 'Claude 4.8 Opus', desc: '超大上下文（上游通道可能维护中）', brand: 'claude' }
-        ]
-      },
-      {
-        group: 'xAI Grok (可用推荐)',
-        brand: 'grok',
-        iconPark: 'lightning',
-        models: [
-          { id: 'grok-4.6', name: 'Grok 4.6', desc: '最新实时知识搜索与代码 (推荐)', brand: 'grok' },
-          { id: 'grok-4.5', name: 'Grok 4.5', desc: '高效搜索与代码 (推荐)', brand: 'grok' }
-        ]
-      },
-      {
-        group: 'OpenAI Codex系列',
-        brand: 'openai',
-        iconPark: 'code',
-        models: [
-          { id: 'gpt-5.5', name: 'GPT-5.5-Codex', desc: '代码研发与工程专精', brand: 'openai' },
-          { id: 'gpt-5.4-codex', name: 'GPT-5.4-Codex', desc: '高效精准代码生成', brand: 'openai' }
-        ]
-      },
-      {
-        group: 'OpenAI 备用模型',
-        brand: 'openai',
-        iconPark: 'robot',
-        models: [
-          { id: 'gpt-5-chat-latest', name: 'GPT-5', desc: 'OpenAI 官方通用通道', brand: 'openai' },
-          { id: 'gpt-4o-mini', name: 'GPT-4o Mini', desc: '轻量快速经济型', brand: 'openai' }
-        ]
-      },
-      {
-        group: '更多模型',
-        brand: 'openai',
-        iconPark: 'folder',
-        models: [
-          { id: 'gpt-5-5-thinking', name: 'GPT-5.5 Thinking', desc: '带思维链深度推演', brand: 'openai' },
-          { id: 'gpt-5-5-instant', name: 'GPT-5.5 Instant', desc: '即时快速回复', brand: 'openai' },
-          { id: 'research', name: 'Deep Research 深入研究', desc: '多轮自主深度学术调研', brand: 'openai' }
-        ]
-      },
-      {
-        group: 'image 生图模型',
-        brand: 'gemini',
-        iconPark: 'pic',
-        models: [
-          { id: 'gemini-3-pro-image-preview-2k', name: 'Nano Banana Pro 绘图', desc: '高分辨率 2K 生成', brand: 'gemini' },
-          { id: 'nano-banana-2', name: 'Nano Banana 2.0 绘图', desc: '超快生图', brand: 'gemini' },
-          { id: 'gpt-image-2-1', name: 'GPT Image 2.5（通道 1）', desc: '高质量图像绘制', brand: 'openai' },
-          { id: 'gpt-image-2-2', name: 'GPT Image 2.5（通道 2）', desc: '备用通道生图', brand: 'openai' }
-        ]
-      },
-      {
-        group: 'NiceScience 学术',
-        brand: 'science',
-        iconPark: 'degree-hat',
-        models: [
-          { id: 'NiceArticleNoAI-Pro', name: 'NiceArticleNoAI-Pro', desc: 'Nature/Science期刊专用降AI识别率增强版', brand: 'science' },
-          { id: 'NiceArticleNoAI', name: 'NiceArticleNoAI', desc: '标准版降低文章 AI 识别率', brand: 'science' }
-        ]
+    if (this._modelGroups && this._modelGroups.length > 0) {
+      return this._modelGroups;
+    }
+    return this._getDefaultModelGroups();
+  }
+
+  _detectModelBrand(slug) {
+    const s = String(slug || '').toLowerCase();
+    if (s.includes('gemini') || s.includes('banana')) return 'gemini';
+    if (s.includes('claude') || s.includes('sonnet') || s.includes('opus')) return 'claude';
+    if (s.includes('grok')) return 'grok';
+    if (s.includes('nicearticle') || s.includes('science')) return 'science';
+    return 'openai';
+  }
+
+  _parseServerModels(models) {
+    if (!Array.isArray(models) || models.length === 0) {
+      return this._getDefaultModelGroups();
+    }
+
+    const findModel = (slug) => models.find(m => m.slug === slug);
+    const usedSlugs = new Set();
+
+    // 1. 常用模型 (置顶推荐)
+    const topSlugs = ['gpt-6-thinking', 'gpt-6.1-sol-wm', 'gpt-6-sol-wm', 'gpt-5-6-thinking', 'gpt-5-6'];
+    const topModels = [];
+    for (const slug of topSlugs) {
+      const m = findModel(slug);
+      if (m) {
+        let name = m.title || slug;
+        let desc = m.description || '';
+        if (slug === 'gpt-6-thinking') desc = '最新默认旗舰，思考推演充分，推荐使用！';
+        else if (slug === 'gpt-5-6') { name = 'Auto'; desc = '自动按问题复杂度匹配模型'; }
+        topModels.push({
+          id: slug,
+          name,
+          desc,
+          brand: 'openai',
+          supportsReasoningEffort: this.supportsReasoningEffort(slug)
+        });
       }
+    }
+
+    // 2. ChatGPT Work [原生] (需企业订阅)
+    const wmOrder = ['gpt-6.1-sol-wm', 'gpt-6-sol-wm', 'gpt-6-luna-wm', 'gpt-6-astra-wm', 'gpt-5.6-sol-wm', 'gpt-5.6-terra-wm', 'gpt-5.6-luna-wm'];
+    const wmModels = [];
+    for (const slug of wmOrder) {
+      const m = findModel(slug);
+      if (m) {
+        usedSlugs.add(m.slug);
+        wmModels.push({
+          id: m.slug,
+          name: m.title || m.slug,
+          desc: m.description || '需开通 Work 企业订阅',
+          brand: 'openai',
+          supportsReasoningEffort: this.supportsReasoningEffort(m.slug)
+        });
+      }
+    }
+    for (const m of models) {
+      if (m.slug.endsWith('-wm') && !usedSlugs.has(m.slug)) {
+        usedSlugs.add(m.slug);
+        wmModels.push({
+          id: m.slug,
+          name: m.title || m.slug,
+          desc: m.description || '需开通 Work 企业订阅',
+          brand: 'openai',
+          supportsReasoningEffort: this.supportsReasoningEffort(m.slug)
+        });
+      }
+    }
+
+    // 3. OpenAI Pro & 深度推理
+    const proOrder = ['gpt-6-pro', 'gpt-5-6-pro', 'o3-pro', 'o4-mini', 'research', 'gpt-6'];
+    const proModels = [];
+    for (const slug of proOrder) {
+      const m = findModel(slug);
+      if (m) {
+        usedSlugs.add(m.slug);
+        proModels.push({
+          id: m.slug,
+          name: m.title || m.slug,
+          desc: m.description || '',
+          brand: 'openai',
+          supportsReasoningEffort: this.supportsReasoningEffort(m.slug)
+        });
+      }
+    }
+
+    // 4. Google Gemini 模型
+    const geminiOrder = ['gemini-3.8-flash', 'gemini-3.6-flash', 'gemini-3.1-pro'];
+    const geminiModels = [];
+    for (const slug of geminiOrder) {
+      const m = findModel(slug);
+      if (m) {
+        usedSlugs.add(m.slug);
+        geminiModels.push({
+          id: m.slug,
+          name: m.title || m.slug,
+          desc: m.description || '',
+          brand: 'gemini',
+          supportsReasoningEffort: false
+        });
+      }
+    }
+
+    // 5. Anthropic Claude 模型
+    const claudeOrder = ['claude-opus-4-8', 'claude-opus-4-7', 'claude-opus-4-6', 'claude-sonnet-4-6'];
+    const claudeModels = [];
+    for (const slug of claudeOrder) {
+      const m = findModel(slug);
+      if (m) {
+        usedSlugs.add(m.slug);
+        claudeModels.push({
+          id: m.slug,
+          name: m.title || m.slug,
+          desc: m.description || '',
+          brand: 'claude',
+          supportsReasoningEffort: false
+        });
+      }
+    }
+
+    // 6. xAI Grok (推荐)
+    const grokOrder = ['grok-4.6', 'grok-4.5'];
+    const grokModels = [];
+    for (const slug of grokOrder) {
+      const m = findModel(slug);
+      if (m) {
+        usedSlugs.add(m.slug);
+        grokModels.push({
+          id: m.slug,
+          name: m.title || m.slug,
+          desc: m.description || '',
+          brand: 'grok',
+          supportsReasoningEffort: false
+        });
+      }
+    }
+
+    // 7. AI 绘图生图模型
+    const imgModels = [];
+    for (const m of models) {
+      if (m.slug.includes('image') || m.slug.includes('banana')) {
+        usedSlugs.add(m.slug);
+        imgModels.push({
+          id: m.slug,
+          name: m.title || m.slug,
+          desc: m.description || '',
+          brand: this._detectModelBrand(m.slug),
+          supportsReasoningEffort: false
+        });
+      }
+    }
+
+    // 8. NiceScience 学术专用
+    const sciModels = [];
+    for (const m of models) {
+      if (m.slug.toLowerCase().includes('nicearticle')) {
+        usedSlugs.add(m.slug);
+        sciModels.push({
+          id: m.slug,
+          name: m.title || m.slug,
+          desc: m.description || '',
+          brand: 'science',
+          supportsReasoningEffort: false
+        });
+      }
+    }
+
+    // 9. OpenAI 经典与备用模型
+    const legacyOrder = ['gpt-5-chat-latest', 'gpt-4o-mini', 'gpt-4', 'text-davinci-002-render-sha'];
+    const legacyModels = [];
+    for (const slug of legacyOrder) {
+      const m = findModel(slug);
+      if (m) {
+        usedSlugs.add(m.slug);
+        legacyModels.push({
+          id: m.slug,
+          name: m.title || m.slug,
+          desc: m.description || '',
+          brand: 'openai',
+          supportsReasoningEffort: false
+        });
+      }
+    }
+
+    // 10. 其它未分组的模型
+    const otherModels = [];
+    for (const m of models) {
+      if (!usedSlugs.has(m.slug) && !topSlugs.includes(m.slug)) {
+        otherModels.push({
+          id: m.slug,
+          name: m.title || m.slug,
+          desc: m.description || '',
+          brand: this._detectModelBrand(m.slug),
+          supportsReasoningEffort: this.supportsReasoningEffort(m.slug)
+        });
+      }
+    }
+
+    const groups = [
+      { group: '常用模型', brand: 'openai', iconPark: 'star', isTop: true, models: topModels },
+      { group: 'ChatGPT Work [原生] (需企业订阅)', brand: 'openai', iconPark: 'briefcase', models: wmModels },
+      { group: 'OpenAI Pro & 深度推理', brand: 'openai', iconPark: 'brain', models: proModels },
+      { group: 'Google Gemini 模型', brand: 'gemini', iconPark: 'diamond', models: geminiModels },
+      { group: 'Anthropic Claude 模型', brand: 'claude', iconPark: 'code', models: claudeModels },
+      { group: 'xAI Grok (推荐)', brand: 'grok', iconPark: 'lightning', models: grokModels },
+      { group: 'AI 绘图生图模型', brand: 'gemini', iconPark: 'pic', models: imgModels },
+      { group: 'NiceScience 学术专用', brand: 'science', iconPark: 'degree-hat', models: sciModels },
+      { group: 'OpenAI 经典与备用模型', brand: 'openai', iconPark: 'folder', models: legacyModels }
     ];
+
+    if (otherModels.length > 0) {
+      groups.push({ group: '其他最新模型', brand: 'openai', iconPark: 'folder', models: otherModels });
+    }
+
+    return groups;
+  }
+
+  _getDefaultModelGroups() {
+    return this._parseServerModels(NICEAIGC_BUILTIN_MODELS);
   }
 
   /**
@@ -432,21 +680,22 @@ class NiceAigcAdapter extends AgentAdapter {
    * 发送前惰性检测本地会话是否切换 (历史面板打开/新建/重启插件):
    * 切换到另一会话时, 改用该会话存档的 conversationId, 避免服务端新开对话丢失上下文
    */
-  _syncSessionConversation() {
+  _syncSessionConversation(force = false) {
     if (!this.sessionManager) return;
     try {
       const sid = this.sessionManager.getActiveSessionId ? this.sessionManager.getActiveSessionId('niceaigc') : null;
       const current = this._boundSessionId === undefined ? null : this._boundSessionId;
-      if (sid === current) return;
-      let saved = { conversationId: null, lastMessageId: null };
-      if (sid && this.sessionManager.getSessionConversation) {
-        saved = this.sessionManager.getSessionConversation('niceaigc') || saved;
+      if (sid !== current || force) {
+        let saved = { conversationId: null, lastMessageId: null };
+        if (sid && this.sessionManager.getSessionConversation) {
+          saved = this.sessionManager.getSessionConversation('niceaigc') || saved;
+        }
+        this.conversationId = saved.conversationId || null;
+        // 关键: backend-api 消息树协议续聊时 parent_message_id 必须指向该对话的叶子消息
+        this.lastMessageId = saved.lastMessageId || null;
+        this._boundSessionId = sid;
       }
-      this.conversationId = saved.conversationId || null;
-      // 关键: backend-api 消息树协议续聊时 parent_message_id 必须指向该对话的叶子消息,
-      // 若只恢复 conversationId 而 lastMessageId 为空, 发送时 parentId 会随机生成 → 服务端找不到父节点返回空流
-      this.lastMessageId = saved.lastMessageId || null;
-      // 同步重建内存对话历史: 切换/恢复会话后 v1 协议与上下文摘要才有内容可用
+      // 同步重建内存对话历史: 供 v1 协议与上下文摘要使用
       try {
         if (this.sessionManager.getMessages) {
           const msgs = this.sessionManager.getMessages('niceaigc') || [];
@@ -455,14 +704,13 @@ class NiceAigcAdapter extends AgentAdapter {
             .map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: String(m.text || '') }));
         }
       } catch (e) {}
-      this._boundSessionId = sid;
     } catch (e) {}
   }
 
   _persistConversationId() {
-    if (!this.sessionManager || !this.conversationId || !this.sessionManager.setSessionConversation) return;
+    if (!this.sessionManager || !this.sessionManager.setSessionConversation) return;
     try {
-      this.sessionManager.setSessionConversation('niceaigc', this.conversationId, this.lastMessageId || null);
+      this.sessionManager.setSessionConversation('niceaigc', this.conversationId || null, this.lastMessageId || null);
     } catch (e) {}
   }
 
@@ -664,7 +912,7 @@ class NiceAigcAdapter extends AgentAdapter {
   // 兼容旧存档: 只有 conversationId 而无叶子消息 id 时, 向服务端查对话树补齐 current_node,
   // 避免续聊时 parent_message_id 随机生成导致服务端返回空流
   async _ensureLeafMessageId(baseUrl, headers) {
-    if (!this.conversationId) return;
+    if (!this.conversationId) return null;
     try {
       const data = await this._httpGetJson(`${baseUrl}/backend-api/conversation/${this.conversationId}`, headers);
       const conv = (data && data.data) ? data.data : data;
@@ -676,12 +924,14 @@ class NiceAigcAdapter extends AgentAdapter {
         this.lastMessageId = leaf;
         this._persistConversationId();
         console.info('[NiceAigcAdapter] Leaf message id recovered from server:', leaf);
+        return leaf;
       } else {
         console.warn('[NiceAigcAdapter] Could not resolve leaf node from conversation tree; continuation may start a new branch.');
       }
     } catch (e) {
       console.warn('[NiceAigcAdapter] Failed to recover leaf message id, will start fresh if server rejects:', e && e.message);
     }
+    return null;
   }
 
   // 调试日志: 追加写入插件目录 .niceaigc-debug.log, 用于定位服务端空流等疑难问题 (不含凭据)
@@ -705,24 +955,41 @@ class NiceAigcAdapter extends AgentAdapter {
   }
 
   // 服务端续接失败兜底用: 把本地存档最近几轮对话压成摘要文本, 随新对话一起发给模型保住上下文
-  _buildLocalContextDigest() {
+  _buildLocalContextDigest(currentText = '') {
     try {
       if (!this.sessionManager || !this.sessionManager.getMessages) return '';
       const msgs = this.sessionManager.getMessages('niceaigc') || [];
-      const past = msgs.slice(-9, -1); // 去掉本轮刚入队的 user 消息
-      if (!past.length) return '';
-      // 错误/警告气泡也会被存成 assistant 消息, 带入摘要会污染上下文, 必须剔除
+      if (!msgs.length) return '';
+      // 错误/警告/502网关气泡也会被存成 assistant 消息, 带入摘要会污染上下文, 必须剔除
       const isNotice = (t) => /^\s*[⚠▲!！]/.test(t)
         || t.includes('未返回任何有效文本内容')
         || t.includes('建议点击左下角模型选择器')
         || /^\s*提示[：:]/.test(t)
-        || t.includes('NiceAIGC 提示');
+        || t.includes('NiceAIGC 提示')
+        || t.includes('出现了一个对话异常')
+        || t.includes('HTTP 502')
+        || t.includes('traceId');
+
+      let past = msgs.filter(m => m && (m.role === 'user' || m.role === 'assistant'));
+      // 如果末尾是当前正在发问尚未获得有效回答的 user 消息，排除掉它（避免重复）
+      if (past.length > 0 && past[past.length - 1].role === 'user') {
+        const lastT = past[past.length - 1].text?.trim();
+        if (!currentText || lastT === currentText.trim()) {
+          past = past.slice(0, -1);
+        }
+      }
+      past = past.slice(-12);
+      if (!past.length) return '';
+
       const lines = past.map(m => {
         const who = m.role === 'user' ? '用户' : '助手';
-        const body = String(m.text || '').replace(/\s+/g, ' ').trim();
-        if (!body || (m.role !== 'user' && isNotice(body))) return '';
-        return who + ': ' + (body.length > 700 ? body.slice(0, 700) + '…' : body);
+        let body = String(m.text || '').trim();
+        if (!body || (m.role === 'assistant' && isNotice(body))) return '';
+        // 剥离 citation 与 genui 元数据标签
+        body = body.replace(/genui\{[^}]*\}/g, '').replace(/genui[^]*/g, '').replace(/\s+/g, ' ').trim();
+        return who + ': ' + (body.length > 1000 ? body.slice(0, 1000) + '…' : body);
       }).filter(l => l.length > 4);
+
       return lines.length ? '【历史对话摘要】\n' + lines.join('\n') : '';
     } catch (e) { return ''; }
   }
@@ -817,8 +1084,8 @@ class NiceAigcAdapter extends AgentAdapter {
    * @returns {Promise<{ success: boolean, error?: string }>}
    */
   async send(text, contextPayload, attachments = []) {
-    // 先对齐当前本地会话存档的服务端 conversationId, 再做模型切换重置检测
-    this._syncSessionConversation();
+    // 强制同步当前本地会话存档的服务端 conversationId
+    this._syncSessionConversation(true);
     this._contextFallbackUsed = false;
     const config = typeof this.getConfig === 'function' ? this.getConfig() : {};
     let baseUrl = (config.baseUrl || 'https://node7.nice188.com').trim().replace(/\/+$/, '');
@@ -829,9 +1096,12 @@ class NiceAigcAdapter extends AgentAdapter {
     const model = normalizeModel(rawModel);
 
     // If model changed compared to last used model, reset server conversation ID
+    let modelChanged = false;
     if (this.lastUsedModel && this.lastUsedModel !== model) {
+      modelChanged = true;
       this.conversationId = null;
       this.lastMessageId = null;
+      this._persistConversationId();
     }
     this.lastUsedModel = model;
 
@@ -932,8 +1202,14 @@ class NiceAigcAdapter extends AgentAdapter {
       await this._ensureLeafMessageId(baseUrl, headers);
     }
 
-    // 实际发送的提示词: 续接失败兜底重发时会被替换为 "本地摘要 + 新问题"
+    // 实际发送的提示词: 切换模型时自动注入本地对话摘要以继承上下文
     let promptText = text;
+    if (modelChanged) {
+      const digest = this._buildLocalContextDigest(text);
+      if (digest) {
+        promptText = digest + '\n\n--- 以上为历史对话摘要（因切换模型开启新会话而自动注入），请结合上下文回答以下新问题 ---\n\n' + text;
+      }
+    }
 
     // 多模态图片预处理: 若计划走 Web 协议，先尝试通过 /backend-api/files 预上传
     let webAttachments = [];
@@ -961,7 +1237,8 @@ class NiceAigcAdapter extends AgentAdapter {
         apiUrl = `${baseUrl}/backend-api/conversation`;
         const messageId = generateUuid();
         const parentId = this.lastMessageId || generateUuid();
-        this.lastMessageId = messageId;
+        // 注意: 绝不能在此处赋值 this.lastMessageId = messageId (此为用户消息 UUID),
+        // backend-api 要求 parent_message_id 始终指向上一轮 assistant 消息叶子节点!
 
         const messageObj = {
           id: messageId,
@@ -1038,12 +1315,12 @@ class NiceAigcAdapter extends AgentAdapter {
       const canUseNode = typeof require !== 'undefined' && typeof process !== 'undefined' && process.versions?.node;
 
       if (canUseNode) {
-        await this._streamNode(apiUrl, headers, reqBody, (chunk) => {
+        await this._streamNode(apiUrl, headers, reqBody, model, (chunk) => {
           fullAssistantText += chunk;
           this.emit('text_delta', chunk);
         });
       } else {
-        await this._streamFetch(apiUrl, headers, reqBody, (chunk) => {
+        await this._streamFetch(apiUrl, headers, reqBody, model, (chunk) => {
           fullAssistantText += chunk;
           this.emit('text_delta', chunk);
         });
@@ -1056,15 +1333,58 @@ class NiceAigcAdapter extends AgentAdapter {
       this.abortController = new AbortController();
       let fullAssistantText = '';
 
+      const isConvBroken = (err) => {
+        if (!err) return false;
+        if (err.code === 'MODEL_SWITCH_NEW_CHAT_REQUIRED') return true;
+        const em = String(err.message || '');
+        return em.includes('502') ||
+               em.includes('404') ||
+               em.includes('400') ||
+               em.includes('出现了一个对话异常') ||
+               em.includes('尝试开启新聊天') ||
+               em.includes('请创建新聊天') ||
+               em.includes('不支持切换') ||
+               em.includes('conversation_not_found') ||
+               em.includes('parent_message_not_found') ||
+               em.includes('Message not found') ||
+               em.includes('Parent message not found');
+      };
+
       try {
         fullAssistantText = await executeRequest(useBackendApi);
       } catch (firstErr) {
-        // If server rejects cross-model conversation switching (HTTP 403 / new chat required), reset conversation and retry
-        if (firstErr.code === 'MODEL_SWITCH_NEW_CHAT_REQUIRED' || firstErr.message?.includes('不支持切换') || firstErr.message?.includes('请创建新聊天')) {
-          console.warn('[NiceAigcAdapter] Model family changed, auto-retrying with a fresh conversation session...');
-          this.conversationId = null;
-          this.lastMessageId = null;
-          fullAssistantText = await executeRequest(useBackendApi);
+        if (this.conversationId && isConvBroken(firstErr)) {
+          let healed = false;
+          // Tier 1: 尝试向服务端查询真实的当前叶子节点并重试
+          if (useBackendApi && !firstErr.message?.includes('不支持切换') && firstErr.code !== 'MODEL_SWITCH_NEW_CHAT_REQUIRED') {
+            try {
+              console.warn('[NiceAigcAdapter] Conversation continuation error, attempting Tier 1 tree leaf sync...');
+              const currentParent = this.lastMessageId;
+              const leaf = await this._ensureLeafMessageId(baseUrl, headers);
+              if (leaf && leaf !== currentParent) {
+                console.info('[NiceAigcAdapter] Tier 1 synced leaf ' + leaf + ' (was ' + currentParent + '), retrying...');
+                fullAssistantText = await executeRequest(useBackendApi);
+                healed = true;
+              }
+            } catch (syncErr) {
+              console.warn('[NiceAigcAdapter] Tier 1 leaf sync failed:', syncErr && syncErr.message);
+            }
+          }
+
+          // Tier 2: 降级为新会话并自动注入本地对话摘要 (保证历史对话 100% 继承，无错误弹窗)
+          if (!healed) {
+            console.warn('[NiceAigcAdapter] Continuation broken (' + (firstErr.message || firstErr) + '), auto-fallback to fresh conversation with local context digest...');
+            this._contextFallbackUsed = true;
+            this.conversationId = null;
+            this.lastMessageId = null;
+            this._persistConversationId();
+            const digest = this._buildLocalContextDigest(text);
+            if (digest) {
+              promptText = digest + '\n\n--- 以上为历史对话摘要（服务端续接异常时自动迁移），请结合上下文回答以下新问题 ---\n\n' + text;
+            }
+            this.setStatus('thinking', '正在恢复会话上下文重发...');
+            fullAssistantText = await executeRequest(useBackendApi);
+          }
         } else if (!isNiceSite && (firstErr.code === 'API_NOT_ENABLED' || firstErr.message?.includes('503') || firstErr.message?.includes('api_not_enabled') || (imageAttachments.length > 0 && (firstErr.message?.includes('422') || firstErr.message?.includes('404'))))) {
           // If first attempt failed with API_NOT_ENABLED or 503 or 422 with images on generic endpoint, try alternative protocol
           console.warn(`[NiceAigcAdapter] Primary protocol (${useBackendApi ? 'backend-api' : 'v1'}) unavailable, falling back to ${useBackendApi ? 'v1' : 'backend-api'}...`);
@@ -1077,13 +1397,14 @@ class NiceAigcAdapter extends AgentAdapter {
       // 服务端续聊返回空流的自动兜底: 放弃服务端上下文, 开新对话并把本地存档摘要作为前缀重发一次
       if ((!fullAssistantText || !fullAssistantText.trim()) && this.conversationId && !this._contextFallbackUsed) {
         this._contextFallbackUsed = true;
-        const digest = this._buildLocalContextDigest();
+        const digest = this._buildLocalContextDigest(text);
         if (digest) {
           console.warn('[NiceAigcAdapter] Continuation returned empty stream (conv=' + this.conversationId + ', parent=' + this.lastMessageId + '); retrying once as a fresh conversation with local context digest.');
           this._debugLog({ type: 'fallback_retry', conv: this.conversationId, parent: this.lastMessageId, digestLen: digest.length });
           this.setStatus('connected', '服务端续接异常，已携带本地上下文重发');
           this.conversationId = null;
           this.lastMessageId = null;
+          this._persistConversationId();
           promptText = digest + '\n\n--- 以上为本地历史对话摘要（服务端续接失败时的上下文兜底），请结合它回答下面的新问题 ---\n\n' + text;
           const lastUser = this.conversationHistory[this.conversationHistory.length - 1];
           if (lastUser && lastUser.role === 'user' && typeof lastUser.content === 'string') lastUser.content = promptText;
@@ -1127,7 +1448,7 @@ class NiceAigcAdapter extends AgentAdapter {
       this.setStatus('error', '生成异常');
       let sanitized = (err.message || '请求失败').replace(token, '***');
       if (sanitized.includes('缺少用户标识') || sanitized.includes('缺少xuserid') || sanitized.includes('缺少xtoken')) {
-        sanitized = 'NiceAIGC 登录凭据缺少用户标识：当前凭据缺少 xuserid 与 xtoken。请在浏览器登录后按 F12 -> Console 执行 document.cookie，将包含 xuserid 和 xtoken 的完整 Cookie 复制并保存到工作台设置。';
+        sanitized = 'NiceAIGC 登录凭据缺少用户标识 (xuserid / xtoken)：请在浏览器登录 NiceAIGC 网站后，按 F12 -> Console 执行 copy(document.cookie) 自动复制完整 Cookie，并粘贴保存到「设置 -> TabonKB 研发工作台 -> NiceAIGC」（或直接在此处发给我帮您写入）。';
       }
       this.emit('error', { message: sanitized });
       this.emit('agent_settled');
@@ -1139,10 +1460,209 @@ class NiceAigcAdapter extends AgentAdapter {
   }
 
   /**
+   * Initialize streaming state and emit thinking_start if model supports reasoning
+   * @private
+   */
+  _createStreamState(model) {
+    const isReasoning = this.supportsReasoningEffort(model);
+    const state = {
+      isReasoningModel: isReasoning,
+      isThinkingActive: isReasoning,
+      thinkingStartTime: isReasoning ? Date.now() : null,
+      currentAssistantMsgId: null,
+      lastAccumulatedLength: 0,
+      currentThinkingMsgId: null,
+      thinkingAccumulatedLength: 0,
+      currentPath: '',
+      hasEmittedThinkingStart: false
+    };
+    if (isReasoning) {
+      state.hasEmittedThinkingStart = true;
+      this.emit('thinking_start', { startTime: state.thinkingStartTime });
+    }
+    return state;
+  }
+
+  /**
+   * Process a single SSE event JSON frame from NiceAIGC
+   * Handles ChatGPT Web message frames, reasoning recap (OpenAI hide_all policy),
+   * thought streams (Claude/Gemini/DeepSeek), delta_encoding v1, and OpenAI /v1 format.
+   * @private
+   */
+  _processSseFrame(parsed, streamState, onChunk) {
+    if (!parsed || typeof parsed !== 'object') return;
+
+    let errMsg = null;
+    if (parsed.detail) {
+      errMsg = typeof parsed.detail === 'object' ? (parsed.detail.message || JSON.stringify(parsed.detail)) : parsed.detail;
+    } else if (parsed.error) {
+      errMsg = typeof parsed.error === 'object' ? (parsed.error.message || JSON.stringify(parsed.error)) : parsed.error;
+    }
+    if (errMsg) {
+      if (errMsg.includes('不支持切换') || errMsg.includes('请创建新聊天')) {
+        const e = new Error('MODEL_SWITCH_NEW_CHAT_REQUIRED');
+        e.code = 'MODEL_SWITCH_NEW_CHAT_REQUIRED';
+        throw e;
+      }
+      throw new Error(`NiceAIGC: ${errMsg}`);
+    }
+
+    const convId = parsed.conversation_id || parsed.v?.conversation_id;
+    if (convId) {
+      this.conversationId = convId;
+      this._persistConversationId();
+    }
+
+    // 1. Message frame (direct or inside parsed.v)
+    const msg = parsed.message || (parsed.v && typeof parsed.v === 'object' ? parsed.v.message : null);
+    if (msg) {
+      const role = msg.author?.role;
+      // CRITICAL: DO NOT echo user prompt or system prompts into assistant view!
+      if (role === 'user' || role === 'system') {
+        return;
+      }
+
+      if (role === 'assistant') {
+        const contentType = msg.content?.content_type;
+        const recipient = msg.recipient;
+        const channel = msg.channel;
+
+        // 1a. Reasoning recap (OpenAI o1/o3/gpt-6 official recap object)
+        if (contentType === 'reasoning_recap') {
+          const recapContent = msg.content?.content || (typeof msg.content === 'string' ? msg.content : '');
+          const durationSec = msg.metadata?.finished_duration_sec;
+          const recapType = msg.metadata?.reasoning_recap_type || 'hide_all';
+          this.emit('thinking_recap', {
+            durationSec,
+            content: recapContent,
+            recapType
+          });
+          if (streamState.isThinkingActive) {
+            this.emit('thinking_end', { durationSec, recapType });
+            streamState.isThinkingActive = false;
+          }
+          return;
+        }
+
+        // 1b. Thought / Thinking frame (Claude, Gemini, DeepSeek-R1, or web thought parts)
+        if (contentType === 'thought' || contentType === 'thinking' || recipient === 'thought') {
+          if (!streamState.isThinkingActive) {
+            streamState.isThinkingActive = true;
+            this.emit('thinking_start', { startTime: Date.now() });
+          }
+          if (msg.id && msg.id !== streamState.currentThinkingMsgId) {
+            streamState.currentThinkingMsgId = msg.id;
+            streamState.thinkingAccumulatedLength = 0;
+          }
+          const parts = msg.content?.parts;
+          if (parts && parts.length > 0) {
+            const fullThought = parts.join('');
+            if (fullThought.length > streamState.thinkingAccumulatedLength) {
+              const delta = fullThought.slice(streamState.thinkingAccumulatedLength);
+              streamState.thinkingAccumulatedLength = fullThought.length;
+              this.emit('thinking_delta', delta);
+            }
+          }
+          return;
+        }
+
+        // 1c. Internal commentary or code tool execution (e.g. genui.search / python execution)
+        if (channel === 'commentary' || recipient?.startsWith('genui.') || (contentType === 'code' && recipient && recipient !== 'all')) {
+          if (!streamState.isThinkingActive) {
+            streamState.isThinkingActive = true;
+            this.emit('thinking_start', { startTime: Date.now() });
+          }
+          if (msg.content?.text) {
+            try {
+              const p = JSON.parse(msg.content.text);
+              if (p.query && !streamState._emittedCommentaryQuery) {
+                streamState._emittedCommentaryQuery = true;
+                this.emit('thinking_delta', `\n> 正在执行检索推演: ${p.query}\n`);
+              }
+            } catch (e) {}
+          }
+          return;
+        }
+
+        // 1d. Final assistant text response
+        if (contentType === 'text' || channel === 'final' || (!contentType && msg.content?.parts)) {
+          if (streamState.isThinkingActive) {
+            this.emit('thinking_end', {});
+            streamState.isThinkingActive = false;
+          }
+          if (msg.id && msg.id !== streamState.currentAssistantMsgId) {
+            streamState.currentAssistantMsgId = msg.id;
+            this.lastMessageId = msg.id;
+            streamState.lastAccumulatedLength = 0;
+          }
+          const parts = msg.content?.parts;
+          if (parts && parts.length > 0) {
+            const fullText = parts.join('');
+            if (fullText.length > streamState.lastAccumulatedLength) {
+              const delta = fullText.slice(streamState.lastAccumulatedLength);
+              streamState.lastAccumulatedLength = fullText.length;
+              onChunk(delta);
+            }
+          }
+          return;
+        }
+      }
+      return;
+    }
+
+    // 2. delta_encoding v1 protocol (used by Claude, Gemini, Grok)
+    if (parsed.p !== undefined) {
+      streamState.currentPath = parsed.p;
+    }
+
+    if (parsed.v !== undefined && typeof parsed.v === 'string') {
+      if (streamState.currentPath.includes('/thought') || streamState.currentPath.includes('/reasoning')) {
+        if (!streamState.isThinkingActive) {
+          streamState.isThinkingActive = true;
+          this.emit('thinking_start', { startTime: Date.now() });
+        }
+        this.emit('thinking_delta', parsed.v);
+        return;
+      }
+      if (streamState.currentPath.includes('/message/content/parts')) {
+        if (streamState.isThinkingActive) {
+          this.emit('thinking_end', {});
+          streamState.isThinkingActive = false;
+        }
+        onChunk(parsed.v);
+        return;
+      }
+    }
+
+    // 3. Format 3: OpenAI delta or Ollama response
+    const reasoningDelta = parsed.choices?.[0]?.delta?.reasoning_content || parsed.choices?.[0]?.delta?.thought || '';
+    if (reasoningDelta) {
+      if (!streamState.isThinkingActive) {
+        streamState.isThinkingActive = true;
+        this.emit('thinking_start', { startTime: Date.now() });
+      }
+      this.emit('thinking_delta', reasoningDelta);
+    }
+
+    let delta = parsed.choices?.[0]?.delta?.content || parsed.choices?.[0]?.text || '';
+    if (!delta && parsed.response) {
+      delta = parsed.response;
+    }
+
+    if (delta) {
+      if (streamState.isThinkingActive) {
+        this.emit('thinking_end', {});
+        streamState.isThinkingActive = false;
+      }
+      onChunk(delta);
+    }
+  }
+
+  /**
    * Browser / Electron fetch SSE streaming
    * @private
    */
-  async _streamFetch(url, headers, body, onChunk) {
+  async _streamFetch(url, headers, body, model, onChunk) {
     const response = await fetch(url, {
       method: 'POST',
       headers,
@@ -1155,7 +1675,7 @@ class NiceAigcAdapter extends AgentAdapter {
       try { errText = await response.text(); } catch (e) {}
 
       if (errText.includes('缺少用户标识')) {
-        throw new Error('NiceAIGC 缺少用户标识：建议在浏览器登录后按 F12 复制完整 Cookie (含 xuserid 与 xtoken) 填入设置凭据');
+        throw new Error('NiceAIGC 缺少用户标识：当前凭据缺少 xuserid 与 xtoken。请在浏览器登录 NiceAIGC 后按 F12 -> Console 执行 copy(document.cookie) 复制完整 Cookie 并保存到工作台设置');
       }
       if (errText.includes('套餐暂不支持') || errText.includes('升级订阅套餐')) {
         throw new Error('NiceAIGC 提示：当前账号套餐未开通此模型。建议在浏览器登录后复制包含 xtoken 的完整 Cookie 填入凭据，或在设置中更换模型');
@@ -1170,7 +1690,7 @@ class NiceAigcAdapter extends AgentAdapter {
         throw new Error('NiceAIGC 登录凭据失效或过期 (HTTP 401: 登录态异常)，请在浏览器登录后复制最新的 Cookie / Token 并保存至设置');
       }
       if (response.status === 403) {
-        if (errText.includes('不支持切换') || errText.includes('请创建新聊天') || errText.includes('所处') || errText.includes('拓展模型')) {
+        if (errText.includes('不支持切换') || errText.includes('请创建新聊天')) {
           const e = new Error('MODEL_SWITCH_NEW_CHAT_REQUIRED');
           e.code = 'MODEL_SWITCH_NEW_CHAT_REQUIRED';
           throw e;
@@ -1201,12 +1721,10 @@ class NiceAigcAdapter extends AgentAdapter {
       throw new Error(`NiceAIGC 接口返回异常 (HTTP ${response.status}): ${errText.slice(0, 150)}`);
     }
 
+    const streamState = this._createStreamState(model);
     const reader = response.body.getReader();
     const decoder = new TextDecoder('utf-8');
     let buffer = '';
-    let lastAccumulatedLength = 0;
-    let currentAssistantMsgId = null;
-    let currentPath = '';
 
     while (true) {
       const { done, value } = await reader.read();
@@ -1221,6 +1739,10 @@ class NiceAigcAdapter extends AgentAdapter {
         if (!trimmed || trimmed.startsWith(':')) continue; // Comment or ping
 
         if (trimmed === 'data: [DONE]' || trimmed === 'data:[DONE]') {
+          if (streamState.isThinkingActive) {
+            this.emit('thinking_end', {});
+            streamState.isThinkingActive = false;
+          }
           return;
         }
 
@@ -1228,79 +1750,7 @@ class NiceAigcAdapter extends AgentAdapter {
           const jsonStr = trimmed.slice(5).trim();
           try {
             const parsed = JSON.parse(jsonStr);
-
-            let errMsg = null;
-            if (parsed.detail) {
-              errMsg = typeof parsed.detail === 'object' ? (parsed.detail.message || JSON.stringify(parsed.detail)) : parsed.detail;
-            } else if (parsed.error) {
-              errMsg = typeof parsed.error === 'object' ? (parsed.error.message || JSON.stringify(parsed.error)) : parsed.error;
-            }
-            if (errMsg) {
-              if (errMsg.includes('不支持切换') || errMsg.includes('请创建新聊天')) {
-                const e = new Error('MODEL_SWITCH_NEW_CHAT_REQUIRED');
-                e.code = 'MODEL_SWITCH_NEW_CHAT_REQUIRED';
-                throw e;
-              }
-              throw new Error(`NiceAIGC: ${errMsg}`);
-            }
-
-            const convId = parsed.conversation_id || parsed.v?.conversation_id;
-            if (convId) {
-              this.conversationId = convId;
-              this._persistConversationId();
-            }
-
-            // 1. Message frame (direct or inside parsed.v)
-            const msg = parsed.message || (parsed.v && typeof parsed.v === 'object' ? parsed.v.message : null);
-            if (msg) {
-              const role = msg.author?.role;
-              // CRITICAL: DO NOT echo user prompt into assistant view!
-              if (role === 'user') {
-                continue;
-              }
-
-              if (msg.id && msg.id !== currentAssistantMsgId) {
-                currentAssistantMsgId = msg.id;
-                this.lastMessageId = msg.id;
-                lastAccumulatedLength = 0;
-              }
-
-              if (role === 'assistant') {
-                const parts = msg.content?.parts;
-                if (parts && parts.length > 0) {
-                  const fullText = parts.join('');
-                  if (fullText.length > lastAccumulatedLength) {
-                    const delta = fullText.slice(lastAccumulatedLength);
-                    lastAccumulatedLength = fullText.length;
-                    onChunk(delta);
-                  }
-                }
-              }
-              continue;
-            }
-
-            // 2. delta_encoding v1 protocol (used by Claude, Gemini, Grok)
-            // e.g.: {"p":"/message/content/parts/0","o":"append","v":"text"} or continuation: {"v":"more"}
-            if (parsed.p !== undefined) {
-              currentPath = parsed.p;
-            }
-
-            if (parsed.v !== undefined && typeof parsed.v === 'string') {
-              if (currentPath.includes('/message/content/parts')) {
-                onChunk(parsed.v);
-                continue;
-              }
-            }
-
-            // 3. Format 3: OpenAI delta or Ollama response
-            let delta = parsed.choices?.[0]?.delta?.content || parsed.choices?.[0]?.text || '';
-            if (!delta && parsed.response) {
-              delta = parsed.response;
-            }
-
-            if (delta) {
-              onChunk(delta);
-            }
+            this._processSseFrame(parsed, streamState, onChunk);
           } catch (e) {
             if (e.message && (e.message.startsWith('NiceAIGC:') || e.code === 'MODEL_SWITCH_NEW_CHAT_REQUIRED')) {
               throw e;
@@ -1309,13 +1759,18 @@ class NiceAigcAdapter extends AgentAdapter {
         }
       }
     }
+
+    if (streamState.isThinkingActive) {
+      this.emit('thinking_end', {});
+      streamState.isThinkingActive = false;
+    }
   }
 
   /**
    * Node.js https.request SSE streaming (for automated test suite)
    * @private
    */
-  async _streamNode(url, headers, body, onChunk) {
+  async _streamNode(url, headers, body, model, onChunk) {
     const https = url.startsWith('https') ? require('https') : require('http');
     const urlObj = new URL(url);
 
@@ -1338,7 +1793,7 @@ class NiceAigcAdapter extends AgentAdapter {
               return;
             }
             if (errData.includes('缺少用户标识') || errData.includes('缺少xuserid') || errData.includes('缺少xtoken')) {
-              reject(new Error('NiceAIGC 缺少用户标识：当前凭据缺少 xuserid 与 xtoken。请在浏览器登录后按 F12 -> Console 输入 document.cookie，将完整 Cookie 复制并保存到工作台设置'));
+              reject(new Error('NiceAIGC 登录凭据缺少用户标识 (xuserid / xtoken)：请在浏览器登录 NiceAIGC 网站后，按 F12 -> Console 执行 copy(document.cookie) 自动复制完整 Cookie，并粘贴保存到「设置 -> TabonKB 研发工作台 -> NiceAIGC」（或直接在此处发给我帮您写入）'));
               return;
             }
             if (errData.includes('套餐暂不支持') || errData.includes('升级订阅套餐')) {
@@ -1388,10 +1843,8 @@ class NiceAigcAdapter extends AgentAdapter {
           return;
         }
 
+        const streamState = this._createStreamState(model);
         let buffer = '';
-        let lastAccumulatedLength = 0;
-        let currentAssistantMsgId = null;
-        let currentPath = '';
         let dataLineCount = 0;
         let firstFrame = '';
 
@@ -1410,6 +1863,10 @@ class NiceAigcAdapter extends AgentAdapter {
             const trimmed = line.trim();
             if (!trimmed || trimmed.startsWith(':')) continue;
             if (trimmed === 'data: [DONE]' || trimmed === 'data:[DONE]') {
+              if (streamState.isThinkingActive) {
+                this.emit('thinking_end', {});
+                streamState.isThinkingActive = false;
+              }
               this._debugLog({ type: 'stream_end', done: true, dataLineCount, firstFrame, rawTail: String(this._lastRawFrames || '').slice(-1500) });
               resolve();
               return;
@@ -1420,78 +1877,7 @@ class NiceAigcAdapter extends AgentAdapter {
               if (!firstFrame) firstFrame = jsonStr.slice(0, 600);
               try {
                 const parsed = JSON.parse(jsonStr);
-
-                let errMsg = null;
-                if (parsed.detail) {
-                  errMsg = typeof parsed.detail === 'object' ? (parsed.detail.message || JSON.stringify(parsed.detail)) : parsed.detail;
-                } else if (parsed.error) {
-                  errMsg = typeof parsed.error === 'object' ? (parsed.error.message || JSON.stringify(parsed.error)) : parsed.error;
-                }
-                if (errMsg) {
-                  if (errMsg.includes('不支持切换') || errMsg.includes('请创建新聊天')) {
-                    const e = new Error('MODEL_SWITCH_NEW_CHAT_REQUIRED');
-                    e.code = 'MODEL_SWITCH_NEW_CHAT_REQUIRED';
-                    reject(e);
-                    return;
-                  }
-                  reject(new Error(`NiceAIGC: ${errMsg}`));
-                  return;
-                }
-
-                const convId = parsed.conversation_id || parsed.v?.conversation_id;
-                if (convId) {
-                  this.conversationId = convId;
-                  this._persistConversationId();
-                }
-
-                // 1. Message frame (direct or inside parsed.v)
-                const msg = parsed.message || (parsed.v && typeof parsed.v === 'object' ? parsed.v.message : null);
-                if (msg) {
-                  const role = msg.author?.role;
-                  // CRITICAL: DO NOT echo user prompt into assistant view!
-                  if (role === 'user') {
-                    continue;
-                  }
-
-                  if (msg.id && msg.id !== currentAssistantMsgId) {
-                    currentAssistantMsgId = msg.id;
-                    this.lastMessageId = msg.id;
-                    lastAccumulatedLength = 0;
-                  }
-
-                  if (role === 'assistant') {
-                    const parts = msg.content?.parts;
-                    if (parts && parts.length > 0) {
-                      const fullText = parts.join('');
-                      if (fullText.length > lastAccumulatedLength) {
-                        const delta = fullText.slice(lastAccumulatedLength);
-                        lastAccumulatedLength = fullText.length;
-                        onChunk(delta);
-                      }
-                    }
-                  }
-                  continue;
-                }
-
-                // 2. delta_encoding v1 protocol (used by Claude, Gemini, Grok)
-                if (parsed.p !== undefined) {
-                  currentPath = parsed.p;
-                }
-
-                if (parsed.v !== undefined && typeof parsed.v === 'string') {
-                  if (currentPath.includes('/message/content/parts')) {
-                    onChunk(parsed.v);
-                    continue;
-                  }
-                }
-
-                // 3. Format 3: OpenAI delta or Ollama response
-                let delta = parsed.choices?.[0]?.delta?.content || parsed.choices?.[0]?.text || '';
-                if (!delta && parsed.response) {
-                  delta = parsed.response;
-                }
-
-                if (delta) onChunk(delta);
+                this._processSseFrame(parsed, streamState, onChunk);
               } catch (e) {
                 if (e.message && (e.message.startsWith('NiceAIGC:') || e.code === 'MODEL_SWITCH_NEW_CHAT_REQUIRED')) {
                   reject(e);
@@ -1503,6 +1889,10 @@ class NiceAigcAdapter extends AgentAdapter {
         });
 
         res.on('end', () => {
+          if (streamState.isThinkingActive) {
+            this.emit('thinking_end', {});
+            streamState.isThinkingActive = false;
+          }
           this._debugLog({ type: 'stream_end', done: false, dataLineCount, firstFrame, rawTail: String(this._lastRawFrames || '').slice(-1500) });
           resolve();
         });
@@ -1665,14 +2055,104 @@ function cleanAssistantMarkdown(text) {
   // 6. Strip standard web citations like 【4:0†source】
   cleaned = cleaned.replace(/【\d*(?::\d+)?†[a-zA-Z0-9_\-\s]*】/g, '');
 
-  // 7. Strip leftover private-use characters & non-printable ASCII control chars
+  // 7. Process/Format ChatGPT internal entity reference tags:
+  // e.g. entity["company", "tldraw", "AI canvas SDK"] -> **tldraw**
+  // e.g. entity["company", "Miro", "online collaborative whiteboard"] -> **Miro**
+  // e.g. 【entity|["company", "OpenAI"]】 -> **OpenAI**
+  cleaned = cleaned.replace(/【?entity(?:\|\[|\[)([\s\S]*?)\]】?/gi, (match, inner) => {
+    try {
+      const cleanInner = inner.replace(/^\s*\[/, '').replace(/\]\s*$/, '').trim();
+      const parsed = JSON.parse('[' + cleanInner + ']');
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        if (parsed.length >= 2 && typeof parsed[1] === 'string' && parsed[1].trim()) {
+          return '**' + parsed[1].trim() + '**';
+        }
+        if (typeof parsed[0] === 'string' && parsed[0].trim()) {
+          return '**' + parsed[0].trim() + '**';
+        }
+      }
+    } catch (_) {
+      const parts = [];
+      const partRegex = /["']([^"']+)["']/g;
+      let pm;
+      while ((pm = partRegex.exec(inner)) !== null) {
+        parts.push(pm[1]);
+      }
+      if (parts.length >= 2 && parts[1].trim()) {
+        return '**' + parts[1].trim() + '**';
+      }
+      if (parts.length === 1 && parts[0].trim()) {
+        return '**' + parts[0].trim() + '**';
+      }
+    }
+    return match;
+  });
+
+  // 8. Strip ChatGPT internal directives & GenUI citation metadata tags (image_group, genui, citation, widget, etc.) with balanced delimiters
+  const directiveRegex = /(?:[ \t]+)?【?(?:\b(?:image_group|image_query|image|carousel|widget|genui|citation))\s*(?:\|?\s*([\[\{]))/gi;
+  let dirResult = '';
+  let dirLastIndex = 0;
+  let dirMatch;
+
+  while ((dirMatch = directiveRegex.exec(cleaned)) !== null) {
+    const matchStart = dirMatch.index;
+    const isSpecialWrap = dirMatch[0].includes('【');
+    const openChar = dirMatch[1];
+    const closeChar = openChar === '[' ? ']' : '}';
+    const contentStart = matchStart + dirMatch[0].length;
+
+    let depth = 1;
+    let inQuotes = false;
+    let quoteChar = '';
+    let contentEnd = -1;
+
+    for (let i = contentStart; i < cleaned.length; i++) {
+      const ch = cleaned[i];
+      if (inQuotes) {
+        if (ch === quoteChar && cleaned[i - 1] !== '\\') {
+          inQuotes = false;
+        }
+      } else {
+        if (ch === '"' || ch === "'") {
+          inQuotes = true;
+          quoteChar = ch;
+        } else if (ch === openChar) {
+          depth++;
+        } else if (ch === closeChar) {
+          depth--;
+          if (depth === 0) {
+            contentEnd = i + 1;
+            if (isSpecialWrap && cleaned[contentEnd] === '】') {
+              contentEnd++;
+            }
+            break;
+          }
+        }
+      }
+    }
+
+    if (contentEnd !== -1) {
+      dirResult += cleaned.substring(dirLastIndex, matchStart);
+      dirLastIndex = contentEnd;
+      directiveRegex.lastIndex = contentEnd;
+    } else {
+      // Incomplete trailing directive during streaming: hide it from display
+      dirResult += cleaned.substring(dirLastIndex, matchStart);
+      dirLastIndex = cleaned.length;
+      break;
+    }
+  }
+  dirResult += cleaned.substring(dirLastIndex);
+  cleaned = dirResult;
+
+  // 9. Strip leftover private-use characters & non-printable ASCII control chars
   cleaned = cleaned.replace(/[\uE000-\uF8FF]/g, '');
   cleaned = cleaned.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '');
 
-  // 8. Clean isolated stray box characters
+  // 10. Clean isolated stray box characters
   cleaned = cleaned.replace(/(?:^|\s)□+(?:\s|$)/g, ' ');
 
-  // 9. Clean excessive blank lines
+  // 11. Clean excessive blank lines
   cleaned = cleaned.replace(/\n{3,}/g, '\n\n');
 
   return cleaned.trim();

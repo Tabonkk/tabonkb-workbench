@@ -7,14 +7,15 @@ const DEFAULT_PORT = 28123;
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'getCookies') {
     const domain = request.domain || 'unisoc.com';
-    chrome.cookies.getAll({ domain }, (cookies) => {
-      if (chrome.runtime.lastError) {
-        sendResponse({ success: false, error: chrome.runtime.lastError.message });
-        return;
-      }
-      
+    const query = request.url ? { url: request.url } : { domain };
+
+    const handleCookies = (cookies) => {
       let token = '';
       let cookieParts = [];
+      let xuserid = '';
+      let xtoken = '';
+      let sessionToken = '';
+
       for (const c of (cookies || [])) {
         cookieParts.push(`${c.name}=${c.value}`);
         if (c.name === 'unisupport-cutomer-token' || c.name === 'token' || c.name.toLowerCase().includes('token')) {
@@ -22,14 +23,37 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             token = c.value;
           }
         }
+        if (c.name === 'xuserid') xuserid = c.value;
+        if (c.name === 'xtoken') xtoken = c.value;
+        if (c.name.includes('session-token') || c.name === 'sessionToken') sessionToken = c.value;
       }
-      
+
+      const cookieStr = cookieParts.join('; ');
+      // For NiceAIGC, token should be the comprehensive cookie string
+      if (domain.includes('nice188') || domain.includes('niceaigc') || xuserid || xtoken) {
+        token = cookieStr;
+      }
+
       sendResponse({
         success: true,
         token: token,
-        cookieStr: cookieParts.join('; '),
-        cookies: cookies || []
+        cookieStr: cookieStr,
+        cookies: cookies || [],
+        meta: { xuserid, xtoken, sessionToken }
       });
+    };
+
+    chrome.cookies.getAll(query, (cookies) => {
+      if (chrome.runtime.lastError || !cookies || cookies.length === 0) {
+        // Fallback: try querying by domain if url query yielded empty
+        if (request.url && domain) {
+          chrome.cookies.getAll({ domain }, (fallbackCookies) => {
+            handleCookies(fallbackCookies || []);
+          });
+          return;
+        }
+      }
+      handleCookies(cookies || []);
     });
     return true; // Keep channel open for async response
   }
@@ -48,6 +72,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         provider: request.provider || 'unisoc',
         token: request.token || '',
         cookie: request.cookie || '',
+        url: request.url || '',
         username: request.username || '',
         timestamp: Date.now()
       })

@@ -20,13 +20,31 @@ const CODEGRAPH_MCP_SERVERS = [
     name: 'codegraph-driver',
     label: 'A17 项目私有驱动 (T610 / T615 / T8200)',
     path: '/dfb/tankaikun/share/A17/sprd/01/pri_project/driver'
+  },
+  {
+    name: 'codegraph-mtk-kernel',
+    label: '联发科内核 (vendor_w/kernel，含 kernel-6.12 与 kernel_device_modules-6.12)',
+    path: '/dfb/tankaikun/share/W/03-mtk-ww/vendor_w/kernel'
+  },
+  {
+    name: 'codegraph-mtk-driver',
+    label: '联发科项目私有驱动 (mt6789 / mt6855 / mt6858)',
+    path: '/dfb/tankaikun/share/W/03-mtk-ww/pri_project/driver'
+  },
+  {
+    name: 'codegraph-mtk-bootloader',
+    label: '联发科 bootloader (lk / lk2 / preloader)',
+    path: '/dfb/tankaikun/share/W/03-mtk-ww/vendor_w/vendor/mediatek/proprietary/bootable'
   }
 ];
 
-const CODEGRAPH_MCP_TOOL_HINT = '\n\n[系统指令] 你已接入 A17 展锐本机代码图 CodeGraph，查已建图源码的符号定义和调用链时优先用它。\n' +
-  '1. MCP server codegraph-kernel 的 codegraph_explore：内核 ~/share/A17/sprd/01/kernel-6.18/kernel6.18。充电、LPM、CP DVFS、sprd_charger、unisoc/drivers 走这里。\n' +
-  '2. MCP server codegraph-driver 的 codegraph_explore：项目私有驱动 ~/share/A17/sprd/01/pri_project/driver（T610/T615/T8200）。\n' +
-  'OpenGrok 仍负责全库文本搜索。CodeGraph 只覆盖上面两棵已索引的树。用符号名、路径或短问题查询，例如 sprd_charger、drivers/power/supply。';
+const CODEGRAPH_MCP_TOOL_HINT = '\n\n[系统指令] 你已接入 62 上的 CodeGraph，查已建图源码的符号定义和调用链时优先用对应树上的 codegraph_explore。\n' +
+  '1. codegraph-kernel：展锐 A17 内核 ~/share/A17/sprd/01/kernel-6.18/kernel6.18。充电、LPM、CP DVFS、sprd_charger 走这里。\n' +
+  '2. codegraph-driver：展锐 A17 私有驱动 ~/share/A17/sprd/01/pri_project/driver（T610/T615/T8200）。\n' +
+  '3. codegraph-mtk-kernel：联发科内核 ~/share/W/03-mtk-ww/vendor_w/kernel（含 kernel-6.12 与 kernel_device_modules-6.12）。\n' +
+  '4. codegraph-mtk-driver：联发科私有驱动 ~/share/W/03-mtk-ww/pri_project/driver（mt6789/mt6855/mt6858）。\n' +
+  '5. codegraph-mtk-bootloader：联发科 bootloader ~/share/W/03-mtk-ww/vendor_w/vendor/mediatek/proprietary/bootable（lk、lk2、preloader）。\n' +
+  'OpenGrok 仍负责全库文本搜索。用符号名、路径或短问题查询。';
 
 function codegraphSshExe() {
   const full = 'C:\\Windows\\System32\\OpenSSH\\ssh.exe';

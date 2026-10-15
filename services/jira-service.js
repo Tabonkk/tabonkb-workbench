@@ -38,6 +38,70 @@ function safeBase64(str) {
   }
 }
 
+/* ==========================================================================
+   Standalone config helpers (Pi extension / stdio MCP 无 Obsidian app 上下文)
+   凭证优先级: 环境变量 > .secrets.json > data.json
+   ========================================================================== */
+function jiraReadJsonSafe(fp) {
+  try {
+    const fs = require('fs');
+    return JSON.parse(fs.readFileSync(fp, 'utf8'));
+  } catch (e) {
+    return null;
+  }
+}
+
+function jiraResolvePluginDir() {
+  const path = require('path');
+  const fs = require('fs');
+  const cands = [
+    path.resolve(__dirname, '..'),
+    path.resolve(process.cwd(), '.obsidian', 'plugins', 'tabonkb-workbench'),
+    'd:/work/Mgmt/TabonKB/.obsidian/plugins/tabonkb-workbench'
+  ];
+  for (const c of cands) {
+    if (fs.existsSync(path.join(c, 'data.json'))) return c;
+  }
+  return cands[0];
+}
+
+function jiraReadSecret(secretName) {
+  if (!secretName) return '';
+  const path = require('path');
+  const cands = [
+    path.join(jiraResolvePluginDir(), '.secrets.json'),
+    path.resolve(process.cwd(), '.obsidian', 'plugins', 'tabonkb-workbench', '.secrets.json'),
+    'd:/work/Mgmt/TabonKB/.obsidian/plugins/tabonkb-workbench/.secrets.json'
+  ];
+  for (const f of cands) {
+    const data = jiraReadJsonSafe(f);
+    if (data && data[secretName]) return String(data[secretName]).trim();
+  }
+  return '';
+}
+
+/**
+ * Load Jira config without Obsidian context: env > data.json.
+ * @param {object} [override]
+ * @returns {JiraConfig}
+ */
+function jiraLoadConfig(override) {
+  override = override || {};
+  const path = require('path');
+  const data = jiraReadJsonSafe(path.join(jiraResolvePluginDir(), 'data.json')) || {};
+  const j = (data && data.jira) || {};
+  return {
+    type: (override.type || process.env.JIRA_TYPE || j.type || 'datacenter').trim(),
+    baseUrl: (override.baseUrl || process.env.JIRA_BASE_URL || j.baseUrl || '').trim().replace(/\/+$/, ''),
+    email: (override.email || process.env.JIRA_EMAIL || j.email || '').trim(),
+    username: (override.username || process.env.JIRA_USERNAME || j.username || j.email || '').trim(),
+    authType: (override.authType || process.env.JIRA_AUTH_TYPE || j.authType || 'basic').trim(),
+    secretName: (override.secretName || process.env.JIRA_SECRET_NAME || j.secretName || 'tabonkb-jira-token').trim(),
+    jql: override.jql || process.env.JIRA_JQL || j.jql || DEFAULT_JIRA_JQL,
+    refreshIntervalMinutes: j.refreshIntervalMinutes || 5
+  };
+}
+
 class JiraService {
   /**
    * @param {Object} options
@@ -45,8 +109,10 @@ class JiraService {
    * @param {() => JiraConfig} options.getConfig - Getter for JiraConfig
    */
   constructor(options) {
+    options = options || {};
     this.app = options.app;
-    this.getConfig = options.getConfig;
+    this.vaultBasePath = options.vaultBasePath || '';
+    this.getConfig = options.getConfig || (() => jiraLoadConfig());
 
     // In-memory cache: { issues: DashboardIssue[], lastUpdated: number, isStale: boolean }
     this._cache = null;
@@ -160,14 +226,24 @@ class JiraService {
     try {
       const fs = require('fs');
       const path = require('path');
-      const vaultPath = this.app?.vault?.adapter?.basePath || (process.cwd ? process.cwd() : '');
-      if (vaultPath) {
-        const secFile = path.join(vaultPath, '.obsidian', 'plugins', 'tabonkb-workbench', '.secrets.json');
+      const vaultPath = this.app?.vault?.adapter?.basePath || this.vaultBasePath || (process.cwd ? process.cwd() : '');
+      const secCands = [
+        vaultPath ? path.join(vaultPath, '.obsidian', 'plugins', 'tabonkb-workbench', '.secrets.json') : '',
+        path.join(jiraResolvePluginDir(), '.secrets.json'),
+        path.resolve(process.cwd(), '.obsidian', 'plugins', 'tabonkb-workbench', '.secrets.json')
+      ].filter(Boolean);
+      for (const secFile of secCands) {
         if (fs.existsSync(secFile)) {
           const data = JSON.parse(fs.readFileSync(secFile, 'utf8'));
           if (data && data[secretKey]) return data[secretKey];
         }
       }
+    } catch (e) {}
+
+    // 3.5 Env fallback (MCP/extension subprocess with injected env)
+    try {
+      const envTok = process.env.JIRA_TOKEN || process.env.JIRA_PASSWORD || '';
+      if (envTok.trim()) return envTok.trim();
     } catch (e) {}
 
     // 4. Try Obsidian SecretStorage (if supported)
@@ -815,30 +891,63 @@ class JiraService {
       }
     }
 
-    const payload = {
-      transition: { id: String(transitionId) }
-    };
-    if (customFields && typeof customFields === 'object' && Object.keys(customFields).length > 0) {
-      payload.fields = customFields;
-    }
-    if (commentText && typeof commentText === 'string' && commentText.trim()) {
-      payload.update = {
-        comment: [
-          {
-            add: {
-              body: commentText.trim()
+    const buildPayload = (fieldsObj) => {
+      const p = { transition: { id: String(transitionId) } };
+      if (fieldsObj && typeof fieldsObj === 'object' && Object.keys(fieldsObj).length > 0) {
+        p.fields = fieldsObj;
+      }
+      if (commentText && typeof commentText === 'string' && commentText.trim()) {
+        p.update = {
+          comment: [
+            {
+              add: {
+                body: commentText.trim()
+              }
             }
-          }
-        ]
-      };
-    }
+          ]
+        };
+      }
+      return p;
+    };
 
-    const res = await this._executeRequest({
+    const parseErrJson = (r) => {
+      let j = r.json;
+      if (!j && r.text && typeof r.text === 'string' && r.text.trim().length > 0) {
+        try { j = JSON.parse(r.text); } catch (_) { j = null; }
+      }
+      return j || null;
+    };
+
+    let res = await this._executeRequest({
       url,
       method: 'POST',
       headers,
-      body: JSON.stringify(payload)
+      body: JSON.stringify(buildPayload(customFields))
     });
+
+    // Jira rejects fields absent from the transition screen (e.g. resolution
+    // auto-set by a workflow post-function). Strip reported fields and retry once.
+    if (![200, 201, 204].includes(res.status) && customFields && Object.keys(customFields).length > 0) {
+      const errJson = parseErrJson(res);
+      const unsettable = [];
+      if (errJson && errJson.errors && typeof errJson.errors === 'object') {
+        for (const [k, v] of Object.entries(errJson.errors)) {
+          if (typeof v === 'string' && /cannot be set|not on the appropriate screen|cannot be edited|unknown/i.test(v)) {
+            unsettable.push(k);
+          }
+        }
+      }
+      if (unsettable.length > 0 && unsettable.some(k => Object.prototype.hasOwnProperty.call(customFields, k))) {
+        const stripped = { ...customFields };
+        for (const k of unsettable) delete stripped[k];
+        res = await this._executeRequest({
+          url,
+          method: 'POST',
+          headers,
+          body: JSON.stringify(buildPayload(Object.keys(stripped).length ? stripped : null))
+        });
+      }
+    }
 
     if (res.status === 204 || res.status === 200 || res.status === 201) {
       // Transition succeeded! Update local cache immediately
@@ -854,10 +963,7 @@ class JiraService {
     }
 
     let detailMsg = '';
-    let errJson = res.json;
-    if (!errJson && res.text && typeof res.text === 'string' && res.text.trim().length > 0) {
-      try { errJson = JSON.parse(res.text); } catch (_) { errJson = null; }
-    }
+    const errJson = parseErrJson(res);
     const errObj = errJson;
 
     if (errJson) {
@@ -1310,6 +1416,457 @@ class JiraService {
       req.end();
     });
   }
+
+  /* ==========================================================================
+     Agent 工具面能力 (工单详情 / 附件下载 / JQL 检索) — 供 Pi 扩展与 MCP 复用
+     ========================================================================== */
+
+  /**
+   * Resolve config + token once for tool calls.
+   * @returns {Promise<{config: JiraConfig, token: string}>}
+   */
+  async _resolveAuth() {
+    const config = typeof this.getConfig === 'function' ? this.getConfig() : {};
+    if (!config || !config.baseUrl) throw new Error('Jira Base URL 未配置');
+    const secretKey = config.secretName || 'tabonkb-jira-token';
+    const token = await this.getCredential(secretKey);
+    if (!token) throw new Error('Jira Token 未配置');
+    return { config, token };
+  }
+
+  /**
+   * Build shared auth headers for a Jira API call.
+   * @private
+   */
+  _buildAuthHeaders(config, token, issueKey, extra) {
+    const cleanBase = (config.baseUrl || '').trim().replace(/\/+$/, '');
+    const headers = Object.assign({
+      'Accept': 'application/json',
+      'X-Atlassian-Token': 'no-check',
+      'X-Requested-With': 'XMLHttpRequest'
+    }, extra || {});
+    if (cleanBase) {
+      headers['Origin'] = cleanBase;
+      headers['Referer'] = `${cleanBase}/browse/${encodeURIComponent(issueKey || '')}`;
+    }
+    if (config.type === 'cloud') {
+      headers['Authorization'] = `Basic ${safeBase64((config.email || '') + ':' + token.trim())}`;
+    } else if (config.authType === 'cookie' || token.startsWith('JSESSIONID=')) {
+      headers['Cookie'] = token.includes('=') ? token.trim() : `JSESSIONID=${token.trim()}`;
+    } else {
+      const user = (config.username || config.email || '').trim();
+      headers['Authorization'] = (config.authType === 'basic' || user)
+        ? `Basic ${safeBase64(user + ':' + token.trim())}`
+        : `Bearer ${token.trim()}`;
+    }
+    return { headers, cleanBase, apiVersion: config.type === 'cloud' ? '3' : '2' };
+  }
+
+  /**
+   * Vault base path. 优先级: Obsidian adapter > 插件目录推导 (<vault>/.obsidian/plugins/…) > cwd(若是 vault) > 显式 override。
+   * MCP server / Pi extension 场景下 cwd 可能是插件目录或任意路径，插件安装位置才是可靠的 vault 锚点。
+   * @private
+   */
+  _vaultPath() {
+    const path = require('path');
+    const fs = require('fs');
+    const appBase = this.app?.vault?.adapter?.basePath;
+    if (appBase) return appBase;
+    try {
+      const vaultFromPlugin = path.resolve(jiraResolvePluginDir(), '..', '..', '..');
+      if (fs.existsSync(path.join(vaultFromPlugin, '.obsidian'))) return vaultFromPlugin;
+    } catch (e) {}
+    const cwd = process.cwd ? process.cwd() : '';
+    if (cwd && fs.existsSync(path.join(cwd, '.obsidian'))) return cwd;
+    return this.vaultBasePath || cwd;
+  }
+
+  /**
+   * Per-issue artifact workspace under 00-Inbox/03-Quick-Note/<KEY>/
+   * Logs go into attachments/, analysis products into the folder root.
+   * @param {string} issueKey
+   * @returns {{key: string, relDir: string, absDir: string, attachmentsDir: string}}
+   */
+  getIssueWorkspaceDir(issueKey) {
+    const fs = require('fs');
+    const path = require('path');
+    const vault = this._vaultPath();
+    const key = String(issueKey || 'UNKNOWN').trim().toUpperCase();
+    const absDir = path.join(vault, '00-Inbox', '03-Quick-Note', key);
+    const attachmentsDir = path.join(absDir, 'attachments');
+    try { fs.mkdirSync(attachmentsDir, { recursive: true }); } catch (e) {}
+    return {
+      key,
+      relDir: `00-Inbox/03-Quick-Note/${key}`,
+      absDir,
+      attachmentsDir,
+      relAttachmentsDir: `00-Inbox/03-Quick-Note/${key}/attachments`
+    };
+  }
+
+  /**
+   * Custom JQL search (agent tool) — reuses configured auth, overrides only the JQL.
+   * @param {string} jql
+   * @param {number} [maxResults=30]
+   * @returns {Promise<DashboardIssue[]>}
+   */
+  async searchIssuesByJql(jql, maxResults = 30) {
+    const { config, token } = await this._resolveAuth();
+    const cfg2 = Object.assign({}, config, { jql: (jql && jql.trim()) || config.jql || DEFAULT_JIRA_JQL });
+    const issues = (config.type === 'datacenter')
+      ? await this.searchDataCenterIssues(cfg2, token)
+      : await this.searchCloudIssues(cfg2, token);
+    return (issues || []).slice(0, Math.min(Math.max(1, maxResults | 0), 50));
+  }
+
+  /**
+   * Fetch full issue detail incl. attachments and comments (agent tool).
+   * @param {string} issueKey
+   * @returns {Promise<object>}
+   */
+  async getIssueDetail(issueKey) {
+    const { config, token } = await this._resolveAuth();
+    const { headers, cleanBase, apiVersion } = this._buildAuthHeaders(config, token, issueKey);
+    const fields = 'summary,status,priority,assignee,reporter,created,updated,description,components,labels,fixVersions,attachment,comment,resolution';
+    const url = `${cleanBase}/rest/api/${apiVersion}/issue/${encodeURIComponent(issueKey)}?fields=${encodeURIComponent(fields)}`;
+
+    const res = await this._executeRequest({ url, method: 'GET', headers });
+    if (res.status !== 200) {
+      let msg = `查询工单 ${issueKey} 失败 (HTTP ${res.status})`;
+      try {
+        const ej = res.json || (res.text ? JSON.parse(res.text) : null);
+        if (ej?.errorMessages?.length) msg += `: ${ej.errorMessages.join('; ')}`;
+      } catch (_) {}
+      throw new Error(msg);
+    }
+    let data = res.json;
+    if (!data && res.text) { try { data = JSON.parse(res.text); } catch (_) { data = {}; } }
+    data = data || {};
+    const f = data.fields || {};
+
+    const base = this.normalizeIssue(data, cleanBase) || {};
+    base.key = data.key || issueKey;
+    base.labels = Array.isArray(f.labels) ? f.labels : [];
+    base.fixVersions = Array.isArray(f.fixVersions) ? f.fixVersions.map(v => v.name || v) : [];
+    base.resolution = f.resolution?.name || '';
+
+    base.attachments = (Array.isArray(f.attachment) ? f.attachment : []).map(a => ({
+      id: String(a.id || ''),
+      filename: a.filename || `attachment-${a.id}`,
+      size: a.size || 0,
+      mimeType: a.mimeType || '',
+      url: a.content || '',
+      created: a.created || '',
+      author: a.author?.displayName || a.author?.name || ''
+    }));
+
+    const rawComments = f.comment && Array.isArray(f.comment.comments) ? f.comment.comments : [];
+    base.comments = rawComments.slice(-12).map(c => ({
+      id: String(c.id || ''),
+      author: c.author?.displayName || c.author?.name || '未知',
+      created: c.created || '',
+      body: this.parseCommentBody(c.body)
+    }));
+    base.commentCount = rawComments.length;
+
+    return base;
+  }
+
+  /**
+   * List only the attachments of an issue.
+   * @param {string} issueKey
+   */
+  async listIssueAttachments(issueKey) {
+    const detail = await this.getIssueDetail(issueKey);
+    return detail.attachments || [];
+  }
+
+  /**
+   * Download an issue attachment (log/screenshot/dump) into
+   * 00-Inbox/03-Quick-Note/<KEY>/attachments/ and return the saved path.
+   * @param {string} issueKey
+   * @param {string} attachmentRef - attachment id, exact filename, or filename substring
+   * @returns {Promise<{savedRelPath: string, savedAbsPath: string, filename: string, bytes: number}>}
+   */
+  async downloadAttachment(issueKey, attachmentRef) {
+    if (!attachmentRef) throw new Error('缺少附件标识 (attachment_id 或 filename)');
+    const { config, token } = await this._resolveAuth();
+    const { headers, cleanBase } = this._buildAuthHeaders(config, token, issueKey);
+
+    let target = null;
+    const refStr = String(attachmentRef).trim();
+    if (/^https?:\/\//i.test(refStr)) {
+      target = { id: '', filename: refStr.split('/').pop().split('?')[0] || 'attachment.bin', url: refStr };
+    } else {
+      const detail = await this.getIssueDetail(issueKey);
+      const atts = detail.attachments || [];
+      target = atts.find(a => a.id === refStr)
+        || atts.find(a => a.filename === refStr)
+        || atts.find(a => a.filename.toLowerCase().includes(refStr.toLowerCase()));
+      if (!target) {
+        const names = atts.map(a => a.filename).join(', ') || '（无附件）';
+        throw new Error(`工单 ${issueKey} 未找到附件 "${refStr}"。现有附件: ${names}`);
+      }
+    }
+
+    if (!target.url) throw new Error(`附件 "${target.filename}" 缺少下载 URL`);
+    if (!this.validateOrigin(target.url, cleanBase)) {
+      throw new Error('附件 URL 与 Jira Base URL Origin 不一致，已阻止下载以保证凭据安全');
+    }
+
+    const buf = await this._downloadBinary(target.url, headers, cleanBase);
+
+    const ws = this.getIssueWorkspaceDir(issueKey);
+    const fs = require('fs');
+    const path = require('path');
+    let safeName = String(target.filename || 'attachment.bin')
+      .replace(/[\\/:*?"<>|#^\[\]!]/g, '_')
+      .replace(/\s+/g, '_')
+      .trim() || 'attachment.bin';
+    let destAbs = path.join(ws.attachmentsDir, safeName);
+    let n = 1;
+    while (fs.existsSync(destAbs)) {
+      const dot = safeName.lastIndexOf('.');
+      const stem = dot > 0 ? safeName.slice(0, dot) : safeName;
+      const ext = dot > 0 ? safeName.slice(dot) : '';
+      destAbs = path.join(ws.attachmentsDir, `${stem}-${++n}${ext}`);
+      safeName = `${stem}-${n}${ext}`;
+    }
+    fs.writeFileSync(destAbs, buf);
+
+    return {
+      filename: safeName,
+      bytes: buf.length,
+      savedAbsPath: destAbs,
+      savedRelPath: `${ws.relAttachmentsDir}/${safeName}`,
+      issueDir: ws.relDir
+    };
+  }
+
+  /**
+   * Binary GET with auth headers; follows same-origin redirects.
+   * Prefers Obsidian requestUrl (arrayBuffer) then Node https/http.
+   * @private
+   */
+  async _downloadBinary(url, headers, baseUrl, redirectsLeft = 3) {
+    if (typeof requestUrl === 'function') {
+      const res = await requestUrl({ url, method: 'GET', headers, throw: false });
+      if (res.status >= 300 && res.status < 400 && res.headers?.location && redirectsLeft > 0) {
+        const loc = new URL(res.headers.location, url).toString();
+        const nextHeaders = this.validateOrigin(loc, baseUrl) ? headers : Object.assign({}, headers, { Authorization: undefined, Cookie: undefined });
+        return this._downloadBinary(loc, nextHeaders, baseUrl, redirectsLeft - 1);
+      }
+      if (res.status !== 200) throw new Error(`附件下载失败 (HTTP ${res.status})`);
+      return Buffer.from(res.arrayBuffer);
+    }
+    const mod = url.startsWith('https') ? require('https') : require('http');
+    return new Promise((resolve, reject) => {
+      const req = mod.request(url, { method: 'GET', headers }, (res) => {
+        const loc = res.headers.location;
+        if (res.statusCode >= 300 && res.statusCode < 400 && loc && redirectsLeft > 0) {
+          res.resume();
+          const nextUrl = new URL(loc, url).toString();
+          const nextHeaders = this.validateOrigin(nextUrl, baseUrl) ? headers : Object.assign({}, headers, { Authorization: undefined, Cookie: undefined });
+          this._downloadBinary(nextUrl, nextHeaders, baseUrl, redirectsLeft - 1).then(resolve, reject);
+          return;
+        }
+        if (res.statusCode !== 200) {
+          res.resume();
+          reject(new Error(`附件下载失败 (HTTP ${res.statusCode})`));
+          return;
+        }
+        const chunks = [];
+        res.on('data', (c) => chunks.push(c));
+        res.on('end', () => resolve(Buffer.concat(chunks)));
+      });
+      req.on('error', reject);
+      req.end();
+    });
+  }
+}
+
+/* ==========================================================================
+   Jira Agent 工具契约 (MCP inputSchema / Pi extension parameters 共用一份描述)
+   ========================================================================== */
+const JIRA_TOOLS = [
+  {
+    name: 'jira_search_issues',
+    description: '在公司 Jira 系统中检索缺陷/任务工单。query 支持：工单号直达（如 SPE123-199）、关键词模糊检索（自动包装 text ~ "kw"）、或直接传完整 JQL 表达式（含 = / ~ / AND 等操作符时按 JQL 解析）。返回工单号/标题/状态/经办人/优先级清单。只读工具。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: '工单号 (如 SPE123-199)、关键词 (如 "快充 不工作") 或完整 JQL' },
+        limit: { type: 'number', description: '最大返回数量，默认 20，最多 50' }
+      }
+    }
+  },
+  {
+    name: 'jira_get_issue',
+    description: '查阅指定 Jira 工单完整详情：标题、状态、经办人/报告人、优先级、模块组件、标签、修复版本、解决结果、完整描述、最近 12 条注释、附件清单，以及该工单在知识库的专属工作目录 (00-Inbox/03-Quick-Note/<KEY>/)。只读工具。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        issue_key: { type: 'string', description: 'Jira 工单号 (如 SPE123-199)' }
+      },
+      required: ['issue_key']
+    }
+  },
+  {
+    name: 'jira_get_comments',
+    description: '查阅指定 Jira 工单的全部历史注释/讨论记录（含作者与时间）。只读工具。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        issue_key: { type: 'string', description: 'Jira 工单号' }
+      },
+      required: ['issue_key']
+    }
+  },
+  {
+    name: 'jira_list_attachments',
+    description: '列出指定 Jira 工单挂载的全部附件（文件名/大小/类型/上传人），用于定位 log 日志、截图、抓包文件。只读工具。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        issue_key: { type: 'string', description: 'Jira 工单号' }
+      },
+      required: ['issue_key']
+    }
+  },
+  {
+    name: 'jira_download_attachment',
+    description: '下载指定 Jira 工单的附件（log/截图/抓包/复现视频等）到知识库目录 00-Inbox/03-Quick-Note/<KEY>/attachments/ 下，返回本地绝对路径；下载后用 read/grep 等工具对日志进行分析。attachment 参数支持附件 id、完整文件名或文件名片段。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        issue_key: { type: 'string', description: 'Jira 工单号' },
+        attachment: { type: 'string', description: '附件 id、完整文件名或文件名片段（如 "logcat" / "main.log" / "12893"）' }
+      },
+      required: ['issue_key', 'attachment']
+    }
+  }
+];
+
+function _jiraFmtIssueList(issues, jql) {
+  if (!issues || issues.length === 0) return `未检索到匹配的 Jira 工单 (JQL: ${jql || '默认'})`;
+  const lines = [`### Jira 工单清单 (共 ${issues.length} 条):`, ''];
+  issues.forEach((i, idx) => {
+    lines.push(`${idx + 1}. **\`${i.key}\`** [${i.status} · ${i.priority}] ${i.summary}`);
+    lines.push(`   经办人: ${i.assignee} | 报告人: ${i.reporter} | 更新: ${i.updated || '未知'} | ${i.url}`);
+  });
+  return lines.join('\n');
+}
+
+function _jiraFmtIssueDetail(d, ws) {
+  const lines = [
+    `### 🎫 Jira 工单 ${d.key}`,
+    '',
+    `- **标题**: ${d.summary}`,
+    `- **状态**: ${d.status}${d.resolution ? ` (解决结果: ${d.resolution})` : ''} | **优先级**: ${d.priority}`,
+    `- **经办人**: ${d.assignee} | **报告人**: ${d.reporter}`,
+    `- **创建**: ${d.created || d.rawCreated || '未知'} | **更新**: ${d.updated || d.rawUpdated || '未知'}`,
+    `- **模块组件**: ${(d.components || []).join(', ') || '无'} | **标签**: ${(d.labels || []).join(', ') || '无'}${d.fixVersions?.length ? ` | **修复版本**: ${d.fixVersions.join(', ')}` : ''}`,
+    `- **链接**: ${d.url}`,
+    `- **工作目录**: ${ws.relDir}/ （附件下载到 attachments/ 子目录，分析报告请写入该目录根级）`,
+    '',
+    '#### 描述',
+    d.description && d.description.trim() ? d.description.trim() : '*(无描述)*',
+    ''
+  ];
+  lines.push(`#### 附件 (共 ${d.attachments.length} 个)`);
+  if (d.attachments.length === 0) {
+    lines.push('*(无附件)*');
+  } else {
+    d.attachments.forEach(a => {
+      const kb = a.size > 1024 * 1024 ? `${(a.size / 1048576).toFixed(1)}MB` : `${Math.ceil(a.size / 1024)}KB`;
+      lines.push(`- \`${a.id}\` **${a.filename}** (${kb}${a.mimeType ? ', ' + a.mimeType : ''}) — 上传人: ${a.author || '未知'}`);
+    });
+    lines.push('> 下载附件: jira_download_attachment(issue_key, attachment="文件名或id")');
+  }
+  lines.push('', `#### 最近注释 (共 ${d.commentCount} 条, 显示最近 ${Math.min(d.comments.length, 12)} 条)`);
+  if (d.comments.length === 0) {
+    lines.push('*(无注释)*');
+  } else {
+    d.comments.forEach(c => {
+      lines.push(`- **${c.author}** (${(c.created || '').slice(0, 16).replace('T', ' ')}):`);
+      lines.push(`  ${(c.body || '').split('\n').join('\n  ')}`);
+    });
+  }
+  return lines.join('\n');
+}
+
+function _jiraFmtAttachments(atts, issueKey) {
+  if (!atts || atts.length === 0) return `工单 ${issueKey} 无附件。`;
+  const lines = [`### 工单 ${issueKey} 附件清单 (共 ${atts.length} 个):`, ''];
+  atts.forEach((a, idx) => {
+    const kb = a.size > 1024 * 1024 ? `${(a.size / 1048576).toFixed(1)}MB` : `${Math.ceil(a.size / 1024)}KB`;
+    lines.push(`${idx + 1}. **${a.filename}** — id=\`${a.id}\`, ${kb}${a.mimeType ? ', ' + a.mimeType : ''}, 上传人: ${a.author || '未知'}, ${(a.created || '').slice(0, 10)}`);
+  });
+  return lines.join('\n');
+}
+
+async function runJiraTool(name, args, service) {
+  args = args || {};
+  const svc = service || new JiraService();
+
+  switch (name) {
+    case 'jira_search_issues': {
+      const q = String(args.query || args.q || '').trim();
+      const limit = args.limit || 20;
+      let jql;
+      if (!q) {
+        jql = undefined; // use configured default
+      } else if (/^[A-Za-z][A-Za-z0-9_]+-\d+$/.test(q)) {
+        jql = `key = ${q.toUpperCase()}`;
+      } else if (/[=~]|\bAND\b|\bOR\b|\bORDER BY\b/i.test(q)) {
+        jql = q; // already a JQL expression
+      } else {
+        jql = `text ~ "${q.replace(/"/g, '\\"')}" ORDER BY updated DESC`;
+      }
+      const issues = await svc.searchIssuesByJql(jql, limit);
+      return _jiraFmtIssueList(issues, jql);
+    }
+    case 'jira_get_issue': {
+      const key = String(args.issue_key || args.key || '').trim().toUpperCase();
+      if (!key) throw new Error('缺少 issue_key 参数');
+      const d = await svc.getIssueDetail(key);
+      const ws = svc.getIssueWorkspaceDir(key);
+      return _jiraFmtIssueDetail(d, ws);
+    }
+    case 'jira_get_comments': {
+      const key = String(args.issue_key || args.key || '').trim().toUpperCase();
+      if (!key) throw new Error('缺少 issue_key 参数');
+      const comments = await svc.getIssueComments(key);
+      if (!comments || comments.length === 0) return `工单 ${key} 无注释记录。`;
+      const lines = [`### 工单 ${key} 注释 (共 ${comments.length} 条):`, ''];
+      comments.forEach(c => {
+        lines.push(`- **${c.author}** (${c.createdFormatted || c.created})${c.isEdited ? ' *(已编辑)*' : ''}:`);
+        lines.push(`  ${(c.body || '').split('\n').join('\n  ')}`);
+      });
+      return lines.join('\n');
+    }
+    case 'jira_list_attachments': {
+      const key = String(args.issue_key || args.key || '').trim().toUpperCase();
+      if (!key) throw new Error('缺少 issue_key 参数');
+      const atts = await svc.listIssueAttachments(key);
+      return _jiraFmtAttachments(atts, key);
+    }
+    case 'jira_download_attachment': {
+      const key = String(args.issue_key || args.key || '').trim().toUpperCase();
+      if (!key) throw new Error('缺少 issue_key 参数');
+      const ref = args.attachment || args.attachment_id || args.filename;
+      const r = await svc.downloadAttachment(key, ref);
+      const ws = svc.getIssueWorkspaceDir(key);
+      return [
+        `✓ 附件已下载: **${r.filename}** (${(r.bytes / 1024).toFixed(1)} KB)`,
+        `- 本地绝对路径: \`${r.savedAbsPath}\``,
+        `- 知识库相对路径: \`${r.savedRelPath}\``,
+        `- 工单工作目录: \`${ws.relDir}/\`（分析结论/报告请写入此目录根级，日志文件保持在 attachments/ 内）`
+      ].join('\n');
+    }
+    default:
+      throw new Error(`未知的 Jira 工具: ${name}`);
+  }
 }
 
 /**
@@ -1321,7 +1878,7 @@ function formatRelativeTime(date) {
   const diffSec = Math.floor((Date.now() - date.getTime()) / 1000);
   if (diffSec < 60) return '刚刚';
   if (diffSec < 3600) return `${Math.floor(diffSec / 60)} 分钟前`;
-  if (diffSec < 86400) return `${Math.floor(diffSec / 3600)} Сʱǰ`;
+  if (diffSec < 86400) return `${Math.floor(diffSec / 3600)} 小时前`;
   if (diffSec < 86400 * 3) return `${Math.floor(diffSec / 86400)} 天前`;
   return `${date.getMonth() + 1}月${date.getDate()}日`;
 }
@@ -1340,6 +1897,11 @@ function sanitizeErrorMessage(msg) {
 
 module.exports = {
   JiraService,
+  JIRA_TOOLS,
+  runJiraTool,
+  jiraLoadConfig,
+  jiraReadSecret,
+  jiraResolvePluginDir,
   DEFAULT_JIRA_JQL,
   formatRelativeTime,
   sanitizeErrorMessage,

@@ -26,8 +26,11 @@ class PiAgentBridge {
     this.currentTurnHasText = false;
     this.lastTurnError = null;
     this._inInlineThink = false;
+    this._thinkParserBuffer = '';
+    this._sessionFileSynced = false;
     this.activeProvider = (typeof localStorage !== 'undefined' && localStorage.getItem('tabonkb-pi-active-provider')) || 'cc-switch-deep-seek';
     this.activeModelId = (typeof localStorage !== 'undefined' && localStorage.getItem('tabonkb-pi-active-model')) || 'deepseek-v4-flash';
+    this.activeReasoningEffort = (typeof localStorage !== 'undefined' && localStorage.getItem('tabonkb-pi-reasoning-effort')) || 'max';
 
     this.permissionMode = options.permissionMode || 'readwrite';
     try {
@@ -78,8 +81,16 @@ class PiAgentBridge {
   }
 
   off(event, fn) {
-    if (this.listeners.has(event)) {
-      this.listeners.delete(event);
+    const handlers = this.listeners.get(event);
+    if (handlers) {
+      if (fn) {
+        handlers.delete(fn);
+        if (handlers.size === 0) {
+          this.listeners.delete(event);
+        }
+      } else {
+        this.listeners.delete(event);
+      }
     }
   }
 
@@ -134,7 +145,7 @@ class PiAgentBridge {
   // 返回所有可用的 Pi 原生扩展路径 (vendor-portal + weknora-portal + opengrok-portal + gerrit-portal + codegraph-portal)
   // 优先级: .pi/extensions > plugin/extensions; 供 --extension 多次传入
   getExtensionPaths() {
-    const names = ['vendor-portal.ts', 'weknora-portal.ts', 'opengrok-portal.ts', 'gerrit-portal.ts', 'codegraph-portal.ts'];
+    const names = ['vendor-portal.ts', 'weknora-portal.ts', 'opengrok-portal.ts', 'gerrit-portal.ts', 'jira-portal.ts', 'codegraph-portal.ts', 'drawio-portal.ts', 'local-project-portal.ts'];
     const result = [];
     for (const name of names) {
       const candidates = [
@@ -163,8 +174,11 @@ class PiAgentBridge {
     const weknoraTools = ',weknora_list_knowledge_bases,weknora_search,weknora_ask,weknora_list_documents,weknora_read_document,weknora_add_document,weknora_update_document,weknora_delete_document';
     const opengrokTools = ',opengrok_list_projects,opengrok_search_code,opengrok_read_file';
     const gerritTools = ',gerrit_search_changes,gerrit_get_change,gerrit_get_diff,gerrit_get_comments,gerrit_list_projects';
+    const jiraTools = ',jira_search_issues,jira_get_issue,jira_get_comments,jira_list_attachments,jira_download_attachment';
     const codegraphTools = ',codegraph_explore';
-    const tools = `${baseTools},vendor_portal_search,vendor_portal_get_detail${weknoraTools}${opengrokTools}${gerritTools}${codegraphTools}`;
+    const drawioTools = ',drawio_create,drawio_load,drawio_get,drawio_edit,drawio_export,drawio_list_pages,drawio_add_page,drawio_rename_page,drawio_delete_page';
+    const localProjectTools = ',project_read_file,project_edit_file,project_compile';
+    const tools = `${baseTools},vendor_portal_search,vendor_portal_get_detail${weknoraTools}${opengrokTools}${gerritTools}${jiraTools}${codegraphTools}${drawioTools}${localProjectTools}`;
 
     const extPaths = this.getExtensionPaths();
     const extArgs = [];
@@ -173,6 +187,11 @@ class PiAgentBridge {
       '--provider', this.activeProvider || 'cc-switch-deep-seek',
       '--model', this.activeModelId || 'deepseek-v4-flash'
     ];
+    if (this.activeReasoningEffort) {
+      modelArgs.push('--thinking', this.activeReasoningEffort);
+    }
+    const resumeFile = this._getSavedSessionFile();
+    const sessionArgs = resumeFile ? ['--session', resumeFile] : [];
 
     const defaultNodeDir = this.nodeDir || path.join(
       process.env.APPDATA || 'C:\\Users\\Administrator\\AppData\\Roaming',
@@ -193,6 +212,7 @@ class PiAgentBridge {
           '--mode', 'rpc',
           '--tools', tools,
           ...modelArgs,
+          ...sessionArgs,
           ...extArgs
         ],
         nodeDir: defaultNodeDir
@@ -208,6 +228,7 @@ class PiAgentBridge {
           '--mode', 'rpc',
           '--tools', tools,
           ...modelArgs,
+          ...sessionArgs,
           ...extArgs
         ],
         nodeDir: defaultNodeDir
@@ -222,10 +243,126 @@ class PiAgentBridge {
         '--mode', 'rpc',
         '--tools', tools,
         ...modelArgs,
+        ...sessionArgs,
         ...extArgs
       ],
       nodeDir: defaultNodeDir
     };
+  }
+
+  _vaultSessionKey() {
+    return String(this.vaultBasePath || '').replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+  }
+
+  _getSessionFileMap() {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        const raw = localStorage.getItem('tabonkb-pi-session-files');
+        const map = raw ? JSON.parse(raw) : {};
+        return (map && typeof map === 'object') ? map : {};
+      }
+    } catch (e) {}
+    return {};
+  }
+
+  _getSavedSessionFile() {
+    const file = this._getSessionFileMap()[this._vaultSessionKey()];
+    if (!file || !fs.existsSync(file)) return null;
+    try {
+      const firstLine = String(fs.readFileSync(file, 'utf-8')).split('\n', 1)[0];
+      const header = JSON.parse(firstLine);
+      const fileCwd = String(header.cwd || '').replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+      if (fileCwd && fileCwd === this._vaultSessionKey()) return file;
+    } catch (e) {}
+    return null;
+  }
+
+  _saveSessionFile(file) {
+    if (!file || typeof localStorage === 'undefined') return;
+    try {
+      const key = this._vaultSessionKey();
+      const map = this._getSessionFileMap();
+      if (map[key] === file) return;
+      map[key] = file;
+      localStorage.setItem('tabonkb-pi-session-files', JSON.stringify(map));
+    } catch (e) {}
+  }
+
+  async _syncSessionFile() {
+    if (!this.process || this.process.killed) return;
+    try {
+      const res = await this.sendCommand({ type: 'get_state' });
+      const data = (res && res.data) || {};
+      if (data.sessionFile) this._saveSessionFile(data.sessionFile);
+      // fork / 会话恢复后 pi 活跃模型会回退到分支内最后一条 model_change——
+      // 以用户当前选择的模型为准重新声明，不做任何自动切换模型的尝试
+      const cur = data.model || {};
+      if (this.activeModelId && cur.id && cur.id !== this.activeModelId) {
+        try {
+          await this.sendCommand({ type: 'set_model', provider: this.activeProvider, modelId: this.activeModelId });
+          if (this.activeReasoningEffort) {
+            try { await this.sendCommand({ type: 'set_thinking_level', level: this.activeReasoningEffort }); } catch (_) {}
+          }
+        } catch (e) {
+          console.warn('[PiAgentBridge] re-assert selected model failed:', e);
+        }
+      }
+    } catch (e) {}
+  }
+
+  /**
+   * 净化会话文件：剥离 assistant 消息中 thinking 块的 thinkingSignature。
+   * 上游对过期加密推理内容报 invalid_encrypted_content(400)，剥离后重放恢复。
+   * 写回前留 .bak 备份。返回剥离的签名数。
+   */
+  _stripSessionSignatures(file) {
+    try {
+      const raw = fs.readFileSync(file, 'utf8');
+      let stripped = 0;
+      const out = raw.split('\n').map((line) => {
+        if (!line.trim()) return line;
+        try {
+          const entry = JSON.parse(line);
+          const msg = entry && entry.message;
+          if (msg && Array.isArray(msg.content)) {
+            for (const part of msg.content) {
+              if (part && typeof part === 'object' && 'thinkingSignature' in part) {
+                delete part.thinkingSignature;
+                stripped++;
+              }
+            }
+          }
+          return JSON.stringify(entry);
+        } catch (e) { return line; }
+      });
+      if (stripped > 0) {
+        try { fs.writeFileSync(file + '.bak', raw); } catch (_) {}
+        fs.writeFileSync(file, out.join('\n'));
+      }
+      return stripped;
+    } catch (e) {
+      console.warn('[PiAgentBridge] strip session signatures failed:', e);
+      return 0;
+    }
+  }
+
+  /**
+   * invalid_encrypted_content 自愈：停进程 → 净化会话文件 → --session 重启恢复。
+   * 保留全部对话上下文，仅剥离失效的加密推理签名。返回 true=已修复可重发。
+   */
+  async repairEncryptedContentSession() {
+    let file = null;
+    try {
+      const res = await this.sendCommand({ type: 'get_state' });
+      file = res && res.data && res.data.sessionFile;
+    } catch (e) {}
+    if (!file) file = this._getSavedSessionFile();
+    if (!file || !fs.existsSync(file)) return false;
+    this.destroy();
+    const stripped = this._stripSessionSignatures(file);
+    // 恢复锚点已在 localStorage 指向该文件，start() 会带 --session 加载净化后的会话
+    const ok = await this.start();
+    return !!(ok && stripped > 0);
   }
 
   /**
@@ -383,6 +520,7 @@ class PiAgentBridge {
 
       this.process.on('error', (err) => {
         console.error('[PiAgentBridge] Process error:', err);
+        this._rejectAllPendingCommands(err);
         this.setStatus('error', `启动失败: ${err.message}`);
         this.emit('error', err);
       });
@@ -391,6 +529,8 @@ class PiAgentBridge {
         console.log(`[PiAgentBridge] Process closed (code: ${code}, signal: ${signal})`);
         this.process = null;
         this.activeTools.clear();
+        this._flushTextOrThinkingBuffer();
+        this._rejectAllPendingCommands(new Error(`Pi 进程已关闭 (code: ${code}, signal: ${signal})`));
         this.setStatus('disconnected', code === 0 ? '已断开连接' : `异常退出 (Code: ${code})`);
       });
 
@@ -398,14 +538,53 @@ class PiAgentBridge {
       await new Promise(resolve => setTimeout(resolve, 500));
       if (this.process && !this.process.killed) {
         this.setStatus('connected', '已就绪');
+        this._sessionFileSynced = false;
+        this._syncSessionFile();
         return true;
       }
+      this._rejectAllPendingCommands(new Error('Pi 进程启动后立即退出'));
       return false;
     } catch (err) {
+      this._rejectAllPendingCommands(err);
       this.setStatus('error', `启动异常: ${err.message}`);
       this.emit('error', err);
       return false;
     }
+  }
+
+  /**
+   * Reject and clear all in-flight RPC promises when process dies or is destroyed
+   * @private
+   */
+  _rejectAllPendingCommands(error) {
+    if (!this.pendingCommands || this.pendingCommands.size === 0) return;
+    const err = error instanceof Error ? error : new Error(String(error || 'Pi 核心进程已断开或退出'));
+    for (const [id, pending] of this.pendingCommands.entries()) {
+      try {
+        if (pending && typeof pending.reject === 'function') {
+          pending.reject(err);
+        }
+      } catch (_) {}
+    }
+    this.pendingCommands.clear();
+  }
+
+  /**
+   * Flush any remaining partial chunks from incremental thinking/text buffer
+   * @private
+   */
+  _flushTextOrThinkingBuffer() {
+    if (this._thinkParserBuffer && this._thinkParserBuffer.length > 0) {
+      const remaining = this._thinkParserBuffer;
+      this._thinkParserBuffer = '';
+      if (this._inInlineThink) {
+        this.emit('thinking_delta', remaining);
+        this.emit('thinking_end', {});
+      } else {
+        this.emit('text_delta', remaining);
+      }
+    }
+    this._inInlineThink = false;
   }
 
   /**
@@ -442,9 +621,13 @@ class PiAgentBridge {
     if (type === 'response') {
       const id = data.id;
       if (id && this.pendingCommands.has(id)) {
-        const { resolve } = this.pendingCommands.get(id);
+        const { resolve, reject } = this.pendingCommands.get(id);
         this.pendingCommands.delete(id);
-        resolve(data);
+        if (data.error || data.success === false) {
+          if (reject) reject(new Error(data.error || data.message || '命令执行失败'));
+        } else {
+          resolve(data);
+        }
       }
       return;
     }
@@ -462,6 +645,7 @@ class PiAgentBridge {
       this.currentTurnHasText = false;
       this.lastTurnError = null;
       this._inInlineThink = false;
+      this._thinkParserBuffer = '';
       this.setStatus('thinking', '正在思考与规划...');
       this.emit('turn_start', data);
       return;
@@ -477,11 +661,15 @@ class PiAgentBridge {
     }
 
     if (type === 'agent_end' || type === 'agent_settled') {
+      if (type === 'agent_end' && data && data.willRetry) {
+        return;
+      }
       this.isStreaming = false;
       this.activeTools.clear();
-      this._inInlineThink = false;
-      this.setStatus('connected', '已连接 (就绪)');
+      this._flushTextOrThinkingBuffer();
+      this.setStatus('connected', '已就绪');
       this.emit('agent_settled', data);
+      this._settleDrawioArtifact();
       return;
     }
 
@@ -492,16 +680,26 @@ class PiAgentBridge {
         this.lastTurnError = errMsg;
         if (!this.currentTurnHasText) {
           const isRateLimit = /concurrency|rate_limit|429|too many/i.test(errMsg);
-          const tip = isRateLimit
-            ? `💡 **原因与建议**: 上游 API 通道临时并发受限 (Rate Limit / 429)。该通道正常可用，通常等待数秒后再试即可恢复。`
-            : `💡 **原因与建议**: 上游 API 接口返回错误或网络异常，请稍后点击重试或切换备选通道。`;
+          const isDedup = /reconciliation_required|could not be confirmed|do not submit it again/i.test(errMsg);
+          const isEncrypted = /invalid_encrypted_content|encrypted content could not be|could not be verified/i.test(errMsg);
+          const tip = isEncrypted
+            ? `💡 **原因与建议**: 会话历史中的加密推理内容已过期失效，已自动净化并重新尝试本题。`
+            : isDedup
+            ? `💡 **原因与建议**: 上游网关去重保护（reconciliation_required）拒绝了请求——同会话重发同一上下文大概率再次被拒，建议开新会话后重发或切换备选通道。`
+            : isRateLimit
+              ? `💡 **原因与建议**: 上游 API 通道临时并发受限 (Rate Limit / 429)。该通道正常可用，通常等待数秒后再试即可恢复。`
+              : `💡 **原因与建议**: 上游 API 接口返回错误或网络异常，请稍后重试或切换备选通道。`;
           const notice = `\n\n> ⚠️ **上游模型通道调用异常**\n> 错误信息: \`${errMsg}\`\n>\n> ${tip}\n`;
           this.emit('text_delta', notice);
           this.currentTurnHasText = true;
         }
-        this.emit('error', { message: errMsg, stopReason: msg.stopReason });
+        this.emit('error', {
+          message: errMsg,
+          stopReason: msg.stopReason,
+          encrypted: /invalid_encrypted_content|encrypted content could not be|could not be verified/i.test(errMsg)
+        });
       }
-      this._inInlineThink = false;
+      this._flushTextOrThinkingBuffer();
       this.emit('turn_end', data);
       return;
     }
@@ -601,11 +799,29 @@ class PiAgentBridge {
         actionDesc = `正在查阅 Gerrit 代码变更 Diff: #${args?.change_id || ''}${f}`;
       } else if (toolName === 'gerrit_get_comments') {
         actionDesc = `正在查阅 Gerrit 行内评审意见: #${args?.change_id || ''}`;
+      } else if (toolName === 'jira_search_issues') {
+        actionDesc = `检索 Jira 工单: ${args?.query || '默认 JQL'}`;
+      } else if (toolName === 'jira_get_issue') {
+        actionDesc = `读取 Jira 工单详情: ${args?.issue_key || ''}`;
+      } else if (toolName === 'jira_get_comments') {
+        actionDesc = `读取 Jira 注释: ${args?.issue_key || ''}`;
+      } else if (toolName === 'jira_list_attachments') {
+        actionDesc = `列出 Jira 附件: ${args?.issue_key || ''}`;
+      } else if (toolName === 'jira_download_attachment') {
+        actionDesc = `下载 Jira 附件: ${args?.issue_key || ''} · ${args?.attachment || ''}`;
       } else if (toolName === 'gerrit_list_projects') {
         actionDesc = '正在获取 Gerrit 代码工程仓库清单...';
       } else if (toolName === 'codegraph_explore') {
-        const tree = args?.tree === 'driver' ? '私有驱动' : '内核';
+        const tree = args?.tree === 'mtk-bootloader' ? '联发科 bootloader' : (args?.tree === 'mtk-kernel' ? '联发科内核' : (args?.tree === 'mtk-driver' ? '联发科私有驱动' : (args?.tree === 'driver' ? '展锐私有驱动' : '展锐内核')));
         actionDesc = `正在查询 CodeGraph ${tree}: "${args?.query || ''}"`;
+      } else if (toolName === 'drawio_create' || toolName === 'drawio_edit' || toolName === 'drawio_add_page') {
+        actionDesc = '正在绘制图表';
+      } else if (toolName === 'drawio_export') {
+        actionDesc = '正在导出图表';
+      } else if (toolName === 'drawio_load' || toolName === 'drawio_get' || toolName === 'drawio_list_pages') {
+        actionDesc = '正在读取图表';
+      } else if (String(toolName || '').indexOf('drawio_') === 0) {
+        actionDesc = '正在更新图表';
       }
 
       this.setStatus('running_tool', actionDesc);
@@ -640,36 +856,77 @@ class PiAgentBridge {
   }
 
   /**
-   * Handle text delta stream, cleanly routing inline <think>...</think> blocks to thinking_delta
+   * Handle text delta stream, cleanly routing inline <think>...</think> blocks to thinking_delta.
+   * Uses an incremental parser buffer to prevent tag splits across chunk boundaries (e.g. "<thi" and "nk>").
    * @private
    */
   _handleTextOrThinkingDelta(chunk) {
     if (!chunk || typeof chunk !== 'string') return;
-    let remaining = chunk;
-    while (remaining.length > 0) {
+    this._thinkParserBuffer = (this._thinkParserBuffer || '') + chunk;
+
+    const OPEN_TAG = '<think>';
+    const CLOSE_TAG = '</think>';
+
+    while (this._thinkParserBuffer.length > 0) {
       if (!this._inInlineThink) {
-        const thinkOpenIdx = remaining.indexOf('<think>');
-        if (thinkOpenIdx !== -1) {
-          const before = remaining.slice(0, thinkOpenIdx);
+        const openIdx = this._thinkParserBuffer.indexOf(OPEN_TAG);
+        if (openIdx !== -1) {
+          const before = this._thinkParserBuffer.slice(0, openIdx);
           if (before) this.emit('text_delta', before);
           this._inInlineThink = true;
           this.emit('thinking_start', {});
-          remaining = remaining.slice(thinkOpenIdx + 7);
+          this._thinkParserBuffer = this._thinkParserBuffer.slice(openIdx + OPEN_TAG.length);
         } else {
-          this.emit('text_delta', remaining);
-          break;
+          // Check if buffer ends with a partial prefix of '<think>' (length 1 to 6)
+          let matchedLen = 0;
+          const maxCheck = Math.min(OPEN_TAG.length - 1, this._thinkParserBuffer.length);
+          for (let len = maxCheck; len >= 1; len--) {
+            if (this._thinkParserBuffer.endsWith(OPEN_TAG.slice(0, len))) {
+              matchedLen = len;
+              break;
+            }
+          }
+
+          if (matchedLen > 0) {
+            const safeText = this._thinkParserBuffer.slice(0, this._thinkParserBuffer.length - matchedLen);
+            if (safeText) this.emit('text_delta', safeText);
+            this._thinkParserBuffer = this._thinkParserBuffer.slice(this._thinkParserBuffer.length - matchedLen);
+            break;
+          } else {
+            this.emit('text_delta', this._thinkParserBuffer);
+            this._thinkParserBuffer = '';
+            break;
+          }
         }
       } else {
-        const thinkCloseIdx = remaining.indexOf('</think>');
-        if (thinkCloseIdx !== -1) {
-          const inside = remaining.slice(0, thinkCloseIdx);
+        const closeIdx = this._thinkParserBuffer.indexOf(CLOSE_TAG);
+        if (closeIdx !== -1) {
+          const inside = this._thinkParserBuffer.slice(0, closeIdx);
           if (inside) this.emit('thinking_delta', inside);
           this._inInlineThink = false;
           this.emit('thinking_end', {});
-          remaining = remaining.slice(thinkCloseIdx + 8);
+          this._thinkParserBuffer = this._thinkParserBuffer.slice(closeIdx + CLOSE_TAG.length);
         } else {
-          this.emit('thinking_delta', remaining);
-          break;
+          // Check if buffer ends with a partial prefix of '</think>' (length 1 to 7)
+          let matchedLen = 0;
+          const maxCheck = Math.min(CLOSE_TAG.length - 1, this._thinkParserBuffer.length);
+          for (let len = maxCheck; len >= 1; len--) {
+            if (this._thinkParserBuffer.endsWith(CLOSE_TAG.slice(0, len))) {
+              matchedLen = len;
+              break;
+            }
+          }
+
+          if (matchedLen > 0) {
+            const safeText = this._thinkParserBuffer.slice(0, this._thinkParserBuffer.length - matchedLen);
+            if (safeText) this.emit('thinking_delta', safeText);
+            this._thinkParserBuffer = this._thinkParserBuffer.slice(this._thinkParserBuffer.length - matchedLen);
+            break;
+          } else {
+            this.emit('thinking_delta', this._thinkParserBuffer);
+            this._thinkParserBuffer = '';
+            break;
+          }
         }
       }
     }
@@ -678,7 +935,7 @@ class PiAgentBridge {
   /**
    * Send JSON command to stdin
    */
-  sendCommand(commandObj) {
+  sendCommand(commandObj, timeoutMs = 15000) {
     if (!this.process || this.process.killed) {
       throw new Error('Pi 核心进程未就绪或已断开');
     }
@@ -686,11 +943,30 @@ class PiAgentBridge {
     commandObj.id = id;
 
     return new Promise((resolve, reject) => {
-      this.pendingCommands.set(id, { resolve, reject });
+      let timer = null;
+      if (timeoutMs > 0) {
+        timer = setTimeout(() => {
+          if (this.pendingCommands.has(id)) {
+            this.pendingCommands.delete(id);
+            reject(new Error(`Pi 命令执行超时 (${timeoutMs}ms): ${commandObj.type}`));
+          }
+        }, timeoutMs);
+      }
+      this.pendingCommands.set(id, {
+        resolve: (data) => {
+          if (timer) clearTimeout(timer);
+          resolve(data);
+        },
+        reject: (err) => {
+          if (timer) clearTimeout(timer);
+          reject(err);
+        }
+      });
       const line = JSON.stringify(commandObj) + '\n';
       try {
         this.process.stdin.write(line, 'utf-8');
       } catch (err) {
+        if (timer) clearTimeout(timer);
         this.pendingCommands.delete(id);
         reject(err);
       }
@@ -709,10 +985,34 @@ class PiAgentBridge {
     this.isStreaming = true;
     this.setStatus('thinking', '正在理解上下文...');
 
-    return this.sendCommand({
+    const res = await this.sendCommand({
       type: 'prompt',
       message: messageText
     });
+    if (res && res.data && res.data.disposition === 'handled') {
+      this.isStreaming = false;
+      this.setStatus('connected', '已就绪');
+    } else if (!this._sessionFileSynced) {
+      this._sessionFileSynced = true;
+      this._syncSessionFile();
+    }
+    return res;
+  }
+
+  /**
+   * Fetch invocable commands via get_commands RPC (extension commands / prompt templates / skills)
+   * Returns [] when the process is down or the command fails; never throws.
+   */
+  async getCommands() {
+    if (!this.process || this.process.killed) return [];
+    try {
+      const res = await this.sendCommand({ type: 'get_commands' }, 8000);
+      const list = res && res.data && res.data.commands;
+      return Array.isArray(list) ? list : [];
+    } catch (e) {
+      console.warn('[PiAgentBridge] get_commands failed:', e);
+      return [];
+    }
   }
 
   /**
@@ -726,11 +1026,24 @@ class PiAgentBridge {
     } catch (e) {
       console.warn('[PiAgentBridge] Abort command issue:', e);
     } finally {
+      this._flushTextOrThinkingBuffer();
       this.isStreaming = false;
       this.activeTools.clear();
       this.setStatus('connected', '已中止操作');
-      this.emit('aborted');
+      this._settleDrawioArtifact().finally(() => {
+        this.emit('aborted');
+      });
     }
+  }
+
+  async _settleDrawioArtifact() {
+    if (typeof tabonkbSettleDrawio !== 'function') return;
+    try {
+      const art = await tabonkbSettleDrawio();
+      if (art && art.relPng) {
+        this.emit('text_delta', `\n\n![[${art.relPng}]]\n`);
+      }
+    } catch (e) {}
   }
 
   /**
@@ -750,9 +1063,12 @@ class PiAgentBridge {
       this.destroy();
       await this.start();
     } finally {
+      this._flushTextOrThinkingBuffer();
       this.isStreaming = false;
       this.activeTools.clear();
       this.setStatus('connected', '新会话已开启');
+      await this._syncSessionFile();
+      this._sessionFileSynced = true;
       this.emit('new_session');
     }
   }
@@ -760,9 +1076,15 @@ class PiAgentBridge {
   /**
    * Set model dynamically via RPC or restart
    */
-  async setModel(provider, modelId) {
+  async setModel(provider, modelId, thinkingLevel) {
     this.activeProvider = provider;
     this.activeModelId = modelId;
+    if (thinkingLevel !== undefined && thinkingLevel !== null) {
+      this.activeReasoningEffort = thinkingLevel;
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('tabonkb-pi-reasoning-effort', thinkingLevel);
+      }
+    }
     if (typeof localStorage !== 'undefined') {
       localStorage.setItem('tabonkb-pi-active-provider', provider);
       localStorage.setItem('tabonkb-pi-active-model', modelId);
@@ -774,8 +1096,67 @@ class PiAgentBridge {
           provider: provider,
           modelId: modelId
         });
+        if (this.activeReasoningEffort) {
+          try {
+            await this.sendCommand({
+              type: 'set_thinking_level',
+              level: this.activeReasoningEffort
+            });
+          } catch (_) {}
+        }
       } catch (e) {
         console.warn('[PiAgentBridge] setModel RPC failed, restarting process with new model:', e);
+        this.destroy();
+        await this.start();
+      }
+    }
+  }
+
+  /**
+   * 会话分支（fork）：列出可回退的用户消息入口 [{entryId, text}]
+   */
+  async getForkMessages() {
+    if (!this.process || this.process.killed) return [];
+    try {
+      const res = await this.sendCommand({ type: 'get_fork_messages' });
+      return (res && res.data && res.data.messages) || [];
+    } catch (e) {
+      console.warn('[PiAgentBridge] get_fork_messages failed:', e);
+      return [];
+    }
+  }
+
+  /**
+   * 会话分支（fork）：回退到指定用户消息之前并开新分支，返回该消息原文供重写。
+   * fork 后 pi 切换到新的分支会话文件，需刷新恢复锚点。
+   */
+  async forkMessage(entryId) {
+    const res = await this.sendCommand({ type: 'fork', entryId });
+    const data = (res && res.data) || {};
+    this._sessionFileSynced = false;
+    await this._syncSessionFile();
+    this.isStreaming = false;
+    this.activeTools.clear();
+    this.setStatus('connected', '已就绪');
+    return data;
+  }
+
+  /**
+   * Set thinking / reasoning level dynamically via RPC
+   */
+  async setReasoningEffort(level) {
+    this.activeReasoningEffort = level;
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('tabonkb-pi-reasoning-effort', level);
+    }
+    if (this.process && !this.process.killed) {
+      try {
+        await this.sendCommand({
+          type: 'set_thinking_level',
+          level: level
+        });
+      } catch (e) {
+        console.warn('[PiAgentBridge] set_thinking_level RPC failed, restarting process:', e);
         this.destroy();
         await this.start();
       }
@@ -790,6 +1171,9 @@ class PiAgentBridge {
       window.removeEventListener('beforeunload', this._unloadHandler);
       window.removeEventListener('unload', this._unloadHandler);
     }
+
+    this._flushTextOrThinkingBuffer();
+    this._rejectAllPendingCommands(new Error('Pi 核心进程已停止服务'));
 
     if (this.process) {
       const pid = this.process.pid;

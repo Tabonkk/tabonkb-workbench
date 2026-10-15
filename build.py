@@ -21,16 +21,28 @@ files = [
     f"{plugin_dir}\\mcp\\opengrok-mcp-shared.js",
     f"{plugin_dir}\\services\\opengrok-service.js",
     f"{plugin_dir}\\mcp\\gerrit-mcp-shared.js",
+    f"{plugin_dir}\\mcp\\jira-mcp-shared.js",
+    f"{plugin_dir}\\mcp\\drawio-mcp-shared.js",
     f"{plugin_dir}\\mcp\\codegraph-mcp-shared.js",
+    f"{plugin_dir}\\mcp\\powerz-mcp-shared.js",
+    f"{plugin_dir}\\mcp\\dslogic-mcp-shared.js",
+    f"{plugin_dir}\\mcp\\dsh-mcp-shared.js",
     f"{plugin_dir}\\services\\gerrit-service.js",
+    f"{plugin_dir}\\services\\drawio-broker.js",
+    f"{plugin_dir}\\services\\dsh-daemon-manager.js",
+    f"{plugin_dir}\\services\\powerz-service.js",
+    f"{plugin_dir}\\services\\dslogic-service.js",
     f"{plugin_dir}\\pi-agent-bridge.js",
     f"{plugin_dir}\\providers\\pi-adapter.js",
     f"{plugin_dir}\\providers\\hermes-adapter.js",
     f"{plugin_dir}\\providers\\gemini-adapter.js",
+    f"{plugin_dir}\\providers\\antigravity-adapter.js",
     f"{plugin_dir}\\providers\\niceaigc-adapter.js",
+    f"{plugin_dir}\\providers\\dsh-adapter.js",
     f"{plugin_dir}\\agent-session-manager.js",
     f"{plugin_dir}\\agent-hub.js",
     f"{plugin_dir}\\agent-context-provider.js",
+    f"{plugin_dir}\\services\\local-project-service.js",
     f"{plugin_dir}\\pi-drawer-view.js",
     f"{plugin_dir}\\services\\jira-service.js",
     f"{plugin_dir}\\services\\rss-service.js",
@@ -50,8 +62,25 @@ files = [
     f"{plugin_dir}\\components\\weknora-manage\\webview-embed.js",
     f"{plugin_dir}\\components\\weknora-manage\\manage-view.js",
     f"{plugin_dir}\\services\\clip-image-inliner.js",
+    f"{plugin_dir}\\components\\notion-embed.js",
     f"{plugin_dir}\\components\\explore-view.js",
     f"{plugin_dir}\\components\\phone-competitor-view.js",
+    f"{plugin_dir}\\components\\dsh-studio-view.js",
+    f"{plugin_dir}\\components\\dsh-workbench-view.js",
+    f"{plugin_dir}\\components\\tools\\charger\\register-db.js",
+    f"{plugin_dir}\\components\\tools\\charger\\power-standards.js",
+    f"{plugin_dir}\\components\\tools\\charger\\charger-calc.js",
+    f"{plugin_dir}\\components\\tools\\charger\\charger-charts.js",
+    f"{plugin_dir}\\components\\tools\\charger\\charge-panel.js",
+    f"{plugin_dir}\\components\\tools\\charger\\discharge-panel.js",
+    f"{plugin_dir}\\components\\tools\\charger\\ic-panel.js",
+    f"{plugin_dir}\\components\\tools\\charger\\powerz-panel.js",
+    f"{plugin_dir}\\components\\tools\\charger\\charger-tool-view.js",
+    f"{plugin_dir}\\components\\tools\\logic\\presets.js",
+    f"{plugin_dir}\\components\\tools\\logic\\wave-view.js",
+    f"{plugin_dir}\\components\\tools\\logic\\proto-table.js",
+    f"{plugin_dir}\\components\\tools\\logic\\logic-tool-view.js",
+    f"{plugin_dir}\\components\\tools-view.js",
     f"{plugin_dir}\\settings\\workbench-settings-tab.js",
 ]
 
@@ -70,6 +99,7 @@ const path = require('path');
 const crypto = require('crypto');
 const https = require('https');
 const http = require('http');
+const net = require('net');
 const zlib = require('zlib');
 let electronModule = null;
 try { electronModule = require('electron'); } catch (e) {}
@@ -158,6 +188,9 @@ new_constructor = """class TabonKBWorkbenchView extends ItemView {
     this.jiraCard = null;
     this.rssCard = null;
     this.weknoraManage = null;
+    this.harnessView = null;
+    this._harnessMounted = false; // R18: Harness 视图是否已挂载到文档树
+    this.toolsView = null;
 
     // Home Tab Trend Analytics
     this.homeTrendIssues = null;
@@ -198,7 +231,7 @@ new_constructor = """class TabonKBWorkbenchView extends ItemView {
     try {
       if (typeof localStorage !== 'undefined') {
         const t = localStorage.getItem('tabonkb-active-tab');
-        if (t === 'home' || t === 'tasks' || t === 'news' || t === 'explore' || t === 'manage') return t;
+        if (t === 'home' || t === 'tasks' || t === 'news' || t === 'explore' || t === 'tools' || t === 'harness' || t === 'manage') return t;
       }
     } catch (e) {}
     return 'home';
@@ -206,6 +239,21 @@ new_constructor = """class TabonKBWorkbenchView extends ItemView {
 
   setActiveTab(tab) {
     if (this.activeTab === tab) return;
+    // R18: 离开 Harness 页签时显式释放视图, 避免 _harnessMounted 标记失效后泄漏事件监听
+    if (this.activeTab === 'harness' && tab !== 'harness') {
+      this._harnessMounted = false;
+      if (this.harnessView) {
+        try { this.harnessView.dispose(); } catch (_) {}
+        this.harnessView = null;
+      }
+    }
+    // 离开 Tools 页签时释放视图
+    if (this.activeTab === 'tools' && tab !== 'tools') {
+      if (this.toolsView) {
+        try { this.toolsView.dispose(); } catch (_) {}
+        this.toolsView = null;
+      }
+    }
     // 离开的页面记住自己的搜索词，进入的页面恢复各自缓存，互不串页
     if (this.activeTab) this.tabKeywords[this.activeTab] = this.keyword || '';
     this.activeTab = tab;
@@ -1702,11 +1750,27 @@ if idx_render != -1 and idx_cpanel != -1:
     try {
       this.closeExploreSubmenu();
       this.closeManageSubmenu();
+      this.closeToolsSubmenu();
+      // R18: Harness 页签已挂载且 DOM 仍在文档树中 -> 复用现有视图, 不做整体重建
+      // (旧实现每次 render() 都 empty() 容器 -> iframe 重新加载 -> DSH 会话丢失)
+      if (this.activeTab === 'harness' && this._harnessMounted && this.harnessView &&
+          this.harnessView.containerEl && this.harnessView.containerEl.isConnected) {
+        const live = this.getContainer();
+        if (live) {
+          this.ensureStylesheet(live.ownerDocument);
+          const t = (this.plugin && this.plugin.settings && this.plugin.settings.workbenchTheme) ||
+                    (this.app?.plugins?.plugins?.['tabonkb-workbench']?.settings?.workbenchTheme) || 'standard';
+          live.removeClass('tw-theme-standard', 'tw-theme-fresh');
+          live.addClass(`tw-theme-${t}`);
+        }
+        return;
+      }
       const container = this.getContainer();
       if (!container) return;
       this.ensureStylesheet(container.ownerDocument);
       this.setupCustomHeader();
       container.empty();
+      this._harnessMounted = false; // 整体重建后旧挂载标记必然失效
       container.addClass('tabonkb-workbench-container', 'with-drawer');
       const curTheme = (this.plugin && this.plugin.settings && this.plugin.settings.workbenchTheme) || 
                        (this.app?.plugins?.plugins?.['tabonkb-workbench']?.settings?.workbenchTheme) || 
@@ -1754,7 +1818,7 @@ if idx_render != -1 and idx_cpanel != -1:
       // 4. Render Context-Aware Top Bar.
       // Explore owns its own sub-navigation and search surface, so the global
       // search/Agent Hub row would only duplicate controls on that page.
-      if (this.activeTab !== 'explore' && this.activeTab !== 'manage') {
+      if (this.activeTab !== 'explore' && this.activeTab !== 'manage' && this.activeTab !== 'harness' && this.activeTab !== 'tools') {
         this.renderTopBar(mainPanel);
       }
 
@@ -1767,6 +1831,12 @@ if idx_render != -1 and idx_cpanel != -1:
         this.renderNewsTab(stage);
       } else if (this.activeTab === 'explore') {
         this.renderExploreTab(stage);
+      } else if (this.activeTab === 'tools') {
+        stage.addClass('tw-stage-tools');
+        mainPanel.addClass('tw-main-tools');
+        this.renderToolsTab(stage);
+      } else if (this.activeTab === 'harness') {
+        this.renderHarnessTab(stage);
       } else if (this.activeTab === 'manage') {
         this.renderManageTab(stage);
       } else {
@@ -1799,7 +1869,7 @@ if idx_render != -1 and idx_cpanel != -1:
     try {
       if (typeof localStorage !== 'undefined') {
         const s = localStorage.getItem('tabonkb-explore-subtab');
-        if (s === 'ai' || s === 'search') return s;
+        if (s === 'ai' || s === 'search' || s === 'notion') return s;
       }
     } catch (e) {}
     return 'ai';
@@ -1829,7 +1899,8 @@ if idx_render != -1 and idx_cpanel != -1:
     const cur = this.getExploreSubTab();
     const subs = [
       { id: 'ai', label: 'AI助手', icon: 'robot' },
-      { id: 'search', label: '平台资源检索', icon: 'search' }
+      { id: 'search', label: '平台资源检索', icon: 'search' },
+      { id: 'notion', label: 'Notion AI', icon: 'book' }
     ];
     const menu = container.createDiv({ cls: 'tw-explore-submenu' });
     for (const s of subs) {
@@ -1934,6 +2005,54 @@ if idx_render != -1 and idx_cpanel != -1:
     if (menu) menu.remove();
   }
 
+  toggleToolsSubmenu(anchorEl) {
+    const container = this.getContainer ? this.getContainer() : null;
+    if (!container) return;
+    if (container.querySelector('.tw-tools-submenu')) {
+      this.closeToolsSubmenu();
+      return;
+    }
+    const subs = [
+      { id: 'battery-charger', label: '充电分析', icon: 'lightning' },
+      { id: 'logic', label: '逻辑分析', icon: 'cpu' }
+    ];
+    const menu = container.createDiv({ cls: 'tw-tools-submenu' });
+    for (const s of subs) {
+      const isActive = this.toolsView && this.toolsView.activeToolId === s.id;
+      const item = menu.createEl('button', { cls: `tw-tools-submenu-item${isActive ? ' active' : ''}` });
+      item.innerHTML = `
+        <span class="tw-tools-submenu-icon">${getIconPark(s.icon, 15)}</span>
+        <span class="tw-tools-submenu-label">${s.label}</span>
+      `;
+      item.onclick = () => {
+        this.closeToolsSubmenu();
+        if (this.toolsView) {
+          this.toolsView.activeToolId = s.id;
+          this.toolsView.reloadTool();
+        }
+      };
+    }
+    const cRect = container.getBoundingClientRect();
+    const aRect = anchorEl.getBoundingClientRect();
+    menu.style.top = Math.round(aRect.top - cRect.top + container.scrollTop) + 'px';
+    menu.style.left = Math.round(aRect.right - cRect.left + 8) + 'px';
+    const closer = (e) => {
+      if (!menu.contains(e.target) && !anchorEl.contains(e.target)) this.closeToolsSubmenu();
+    };
+    this._toolsSubmenuCloser = closer;
+    setTimeout(() => document.addEventListener('pointerdown', closer, true), 0);
+  }
+
+  closeToolsSubmenu() {
+    if (this._toolsSubmenuCloser) {
+      try { document.removeEventListener('pointerdown', this._toolsSubmenuCloser, true); } catch (e) {}
+      this._toolsSubmenuCloser = null;
+    }
+    const container = this.getContainer ? this.getContainer() : null;
+    const menu = container ? container.querySelector('.tw-tools-submenu') : null;
+    if (menu) menu.remove();
+  }
+
   renderNavRail(parentEl) {
     const rail = parentEl.createDiv({ cls: 'tw-nav-rail' });
 
@@ -1962,6 +2081,8 @@ if idx_render != -1 and idx_cpanel != -1:
       { id: 'tasks', label: '任务', icon: 'tasks', title: 'Jira 协作与任务看板' },
       { id: 'news', label: '资讯', icon: 'newspaper', title: '技术资讯与规范动态' },
       { id: 'explore', label: '探索', icon: 'compass', title: 'Agent Hub 与芯片资源检索' },
+      { id: 'tools', label: '工具', icon: 'tool', title: '研发效能与分析工具箱' },
+      { id: 'harness', label: 'Harness', icon: 'deepseek', title: 'DeepSeek Harness 智能工作台（双击切换侧栏）' },
       { id: 'manage', label: '管理', icon: 'database', title: 'WeKnora 知识库与数据管理' }
     ];
 
@@ -1976,6 +2097,20 @@ if idx_render != -1 and idx_cpanel != -1:
       `;
       btn.onclick = () => this.setActiveTab(t.id);
 
+      // Harness 页面保持 iframe 会话不变, 双击导航图标联动切换 DSH 原生侧栏 (默认隐藏/展开)
+      if (t.id === 'harness') {
+        btn.ondblclick = (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          if (this.activeTab !== 'harness') {
+            this.setActiveTab('harness');
+          }
+          if (this.harnessView) {
+            this.harnessView.toggleSidebar(!this.harnessView.isSidebarCollapsed);
+          }
+        };
+      }
+
       // 探索页: 已在探索页时再次点击「探索」, 弹出子选择菜单 (AI 研发助手 / 芯片资源检索), 不常驻占位
       if (t.id === 'explore') {
         btn.onclick = () => {
@@ -1984,6 +2119,17 @@ if idx_render != -1 and idx_cpanel != -1:
             return;
           }
           this.toggleExploreSubmenu(btn);
+        };
+      }
+
+      // 工具页: 已在工具页时再次点击「工具」, 弹出子选择菜单 (充电分析工具等)
+      if (t.id === 'tools') {
+        btn.onclick = () => {
+          if (this.activeTab !== 'tools') {
+            this.setActiveTab('tools');
+            return;
+          }
+          this.toggleToolsSubmenu(btn);
         };
       }
 
@@ -2288,7 +2434,12 @@ if idx_render != -1 and idx_cpanel != -1:
         if (!this.agentDrawer.isOpen()) {
           this.agentDrawer.open();
         }
-        this.agentDrawer.sendPrompt(`请帮我分析 Jira 工单 [${issue.key}](${issue.url}): ${issue.summary}。经办人: ${issue.assignee || '未指派'}，状态: ${issue.status}。详细描述: ${issue.description || '无'}`);
+        const kv = [`工单 ${issue.key}`, `标题: ${issue.summary || ''}`, `状态: ${issue.status || ''}`, `优先级: ${issue.priority || '无'}`, `经办人: ${issue.assignee || '未指派'}`, `模块: ${(issue.components || []).join(', ') || '无'}`].join('\\n');
+        this.agentDrawer.sendPrompt(
+          `请分析 Jira 工单 ${issue.key}：\\n${kv}\\n详细描述: ${issue.description || '无'}\\n\\n` +
+          `请调用 jira_get_issue 获取完整详情，用 jira_list_attachments 查看附件；如有日志/抓包等附件，用 jira_download_attachment 下载到 00-Inbox/03-Quick-Note/${issue.key}/attachments/ 后分析。` +
+          `分析结论与产物写入 00-Inbox/03-Quick-Note/${issue.key}/ 目录。`
+        );
       }
     });
 
@@ -2401,6 +2552,40 @@ if idx_render != -1 and idx_cpanel != -1:
     });
 
     this.weknoraManage.mount(stage);
+  }
+
+  renderHarnessTab(stage) {
+    if (this.harnessView) {
+      this.harnessView.dispose();
+      this.harnessView = null;
+    }
+
+    this.harnessView = new DshWorkbenchView({
+      app: this.app,
+      plugin: this.plugin,
+      contextProvider: this.contextProvider,
+      onOpenSettings: () => {
+        this.app.setting?.open?.();
+        this.app.setting?.openTabById?.('tabonkb-workbench');
+      }
+    });
+
+    this.harnessView.mount(stage);
+    this._harnessMounted = true; // R18: 标记已挂载, 供 render() 复用判定
+  }
+
+  renderToolsTab(stage) {
+    if (this.toolsView) {
+      try { this.toolsView.dispose(); } catch (_) {}
+      this.toolsView = null;
+    }
+
+    this.toolsView = new ToolsView({
+      app: this.app,
+      plugin: this.plugin
+    });
+
+    this.toolsView.mount(stage);
   }\n\n  """
     workbench_part = workbench_part[:idx_render] + multi_tab_render_methods + workbench_part[idx_cpanel:]
     print("Replaced render() method with Multi-Tab rendering methods")
@@ -2449,6 +2634,22 @@ module.exports = class TabonKBWorkbenchPlugin extends Plugin {
     this.companionServer = new CompanionSyncServer({ plugin: this, port: 28123 });
     this.companionServer.start();
 
+    this.drawioBroker = new DrawioBroker({ vaultBasePath: vaultPath });
+    this.drawioBroker.start();
+
+    // DSH Daemon Manager
+    if (this.settings?.dsh?.enabled !== false && typeof DshDaemonManager !== 'undefined') {
+      this.dshDaemon = new DshDaemonManager({
+        plugin: this,
+        vaultBasePath: vaultPath,
+        port: this.settings?.dsh?.port || 3080,
+        profile: this.settings?.dsh?.profile || 'tabonkb'
+      });
+      if (this.settings?.dsh?.autoStart !== false) {
+        this.dshDaemon.start().catch((e) => console.warn('[TabonKB] DSH Daemon auto-start failed:', e));
+      }
+    }
+
     this.addSettingTab(new TabonKBSettingTab(this.app, this));
 
     this.registerView(
@@ -2459,6 +2660,13 @@ module.exports = class TabonKBWorkbenchPlugin extends Plugin {
         return view;
       }
     );
+
+    if (typeof VIEW_TYPE_DSH_STUDIO !== 'undefined' && typeof DshStudioView !== 'undefined') {
+      this.registerView(
+        VIEW_TYPE_DSH_STUDIO,
+        (leaf) => new DshStudioView(leaf, { plugin: this })
+      );
+    }
 
     const refreshWorkbench = () => {
       const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_WORKBENCH);
@@ -2510,6 +2718,14 @@ module.exports = class TabonKBWorkbenchPlugin extends Plugin {
       name: '打开研发工作台',
       callback: () => {
         this.activateView();
+      },
+    });
+
+    this.addCommand({
+      id: 'open-dsh-studio',
+      name: '打开 DeepSeek Harness Studio (DSH)',
+      callback: () => {
+        this.activateDshStudioView();
       },
     });
 
@@ -2579,6 +2795,9 @@ module.exports = class TabonKBWorkbenchPlugin extends Plugin {
     }
     if (loaded && loaded.rss) {
       this.settings.rss = Object.assign({}, DEFAULT_SETTINGS.rss, loaded.rss);
+    }
+    if (loaded && loaded.dsh) {
+      this.settings.dsh = Object.assign({}, DEFAULT_SETTINGS.dsh, loaded.dsh);
     }
   }
 
@@ -2652,11 +2871,20 @@ module.exports = class TabonKBWorkbenchPlugin extends Plugin {
         if (leaf.view.agentBridge) {
           leaf.view.agentBridge.destroy();
         }
+        if (leaf.view.harnessView) {
+          leaf.view.harnessView.dispose();
+        }
       }
     });
 
     if (this.companionServer) {
       this.companionServer.stop();
+    }
+    if (this.drawioBroker) {
+      this.drawioBroker.stop();
+    }
+    if (this.dshDaemon) {
+      this.dshDaemon.destroy();
     }
   }
 
@@ -2667,6 +2895,27 @@ module.exports = class TabonKBWorkbenchPlugin extends Plugin {
     if (!leaf) {
       leaf = workspace.getLeaf(false);
       await leaf.setViewState({ type: VIEW_TYPE_WORKBENCH, active: true });
+    }
+
+    workspace.revealLeaf(leaf);
+  }
+
+  async activateDshStudioView() {
+    if (typeof getTabonKbWebRequestBridge === 'function') {
+      try { getTabonKbWebRequestBridge()?.ensureInstalled(); } catch (_) {}
+    }
+    const { workspace } = this.app;
+    let leaf = workspace.getLeavesOfType(VIEW_TYPE_DSH_STUDIO)[0];
+
+    if (!leaf) {
+      leaf = workspace.getLeaf(false);
+      await leaf.setViewState({ type: VIEW_TYPE_DSH_STUDIO, active: true });
+    } else {
+      if (!leaf.view || typeof leaf.view.ensureRendered !== 'function') {
+        await leaf.setViewState({ type: VIEW_TYPE_DSH_STUDIO, active: true });
+      } else {
+        leaf.view.ensureRendered();
+      }
     }
 
     workspace.revealLeaf(leaf);

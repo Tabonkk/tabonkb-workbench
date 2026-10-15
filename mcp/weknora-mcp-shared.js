@@ -57,7 +57,7 @@ function buildWeknoraEnv(vaultBasePath) {
 }
 
 // 提示语: 引导各 CLI 优先用 WeKnora 知识库工具
-const WEKNORA_MCP_TOOL_HINT = '\n\n[系统指令] 你已接入团队知识库 MCP 工具 ' + WEKNORA_MCP_SERVER_NAME + ' (WeKnora): weknora_search (向量+关键词混合检索)、weknora_ask (带引用的 RAG 问答)、weknora_list_knowledge_bases、weknora_list_documents、weknora_read_document, 以及写入类 weknora_add_document / weknora_update_document / weknora_delete_document。凡用户询问项目沉淀知识、历史排障案例、平台文档或知识库内容时, 优先调用 weknora_search / weknora_ask 检索团队知识库, 再结合芯片原厂工具作答; 需要把结论沉淀入库时使用 weknora_add_document。';
+const WEKNORA_MCP_TOOL_HINT = '\n\n[系统指令] 你已接入团队知识库 MCP 工具 ' + WEKNORA_MCP_SERVER_NAME + ' (WeKnora)。用户询问项目沉淀知识、历史排障、平台文档或知识库内容时, 默认只调用 weknora_search (混合检索, 返回片段)。不要默认调用 weknora_ask: 它会在服务端再跑一轮完整 RAG, 经常耗时数分钟。仅当用户明确要求知识库直接给出带引用的成稿、且 search 片段不够时, 才单独调用 weknora_ask。不要把 weknora_search 与 weknora_ask 放进同一次工具批次: deferred 工具不能并行, 且 ask 内部已经包含检索。需要全文再用 weknora_read_document。写入用 weknora_add_document / weknora_update_document / weknora_delete_document。';
 
 // ---- Hermes: 全局注册 (幂等, 异步不阻塞) ----
 function ensureHermesWeknoraMcp(hermesBin, prefixArgs, vaultBasePath) {

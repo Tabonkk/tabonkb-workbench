@@ -28,6 +28,13 @@ function escapeAttr(str) {
  */
 function setupIframeBypass() {
   try {
+    if (typeof getTabonKbWebRequestBridge === 'function') {
+      const bridge = getTabonKbWebRequestBridge();
+      if (bridge) {
+        bridge.ensureInstalled();
+        return;
+      }
+    }
     if (typeof window === 'undefined') return;
     if (window._weknoraHeaderHookInstalled) return;
 

@@ -69,28 +69,46 @@ document.addEventListener('DOMContentLoaded', async () => {
       siteBadgeEl.textContent = 'MTK Online';
       siteTitleEl.textContent = 'MTK 页面检测';
       isTarget = true;
+    } else if (url.includes('nice188') || url.includes('niceaigc')) {
+      currentProvider = 'niceaigc';
+      domain = 'nice188.com';
+      siteBadgeEl.className = 'badge niceaigc';
+      siteBadgeEl.textContent = 'NiceAIGC';
+      siteTitleEl.textContent = 'NiceAIGC 页面检测';
+      isTarget = true;
     } else {
       currentProvider = 'unisoc';
       domain = 'unisoc.com';
       siteBadgeEl.className = 'badge';
-      siteBadgeEl.textContent = '未在原厂域';
-      siteTitleEl.textContent = '展锐历史凭据探查';
+      siteBadgeEl.textContent = '未在目标域';
+      siteTitleEl.textContent = '历史凭据探查';
     }
 
     // Query cookies for target domain
-    chrome.runtime.sendMessage({ action: 'getCookies', domain }, (res) => {
+    chrome.runtime.sendMessage({ action: 'getCookies', domain, url }, (res) => {
       if (res && res.success && res.token) {
         currentToken = res.token;
         currentCookie = res.cookieStr;
 
-        const masked = currentToken.length > 20
-          ? `${currentToken.substring(0, 10)}...${currentToken.substring(currentToken.length - 8)}`
-          : currentToken;
+        if (currentProvider === 'niceaigc') {
+          const uid = res.meta?.xuserid || (currentCookie.match(/(?:^|;\s*)xuserid=([^;]+)/) || [])[1];
+          const xtok = res.meta?.xtoken || (currentCookie.match(/(?:^|;\s*)xtoken=([^;]+)/) || [])[1];
+          const hasSess = res.meta?.sessionToken || currentCookie.includes('session-token');
+          detectedInfoEl.innerHTML = `
+            <div style="color:#34D399;margin-bottom:3px;">🟢 已侦测到 NiceAIGC 凭据:</div>
+            <div>UID: ${uid || '已捕获'} · xtoken: ${xtok ? xtok.substring(0, 8) + '...' : '已捕获'}</div>
+            <div style="color:#94A3B8;font-size:10px;margin-top:2px;">会话: ${hasSess ? '已捕获 HttpOnly' : '自动继承'}</div>
+          `;
+        } else {
+          const masked = currentToken.length > 20
+            ? `${currentToken.substring(0, 10)}...${currentToken.substring(currentToken.length - 8)}`
+            : currentToken;
 
-        detectedInfoEl.innerHTML = `
-          <div style="color:#34D399;margin-bottom:3px;">🟢 已侦测到有效 Token:</div>
-          <div>${masked}</div>
-        `;
+          detectedInfoEl.innerHTML = `
+            <div style="color:#34D399;margin-bottom:3px;">🟢 已侦测到有效 Token:</div>
+            <div>${masked}</div>
+          `;
+        }
       } else if (res && res.cookieStr) {
         currentCookie = res.cookieStr;
         const match = currentCookie.match(/unisupport-cutomer-token=([^;]+)/);
@@ -110,7 +128,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       } else {
         detectedInfoEl.innerHTML = isTarget
           ? `<span style="color:#F87171;">⚠️ 未在该页面检测到登录凭据，请先在官网登录账号。</span>`
-          : `<span>当前未打开展锐/MTK页面，请在下方点击直达链接前往登录。</span>`;
+          : `<span>当前未打开展锐/MTK/NiceAIGC 页面，请在下方点击直达链接前往登录。</span>`;
       }
 
       updateButtons();
@@ -124,20 +142,24 @@ document.addEventListener('DOMContentLoaded', async () => {
     btnSyncNow.disabled = true;
     btnSyncNow.textContent = '⏳ 同步中...';
 
-    chrome.runtime.sendMessage({
-      action: 'syncToWorkbench',
-      provider: currentProvider,
-      token: currentToken,
-      cookie: currentCookie
-    }, (res) => {
-      btnSyncNow.disabled = false;
-      btnSyncNow.textContent = '⚡ 一键同步到 TabonKB';
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      const activeTab = tabs && tabs[0];
+      chrome.runtime.sendMessage({
+        action: 'syncToWorkbench',
+        provider: currentProvider,
+        token: currentToken,
+        cookie: currentCookie,
+        url: activeTab?.url || ''
+      }, (res) => {
+        btnSyncNow.disabled = false;
+        btnSyncNow.textContent = '⚡ 一键同步到 TabonKB';
 
-      if (res && res.success) {
-        showMessage(`🎉 同步成功！${res.data?.msg || '已推送到工作台'}`);
-      } else {
-        showMessage(`❌ 同步失败: ${res?.error || '连接超时'}`, false);
-      }
+        if (res && res.success) {
+          showMessage(`🎉 同步成功！${res.data?.msg || '已推送到工作台'}`);
+        } else {
+          showMessage(`❌ 同步失败: ${res?.error || '连接超时'}`, false);
+        }
+      });
     });
   });
 

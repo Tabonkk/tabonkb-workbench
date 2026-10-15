@@ -53,7 +53,7 @@ export default function (pi: ExtensionAPI) {
   pi.registerTool({
     name: "weknora_search",
     label: "WeKnora: 混合检索",
-    description: "在 WeKnora 知识库中做向量+关键词混合检索, 返回最相关的文档分块片段与来源, 适合定位技术资料/排障问答。",
+    description: "知识库默认检索。向量+关键词混合检索, 返回最相关分块与来源。询问项目知识、排障案例、平台文档时优先用本工具, 不要改调 weknora_ask。",
     parameters: Type.Object({
       query: Type.String({ description: "检索关键词或问题" }),
       kb: KB,
@@ -65,7 +65,7 @@ export default function (pi: ExtensionAPI) {
   pi.registerTool({
     name: "weknora_ask",
     label: "WeKnora: RAG 问答",
-    description: "基于 WeKnora 知识库做 RAG 问答, 返回带引用来源的完整答案, 适合需综合多篇文档推理的问题。",
+    description: "非默认路径。服务端再跑一轮 RAG 并返回带引用成稿, 经常耗时数分钟。仅当用户明确要求知识库直接作答且 weknora_search 片段不够时单独调用。不要与 weknora_search 并行。",
     parameters: Type.Object({
       query: Type.String({ description: "完整自然语言问题" }),
       kb: KB

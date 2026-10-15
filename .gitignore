@@ -6,3 +6,11 @@ Thumbs.db
 releases/
 __pycache__/
 *.pyc
+
+# Official portable POWER-Z runtime (see vendor/powerz/manifest.json)
+/vendor/powerz/official/
+
+# DSLogic 官方内核构建产物（重新构建见 native/dslogic-core/README.md）
+/native/dslogic-core/build/
+/native/dslogic-core/bin/
+

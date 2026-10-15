@@ -731,16 +731,40 @@ class JiraPlatformView {
 
     const drawer = this.inspectorContainer.createDiv({ cls: 'tw-jira-inspector-drawer' });
 
+    // Esc to close (matches the close button hint)
+    if (this._inspectorEscHandler) document.removeEventListener('keydown', this._inspectorEscHandler);
+    this._inspectorEscHandler = (e) => {
+      if (e.key === 'Escape' && this.inspectorContainer && this.inspectorContainer.style.display !== 'none') {
+        e.stopPropagation();
+        this.closeInspector();
+      }
+    };
+    document.addEventListener('keydown', this._inspectorEscHandler);
+
     // 1. Header
     const head = drawer.createDiv({ cls: 'tw-inspector-header' });
+    const catKey = this.categorizeStatus(issue.status, issue.statusCategory);
+    const pCls = resolveKanbanPriorityClass(issue.priority);
     head.innerHTML = `
       <div class="tw-ins-head-left">
-        <span class="tw-ins-key">${escapeHtml(issue.key)}</span>
-        <span class="tw-ins-status-badge">${escapeHtml(issue.status)}</span>
+        <span class="tw-ins-key" title="点击复制工单号">${escapeHtml(issue.key)}</span>
+        <span class="tw-ins-status-badge cat-${catKey}">${escapeHtml(issue.status)}</span>
+        ${issue.priority ? `<span class="tw-kcard-priority ${pCls}">${escapeHtml(issue.priority)}</span>` : ''}
       </div>
-      <button class="tw-ins-close-btn" title="关闭 (Esc)">${getIconPark('close', 14)}</button>
+      <div class="tw-ins-head-actions">
+        ${issue.url ? `<button class="tw-ins-icon-btn" id="twInsBtnExt" title="${escapeAttr(issue.url)}">${getIconPark('external', 13)}</button>` : ''}
+        <button class="tw-ins-icon-btn" id="twInsBtnClose" title="关闭 (Esc)">${getIconPark('close', 13)}</button>
+      </div>
     `;
-    head.querySelector('.tw-ins-close-btn').onclick = () => this.closeInspector();
+    head.querySelector('#twInsBtnClose').onclick = () => this.closeInspector();
+    const btnExt = head.querySelector('#twInsBtnExt');
+    if (btnExt) btnExt.onclick = () => window.open(issue.url, '_blank');
+    const keyEl = head.querySelector('.tw-ins-key');
+    keyEl.onclick = () => {
+      navigator.clipboard.writeText(issue.key);
+      keyEl.classList.add('copied');
+      setTimeout(() => keyEl.classList.remove('copied'), 1200);
+    };
 
     // 2. Content Body
     const body = drawer.createDiv({ cls: 'tw-inspector-body' });
@@ -751,12 +775,12 @@ class JiraPlatformView {
     // Transitions Section (Status Flow Buttons)
     const transSec = body.createDiv({ cls: 'tw-ins-transitions-sec' });
     transSec.innerHTML = `
-      <div class="tw-ins-sec-title">
+      <div class="tw-ins-sec-title" title="端内快速流转，无需跳转网页">
         <span>${getIconPark('refresh', 12)}</span>
-        <span>可视化状态流转 (端内快速操作无需跳转网页)</span>
+        <span>流转</span>
       </div>
       <div class="tw-transitions-btn-group" id="twTransitionBtnGroup">
-        <span class="tw-trans-loading">正在检测可用工作流...</span>
+        <span class="tw-trans-loading">检测流转…</span>
       </div>
       <div class="tw-trans-inline-form-container" id="twTransInlineFormContainer" style="display:none;"></div>
       <div class="tw-trans-feedback" id="twTransFeedback" style="display:none;"></div>
@@ -779,38 +803,34 @@ class JiraPlatformView {
       </div>
       <div class="tw-meta-item">
         <span class="tw-meta-label">报告人</span>
-        <span class="tw-meta-val">${escapeHtml(issue.reporter || 'ϵͳ')}</span>
+        <span class="tw-meta-val">${escapeHtml(issue.reporter || '系统')}</span>
       </div>
       <div class="tw-meta-item">
-        <span class="tw-meta-label">优先级</span>
-        <span class="tw-meta-val">${escapeHtml(issue.priority || 'Medium')}</span>
-      </div>
-      <div class="tw-meta-item">
-        <span class="tw-meta-label">更新时间</span>
-        <span class="tw-meta-val">${escapeHtml(issue.updated || 'δ֪')}</span>
+        <span class="tw-meta-label">更新</span>
+        <span class="tw-meta-val">${escapeHtml(issue.updated || '未知')}</span>
       </div>
       ${issue.created ? `
         <div class="tw-meta-item">
-          <span class="tw-meta-label">创建时间</span>
+          <span class="tw-meta-label">创建</span>
           <span class="tw-meta-val">${escapeHtml(issue.created)}</span>
         </div>
       ` : ''}
       ${(issue.components && issue.components.length > 0) ? `
         <div class="tw-meta-item full">
-          <span class="tw-meta-label">模块组件</span>
-          <span class="tw-meta-val">${escapeHtml(issue.components.join(', '))}</span>
+          <span class="tw-meta-label">模块</span>
+          <span class="tw-meta-val tw-meta-chips">${issue.components.map(c => `<span class="tw-ins-chip">${escapeHtml(c)}</span>`).join('')}</span>
         </div>
       ` : ''}
     `;
 
     // Description Section
     const descSec = body.createDiv({ cls: 'tw-ins-desc-sec' });
-    descSec.createDiv({ cls: 'tw-ins-sec-title', text: '工单详细描述 (Description)' });
+    descSec.createDiv({ cls: 'tw-ins-sec-title', text: '描述' });
     const descBox = descSec.createDiv({ cls: 'tw-ins-desc-box' });
     if (issue.description && issue.description.trim()) {
       descBox.innerHTML = escapeHtml(issue.description).replace(/\n/g, '<br>');
     } else {
-      descBox.innerHTML = '<span class="tw-ins-desc-empty">暂无详细描述说明</span>';
+      descBox.innerHTML = '<span class="tw-ins-desc-empty">暂无描述</span>';
     }
 
     // Activity Log & Comments Section
@@ -819,21 +839,20 @@ class JiraPlatformView {
       <div class="tw-ins-sec-header">
         <div class="tw-ins-sec-title">
           <span>${getIconPark('topic', 13)}</span>
-          <span>活动日志与注释</span>
+          <span>注释</span>
           <span class="tw-ins-comments-count" id="twInsCommentsCount"></span>
         </div>
-        <button class="tw-ins-refresh-comments-btn" id="twBtnRefreshComments" title="刷新注释列表">
+        <button class="tw-ins-refresh-comments-btn" id="twBtnRefreshComments" title="刷新注释">
           ${getIconPark('refresh', 12)}
         </button>
       </div>
 
       <!-- Add comment box -->
       <div class="tw-ins-add-comment-box">
-        <textarea class="tw-ins-comment-input" id="twInsCommentInput" placeholder="添加注释 (支持多行排查记录，Ctrl+Enter 快捷提交)..." rows="3"></textarea>
+        <textarea class="tw-ins-comment-input" id="twInsCommentInput" placeholder="添加注释… (Ctrl+Enter 提交)" rows="3"></textarea>
         <div class="tw-ins-comment-actions">
-          <span class="tw-ins-comment-tip">Ctrl+Enter 快速提交至 Jira</span>
           <button class="tw-ins-submit-comment-btn" id="twBtnSubmitComment" disabled>
-            ${getIconPark('send', 12)} <span>提交注释</span>
+            ${getIconPark('send', 12)} <span>提交</span>
           </button>
         </div>
       </div>
@@ -842,7 +861,7 @@ class JiraPlatformView {
       <div class="tw-ins-comments-list" id="twInsCommentsList">
         <div class="tw-ins-comments-loading">
           <div class="tw-loading-spin"></div>
-          <span>正在加载活动日志与注释...</span>
+          <span>加载注释…</span>
         </div>
       </div>
     `;
@@ -909,45 +928,38 @@ class JiraPlatformView {
     const footer = drawer.createDiv({ cls: 'tw-inspector-footer' });
 
     // Copy Markdown Link Button
-    const btnCopy = footer.createEl('button', { cls: 'tw-ins-action-btn primary' });
-    btnCopy.innerHTML = `${getIconPark('copy', 12)} <span>复制 Markdown 引用</span>`;
+    const btnCopy = footer.createEl('button', { cls: 'tw-ins-action-btn primary', title: '复制 Markdown 引用链接' });
+    btnCopy.innerHTML = `${getIconPark('copy', 12)} <span>复制引用</span>`;
     btnCopy.onclick = () => {
       const mdLink = `[${issue.key}](${issue.url}): ${issue.summary}`;
       navigator.clipboard.writeText(mdLink);
       btnCopy.classList.add('copied');
-      btnCopy.querySelector('span').textContent = '已复制引用！';
+      btnCopy.querySelector('span').textContent = '已复制';
       setTimeout(() => {
         btnCopy.classList.remove('copied');
-        btnCopy.querySelector('span').textContent = '复制 Markdown 引用';
+        btnCopy.querySelector('span').textContent = '复制引用';
       }, 1500);
     };
 
     // Add to 00-Inbox/03-Quick-Note Button
     const btnQuickNote = footer.createEl('button', {
       cls: 'tw-ins-action-btn quicknote',
-      title: '将此问题与排查上下文存入 00-Inbox/03-Quick-Note 进行复杂排查记录'
+      title: '存入 00-Inbox/03-Quick-Note 进行排查记录'
     });
-    btnQuickNote.innerHTML = `${getIconPark('file-text', 12)} <span>存入 Quick-Note</span>`;
+    btnQuickNote.innerHTML = `${getIconPark('file-text', 12)} <span>存笔记</span>`;
     btnQuickNote.onclick = async () => {
       await this.exportIssueToQuickNote(issue, btnQuickNote);
     };
 
     // Ask Agent Hub Button
-    const btnAgent = footer.createEl('button', { cls: 'tw-ins-action-btn secondary' });
-    btnAgent.innerHTML = `${getIconPark('robot', 13)} <span>向 Agent 提问此工单</span>`;
+    const btnAgent = footer.createEl('button', { cls: 'tw-ins-action-btn secondary', title: '向 Agent 提问此工单' });
+    btnAgent.innerHTML = `${getIconPark('robot', 13)} <span>问 Agent</span>`;
     btnAgent.onclick = () => {
       if (this.onAskAgent) {
         this.onAskAgent(issue);
         this.closeInspector();
       }
     };
-
-    // Open Web Jira Button
-    if (issue.url) {
-      const btnExt = footer.createEl('button', { cls: 'tw-ins-action-btn tertiary' });
-      btnExt.innerHTML = `${getIconPark('external', 12)} <span>网页打开</span>`;
-      btnExt.onclick = () => window.open(issue.url, '_blank');
-    }
 
     // Backdrop click
     this.inspectorContainer.onclick = (e) => {
@@ -1057,14 +1069,17 @@ class JiraPlatformView {
 
     const renderedKeys = new Set(['comment']);
 
-    // 1. Resolution field (if transition is to resolve or resolution is in fields)
-    const showResolution = isResolve || Boolean(fields.resolution);
+    // 1. Resolution field — only editable when the transition screen actually exposes it;
+    //    otherwise the workflow post-function sets it and sending it makes Jira reject the call.
+    const resMeta = fields.resolution || null;
+    const hasFieldMeta = fieldList.length > 0;
     let resolutionHtml = '';
-    if (showResolution) {
+    if (resMeta || (isResolve && !hasFieldMeta)) {
       renderedKeys.add('resolution');
+      const resRequired = resMeta ? Boolean(resMeta.required) : false;
       let resolutionOptions = [];
-      if (fields.resolution?.allowedValues && fields.resolution.allowedValues.length > 0) {
-        resolutionOptions = fields.resolution.allowedValues.map(v => ({
+      if (resMeta?.allowedValues && resMeta.allowedValues.length > 0) {
+        resolutionOptions = resMeta.allowedValues.map(v => ({
           id: v.id,
           name: v.name || v.value,
           label: v.name || v.value
@@ -1082,14 +1097,23 @@ class JiraPlatformView {
 
       resolutionHtml = `
         <div class="tw-trans-form-item" data-item-key="resolution">
-          <label class="tw-trans-form-label">解决结果 (Resolution) <span class="tw-req-star">*</span></label>
-          <select class="tw-trans-form-select" id="twSelectResolution" data-field-key="resolution" data-field-type="resolution" required>
+          <label class="tw-trans-form-label">解决结果 (Resolution) ${resRequired ? '<span class="tw-req-star">*</span>' : '<span style="color:var(--text-muted);font-weight:normal;font-size:10.5px;">(可选)</span>'}</label>
+          <select class="tw-trans-form-select" id="twSelectResolution" data-field-key="resolution" data-field-type="resolution" ${resRequired ? 'required' : ''}>
+            ${resRequired ? '' : '<option value="">-- 自动（工作流） --</option>'}
             ${resolutionOptions.map((opt, i) => `
-              <option value="${escapeAttr(opt.name)}" data-id="${escapeAttr(opt.id || '')}" ${i === 0 ? 'selected' : ''}>
+              <option value="${escapeAttr(opt.name)}" data-id="${escapeAttr(opt.id || '')}" ${resRequired && i === 0 ? 'selected' : ''}>
                 ${escapeHtml(opt.label)}
               </option>
             `).join('')}
           </select>
+        </div>
+      `;
+    } else if (isResolve) {
+      renderedKeys.add('resolution');
+      resolutionHtml = `
+        <div class="tw-trans-form-item" data-item-key="resolution">
+          <label class="tw-trans-form-label">解决结果</label>
+          <span style="color:var(--text-muted);font-size:11.5px;">工作流自动设置</span>
         </div>
       `;
     }
@@ -1410,7 +1434,7 @@ class JiraPlatformView {
     listEl.innerHTML = `
       <div class="tw-ins-comments-loading">
         <div class="tw-loading-spin"></div>
-        <span>正在加载活动日志与注释...</span>
+        <span>加载注释…</span>
       </div>
     `;
 
@@ -1424,7 +1448,7 @@ class JiraPlatformView {
         listEl.innerHTML = `
           <div class="tw-ins-comments-empty">
             <span class="tw-empty-icon">${getIconPark('info-circle', 13)}</span>
-            <span>暂无注释记录，您可在上方输入框添加第一条处理注释</span>
+            <span>暂无注释</span>
           </div>
         `;
         return;
@@ -1531,7 +1555,7 @@ class JiraPlatformView {
     lines.push(`status: "${issue.status || ''}"`);
     lines.push(`priority: "${issue.priority || 'Medium'}"`);
     lines.push(`assignee: "${issue.assignee || '未指派'}"`);
-    lines.push(`reporter: "${issue.reporter || 'ϵͳ'}"`);
+    lines.push(`reporter: "${issue.reporter || '系统'}"`);
     lines.push('tags:');
     lines.push('  - jira');
     lines.push('  - quick-note');
@@ -1625,6 +1649,10 @@ class JiraPlatformView {
   }
 
   closeInspector() {
+    if (this._inspectorEscHandler) {
+      document.removeEventListener('keydown', this._inspectorEscHandler);
+      this._inspectorEscHandler = null;
+    }
     if (this.inspectorContainer) {
       this.inspectorContainer.style.display = 'none';
       this.inspectorContainer.empty();

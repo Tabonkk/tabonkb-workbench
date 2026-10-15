@@ -74,6 +74,16 @@ const DEFAULT_SETTINGS = {
     secretName: 'tabonkb-gerrit-password',
     timeout: 15000,
     readonly: true
+  },
+  dsh: {
+    enabled: true,
+    port: 3080,
+    autoStart: true,
+    profile: 'tabonkb',
+    // 方案A (2026-10-01): 默认关闭 —— 该定制 CSS 与 DSH 原生 Grid 布局引擎冲突,
+    // 会导致右侧留白、原生宽度拖拽失效与右栏面板被裁切, 仅在显式开启时注入
+    layoutTweaks: false,
+    customNodePath: ''
   }
 };
 
@@ -457,6 +467,13 @@ class TabonKBSettingTab extends PluginSettingTab {
               cleanToken = cleanToken.slice(1, -1).trim();
             }
 
+            // Auto-extract cookie if user pasted a cURL command or raw request headers
+            const curlCookieMatch = cleanToken.match(/(?:-H|--header)\s+['"][Cc]ookie:\s*([^'"]+)['"]/i) ||
+                                    cleanToken.match(/(?:^|\n)[Cc]ookie:\s*([^\r\n]+)/i);
+            if (curlCookieMatch) {
+              cleanToken = curlCookieMatch[1].trim();
+            }
+
             // Smart merging: keep existing session-token if user provides document.cookie without HttpOnly session-token
             const existing = await this.getCredential(niceConfig.secretName);
             if (existing) {
@@ -501,6 +518,11 @@ class TabonKBSettingTab extends PluginSettingTab {
                 let toSave = pendingNiceToken.trim();
                 if ((toSave.startsWith("'") && toSave.endsWith("'")) || (toSave.startsWith('"') && toSave.endsWith('"'))) {
                   toSave = toSave.slice(1, -1).trim();
+                }
+                const curlCookieMatch = toSave.match(/(?:-H|--header)\s+['"][Cc]ookie:\s*([^'"]+)['"]/i) ||
+                                        toSave.match(/(?:^|\n)[Cc]ookie:\s*([^\r\n]+)/i);
+                if (curlCookieMatch) {
+                  toSave = curlCookieMatch[1].trim();
                 }
                 const existing = await this.getCredential(niceConfig.secretName);
                 if (existing && !toSave.includes('__Secure-next-auth.session-token')) {
@@ -1253,6 +1275,88 @@ class TabonKBSettingTab extends PluginSettingTab {
               btn.setDisabled(false);
               btn.setButtonText('测试 Gerrit 连通性');
             }
+          });
+      });
+
+    // =========================================================================
+    // DeepSeek Harness (DSH) 桌面版智能体引擎配置
+    // =========================================================================
+    containerEl.createEl('h3', { text: 'DeepSeek Harness (DSH) 桌面引擎' });
+    const dshCfg = this.plugin.settings.dsh = this.plugin.settings.dsh || Object.assign({}, DEFAULT_SETTINGS.dsh);
+
+    new Setting(containerEl)
+      .setName('启用 DSH 引擎')
+      .setDesc('开启后，工作台可拉起本地 DeepSeek Harness 守护进程并提供桌面工作室视图与 Agent Hub 双模支持')
+      .addToggle(toggle => {
+        toggle
+          .setValue(dshCfg.enabled !== false)
+          .onChange(async (val) => {
+            dshCfg.enabled = val;
+            await this.plugin.saveSettings();
+          });
+      });
+
+    new Setting(containerEl)
+      .setName('本地服务端口 (Port)')
+      .setDesc('DSH 桌面服务默认绑定端口，若被占用将自动递增寻优，默认 3080')
+      .addText(text => {
+        text
+          .setPlaceholder('3080')
+          .setValue(String(dshCfg.port || 3080))
+          .onChange(async (val) => {
+            const num = parseInt(val.trim(), 10);
+            dshCfg.port = isNaN(num) ? 3080 : num;
+            await this.plugin.saveSettings();
+          });
+      });
+
+    new Setting(containerEl)
+      .setName('启动自启')
+      .setDesc('在 Obsidian 工作台加载时自动初始化 DSH 守护管理器')
+      .addToggle(toggle => {
+        toggle
+          .setValue(dshCfg.autoStart !== false)
+          .onChange(async (val) => {
+            dshCfg.autoStart = val;
+            await this.plugin.saveSettings();
+          });
+      });
+
+    new Setting(containerEl)
+      .setName('工作区专属 Profile')
+      .setDesc('DSH 配置 Profile 名称，默认 tabonkb（对应 .dsh/profiles/tabonkb/）')
+      .addText(text => {
+        text
+          .setPlaceholder('tabonkb')
+          .setValue(dshCfg.profile || 'tabonkb')
+          .onChange(async (val) => {
+            dshCfg.profile = val.trim() || 'tabonkb';
+            await this.plugin.saveSettings();
+          });
+      });
+
+    new Setting(containerEl)
+      .setName('定制 UI 微调')
+      .setDesc('实验性 (默认关闭)：将 DSH 导航轨吸附至最右侧。已知会破坏原生会话宽度拖拽与右侧面板覆盖逻辑并造成留白，切换后请重开 Harness 页签')
+      .addToggle(toggle => {
+        toggle
+          .setValue(dshCfg.layoutTweaks === true)
+          .onChange(async (val) => {
+            dshCfg.layoutTweaks = val;
+            await this.plugin.saveSettings();
+          });
+      });
+
+    new Setting(containerEl)
+      .setName('Node 可执行路径')
+      .setDesc('留空则自动探测 %APPDATA%\\node-v*\\node.exe 与当前 Node 进程')
+      .addText(text => {
+        text
+          .setPlaceholder('C:\\Users\\...\\node.exe')
+          .setValue(dshCfg.customNodePath || '')
+          .onChange(async (val) => {
+            dshCfg.customNodePath = val.trim();
+            await this.plugin.saveSettings();
           });
       });
   }

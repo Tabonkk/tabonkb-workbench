@@ -1,4 +1,5 @@
 const { getIconPark } = require('../ui/iconpark.js');
+const { NotionAiEmbed } = require('./notion-embed.js');
 
 /**
  * ExploreView: Handles the "探索" tab inside TabonKB Workbench.
@@ -51,7 +52,7 @@ class ExploreView {
     try {
       if (typeof localStorage !== 'undefined') {
         const s = localStorage.getItem('tabonkb-explore-subtab');
-        if (s === 'ai' || s === 'search') return s;
+        if (s === 'ai' || s === 'search' || s === 'notion') return s;
       }
     } catch (_) {}
     return 'ai';
@@ -75,6 +76,11 @@ class ExploreView {
 
   render() {
     if (!this.containerEl) return;
+    // 切走 Notion 子页时释放 iframe 内嵌页（停止后台加载/会话）
+    if (this.notionEmbed) {
+      try { this.notionEmbed.dispose(); } catch (_) {}
+      this.notionEmbed = null;
+    }
     this.containerEl.empty();
 
     const wrap = this.containerEl.createDiv({ cls: 'tw-explore-container' });
@@ -87,8 +93,30 @@ class ExploreView {
 
     if (this.activeSubTab === 'search') {
       this.renderSearchSubView(stageBody);
+    } else if (this.activeSubTab === 'notion') {
+      this.renderNotionSubView(stageBody);
     } else {
       this.renderAiSubView(stageBody);
+    }
+  }
+
+  /**
+   * Render Sub-view 3: Notion AI 官方页面内嵌 (iframe + 头剥离豁免)
+   */
+  renderNotionSubView(parentEl) {
+    if (this.notionEmbed) {
+      try { this.notionEmbed.dispose(); } catch (_) {}
+      this.notionEmbed = null;
+    }
+    if (typeof NotionAiEmbed === 'function') {
+      this.notionEmbed = new NotionAiEmbed(parentEl);
+    } else {
+      parentEl.innerHTML = `
+        <div class="tw-card" style="padding: 32px; text-align: center; color: var(--text-muted);">
+          <div style="font-size: 32px; margin-bottom: 8px;">📓</div>
+          <div>Notion AI 组件未加载</div>
+        </div>
+      `;
     }
   }
 

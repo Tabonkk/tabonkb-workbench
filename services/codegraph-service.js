@@ -10,6 +10,18 @@ const CODEGRAPH_TREES = {
   driver: {
     label: 'A17 项目私有驱动',
     path: '/dfb/tankaikun/share/A17/sprd/01/pri_project/driver'
+  },
+  'mtk-kernel': {
+    label: '联发科内核',
+    path: '/dfb/tankaikun/share/W/03-mtk-ww/vendor_w/kernel'
+  },
+  'mtk-driver': {
+    label: '联发科项目私有驱动',
+    path: '/dfb/tankaikun/share/W/03-mtk-ww/pri_project/driver'
+  },
+  'mtk-bootloader': {
+    label: '联发科 bootloader',
+    path: '/dfb/tankaikun/share/W/03-mtk-ww/vendor_w/vendor/mediatek/proprietary/bootable'
   }
 };
 
@@ -30,7 +42,7 @@ function runCodegraphTool(name, params) {
   const treeKey = (params && params.tree) || 'kernel';
   const tree = CODEGRAPH_TREES[treeKey];
   if (!tree) {
-    return Promise.resolve('tree 只能是 kernel（展锐 6.18 内核）或 driver（pri_project/driver）。');
+    return Promise.resolve('tree 只能是 kernel（展锐 6.18 内核）、driver（A17 私有驱动）、mtk-kernel（联发科内核）、mtk-driver（联发科私有驱动）或 mtk-bootloader（联发科 lk/preloader）。');
   }
   const query = String((params && params.query) || '').trim();
   if (!query) return Promise.resolve('query 不能为空。请给符号名、路径或要查的调用关系。');

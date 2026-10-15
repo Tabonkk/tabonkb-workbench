@@ -1,0 +1,214 @@
+{
+  "migratedOn": "2026-10-12",
+  "source": "07-Project/2026-powerZ/POWER-Z KM003C 上位机免安装板",
+  "bundledPath": "official",
+  "integrity": "SHA-256 verified after move",
+  "fileCount": 41,
+  "files": [
+    {
+      "path": "chartdir70.dll",
+      "bytes": 3781632,
+      "sha256": "f0bb3c055c71cabde96e8989124ecf00f61384d04782b7a4eed6907733a816d7"
+    },
+    {
+      "path": "D3Dcompiler_47.dll",
+      "bytes": 4173928,
+      "sha256": "e994847e01a6f1e4cbdc5a864616ac262f67ee4f14db194984661a8d927ab7f4"
+    },
+    {
+      "path": "libusb-1.0.dll",
+      "bytes": 161280,
+      "sha256": "1dac95d1eafcba057cf3df73dcf419bc14f4167ef4ac92fe1f8fdcab4278b6f4"
+    },
+    {
+      "path": "msvcp140_1.dll",
+      "bytes": 31512,
+      "sha256": "b05f3dfd4e999c3e110219fb59151cbaa322757f4f3ce52b64dddc853e5c105c"
+    },
+    {
+      "path": "msvcp140_2.dll",
+      "bytes": 203544,
+      "sha256": "7d5d180c8e41b1964835b2550191e2d9054d8f4beff898ade67b3d5dd25b5101"
+    },
+    {
+      "path": "msvcp140.dll",
+      "bytes": 633152,
+      "sha256": "517cd3aac2177a357cca6032f07ad7360ee8ca212a02dd6e1301bf6cfade2094"
+    },
+    {
+      "path": "Mtools.exe",
+      "bytes": 2738688,
+      "sha256": "e4966b3ab457212e08171f90f8d03cc1bb11c5013a395b0e7ae6f67d8a73969a"
+    },
+    {
+      "path": "opengl32sw.dll",
+      "bytes": 20633208,
+      "sha256": "bca15d37fdd6dcec34a01459f7710a572b9eb7f6f8b5d382a8d66c65d65b16d5"
+    },
+    {
+      "path": "PDM.exe",
+      "bytes": 10345472,
+      "sha256": "40e3a1af596ba0614ebfff0f0a742e1b62516af0bd103f7bb266f2f2222ef5e4"
+    },
+    {
+      "path": "Qt6Core.dll",
+      "bytes": 5691024,
+      "sha256": "eaf9f64363f25524deda5e12bb0b5efcdc2477611c8b936507486bfb4627f373"
+    },
+    {
+      "path": "Qt6Gui.dll",
+      "bytes": 7661200,
+      "sha256": "97e9cbc396e54fcba316c3b8f0383ec526159ae70bb63f7ebdd9ffc0f511c143"
+    },
+    {
+      "path": "Qt6Network.dll",
+      "bytes": 1408144,
+      "sha256": "c203bc6a09ba5e9b6c272109f61a1a04d8531796a33e59015cc08bf2c07880fe"
+    },
+    {
+      "path": "Qt6SerialPort.dll",
+      "bytes": 115344,
+      "sha256": "c05ca6a2e47fa5113e7cba401e526674a07c96914ae6fe873d9d4156c102092d"
+    },
+    {
+      "path": "Qt6Svg.dll",
+      "bytes": 359056,
+      "sha256": "1decbd3d2cb252e4fb23ec966b7bd5fdc63cc0b1c51f4537afc480fe4e0bb2c2"
+    },
+    {
+      "path": "Qt6Widgets.dll",
+      "bytes": 6040208,
+      "sha256": "31336c26f42b274187dc473da01e4e1c1f0f2a6250313eb4822656d94b420264"
+    },
+    {
+      "path": "Qt6Xml.dll",
+      "bytes": 136336,
+      "sha256": "2d623a1fb8901ecc24107be17636c76f41607192b411b4e57bcdbae6ca515a1a"
+    },
+    {
+      "path": "vcruntime140_1.dll",
+      "bytes": 44312,
+      "sha256": "6cc4315daceb0522816c60678344466cb452426267f70c7faae925361674e774"
+    },
+    {
+      "path": "vcruntime140.dll",
+      "bytes": 87888,
+      "sha256": "d89c7b863fc1ac3a179d45d5fe1b9fd35fb6fbd45171ca68d0d68ab1c1ad04fb"
+    },
+    {
+      "path": "doc/获取ADC数据新命令.pdf",
+      "bytes": 137779,
+      "sha256": "7994f0e4285f13bdbe3f9a71e0280fb531878517c020d0fb0a10dd88ec521d13"
+    },
+    {
+      "path": "doc/如何使用PDM功能发送自定义数据.pdf",
+      "bytes": 442671,
+      "sha256": "8e0c09c543e8d0ca0f8ba565bc47464bcbc7a5a2ecab4a639dcce4e93135477a"
+    },
+    {
+      "path": "doc/KM003C_002C_Virtual_Serial_Port_Protocol_Trigger_Bilingual.pdf",
+      "bytes": 310877,
+      "sha256": "274800ab9c8110c56d144349dffbca8af1e2daf031fc982aebd37911d0245d0c"
+    },
+    {
+      "path": "iconengines/qsvgicon.dll",
+      "bytes": 65168,
+      "sha256": "c80ad0e9a105fd610aedcd2d6f8edeb249e2874c683cf0c97a47e3cc24762b91"
+    },
+    {
+      "path": "imageformats/qgif.dll",
+      "bytes": 48784,
+      "sha256": "3b2016888f46a462d28151f55aa33b257c4d03db743643d6be88ef89f3c60e7a"
+    },
+    {
+      "path": "imageformats/qico.dll",
+      "bytes": 47248,
+      "sha256": "2e31f42740cd488d216bfb03b40e891726cefff294d18a27c0519174bb8abee1"
+    },
+    {
+      "path": "imageformats/qjpeg.dll",
+      "bytes": 456336,
+      "sha256": "3c76e4e125beb9786e50fd2f287d14a916ff4b725b7c0ba1792b70d8b73f98bb"
+    },
+    {
+      "path": "imageformats/qsvg.dll",
+      "bytes": 41104,
+      "sha256": "e7278e6f32f38be291416ac94812d6062d95ab1edddc4f2f8ef0d3d717d77b37"
+    },
+    {
+      "path": "networkinformation/qnetworklistmanager.dll",
+      "bytes": 72848,
+      "sha256": "847eccfa6fc0e44258ff3b7231e855af3fa64b70f6570be3dbb706de89ce90c9"
+    },
+    {
+      "path": "platforms/qwindows.dll",
+      "bytes": 830608,
+      "sha256": "a3bd204581461478282555b3c46b13c8d6779469a1b209b45765dbc7947a564a"
+    },
+    {
+      "path": "styles/qwindowsvistastyle.dll",
+      "bytes": 153744,
+      "sha256": "1e826a5e7dc86022a17f72980f9c9eadb0b6fb439cda43e4af5a1d3b208e91eb"
+    },
+    {
+      "path": "tls/qcertonlybackend.dll",
+      "bytes": 98960,
+      "sha256": "66a91195e8c740a21d3a9561e21d7574632272456831eb67e199b1fcb735637f"
+    },
+    {
+      "path": "tls/qopensslbackend.dll",
+      "bytes": 303760,
+      "sha256": "54ddbdde89988a81be5479803d5fb4badcfd80e8e991a200d741df0aa51fbacf"
+    },
+    {
+      "path": "tls/qschannelbackend.dll",
+      "bytes": 218768,
+      "sha256": "cd3c48a739d9ffa9e5a4568e023c64c51aecc55777ab41b5a9ef4d6e19b644f9"
+    },
+    {
+      "path": "translations/cmd.pdf",
+      "bytes": 259809,
+      "sha256": "0d2922402b3ed83415a6d74cd0acd90ab1bcdf0d73cb7af6df822d47e1088361"
+    },
+    {
+      "path": "translations/language_en.qm",
+      "bytes": 28746,
+      "sha256": "e75f80b88b12e25f21d33265ff04967e4fe7d0d3bea56b47607af47209701a41"
+    },
+    {
+      "path": "translations/language_zh_CN.qm",
+      "bytes": 26,
+      "sha256": "da258499047608f59c249628b89f4626d064326556a6f4ffeb8ef6a7d6566d63"
+    },
+    {
+      "path": "translations/pdm_en.qm",
+      "bytes": 7791,
+      "sha256": "cf6cac7b3a722295432161fd380b765c3c660dd84c0f2862ec14b83e9c89eb4c"
+    },
+    {
+      "path": "translations/pdm_zh_CN.qm",
+      "bytes": 327,
+      "sha256": "5205e39301a26cde4990eee95529ccfa33bb60b5d7d674de6dab411473e46850"
+    },
+    {
+      "path": "translations/qt_en.qm",
+      "bytes": 33,
+      "sha256": "494ac9a2b2cb2fdeced353f4a9f898ed8dcf616e9bc667438c62681e3f7f79cf"
+    },
+    {
+      "path": "translations/qt_zh_CN.qm",
+      "bytes": 136673,
+      "sha256": "98fd4b97dbec8af5cdd15f85a16c33efc77301b1aeb0469daafc04b9ab2f3570"
+    },
+    {
+      "path": "translations/qt_zh_TW.qm",
+      "bytes": 126185,
+      "sha256": "21012b2b427f8d09d31ce9cae582ca27955b478ca3dc2ec18a3068d808638c6a"
+    },
+    {
+      "path": "usb_drivers/InstallDriver.exe",
+      "bytes": 5322876,
+      "sha256": "b00808aed4eb9d590ebf516ba194c843ff5e18cdb1c10f7dcd244e99289bd3b3"
+    }
+  ]
+}

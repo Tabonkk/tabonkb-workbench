@@ -11,11 +11,12 @@
   const hostname = window.location.hostname || '';
   const isUnisoc = hostname.includes('unisoc.com');
   const isMtk = hostname.includes('mediatek.com');
+  const isNice = hostname.includes('nice188') || hostname.includes('niceaigc');
 
-  if (!isUnisoc && !isMtk) return;
+  if (!isUnisoc && !isMtk && !isNice) return;
 
-  const provider = isUnisoc ? 'unisoc' : 'mtk';
-  const providerLabel = isUnisoc ? '展锐 Uni-Support' : 'MTK Online';
+  const provider = isUnisoc ? 'unisoc' : (isMtk ? 'mtk' : 'niceaigc');
+  const providerLabel = isUnisoc ? '展锐 Uni-Support' : (isMtk ? 'MTK Online' : 'NiceAIGC');
 
   // 1. Helper to extract credentials from page context
   function getPageCredentials() {
@@ -138,11 +139,13 @@
     const pageCreds = getPageCredentials();
 
     // 2. Also query background extension cookies for full/HttpOnly cookies
+    const targetDomain = isUnisoc ? 'unisoc.com' : (isMtk ? 'mediatek.com' : 'nice188.com');
     chrome.runtime.sendMessage({
       action: 'getCookies',
-      domain: isUnisoc ? 'unisoc.com' : 'mediatek.com'
+      domain: targetDomain,
+      url: window.location.href
     }, async (resp) => {
-      let finalToken = pageCreds.token || resp?.token || '';
+      let finalToken = isNice ? (resp?.cookieStr || pageCreds.cookie) : (pageCreds.token || resp?.token || '');
       let finalCookie = resp?.cookieStr || pageCreds.cookie;
 
       // Fallback: if token still not isolated, check if cookie contains unisupport token
@@ -166,6 +169,7 @@
         provider: provider,
         token: finalToken || finalCookie,
         cookie: finalCookie,
+        url: window.location.origin,
         username: pageCreds.username
       }, (syncRes) => {
         btn.classList.remove('loading');
