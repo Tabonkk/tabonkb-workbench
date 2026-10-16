@@ -190,6 +190,12 @@ class LogicToolView {
     document.addEventListener('pointerdown', this._docPointerDown, true);
     document.addEventListener('keydown', this._docKeyDown);
 
+    try {
+      if (typeof TabonKBThemeEngine !== 'undefined') {
+        const p = this.plugin || (this.app?.plugins?.plugins?.['tabonkb-workbench']);
+        TabonKBThemeEngine.applyGlobalTheme(p, null);
+      }
+    } catch (_) {}
     this._init();
   }
 
@@ -225,6 +231,28 @@ class LogicToolView {
     this.saveBtn.innerHTML = `${laIconPark('file-text', 12)}<span>存卡</span>`;
     this.saveBtn.disabled = true;
     this.saveBtn.onclick = () => this._onSaveCard();
+
+    const followInit = !(this.plugin && this.plugin.settings && this.plugin.settings.dsviewFollowTheme === false);
+    this.themeBtn = this.barEl.createEl('button', {
+      cls: `tw-la-btn ${followInit ? 'on' : ''}`,
+      title: '切换 DSView 色板策略：开启时跟随当前深色/VS Code 主题色板，关闭时锁定 DSView 原生暗黑 (#1f1f1f)'
+    });
+    this.themeBtn.innerHTML = `${laIconPark('palette', 12)}<span>${followInit ? '主题色板' : '原生暗黑'}</span>`;
+    this.themeBtn.onclick = async () => {
+      const p = this.plugin || (this.app?.plugins?.plugins?.['tabonkb-workbench']);
+      const cur = !(p && p.settings && p.settings.dsviewFollowTheme === false);
+      const next = !cur;
+      if (p && p.settings) {
+        p.settings.dsviewFollowTheme = next;
+        if (typeof p.saveSettings === 'function') await p.saveSettings();
+      }
+      this.themeBtn.classList.toggle('on', next);
+      this.themeBtn.innerHTML = `${laIconPark('palette', 12)}<span>${next ? '主题色板' : '原生暗黑'}</span>`;
+      if (typeof TabonKBThemeEngine !== 'undefined') {
+        TabonKBThemeEngine.applyGlobalTheme(p, null);
+      }
+      if (this.waveView) this.waveView.requestRedraw();
+    };
 
     this.statusEl = this.barEl.createDiv({ cls: 'tw-la-status' });
   }

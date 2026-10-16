@@ -335,6 +335,843 @@ if (typeof module !== 'undefined' && module.exports) {
   
 }
 
+/* ==========================================================================
+   TabonKB Workbench Theme Engine (ui/theme-engine.js)
+   Integrates 44 Skins (2 Workbench Built-in + 42 dsh-antutu-skins v1.5.1)
+   - Three-Layer Token Bridge (--g-*, --bt-*, --bp-*, --in-*, --pop-*, --seg-*, --nav-on-*)
+   - Searchable Hover-Preview Theme Library Popover (ThemeLibrary)
+   - Cross-Frame DSH (dt.skin / dt.wall) Synchronization
+   - DSView Logic Analyzer (.tw-la-root) Dark / VS Code Theme Palette Adapter
+   ========================================================================== */
+
+const TW_SKINS_CATALOG = [{"id": "fresh", "group": "workbench", "name": "清新莫兰迪 (Fresh)", "en": "Morandi Fresh", "modes": ["light", "dark"], "mode": "light", "desc": "当前工作台内置的莫兰迪紫绸毛玻璃主题：20px 大圆角、半透白磨砂卡片、胶囊搜索与熏衣紫强调色；深色为静谧深紫岩。", "traits": ["工作台内置", "紫绸毛玻璃", "20px大圆角"], "swatch": ["#9C7CD8", "#EBDFF5", "#382650"], "recommended": true, "pv": {"light": {"bg": "radial-gradient(ellipse at 18% 15%, rgba(182,156,232,0.38), transparent 55%), radial-gradient(ellipse at 85% 85%, rgba(235,200,245,0.42), transparent 55%), linear-gradient(135deg, #EBDFF5 0%, #F3ECFA 50%, #E6D7F2 100%)", "bar": "rgba(238,228,252,0.55)", "side": "rgba(238,228,252,0.55)", "card": "rgba(255,255,255,0.82)", "line": "rgba(255,255,255,0.88)", "ink": "#382650", "mute": "#6F5884", "acc": "#9C7CD8", "acc2": "#8760CD", "ok": "#2E8B57", "r": 14, "bw": 1, "sh": "0 8px 24px rgba(130,95,185,0.10)", "font": "-apple-system,\"SF Pro Text\",\"PingFang SC\",sans-serif"}, "dark": {"bg": "radial-gradient(ellipse at 12% 16%, rgba(76,58,86,0.65), transparent 50%), linear-gradient(135deg, #1D1722 0%, #261E2D 45%, #302639 100%)", "bar": "rgba(38,30,45,0.80)", "side": "rgba(38,30,45,0.80)", "card": "rgba(42,33,50,0.82)", "line": "rgba(189,168,196,0.14)", "ink": "#F8F3F8", "mute": "#BDA8C4", "acc": "#9D83A5", "acc2": "#B597E8", "ok": "#4ADE80", "r": 14, "bw": 1, "sh": "0 12px 28px rgba(0,0,0,0.45)", "font": "-apple-system,\"SF Pro Text\",\"PingFang SC\",sans-serif"}}, "resolved": {"light": {"--sk-scheme": "light", "--g-canvas": "#EBDFF5", "--sk-bg": "radial-gradient(65% 55% at 14% 12%, rgba(182,156,232,0.42), transparent 65%), radial-gradient(60% 55% at 88% 18%, rgba(242,196,230,0.34), transparent 65%), radial-gradient(70% 60% at 50% 95%, rgba(196,175,240,0.38), transparent 70%), linear-gradient(135deg, #EBDFF5 0%, #F4EEFA 52%, #E5D4F0 100%)", "--sk-bg-size": "100% 100%", "--sk-bg-pos": "0 0", "--sk-bg-rep": "no-repeat", "--g-m1": "rgba(238, 228, 252, 0.52)", "--g-m2": "rgba(255, 255, 255, 0.78)", "--g-m3": "rgba(255, 255, 255, 0.90)", "--g-m4": "rgba(245, 238, 253, 0.88)", "--g-fill": "rgba(156, 124, 216, 0.10)", "--g-fill-2": "rgba(156, 124, 216, 0.18)", "--g-b1": "blur(16px) saturate(135%)", "--g-b2": "blur(28px) saturate(135%)", "--g-b3": "blur(32px) saturate(140%)", "--g-b4": "blur(24px) saturate(140%)", "--g-edge": "rgba(200, 180, 230, 0.35)", "--g-edge2": "rgba(255, 255, 255, 0.88)", "--g-rim": "rgba(255, 255, 255, 0.88)", "--g-sep": "rgba(200, 180, 230, 0.28)", "--g-spec": "inset 0 1px 1px rgba(255, 255, 255, 0.95)", "--g-sh1": "0 8px 30px rgba(130, 95, 185, 0.08)", "--g-sh2": "0 12px 34px rgba(130, 95, 185, 0.14)", "--g-sh3": "0 16px 40px rgba(130, 95, 185, 0.18)", "--g-r1": "8px", "--g-r2": "12px", "--g-r3": "16px", "--g-r4": "20px", "--g-r5": "24px", "--g-font": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", \"PingFang SC\", \"Microsoft YaHei\", sans-serif", "--g-mono": "\"JetBrains Mono\", \"SF Mono\", Consolas, monospace", "--g-blue": "#8760CD", "--g-teal": "#0D9488", "--g-indigo": "#6D28D9", "--g-green": "#10B981", "--g-amber": "#D97706", "--g-red": "#EF4444", "--g-purple": "#9C7CD8", "--g-gray": "#6F5884", "--g-accent-fill": "linear-gradient(135deg, #9C7CD8 0%, #8760CD 100%)", "--g-label": "#382650", "--g-label-2": "#553D70", "--g-label-3": "#6F5884", "--sk-on-accent": "#FFFFFF", "--sk-tint": "rgba(156, 124, 216, 0.16)", "--sk-sel": "rgba(156, 124, 216, 0.28)", "--sk-focus": "#9C7CD8", "--logo-bg": "#B69CE8", "--logo-fg": "#FFFFFF", "--logo-sh": "0 4px 14px rgba(140, 100, 210, 0.28)", "--pop-bg": "rgba(255, 255, 255, 0.95)", "--pop-bd": "1px solid rgba(220, 205, 240, 0.6)", "--pop-r": "16px", "--pop-sh": "0 14px 36px rgba(120, 90, 170, 0.16)", "--pop-hv-bg": "rgba(235, 222, 252, 0.6)", "--pop-hv-fg": "#382650", "--bt-bg": "rgba(255, 255, 255, 0.82)", "--bt-fg": "#4A3366", "--bt-bd": "1px solid rgba(220, 205, 240, 0.6)", "--bt-r": "999px", "--bp-bg": "linear-gradient(135deg, #9C7CD8 0%, #8760CD 100%)", "--bp-fg": "#FFFFFF", "--bp-sh": "0 4px 14px rgba(135, 96, 205, 0.32)", "--in-bg": "rgba(255, 255, 255, 0.90)", "--in-bd": "1px solid rgba(200, 180, 230, 0.65)", "--in-r": "18px", "--in-sh": "0 8px 24px rgba(110, 75, 165, 0.10)", "--in-fc": "0 0 0 3px rgba(156, 124, 216, 0.24)", "--in-fc-bd": "#9C7CD8", "--ch-r": "999px", "--nav-on-bg": "rgba(255, 255, 255, 0.45)", "--nav-on-fg": "#482875", "--nav-on-sh": "0 4px 16px rgba(120, 90, 160, 0.10), inset 0 1px 1.5px rgba(255, 255, 255, 0.8)"}, "dark": {"--sk-scheme": "dark", "--g-canvas": "#1D1722", "--sk-bg": "radial-gradient(ellipse at 12% 16%, rgba(76, 58, 86, 0.65) 0%, transparent 50%), radial-gradient(ellipse at 88% 14%, rgba(88, 67, 100, 0.55) 0%, transparent 45%), linear-gradient(135deg, #1D1722 0%, #261E2D 45%, #302639 100%)", "--sk-bg-size": "100% 100%", "--sk-bg-pos": "0 0", "--sk-bg-rep": "no-repeat", "--g-m1": "rgba(38, 30, 45, 0.82)", "--g-m2": "rgba(42, 33, 50, 0.78)", "--g-m3": "rgba(52, 41, 62, 0.88)", "--g-m4": "rgba(42, 33, 50, 0.90)", "--g-fill": "rgba(189, 168, 196, 0.10)", "--g-fill-2": "rgba(189, 168, 196, 0.18)", "--g-b1": "blur(16px) saturate(130%)", "--g-b2": "blur(28px) saturate(130%)", "--g-b3": "blur(32px) saturate(135%)", "--g-b4": "blur(24px) saturate(135%)", "--g-edge": "rgba(189, 168, 196, 0.14)", "--g-edge2": "rgba(189, 168, 196, 0.22)", "--g-rim": "rgba(189, 168, 196, 0.16)", "--g-sep": "rgba(189, 168, 196, 0.12)", "--g-spec": "inset 0 1px 0 rgba(255, 255, 255, 0.08)", "--g-sh1": "0 12px 36px -6px rgba(0, 0, 0, 0.5)", "--g-sh2": "0 16px 40px -6px rgba(0, 0, 0, 0.6)", "--g-sh3": "0 22px 50px -8px rgba(0, 0, 0, 0.72)", "--g-r1": "8px", "--g-r2": "12px", "--g-r3": "16px", "--g-r4": "20px", "--g-r5": "24px", "--g-font": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", \"PingFang SC\", \"Microsoft YaHei\", sans-serif", "--g-mono": "\"JetBrains Mono\", \"SF Mono\", Consolas, monospace", "--g-blue": "#B597E8", "--g-teal": "#2DD4BF", "--g-indigo": "#A78BFA", "--g-green": "#34D399", "--g-amber": "#FBBF24", "--g-red": "#F87171", "--g-purple": "#C084FC", "--g-gray": "#BDA8C4", "--g-accent-fill": "linear-gradient(135deg, #9D83A5 0%, #8760CD 100%)", "--g-label": "#F8F3F8", "--g-label-2": "#D9C9DE", "--g-label-3": "#BDA8C4", "--sk-on-accent": "#FFFFFF", "--sk-tint": "rgba(181, 151, 232, 0.16)", "--sk-sel": "rgba(181, 151, 232, 0.28)", "--sk-focus": "#B597E8", "--logo-bg": "#9D83A5", "--logo-fg": "#FFFFFF", "--logo-sh": "0 4px 14px rgba(0, 0, 0, 0.35)", "--pop-bg": "rgba(42, 33, 50, 0.95)", "--pop-bd": "1px solid rgba(189, 168, 196, 0.22)", "--pop-r": "16px", "--pop-sh": "0 18px 44px rgba(0, 0, 0, 0.65)", "--pop-hv-bg": "rgba(157, 131, 165, 0.24)", "--pop-hv-fg": "#FFFFFF", "--bt-bg": "rgba(50, 40, 60, 0.85)", "--bt-fg": "#F8F3F8", "--bt-bd": "1px solid rgba(189, 168, 196, 0.2)", "--bt-r": "999px", "--bp-bg": "linear-gradient(135deg, #9C7CD8 0%, #7850C0 100%)", "--bp-fg": "#FFFFFF", "--bp-sh": "0 4px 16px rgba(0, 0, 0, 0.4)", "--in-bg": "rgba(50, 40, 60, 0.68)", "--in-bd": "1px solid rgba(189, 168, 196, 0.22)", "--in-r": "18px", "--in-sh": "0 10px 28px rgba(0, 0, 0, 0.4)", "--in-fc": "0 0 0 3px rgba(181, 151, 232, 0.25)", "--in-fc-bd": "#B597E8", "--ch-r": "999px", "--nav-on-bg": "rgba(157, 131, 165, 0.32)", "--nav-on-fg": "#FFFFFF", "--nav-on-sh": "0 4px 14px rgba(0, 0, 0, 0.35)"}}, "scenario": "莫兰迪紫绸磨砂，适合习惯现有柔和通透氛围的日常工作"}, {"id": "standard", "group": "workbench", "name": "标准极简 (Standard)", "en": "Standard Minimal", "modes": ["light", "dark"], "mode": "light", "desc": "当前工作台内置的工程标准主题：Slate 蓝灰中性底、#2563EB 工程蓝强调、紧凑 10px 圆角卡片、清晰描边与高信息密度。", "traits": ["工作台内置", "工程蓝灰", "高密干练"], "swatch": ["#2563EB", "#F8FAFC", "#0F172A"], "recommended": true, "pv": {"light": {"bg": "#F8FAFC", "bar": "#FFFFFF", "side": "#FFFFFF", "card": "#FFFFFF", "line": "#E2E8F0", "ink": "#0F172A", "mute": "#64748B", "acc": "#2563EB", "acc2": "#10B981", "ok": "#10B981", "r": 8, "bw": 1, "sh": "0 1px 3px rgba(15,23,42,0.06)", "font": "-apple-system,\"Inter\",\"Segoe UI\",sans-serif"}, "dark": {"bg": "#0B1120", "bar": "#0F172A", "side": "#0F172A", "card": "#1E293B", "line": "#334155", "ink": "#F1F5F9", "mute": "#94A3B8", "acc": "#3B82F6", "acc2": "#10B981", "ok": "#10B981", "r": 8, "bw": 1, "sh": "0 4px 12px rgba(0,0,0,0.35)", "font": "-apple-system,\"Inter\",\"Segoe UI\",sans-serif"}}, "resolved": {"light": {"--sk-scheme": "light", "--g-canvas": "#F1F5F9", "--sk-bg": "none", "--g-m1": "#FFFFFF", "--g-m2": "#FFFFFF", "--g-m3": "#F8FAFC", "--g-m4": "#FFFFFF", "--g-fill": "rgba(15, 23, 42, 0.04)", "--g-fill-2": "rgba(15, 23, 42, 0.08)", "--g-b1": "none", "--g-b2": "none", "--g-b3": "blur(16px)", "--g-b4": "blur(20px)", "--g-edge": "#E2E8F0", "--g-edge2": "#CBD5E1", "--g-rim": "transparent", "--g-sep": "#E2E8F0", "--g-spec": "none", "--g-sh1": "0 1px 3px rgba(15, 23, 42, 0.05)", "--g-sh2": "0 4px 12px rgba(15, 23, 42, 0.08)", "--g-sh3": "0 12px 32px rgba(15, 23, 42, 0.15)", "--g-r1": "5px", "--g-r2": "7px", "--g-r3": "10px", "--g-r4": "12px", "--g-r5": "14px", "--g-font": "-apple-system, BlinkMacSystemFont, \"Inter\", \"Segoe UI\", \"PingFang SC\", sans-serif", "--g-mono": "\"JetBrains Mono\", \"SF Mono\", Consolas, monospace", "--g-blue": "#2563EB", "--g-teal": "#0D9488", "--g-indigo": "#4F46E5", "--g-green": "#10B981", "--g-amber": "#F59E0B", "--g-red": "#EF4444", "--g-purple": "#7C3AED", "--g-gray": "#64748B", "--g-accent-fill": "#2563EB", "--g-label": "#0F172A", "--g-label-2": "#334155", "--g-label-3": "#64748B", "--sk-on-accent": "#FFFFFF", "--sk-tint": "rgba(37, 99, 235, 0.10)", "--sk-sel": "rgba(37, 99, 235, 0.18)", "--sk-focus": "#2563EB", "--logo-bg": "#2563EB", "--logo-fg": "#FFFFFF", "--logo-sh": "0 2px 6px rgba(37, 99, 235, 0.25)", "--pop-bg": "rgba(255, 255, 255, 0.96)", "--pop-bd": "1px solid #E2E8F0", "--pop-r": "10px", "--pop-sh": "0 12px 32px rgba(15, 23, 42, 0.16)", "--pop-hv-bg": "#F1F5F9", "--pop-hv-fg": "#0F172A", "--bt-bg": "#FFFFFF", "--bt-fg": "#334155", "--bt-bd": "1px solid #CBD5E1", "--bt-r": "7px", "--bp-bg": "#2563EB", "--bp-fg": "#FFFFFF", "--bp-sh": "0 1px 2px rgba(37, 99, 235, 0.3)", "--in-bg": "#FFFFFF", "--in-bd": "1px solid #CBD5E1", "--in-r": "12px", "--in-sh": "0 2px 6px rgba(15, 23, 42, 0.04)", "--in-fc": "0 0 0 3px rgba(37, 99, 235, 0.16)", "--in-fc-bd": "#2563EB", "--ch-r": "6px", "--nav-on-bg": "rgba(37, 99, 235, 0.10)", "--nav-on-fg": "#2563EB", "--nav-on-sh": "inset 3px 0 0 #2563EB"}, "dark": {"--sk-scheme": "dark", "--g-canvas": "#0B1120", "--sk-bg": "none", "--g-m1": "#0F172A", "--g-m2": "#1E293B", "--g-m3": "#263349", "--g-m4": "#1E293B", "--g-fill": "rgba(255, 255, 255, 0.05)", "--g-fill-2": "rgba(255, 255, 255, 0.10)", "--g-b1": "none", "--g-b2": "none", "--g-b3": "blur(16px)", "--g-b4": "blur(20px)", "--g-edge": "#334155", "--g-edge2": "#475569", "--g-rim": "transparent", "--g-sep": "#1E293B", "--g-spec": "none", "--g-sh1": "0 2px 6px rgba(0, 0, 0, 0.35)", "--g-sh2": "0 8px 20px rgba(0, 0, 0, 0.45)", "--g-sh3": "0 16px 36px rgba(0, 0, 0, 0.6)", "--g-r1": "5px", "--g-r2": "7px", "--g-r3": "10px", "--g-r4": "12px", "--g-r5": "14px", "--g-font": "-apple-system, BlinkMacSystemFont, \"Inter\", \"Segoe UI\", \"PingFang SC\", sans-serif", "--g-mono": "\"JetBrains Mono\", \"SF Mono\", Consolas, monospace", "--g-blue": "#3B82F6", "--g-teal": "#14B8A6", "--g-indigo": "#6366F1", "--g-green": "#10B981", "--g-amber": "#F59E0B", "--g-red": "#EF4444", "--g-purple": "#A855F7", "--g-gray": "#94A3B8", "--g-accent-fill": "#3B82F6", "--g-label": "#F1F5F9", "--g-label-2": "#CBD5E1", "--g-label-3": "#94A3B8", "--sk-on-accent": "#FFFFFF", "--sk-tint": "rgba(59, 130, 246, 0.15)", "--sk-sel": "rgba(59, 130, 246, 0.25)", "--sk-focus": "#3B82F6", "--logo-bg": "#3B82F6", "--logo-fg": "#FFFFFF", "--logo-sh": "0 2px 8px rgba(59, 130, 246, 0.35)", "--pop-bg": "rgba(30, 41, 59, 0.96)", "--pop-bd": "1px solid #334155", "--pop-r": "10px", "--pop-sh": "0 16px 36px rgba(0, 0, 0, 0.55)", "--pop-hv-bg": "#334155", "--pop-hv-fg": "#F1F5F9", "--bt-bg": "#1E293B", "--bt-fg": "#E2E8F0", "--bt-bd": "1px solid #334155", "--bt-r": "7px", "--bp-bg": "#3B82F6", "--bp-fg": "#FFFFFF", "--bp-sh": "0 2px 6px rgba(59, 130, 246, 0.4)", "--in-bg": "#0F172A", "--in-bd": "1px solid #334155", "--in-r": "12px", "--in-sh": "none", "--in-fc": "0 0 0 3px rgba(59, 130, 246, 0.22)", "--in-fc-bd": "#3B82F6", "--ch-r": "6px", "--nav-on-bg": "rgba(59, 130, 246, 0.16)", "--nav-on-fg": "#60A5FA", "--nav-on-sh": "inset 3px 0 0 #3B82F6"}}, "scenario": "工程蓝灰基准，适合零干扰高密度表格与排障"}, {"id": "glass", "group": "classic", "name": "液态玻璃", "en": "Liquid Glass", "modes": ["light", "dark"], "mode": "light", "desc": "半透明磨砂玻璃叠在壁纸上，颜色全部从壁纸里取。苹果系的轻盈层次。", "traits": ["毛玻璃", "壁纸取色", "18px 圆角"], "swatch": ["#5AA9FF", "#C271E0", "#FFB9CA"], "recommended": true, "scenario": "Apple Vision 级壁纸取色磨砂玻璃，四款壁纸可选，极具呼吸感", "pv": {"light": {"bg": "linear-gradient(135deg,#C9D6FF 0%,#E7C9F5 55%,#FFD6E1 100%)", "bar": "rgba(255,255,255,.7)", "side": "rgba(255,255,255,.55)", "card": "rgba(255,255,255,.72)", "line": "rgba(255,255,255,.9)", "ink": "#1D1D1F", "mute": "#86868B", "acc": "#007AFF", "acc2": "#5856D6", "ok": "#24A148", "r": 10, "bw": 1, "sh": "0 6px 16px -8px rgba(30,45,90,.35)", "font": "-apple-system,\"SF Pro Text\",\"PingFang SC\",\"Segoe UI\",sans-serif"}, "dark": {"bg": "linear-gradient(135deg,#2A1B4D 0%,#4D2766 55%,#1B2A55 100%)", "bar": "rgba(20,22,30,.7)", "side": "rgba(30,32,44,.55)", "card": "rgba(28,30,40,.66)", "line": "rgba(255,255,255,.12)", "ink": "#F5F5F7", "mute": "#9A9AA2", "acc": "#0A84FF", "acc2": "#5E5CE6", "ok": "#30D158", "r": 10, "bw": 1, "sh": "0 8px 20px -8px rgba(0,0,0,.6)", "font": "-apple-system,\"SF Pro Text\",\"PingFang SC\",\"Segoe UI\",sans-serif"}}, "resolved": {"light": {"--g-canvas": "#CFAEE2", "--g-m1": "rgba(255,255,255,.46)", "--g-m2": "rgba(255,255,255,.64)", "--g-m3": "rgba(255,255,255,.80)", "--g-m4": "rgba(248,250,253,.78)", "--g-fill": "rgba(118,118,128,.10)", "--g-fill-2": "rgba(118,118,128,.16)", "--g-b1": "blur(12px) saturate(160%)", "--g-b2": "blur(30px) saturate(160%)", "--g-b3": "blur(40px) saturate(190%)", "--g-b4": "blur(50px) saturate(200%)", "--g-edge": "rgba(20,30,55,.08)", "--g-edge2": "rgba(20,30,55,.14)", "--g-rim": "rgba(255,255,255,.72)", "--g-sep": "rgba(60,60,67,.12)", "--g-spec": "inset 0 1px 0 rgba(255,255,255,.95), inset 0 0 0 1px rgba(255,255,255,.35)", "--g-spec-soft": "inset 0 1px 0 rgba(255,255,255,.8)", "--g-sh1": "0 0 0 .5px rgba(20,30,55,.06), 0 8px 24px -12px rgba(30,45,90,.22)", "--g-sh2": "0 0 0 .5px rgba(20,30,55,.08), 0 14px 36px -14px rgba(30,45,90,.30)", "--g-sh3": "0 0 0 .5px rgba(20,30,55,.10), 0 24px 60px -18px rgba(30,45,90,.38)", "--g-r1": "8px", "--g-r2": "10px", "--g-r3": "14px", "--g-r4": "18px", "--g-r5": "24px", "--g-blue": "#007AFF", "--g-teal": "#30B0C7", "--g-indigo": "#5856D6", "--g-green": "#24A148", "--g-amber": "#E58A00", "--g-red": "#FF3B30", "--g-purple": "#AF52DE", "--g-gray": "#8E8E93", "--g-accent-fill": "linear-gradient(180deg,#2B8CFF,#007AFF)", "--g-label": "#1D1D1F", "--g-label-2": "#515154", "--g-label-3": "#86868B", "--g-font": "-apple-system,BlinkMacSystemFont,\"SF Pro Text\",\"SF Pro Display\",\"PingFang SC\",\"Hiragino Sans GB\",\"Microsoft YaHei UI\",\"Microsoft YaHei\",\"Segoe UI\",system-ui,sans-serif", "--g-mono": "\"SF Mono\",ui-monospace,\"JetBrains Mono\",Menlo,Consolas,monospace"}, "dark": {"--g-canvas": "#4D2766", "--g-m1": "rgba(255,255,255,.05)", "--g-m2": "rgba(28,30,40,.60)", "--g-m3": "rgba(58,60,74,.72)", "--g-m4": "rgba(20,22,30,.76)", "--g-fill": "rgba(118,118,128,.22)", "--g-fill-2": "rgba(118,118,128,.32)", "--g-b1": "blur(12px) saturate(140%)", "--g-b2": "blur(30px) saturate(140%)", "--g-b3": "blur(40px) saturate(150%)", "--g-b4": "blur(50px) saturate(160%)", "--g-edge": "rgba(255,255,255,.09)", "--g-edge2": "rgba(255,255,255,.16)", "--g-rim": "rgba(255,255,255,.10)", "--g-sep": "rgba(255,255,255,.09)", "--g-spec": "inset 0 1px 0 rgba(255,255,255,.10)", "--g-spec-soft": "inset 0 1px 0 rgba(255,255,255,.07)", "--g-sh1": "0 0 0 .5px rgba(0,0,0,.5), 0 10px 28px -12px rgba(0,0,0,.65)", "--g-sh2": "0 0 0 .5px rgba(0,0,0,.55), 0 16px 40px -14px rgba(0,0,0,.72)", "--g-sh3": "0 0 0 .5px rgba(0,0,0,.6), 0 26px 64px -18px rgba(0,0,0,.8)", "--g-r1": "8px", "--g-r2": "10px", "--g-r3": "14px", "--g-r4": "18px", "--g-r5": "24px", "--g-blue": "#0A84FF", "--g-teal": "#40CBE0", "--g-indigo": "#5E5CE6", "--g-green": "#30D158", "--g-amber": "#FF9F0A", "--g-red": "#FF453A", "--g-purple": "#BF5AF2", "--g-gray": "#98989D", "--g-accent-fill": "linear-gradient(180deg,#3395FF,#0A74E8)", "--g-label": "#F5F5F7", "--g-label-2": "#C7C7CC", "--g-label-3": "#8E8E93", "--g-font": "-apple-system,BlinkMacSystemFont,\"SF Pro Text\",\"SF Pro Display\",\"PingFang SC\",\"Hiragino Sans GB\",\"Microsoft YaHei UI\",\"Microsoft YaHei\",\"Segoe UI\",system-ui,sans-serif", "--g-mono": "\"SF Mono\",ui-monospace,\"JetBrains Mono\",Menlo,Consolas,monospace"}}}, {"id": "obsidian", "group": "classic", "name": "黑曜石", "en": "Obsidian", "modes": ["dark", "light"], "mode": "dark", "desc": "近黑纯色面板、1px 发光描边、鼠标经过时的聚光。Linear / Vercel 一派的克制与精确。", "traits": ["聚光描边", "纯色面板", "紧凑字距"], "swatch": ["#8B7CFF", "#4F8CFF", "#0B0C10"], "recommended": true, "scenario": "Linear / Vercel 风格近黑聚光描边，极客研发高频首选", "pv": {"dark": {"bg": "radial-gradient(120% 90% at 50% -20%,#1B1A3A 0%,#0A0B0F 60%)", "bar": "#0C0D11", "side": "#0C0D11", "card": "#12141A", "line": "rgba(255,255,255,.09)", "ink": "#ECEEF2", "mute": "#7C8392", "acc": "#8B7CFF", "acc2": "#4F8CFF", "ok": "#3DD68C", "r": 8, "bw": 1, "sh": "inset 0 1px 0 rgba(255,255,255,.06)", "font": "\"Inter\",\"SF Pro Text\",\"Segoe UI\",\"PingFang SC\",sans-serif"}, "light": {"bg": "#F4F4F6", "bar": "#FFFFFF", "side": "#FAFAFB", "card": "#FFFFFF", "line": "rgba(15,15,25,.09)", "ink": "#14151A", "mute": "#6B7080", "acc": "#6B5CFF", "acc2": "#3B7BFF", "ok": "#13A870", "r": 8, "bw": 1, "sh": "0 1px 2px rgba(15,15,25,.06)", "font": "\"Inter\",\"SF Pro Text\",\"Segoe UI\",\"PingFang SC\",sans-serif"}}, "resolved": {"dark": {"--g-canvas": "#07080B", "--g-m1": "#0C0D12", "--g-m2": "#0F1116", "--g-m3": "#161923", "--g-m4": "rgba(9,10,14,.78)", "--g-fill": "rgba(255,255,255,.055)", "--g-fill-2": "rgba(255,255,255,.095)", "--g-b1": "none", "--g-b2": "none", "--g-b3": "none", "--g-b4": "blur(18px) saturate(150%)", "--g-edge": "rgba(255,255,255,.065)", "--g-edge2": "rgba(255,255,255,.12)", "--g-rim": "rgba(255,255,255,.08)", "--g-sep": "rgba(255,255,255,.06)", "--g-spec": "inset 0 1px 0 rgba(255,255,255,.05)", "--g-spec-soft": "inset 0 1px 0 rgba(255,255,255,.035)", "--g-sh1": "0 1px 0 rgba(0,0,0,.5),0 14px 28px -18px rgba(0,0,0,.85)", "--g-sh2": "0 1px 0 rgba(0,0,0,.5),0 18px 36px -16px rgba(0,0,0,.9)", "--g-sh3": "0 0 0 1px rgba(255,255,255,.06),0 30px 70px -20px rgba(0,0,0,.95)", "--g-r1": "5px", "--g-r2": "6px", "--g-r3": "8px", "--g-r4": "10px", "--g-r5": "14px", "--g-blue": "#8E80FF", "--g-teal": "#4CC9F0", "--g-indigo": "#7C8CFF", "--g-green": "#3DD68C", "--g-amber": "#F5A524", "--g-red": "#FF6369", "--g-purple": "#C084FC", "--g-gray": "#7C8392", "--g-accent-fill": "linear-gradient(135deg,#7A6BFF,#4F8CFF)", "--g-label": "#ECEEF2", "--g-label-2": "#A6ADBB", "--g-label-3": "#8A91A0", "--g-font": "\"Inter\",\"Segoe UI Variable Text\",\"Segoe UI\",-apple-system,BlinkMacSystemFont,\"PingFang SC\",\"Microsoft YaHei UI\",\"Microsoft YaHei\",system-ui,sans-serif", "--g-mono": "\"JetBrains Mono\",\"Cascadia Code\",\"SF Mono\",ui-monospace,Consolas,monospace", "--sk-hd-ls": "-.022em", "--sk-hd-w": "600", "--sk-lb-tr": "uppercase", "--sk-lb-ls": ".07em", "--sk-num-font": "var(--g-font)", "--bt-w": "500", "--sk-scheme": "dark", "--sk-bg": "radial-gradient(900px 460px at 50% -140px,rgba(112,96,255,.22),transparent 72%),radial-gradient(620px 380px at 100% -60px,rgba(60,130,255,.12),transparent 70%),radial-gradient(520px 360px at 0 100%,rgba(112,96,255,.07),transparent 70%)", "--sk-bg-size": "100% 640px,100% 520px,100% 100%", "--sk-bg-pos": "50% 0,100% 0,0 100%", "--sk-bg-rep": "no-repeat", "--sk-fx": "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 .6 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>\")", "--sk-fx-o": ".028", "--sk-on-accent": "#fff", "--sk-tint": "rgba(142,128,255,.14)", "--sk-sel": "rgba(142,128,255,.35)", "--sk-focus": "#8E80FF", "--bar-bg": "rgba(8,9,13,.74)", "--bar-bd": "1px solid rgba(255,255,255,.07)", "--logo-bg": "linear-gradient(135deg,#8E80FF,#4F8CFF)", "--logo-sh": "0 0 0 1px rgba(255,255,255,.18) inset,0 6px 18px -4px rgba(112,96,255,.7)", "--pop-bg": "#13151C", "--pop-bd": "1px solid rgba(255,255,255,.1)", "--pop-sh": "0 0 0 1px rgba(0,0,0,.6),0 26px 60px -12px rgba(0,0,0,.95)", "--pop-hv-bg": "rgba(142,128,255,.18)", "--pop-hv-fg": "#fff", "--tabs-bg": "rgba(255,255,255,.04)", "--tabs-bd": "1px solid rgba(255,255,255,.06)", "--tab-on-bg": "rgba(255,255,255,.085)", "--tab-on-sh": "inset 0 1px 0 rgba(255,255,255,.07),0 0 0 1px rgba(255,255,255,.06)", "--seg-bg": "rgba(255,255,255,.045)", "--seg-on-bg": "rgba(255,255,255,.1)", "--seg-on-sh": "inset 0 1px 0 rgba(255,255,255,.07)", "--bt-bg": "rgba(255,255,255,.055)", "--bt-bd": "1px solid rgba(255,255,255,.09)", "--bt-hv-bg": "rgba(255,255,255,.1)", "--bt-sh": "inset 0 1px 0 rgba(255,255,255,.04)", "--bp-bg": "linear-gradient(180deg,#6C5CFF,#4B3BE0)", "--bp-bd": "1px solid rgba(255,255,255,.22)", "--bp-sh": "0 0 0 1px rgba(80,60,230,.6),0 10px 26px -8px rgba(112,96,255,.75),inset 0 1px 0 rgba(255,255,255,.28)", "--bp-hv-sh": "0 0 0 1px rgba(110,90,255,.8),0 12px 30px -6px rgba(124,108,255,.9),inset 0 1px 0 rgba(255,255,255,.34)", "--in-bg": "#0A0B0F", "--in-bd": "1px solid rgba(255,255,255,.1)", "--in-fc": "0 0 0 3px rgba(142,128,255,.25)", "--in-fc-bd": "#8E80FF", "--ch-bd": "1px solid rgba(255,255,255,.08)", "--ch-r": "6px"}, "light": {"--g-canvas": "#F3F3F6", "--g-m1": "#F7F7F9", "--g-m2": "#FFFFFF", "--g-m3": "#FFFFFF", "--g-m4": "rgba(255,255,255,.78)", "--g-fill": "rgba(15,15,30,.05)", "--g-fill-2": "rgba(15,15,30,.09)", "--g-b1": "none", "--g-b2": "none", "--g-b3": "none", "--g-b4": "blur(18px) saturate(160%)", "--g-edge": "rgba(15,15,30,.07)", "--g-edge2": "rgba(15,15,30,.13)", "--g-rim": "rgba(15,15,30,.09)", "--g-sep": "rgba(15,15,30,.07)", "--g-spec": "inset 0 1px 0 rgba(255,255,255,.9)", "--g-spec-soft": "0 0 0 0 transparent", "--g-sh1": "0 1px 2px rgba(15,15,30,.05),0 10px 24px -16px rgba(30,30,70,.18)", "--g-sh2": "0 1px 2px rgba(15,15,30,.06),0 16px 34px -16px rgba(30,30,70,.26)", "--g-sh3": "0 0 0 1px rgba(15,15,30,.06),0 28px 64px -18px rgba(30,30,70,.34)", "--g-r1": "5px", "--g-r2": "6px", "--g-r3": "8px", "--g-r4": "10px", "--g-r5": "14px", "--g-blue": "#5342DA", "--g-teal": "#0C657E", "--g-indigo": "#4452D8", "--g-green": "#0B6B41", "--g-amber": "#8B4F00", "--g-red": "#A92E36", "--g-purple": "#7A37C6", "--g-gray": "#767C8C", "--g-accent-fill": "linear-gradient(135deg,#6B5CFF,#3B7BFF)", "--g-label": "#14151A", "--g-label-2": "#434857", "--g-label-3": "#666C7C", "--g-font": "\"Inter\",\"Segoe UI Variable Text\",\"Segoe UI\",-apple-system,BlinkMacSystemFont,\"PingFang SC\",\"Microsoft YaHei UI\",\"Microsoft YaHei\",system-ui,sans-serif", "--g-mono": "\"JetBrains Mono\",\"Cascadia Code\",\"SF Mono\",ui-monospace,Consolas,monospace", "--sk-hd-ls": "-.022em", "--sk-hd-w": "600", "--sk-lb-tr": "uppercase", "--sk-lb-ls": ".07em", "--sk-num-font": "var(--g-font)", "--bt-w": "500", "--sk-scheme": "light", "--sk-bg": "radial-gradient(900px 420px at 50% -160px,rgba(112,96,255,.13),transparent 72%),radial-gradient(560px 320px at 100% -40px,rgba(60,130,255,.08),transparent 70%)", "--sk-bg-size": "100% 600px,100% 440px", "--sk-bg-pos": "50% 0,100% 0", "--sk-bg-rep": "no-repeat", "--sk-fx": "none", "--sk-on-accent": "#fff", "--sk-tint": "rgba(91,73,240,.1)", "--sk-sel": "rgba(91,73,240,.22)", "--sk-focus": "#5B49F0", "--bar-bg": "rgba(255,255,255,.78)", "--bar-bd": "1px solid rgba(15,15,30,.08)", "--logo-bg": "linear-gradient(135deg,#6B5CFF,#3B7BFF)", "--logo-sh": "0 6px 16px -4px rgba(91,73,240,.55)", "--pop-bg": "#FFFFFF", "--pop-bd": "1px solid rgba(15,15,30,.1)", "--pop-sh": "0 0 0 1px rgba(15,15,30,.04),0 24px 50px -14px rgba(30,30,70,.34)", "--pop-hv-bg": "rgba(91,73,240,.1)", "--pop-hv-fg": "#3B2DC0", "--tabs-bg": "rgba(15,15,30,.045)", "--tabs-bd": "1px solid rgba(15,15,30,.05)", "--tab-on-bg": "#fff", "--tab-on-sh": "0 1px 2px rgba(15,15,30,.12),0 0 0 1px rgba(15,15,30,.05)", "--seg-bg": "rgba(15,15,30,.05)", "--seg-on-bg": "#fff", "--seg-on-sh": "0 1px 2px rgba(15,15,30,.12)", "--bt-bg": "#fff", "--bt-bd": "1px solid rgba(15,15,30,.12)", "--bt-hv-bg": "#F4F4F8", "--bt-sh": "0 1px 1px rgba(15,15,30,.04)", "--bp-bg": "linear-gradient(180deg,#6B5CFF,#5442EA)", "--bp-bd": "1px solid rgba(40,25,180,.55)", "--bp-sh": "0 8px 20px -8px rgba(91,73,240,.7),inset 0 1px 0 rgba(255,255,255,.3)", "--in-bg": "#fff", "--in-bd": "1px solid rgba(15,15,30,.13)", "--in-fc": "0 0 0 3px rgba(91,73,240,.2)", "--in-fc-bd": "#5B49F0", "--ch-bd": "1px solid rgba(15,15,30,.08)", "--ch-r": "6px"}}}, {"id": "brutal", "group": "classic", "name": "新粗野", "en": "Neo-Brutal", "modes": ["light", "dark"], "mode": "light", "desc": "粗黑边、硬阴影、高饱和平涂色块。按钮按下去真的会\"陷\"进去。", "traits": ["3px 黑边", "硬阴影", "平涂撞色"], "swatch": ["#FFD43B", "#FF6AC1", "#4D8DFF"], "recommended": false, "scenario": "Neo-Brutalism 3px 硬黑边 + 4px 硬投影，高对比先锋视觉", "pv": {"light": {"bg": "#FFF4D6", "bar": "#FFD43B", "side": "#FFFFFF", "card": "#FFFFFF", "line": "#111111", "ink": "#111111", "mute": "#555555", "acc": "#4D8DFF", "acc2": "#FF6AC1", "ok": "#1FC76A", "r": 2, "bw": 3, "sh": "4px 4px 0 #111", "font": "\"Arial Black\",\"Segoe UI\",\"PingFang SC\",sans-serif"}, "dark": {"bg": "#15131C", "bar": "#FFD43B", "side": "#211E2B", "card": "#211E2B", "line": "#F4F1E8", "ink": "#F4F1E8", "mute": "#A9A5B5", "acc": "#6FA2FF", "acc2": "#FF6AC1", "ok": "#35D98B", "r": 2, "bw": 3, "sh": "4px 4px 0 #F4F1E8", "font": "\"Arial Black\",\"Segoe UI\",\"PingFang SC\",sans-serif"}}, "resolved": {"light": {"--g-canvas": "#FFF3D1", "--g-m1": "#FFFBEF", "--g-m2": "#FFFFFF", "--g-m3": "#FFFFFF", "--g-m4": "#FFD43B", "--g-fill": "#FFEFB8", "--g-fill-2": "#FFE07A", "--g-b1": "none", "--g-b2": "none", "--g-b3": "none", "--g-b4": "none", "--g-edge": "#111111", "--g-edge2": "#111111", "--g-rim": "#111111", "--g-sep": "rgba(17,17,17,.3)", "--g-spec": "0 0 0 0 transparent", "--g-spec-soft": "0 0 0 0 transparent", "--g-sh1": "4px 4px 0 #111", "--g-sh2": "6px 6px 0 #111", "--g-sh3": "8px 8px 0 #111", "--g-r1": "0", "--g-r2": "2px", "--g-r3": "2px", "--g-r4": "3px", "--g-r5": "4px", "--g-blue": "#1F4FE0", "--g-teal": "#007F73", "--g-indigo": "#4B3FD6", "--g-green": "#0A7343", "--g-amber": "#A85500", "--g-red": "#D4261B", "--g-purple": "#8A2BE2", "--g-gray": "#555555", "--g-accent-fill": "#1F4FE0", "--g-label": "#111111", "--g-label-2": "#333333", "--g-label-3": "#555555", "--g-font": "\"Space Grotesk\",\"Segoe UI Variable Text\",\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei UI\",\"Microsoft YaHei\",system-ui,sans-serif", "--g-mono": "\"JetBrains Mono\",\"Cascadia Mono\",\"Consolas\",\"SF Mono\",monospace", "--sk-hd-font": "\"Archivo Black\",\"Arial Black\",\"Segoe UI Black\",\"Microsoft YaHei UI\",\"PingFang SC\",sans-serif", "--sk-hd-w": "900", "--sk-hd-ls": "-.01em", "--sk-num-font": "\"Archivo Black\",\"Arial Black\",\"Segoe UI Black\",\"Microsoft YaHei UI\",sans-serif", "--sk-lb-tr": "uppercase", "--sk-lb-ls": ".07em", "--ch-tr": "none", "--bt-w": "800", "--sk-bg": "radial-gradient(var(--dot) 1.3px,transparent 1.6px)", "--sk-bg-size": "22px 22px", "--sk-bg-rep": "repeat", "--sk-bg-pos": "0 0", "--sk-scheme": "light", "--ink": "#111111", "--sk-on-accent": "#fff", "--sk-tint": "#D6E4FF", "--sk-sel": "#FF6AC1", "--sk-focus": "#111", "--bar-bg": "#FFD43B", "--bar-bd": "3px solid #111", "--bar-sh": "0 4px 0 #111", "--logo-bg": "#111", "--logo-fg": "#FFD43B", "--logo-sh": "2px 2px 0 #FF6AC1", "--pop-bg": "#FFFFFF", "--pop-bd": "3px solid #111", "--pop-sh": "6px 6px 0 #111", "--pop-hv-bg": "#FFD43B", "--pop-hv-fg": "#111", "--tabs-bg": "#fff", "--tabs-bd": "3px solid #111", "--tab-on-bg": "#FFD43B", "--tab-on-bd": "2px solid #111", "--tab-on-sh": "2px 2px 0 #111", "--seg-bg": "#fff", "--seg-bd": "2px solid #111", "--seg-on-bg": "#FFD43B", "--seg-on-sh": "2px 2px 0 #111", "--bt-bg": "#fff", "--bt-bd": "2px solid #111", "--bt-sh": "3px 3px 0 #111", "--bt-hv-bg": "#FFE07A", "--bt-hv-tf": "translate(-1px,-1px)", "--bt-hv-sh": "4px 4px 0 #111", "--bt-ac-tf": "translate(3px,3px)", "--bp-bg": "#1F4FE0", "--bp-fg": "#fff", "--bp-bd": "2px solid #111", "--bp-sh": "3px 3px 0 #111", "--bp-hv-bg": "#2B5CF0", "--bp-hv-sh": "4px 4px 0 #111", "--in-bg": "#fff", "--in-bd": "2px solid #111", "--in-sh": "2px 2px 0 #111", "--in-fc": "3px 3px 0 #1F4FE0", "--in-fc-bd": "#111", "--ch-bd": "2px solid #111", "--ch-r": "2px"}, "dark": {"--g-canvas": "#13111A", "--g-m1": "#1C1926", "--g-m2": "#221F2E", "--g-m3": "#2E2A42", "--g-m4": "#1C1926", "--g-fill": "#2E2A42", "--g-fill-2": "#3D3858", "--g-b1": "none", "--g-b2": "none", "--g-b3": "none", "--g-b4": "none", "--g-edge": "#F4F1E8", "--g-edge2": "#F4F1E8", "--g-rim": "#F4F1E8", "--g-sep": "rgba(244,241,232,.24)", "--g-spec": "0 0 0 0 transparent", "--g-spec-soft": "0 0 0 0 transparent", "--g-sh1": "4px 4px 0 #F4F1E8", "--g-sh2": "6px 6px 0 #F4F1E8", "--g-sh3": "8px 8px 0 #F4F1E8", "--g-r1": "0", "--g-r2": "2px", "--g-r3": "2px", "--g-r4": "3px", "--g-r5": "4px", "--g-blue": "#7FA8FF", "--g-teal": "#3CDCCB", "--g-indigo": "#A3A9FF", "--g-green": "#4FE39A", "--g-amber": "#FFB547", "--g-red": "#FF7A70", "--g-purple": "#C8A2FF", "--g-gray": "#A9A5B5", "--g-accent-fill": "#7FA8FF", "--g-label": "#F4F1E8", "--g-label-2": "#CFC9DB", "--g-label-3": "#A9A5B5", "--g-font": "\"Space Grotesk\",\"Segoe UI Variable Text\",\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei UI\",\"Microsoft YaHei\",system-ui,sans-serif", "--g-mono": "\"JetBrains Mono\",\"Cascadia Mono\",\"Consolas\",\"SF Mono\",monospace", "--sk-hd-font": "\"Archivo Black\",\"Arial Black\",\"Segoe UI Black\",\"Microsoft YaHei UI\",\"PingFang SC\",sans-serif", "--sk-hd-w": "900", "--sk-hd-ls": "-.01em", "--sk-num-font": "\"Archivo Black\",\"Arial Black\",\"Segoe UI Black\",\"Microsoft YaHei UI\",sans-serif", "--sk-lb-tr": "uppercase", "--sk-lb-ls": ".07em", "--ch-tr": "none", "--bt-w": "800", "--sk-bg": "radial-gradient(var(--dot) 1.3px,transparent 1.6px)", "--sk-bg-size": "22px 22px", "--sk-bg-rep": "repeat", "--sk-bg-pos": "0 0", "--sk-scheme": "dark", "--ink": "#F4F1E8", "--sk-on-accent": "#111", "--sk-tint": "rgba(127,168,255,.2)", "--sk-sel": "#FF6AC1", "--sk-focus": "#FFD43B", "--bar-bg": "#1C1926", "--bar-bd": "3px solid #F4F1E8", "--bar-sh": "0 4px 0 #FFD43B", "--logo-bg": "#FFD43B", "--logo-fg": "#111", "--logo-sh": "2px 2px 0 #FF6AC1", "--pop-bg": "#221F2E", "--pop-bd": "3px solid #F4F1E8", "--pop-sh": "6px 6px 0 #FFD43B", "--pop-hv-bg": "#FFD43B", "--pop-hv-fg": "#111", "--tabs-bg": "#221F2E", "--tabs-bd": "3px solid #F4F1E8", "--tab-on-bg": "#FFD43B", "--tab-on-fg": "#111", "--tab-on-bd": "2px solid #F4F1E8", "--tab-on-sh": "2px 2px 0 #F4F1E8", "--seg-bg": "#221F2E", "--seg-bd": "2px solid #F4F1E8", "--seg-on-bg": "#FFD43B", "--seg-on-fg": "#111", "--seg-on-sh": "2px 2px 0 #F4F1E8", "--bt-bg": "#2E2A42", "--bt-bd": "2px solid #F4F1E8", "--bt-sh": "3px 3px 0 #F4F1E8", "--bt-hv-bg": "#3D3858", "--bt-hv-tf": "translate(-1px,-1px)", "--bt-hv-sh": "4px 4px 0 #F4F1E8", "--bt-ac-tf": "translate(3px,3px)", "--bp-bg": "#FFD43B", "--bp-fg": "#111", "--bp-bd": "2px solid #F4F1E8", "--bp-sh": "3px 3px 0 #F4F1E8", "--bp-hv-bg": "#FFE066", "--bp-hv-sh": "4px 4px 0 #F4F1E8", "--in-bg": "#1C1926", "--in-bd": "2px solid #F4F1E8", "--in-sh": "2px 2px 0 #F4F1E8", "--in-fc": "3px 3px 0 #FFD43B", "--in-fc-bd": "#FFD43B", "--ch-bd": "2px solid #F4F1E8", "--ch-r": "2px"}}}, {"id": "paper", "group": "classic", "name": "纸本", "en": "Editorial", "modes": ["light", "dark"], "mode": "light", "desc": "暖纸底、衬线标题、发丝线、朱红点睛。像一份印出来的测试报告。", "traits": ["衬线标题", "发丝线", "无阴影"], "swatch": ["#F3EDE2", "#1C1A17", "#C8372D"], "recommended": false, "scenario": "Editorial 暖纸底 + 衬线标题 + 朱红批注，适合深度阅读知识库与 Spec", "pv": {"light": {"bg": "#F2ECE0", "bar": "#F2ECE0", "side": "#EDE6D8", "card": "#FAF6EC", "line": "rgba(28,26,23,.22)", "ink": "#1C1A17", "mute": "#7A7263", "acc": "#C8372D", "acc2": "#2F4B7C", "ok": "#3F6B4B", "r": 1, "bw": 1, "sh": "none", "font": "\"Noto Serif SC\",\"Songti SC\",Georgia,\"Times New Roman\",serif"}, "dark": {"bg": "#17140F", "bar": "#17140F", "side": "#1D1913", "card": "#211D16", "line": "rgba(233,224,205,.2)", "ink": "#E9E0CD", "mute": "#9A907C", "acc": "#E0604F", "acc2": "#8FA9D6", "ok": "#7FB48C", "r": 1, "bw": 1, "sh": "none", "font": "\"Noto Serif SC\",\"Songti SC\",Georgia,\"Times New Roman\",serif"}}, "resolved": {"light": {"--g-canvas": "#F1EADB", "--g-m1": "rgba(255,252,243,.6)", "--g-m2": "#FBF7EC", "--g-m3": "#FFFDF6", "--g-m4": "#F3EDDF", "--g-fill": "rgba(70,55,30,.075)", "--g-fill-2": "rgba(70,55,30,.13)", "--g-b1": "none", "--g-b2": "none", "--g-b3": "none", "--g-b4": "none", "--g-edge": "rgba(28,26,23,.14)", "--g-edge2": "rgba(28,26,23,.32)", "--g-rim": "rgba(28,26,23,.22)", "--g-sep": "rgba(28,26,23,.15)", "--g-spec": "0 0 0 0 transparent", "--g-spec-soft": "0 0 0 0 transparent", "--g-sh1": "0 0 0 0 transparent", "--g-sh2": "0 6px 16px -10px rgba(60,40,10,.3)", "--g-sh3": "0 22px 44px -20px rgba(60,40,10,.4)", "--g-r1": "1px", "--g-r2": "2px", "--g-r3": "2px", "--g-r4": "3px", "--g-r5": "4px", "--g-blue": "#1E4E8C", "--g-teal": "#1A616A", "--g-indigo": "#3B4A8C", "--g-green": "#2A643A", "--g-amber": "#804C00", "--g-red": "#A6231C", "--g-purple": "#7A3E8C", "--g-gray": "#7A7263", "--g-accent-fill": "#1C1A17", "--g-label": "#1C1A17", "--g-label-2": "#4A443A", "--g-label-3": "#6B6353", "--g-font": "\"Source Han Sans SC\",\"Noto Sans SC\",\"Inter\",\"Segoe UI Variable Text\",\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei UI\",\"Microsoft YaHei\",system-ui,sans-serif", "--g-mono": "\"IBM Plex Mono\",\"Cascadia Mono\",\"SF Mono\",Consolas,monospace", "--sk-hd-font": "\"Noto Serif SC\",\"Source Han Serif SC\",\"Songti SC\",\"STSong\",\"Georgia\",\"Cambria\",\"Times New Roman\",\"SimSun\",serif", "--sk-hd-w": "700", "--sk-hd-ls": "0", "--sk-num-font": "\"Georgia\",\"Cambria\",\"Noto Serif SC\",\"Times New Roman\",serif", "--sk-lb-tr": "uppercase", "--sk-lb-ls": ".1em", "--bt-w": "500", "--sk-fx": "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='220'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 .35 0 0 0 0 .27 0 0 0 0 .15 0 0 0 .9 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>\")", "--sk-scheme": "light", "--hl": "#C8372D", "--sk-bg": "linear-gradient(180deg,#F5EFE2 0,#EFE7D6 100%)", "--sk-bg-size": "100% 100%", "--sk-bg-rep": "no-repeat", "--sk-bg-pos": "0 0", "--sk-fx-o": ".07", "--sk-on-accent": "#FBF7EC", "--sk-tint": "rgba(30,78,140,.1)", "--sk-sel": "rgba(200,55,45,.22)", "--sk-focus": "#C8372D", "--bar-bg": "#F3EDDF", "--bar-bd": "3px double rgba(28,26,23,.55)", "--logo-bg": "#1C1A17", "--logo-fg": "#F3EDDF", "--logo-sh": "none", "--pop-bg": "#FBF7EC", "--pop-bd": "1px solid #1C1A17", "--pop-sh": "5px 5px 0 rgba(28,26,23,.16)", "--pop-hv-bg": "rgba(28,26,23,.08)", "--pop-hv-fg": "#1C1A17", "--tabs-bg": "transparent", "--tabs-bd": "0", "--tabs-r": "0", "--tab-r": "0", "--tab-on-bg": "transparent", "--tab-on-sh": "inset 0 -2px 0 #C8372D", "--seg-bg": "transparent", "--seg-bd": "1px solid rgba(28,26,23,.4)", "--seg-r": "0", "--seg-bt-r": "0", "--seg-on-bg": "#1C1A17", "--seg-on-fg": "#FBF7EC", "--seg-on-sh": "none", "--bt-bg": "transparent", "--bt-bd": "1px solid rgba(28,26,23,.5)", "--bt-r": "2px", "--bt-hv-bg": "rgba(28,26,23,.07)", "--bt-sh": "none", "--bt-ac-tf": "translateY(1px)", "--bp-bg": "#1C1A17", "--bp-fg": "#FBF7EC", "--bp-bd": "1px solid #1C1A17", "--bp-sh": "none", "--bp-hv-bg": "#3A342B", "--in-bg": "transparent", "--in-bd": "0", "--in-r": "0", "--in-sh": "inset 0 -1px 0 rgba(28,26,23,.55)", "--in-fc": "inset 0 -2px 0 #C8372D", "--in-fc-bd": "transparent", "--ch-bd": "1px solid currentColor", "--ch-r": "0", "--nav-on-bg": "rgba(28,26,23,.07)"}, "dark": {"--g-canvas": "#15120E", "--g-m1": "rgba(255,244,220,.035)", "--g-m2": "#1D1913", "--g-m3": "#262017", "--g-m4": "#1A1610", "--g-fill": "rgba(233,224,205,.07)", "--g-fill-2": "rgba(233,224,205,.13)", "--g-b1": "none", "--g-b2": "none", "--g-b3": "none", "--g-b4": "none", "--g-edge": "rgba(233,224,205,.13)", "--g-edge2": "rgba(233,224,205,.3)", "--g-rim": "rgba(233,224,205,.2)", "--g-sep": "rgba(233,224,205,.13)", "--g-spec": "0 0 0 0 transparent", "--g-spec-soft": "0 0 0 0 transparent", "--g-sh1": "0 0 0 0 transparent", "--g-sh2": "0 8px 20px -10px rgba(0,0,0,.6)", "--g-sh3": "0 24px 50px -18px rgba(0,0,0,.8)", "--g-r1": "1px", "--g-r2": "2px", "--g-r3": "2px", "--g-r4": "3px", "--g-r5": "4px", "--g-blue": "#8FB0E6", "--g-teal": "#6FC3CC", "--g-indigo": "#A3AEE8", "--g-green": "#7FB48C", "--g-amber": "#E3A24A", "--g-red": "#EE7A6E", "--g-purple": "#C79BDB", "--g-gray": "#9A907C", "--g-accent-fill": "#E9E0CD", "--g-label": "#E9E0CD", "--g-label-2": "#BFB5A0", "--g-label-3": "#A39984", "--g-font": "\"Source Han Sans SC\",\"Noto Sans SC\",\"Inter\",\"Segoe UI Variable Text\",\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei UI\",\"Microsoft YaHei\",system-ui,sans-serif", "--g-mono": "\"IBM Plex Mono\",\"Cascadia Mono\",\"SF Mono\",Consolas,monospace", "--sk-hd-font": "\"Noto Serif SC\",\"Source Han Serif SC\",\"Songti SC\",\"STSong\",\"Georgia\",\"Cambria\",\"Times New Roman\",\"SimSun\",serif", "--sk-hd-w": "700", "--sk-hd-ls": "0", "--sk-num-font": "\"Georgia\",\"Cambria\",\"Noto Serif SC\",\"Times New Roman\",serif", "--sk-lb-tr": "uppercase", "--sk-lb-ls": ".1em", "--bt-w": "500", "--sk-fx": "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='220'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 .35 0 0 0 0 .27 0 0 0 0 .15 0 0 0 .9 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>\")", "--sk-scheme": "dark", "--hl": "#E5685A", "--sk-bg": "linear-gradient(180deg,#1A1610 0,#13100C 100%)", "--sk-bg-size": "100% 100%", "--sk-bg-rep": "no-repeat", "--sk-bg-pos": "0 0", "--sk-fx-o": ".05", "--sk-on-accent": "#1A1610", "--sk-tint": "rgba(143,176,230,.14)", "--sk-sel": "rgba(229,104,90,.3)", "--sk-focus": "#E5685A", "--bar-bg": "#1A1610", "--bar-bd": "3px double rgba(233,224,205,.45)", "--logo-bg": "#E9E0CD", "--logo-fg": "#1A1610", "--logo-sh": "none", "--pop-bg": "#211C15", "--pop-bd": "1px solid rgba(233,224,205,.55)", "--pop-sh": "5px 5px 0 rgba(0,0,0,.45)", "--pop-hv-bg": "rgba(233,224,205,.1)", "--pop-hv-fg": "#E9E0CD", "--tabs-bg": "transparent", "--tabs-bd": "0", "--tabs-r": "0", "--tab-r": "0", "--tab-on-bg": "transparent", "--tab-on-sh": "inset 0 -2px 0 #E5685A", "--seg-bg": "transparent", "--seg-bd": "1px solid rgba(233,224,205,.4)", "--seg-r": "0", "--seg-bt-r": "0", "--seg-on-bg": "#E9E0CD", "--seg-on-fg": "#1A1610", "--seg-on-sh": "none", "--bt-bg": "transparent", "--bt-bd": "1px solid rgba(233,224,205,.5)", "--bt-r": "2px", "--bt-hv-bg": "rgba(233,224,205,.09)", "--bt-sh": "none", "--bt-ac-tf": "translateY(1px)", "--bp-bg": "#E9E0CD", "--bp-fg": "#1A1610", "--bp-bd": "1px solid #E9E0CD", "--bp-sh": "none", "--bp-hv-bg": "#FFF6E2", "--in-bg": "transparent", "--in-bd": "0", "--in-r": "0", "--in-sh": "inset 0 -1px 0 rgba(233,224,205,.55)", "--in-fc": "inset 0 -2px 0 #E5685A", "--in-fc-bd": "transparent", "--ch-bd": "1px solid currentColor", "--ch-r": "0", "--nav-on-bg": "rgba(233,224,205,.09)"}}}, {"id": "neon", "group": "classic", "name": "霓虹 HUD", "en": "Neon HUD", "modes": ["dark"], "mode": "dark", "desc": "深空底色、切角面板、青 / 品红霓虹和扫描线。战术仪表盘的味道。", "traits": ["切角面板", "霓虹光晕", "等宽标签"], "swatch": ["#00E5FF", "#FF2EC4", "#05060F"], "recommended": true, "scenario": "切角战术 HUD + 青/品红发光扫描线，适合硬件功率/逻辑分析仪酷炫大屏", "pv": {"dark": {"bg": "linear-gradient(180deg,#05060F 0%,#0A0B1E 100%)", "bar": "rgba(5,8,22,.9)", "side": "rgba(6,10,26,.85)", "card": "rgba(8,14,34,.85)", "line": "rgba(0,229,255,.55)", "ink": "#D7F6FF", "mute": "#6F93A8", "acc": "#00E5FF", "acc2": "#FF2EC4", "ok": "#B6FF3B", "r": 0, "bw": 1, "sh": "0 0 14px rgba(0,229,255,.22)", "font": "\"Bahnschrift\",\"Rajdhani\",\"Segoe UI\",\"PingFang SC\",sans-serif", "cut": true}}, "resolved": {"dark": {"--g-canvas": "#04050C", "--g-m1": "rgba(0,229,255,.04)", "--g-m2": "rgba(7,14,34,.88)", "--g-m3": "rgba(10,22,50,.95)", "--g-m4": "rgba(4,8,22,.94)", "--g-fill": "rgba(0,229,255,.075)", "--g-fill-2": "rgba(0,229,255,.16)", "--g-b1": "none", "--g-b2": "none", "--g-b3": "none", "--g-b4": "none", "--g-edge": "rgba(0,229,255,.16)", "--g-edge2": "rgba(0,229,255,.38)", "--g-rim": "rgba(0,229,255,.34)", "--g-sep": "rgba(0,229,255,.14)", "--g-spec": "inset 0 0 22px rgba(0,229,255,.05)", "--g-spec-soft": "inset 0 0 18px rgba(0,229,255,.045)", "--g-sh1": "0 0 26px -12px rgba(0,229,255,.5)", "--g-sh2": "0 0 32px -10px rgba(0,229,255,.55)", "--g-sh3": "0 0 0 1px rgba(0,229,255,.45),0 0 70px -12px rgba(0,229,255,.6)", "--g-r1": "0", "--g-r2": "0", "--g-r3": "2px", "--g-r4": "2px", "--g-r5": "3px", "--g-blue": "#19E3FF", "--g-teal": "#2DF5C8", "--g-indigo": "#8C9BFF", "--g-green": "#B6FF3B", "--g-amber": "#FFB020", "--g-red": "#FF4D6D", "--g-purple": "#FF2EC4", "--g-gray": "#6F8AA0", "--g-accent-fill": "#19E3FF", "--g-label": "#D9F7FF", "--g-label-2": "#92BCCF", "--g-label-3": "#6E98AC", "--g-font": "\"Bahnschrift\",\"Rajdhani\",\"DIN Alternate\",\"Segoe UI Variable Text\",\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei UI\",\"Microsoft YaHei\",system-ui,sans-serif", "--g-mono": "\"Cascadia Mono\",\"JetBrains Mono\",\"Share Tech Mono\",Consolas,\"SF Mono\",monospace", "--sk-hd-font": "var(--g-font)", "--sk-hd-tr": "uppercase", "--sk-hd-ls": ".05em", "--sk-hd-w": "700", "--sk-lb-font": "var(--g-mono)", "--sk-lb-tr": "uppercase", "--sk-lb-ls": ".1em", "--sk-num-font": "var(--g-font)", "--bt-w": "600", "--sk-scheme": "dark", "--sk-bg": "radial-gradient(900px 520px at 12% -12%,rgba(0,229,255,.14),transparent 70%),radial-gradient(820px 520px at 100% 0,rgba(255,46,196,.11),transparent 70%),linear-gradient(rgba(0,229,255,.05) 1px,transparent 1px),linear-gradient(90deg,rgba(0,229,255,.05) 1px,transparent 1px)", "--sk-bg-size": "100% 100%,100% 100%,40px 40px,40px 40px", "--sk-bg-rep": "no-repeat,no-repeat,repeat,repeat", "--sk-bg-pos": "0 0,0 0,-1px -1px,-1px -1px", "--sk-fx": "repeating-linear-gradient(0deg,rgba(0,0,0,.5) 0,rgba(0,0,0,.5) 1px,transparent 1px,transparent 3px)", "--sk-fx-o": ".22", "--sk-on-accent": "#021018", "--sk-tint": "rgba(0,229,255,.13)", "--sk-sel": "rgba(255,46,196,.45)", "--sk-focus": "#19E3FF", "--bar-bg": "rgba(3,6,18,.94)", "--bar-bd": "1px solid rgba(0,229,255,.38)", "--bar-sh": "0 0 22px rgba(0,229,255,.16)", "--logo-bg": "linear-gradient(135deg,#19E3FF,#FF2EC4)", "--logo-fg": "#04050C", "--logo-sh": "0 0 16px rgba(0,229,255,.7)", "--pop-bg": "#071022", "--pop-bd": "1px solid rgba(0,229,255,.55)", "--pop-sh": "0 0 32px -6px rgba(0,229,255,.55)", "--pop-hv-bg": "rgba(0,229,255,.16)", "--pop-hv-fg": "#19E3FF", "--tabs-bg": "rgba(0,229,255,.05)", "--tabs-bd": "1px solid rgba(0,229,255,.28)", "--tabs-r": "0", "--tab-r": "0", "--tab-on-bg": "rgba(0,229,255,.16)", "--tab-on-fg": "#19E3FF", "--tab-on-sh": "inset 0 -2px 0 #19E3FF,0 0 18px -4px rgba(0,229,255,.6)", "--seg-bg": "rgba(0,229,255,.05)", "--seg-bd": "1px solid rgba(0,229,255,.3)", "--seg-r": "0", "--seg-bt-r": "0", "--seg-on-bg": "rgba(0,229,255,.2)", "--seg-on-fg": "#19E3FF", "--seg-on-sh": "inset 0 -2px 0 #19E3FF", "--bt-bg": "rgba(0,229,255,.06)", "--bt-fg": "#BFF4FF", "--bt-bd": "1px solid rgba(0,229,255,.5)", "--bt-r": "0", "--bt-hv-bg": "rgba(0,229,255,.18)", "--bt-sh": "none", "--bt-hv-sh": "0 0 18px -2px rgba(0,229,255,.7)", "--bt-ac-tf": "scale(.98)", "--bp-bg": "#19E3FF", "--bp-fg": "#021018", "--bp-bd": "1px solid #19E3FF", "--bp-sh": "0 0 22px -2px rgba(0,229,255,.8)", "--bp-hv-bg": "#5CF0FF", "--bp-hv-sh": "0 0 30px 0 rgba(0,229,255,.95)", "--in-bg": "rgba(2,6,18,.8)", "--in-bd": "1px solid rgba(0,229,255,.32)", "--in-r": "0", "--in-fc": "0 0 0 1px #19E3FF,0 0 16px -2px rgba(0,229,255,.7)", "--in-fc-bd": "#19E3FF", "--ch-bd": "1px solid currentColor", "--ch-r": "0", "--ch-tr": "uppercase", "--ch-ls": ".06em", "--nav-on-bg": "rgba(0,229,255,.14)"}}}, {"id": "bento", "group": "classic", "name": "柔彩便当", "en": "Bento", "modes": ["light", "dark"], "mode": "light", "desc": "大圆角便当格、马卡龙色块、药丸按钮。Material You 一路的软萌。", "traits": ["28px 圆角", "马卡龙", "药丸控件"], "swatch": ["#B9A4FF", "#FFB4C8", "#9BE3C4"], "recommended": false, "scenario": "Material You 28px 超大圆角马卡龙便当格，轻快亲和", "pv": {"light": {"bg": "linear-gradient(135deg,#EFE6FF 0%,#FFE8EE 55%,#E3F7EE 100%)", "bar": "rgba(255,255,255,.7)", "side": "rgba(255,255,255,.6)", "card": "#FFFFFF", "line": "transparent", "ink": "#2A2438", "mute": "#8A8299", "acc": "#7B5CFA", "acc2": "#FF8FB1", "ok": "#2E9E78", "r": 16, "bw": 0, "sh": "0 8px 20px -8px rgba(120,90,200,.35)", "font": "ui-rounded,\"SF Pro Rounded\",\"Nunito\",\"Segoe UI\",\"PingFang SC\",sans-serif"}, "dark": {"bg": "linear-gradient(135deg,#1A1530 0%,#251B3C 55%,#142A2E 100%)", "bar": "rgba(30,25,50,.8)", "side": "rgba(36,29,58,.7)", "card": "#2A2342", "line": "transparent", "ink": "#EFEAFF", "mute": "#9C93B8", "acc": "#B9A4FF", "acc2": "#FF9DBB", "ok": "#7BE0B5", "r": 16, "bw": 0, "sh": "0 8px 20px -8px rgba(0,0,0,.6)", "font": "ui-rounded,\"SF Pro Rounded\",\"Nunito\",\"Segoe UI\",\"PingFang SC\",sans-serif"}}, "resolved": {"light": {"--g-canvas": "#F1EBFF", "--g-m1": "rgba(255,255,255,.62)", "--g-m2": "#FFFFFF", "--g-m3": "#FFFFFF", "--g-m4": "rgba(255,255,255,.8)", "--g-fill": "rgba(107,78,255,.08)", "--g-fill-2": "rgba(107,78,255,.15)", "--g-b1": "none", "--g-b2": "none", "--g-b3": "none", "--g-b4": "blur(22px) saturate(160%)", "--g-edge": "rgba(107,78,255,.1)", "--g-edge2": "rgba(107,78,255,.2)", "--g-rim": "transparent", "--g-sep": "rgba(107,78,255,.1)", "--g-spec": "0 0 0 0 transparent", "--g-spec-soft": "0 0 0 0 transparent", "--g-sh1": "0 2px 4px rgba(90,60,200,.05),0 18px 34px -18px rgba(110,80,220,.32)", "--g-sh2": "0 2px 6px rgba(90,60,200,.07),0 24px 44px -18px rgba(110,80,220,.4)", "--g-sh3": "0 4px 10px rgba(90,60,200,.08),0 36px 70px -20px rgba(110,80,220,.5)", "--g-r1": "10px", "--g-r2": "14px", "--g-r3": "18px", "--g-r4": "26px", "--g-r5": "32px", "--g-blue": "#5740D0", "--g-teal": "#07665E", "--g-indigo": "#4F5BD5", "--g-green": "#126746", "--g-amber": "#874C00", "--g-red": "#A62653", "--g-purple": "#7A36B8", "--g-gray": "#8A8299", "--g-accent-fill": "linear-gradient(135deg,#7B5CFF,#A06BFF)", "--g-label": "#251F3A", "--g-label-2": "#4F4866", "--g-label-3": "#675F80", "--g-font": "ui-rounded,\"SF Pro Rounded\",\"Nunito\",\"Varela Round\",\"Segoe UI Variable Display\",\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei UI\",\"Microsoft YaHei\",system-ui,sans-serif", "--g-mono": "\"Cascadia Code\",\"SF Mono\",\"JetBrains Mono\",ui-monospace,Consolas,monospace", "--sk-hd-w": "800", "--sk-hd-ls": "-.015em", "--sk-num-font": "var(--g-font)", "--bt-w": "700", "--sk-bg-size": "100% 100%", "--sk-bg-rep": "no-repeat", "--sk-bg-pos": "0 0", "--sk-scheme": "light", "--sk-bg": "radial-gradient(560px 460px at 6% 4%,rgba(255,186,212,.7),transparent 72%),radial-gradient(620px 500px at 96% 6%,rgba(172,205,255,.75),transparent 72%),radial-gradient(640px 540px at 8% 98%,rgba(184,240,212,.7),transparent 72%),radial-gradient(560px 460px at 96% 96%,rgba(255,229,164,.65),transparent 72%)", "--sk-on-accent": "#fff", "--sk-tint": "rgba(107,78,255,.12)", "--sk-sel": "rgba(107,78,255,.25)", "--sk-focus": "#6B4EFF", "--bar-bg": "rgba(255,255,255,.72)", "--bar-bd": "1px solid rgba(107,78,255,.1)", "--bar-sh": "0 8px 24px -16px rgba(110,80,220,.35)", "--logo-bg": "linear-gradient(135deg,#8E75FF,#FF8FB1)", "--logo-sh": "0 8px 16px -6px rgba(123,92,255,.6)", "--pop-bg": "#FFFFFF", "--pop-bd": "1px solid rgba(107,78,255,.12)", "--pop-r": "20px", "--pop-sh": "0 30px 60px -16px rgba(110,80,220,.45)", "--pop-hv-bg": "rgba(107,78,255,.1)", "--pop-hv-fg": "#4A30D8", "--tabs-bg": "rgba(107,78,255,.08)", "--tabs-r": "999px", "--tab-r": "999px", "--tab-on-bg": "#fff", "--tab-on-sh": "0 4px 12px -3px rgba(107,78,255,.4)", "--seg-bg": "rgba(107,78,255,.08)", "--seg-r": "999px", "--seg-bt-r": "999px", "--seg-on-bg": "#fff", "--seg-on-sh": "0 3px 10px -3px rgba(107,78,255,.4)", "--bt-bg": "#fff", "--bt-r": "999px", "--bt-sh": "0 1px 2px rgba(90,60,200,.1),0 8px 16px -10px rgba(110,80,220,.5)", "--bt-hv-bg": "#fff", "--bt-hv-tf": "translateY(-2px) scale(1.03)", "--bt-hv-sh": "0 2px 4px rgba(90,60,200,.1),0 14px 22px -10px rgba(110,80,220,.6)", "--bt-ac-tf": "scale(.95)", "--bp-bg": "linear-gradient(135deg,#6B4EFF,#8656EB)", "--bp-sh": "0 10px 22px -8px rgba(123,92,255,.8)", "--bp-hv-sh": "0 14px 26px -8px rgba(123,92,255,.9)", "--in-bg": "rgba(107,78,255,.06)", "--in-r": "14px", "--in-fc": "0 0 0 4px rgba(107,78,255,.2)", "--ch-r": "999px", "--nav-on-bg": "rgba(107,78,255,.12)"}, "dark": {"--g-canvas": "#15102B", "--g-m1": "rgba(255,255,255,.05)", "--g-m2": "#241C40", "--g-m3": "#2E2550", "--g-m4": "rgba(30,22,56,.8)", "--g-fill": "rgba(185,164,255,.12)", "--g-fill-2": "rgba(185,164,255,.2)", "--g-b1": "none", "--g-b2": "none", "--g-b3": "none", "--g-b4": "blur(22px) saturate(160%)", "--g-edge": "rgba(185,164,255,.14)", "--g-edge2": "rgba(185,164,255,.26)", "--g-rim": "transparent", "--g-sep": "rgba(185,164,255,.13)", "--g-spec": "0 0 0 0 transparent", "--g-spec-soft": "0 0 0 0 transparent", "--g-sh1": "0 2px 4px rgba(0,0,0,.2),0 20px 36px -18px rgba(0,0,0,.65)", "--g-sh2": "0 2px 6px rgba(0,0,0,.25),0 26px 46px -18px rgba(0,0,0,.75)", "--g-sh3": "0 4px 10px rgba(0,0,0,.3),0 40px 72px -22px rgba(0,0,0,.85)", "--g-r1": "10px", "--g-r2": "14px", "--g-r3": "18px", "--g-r4": "26px", "--g-r5": "32px", "--g-blue": "#B9A4FF", "--g-teal": "#6FE0CF", "--g-indigo": "#9AA6FF", "--g-green": "#7BE0B5", "--g-amber": "#FFC46B", "--g-red": "#FF8FB0", "--g-purple": "#D3A6FF", "--g-gray": "#9C93B8", "--g-accent-fill": "linear-gradient(135deg,#9B82FF,#C79BFF)", "--g-label": "#F0EBFF", "--g-label-2": "#C4BBE0", "--g-label-3": "#A89FC4", "--g-font": "ui-rounded,\"SF Pro Rounded\",\"Nunito\",\"Varela Round\",\"Segoe UI Variable Display\",\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei UI\",\"Microsoft YaHei\",system-ui,sans-serif", "--g-mono": "\"Cascadia Code\",\"SF Mono\",\"JetBrains Mono\",ui-monospace,Consolas,monospace", "--sk-hd-w": "800", "--sk-hd-ls": "-.015em", "--sk-num-font": "var(--g-font)", "--bt-w": "700", "--sk-bg-size": "100% 100%", "--sk-bg-rep": "no-repeat", "--sk-bg-pos": "0 0", "--sk-scheme": "dark", "--sk-bg": "radial-gradient(560px 460px at 6% 4%,rgba(180,70,150,.32),transparent 72%),radial-gradient(620px 500px at 96% 6%,rgba(70,100,220,.34),transparent 72%),radial-gradient(640px 540px at 8% 98%,rgba(30,150,130,.26),transparent 72%),radial-gradient(560px 460px at 96% 96%,rgba(170,110,40,.2),transparent 72%)", "--sk-on-accent": "#1B1236", "--sk-tint": "rgba(185,164,255,.16)", "--sk-sel": "rgba(185,164,255,.35)", "--sk-focus": "#B9A4FF", "--bar-bg": "rgba(28,20,52,.74)", "--bar-bd": "1px solid rgba(185,164,255,.14)", "--bar-sh": "0 10px 28px -16px rgba(0,0,0,.7)", "--logo-bg": "linear-gradient(135deg,#B9A4FF,#FF9DBB)", "--logo-fg": "#1B1236", "--logo-sh": "0 8px 18px -6px rgba(185,164,255,.6)", "--pop-bg": "#2A2148", "--pop-bd": "1px solid rgba(185,164,255,.2)", "--pop-r": "20px", "--pop-sh": "0 30px 60px -16px rgba(0,0,0,.85)", "--pop-hv-bg": "rgba(185,164,255,.18)", "--pop-hv-fg": "#fff", "--tabs-bg": "rgba(185,164,255,.1)", "--tabs-r": "999px", "--tab-r": "999px", "--tab-on-bg": "rgba(185,164,255,.26)", "--tab-on-sh": "0 4px 12px -3px rgba(0,0,0,.5)", "--seg-bg": "rgba(185,164,255,.1)", "--seg-r": "999px", "--seg-bt-r": "999px", "--seg-on-bg": "rgba(185,164,255,.28)", "--seg-on-sh": "0 3px 10px -3px rgba(0,0,0,.5)", "--bt-bg": "rgba(185,164,255,.14)", "--bt-r": "999px", "--bt-sh": "0 8px 16px -10px rgba(0,0,0,.7)", "--bt-hv-bg": "rgba(185,164,255,.24)", "--bt-hv-tf": "translateY(-2px) scale(1.03)", "--bt-hv-sh": "0 14px 22px -10px rgba(0,0,0,.8)", "--bt-ac-tf": "scale(.95)", "--bp-bg": "linear-gradient(135deg,#A58DFF,#CFA2FF)", "--bp-fg": "#1B1236", "--bp-sh": "0 10px 24px -8px rgba(165,141,255,.7)", "--bp-hv-sh": "0 14px 28px -8px rgba(165,141,255,.85)", "--in-bg": "rgba(185,164,255,.1)", "--in-r": "14px", "--in-fc": "0 0 0 4px rgba(185,164,255,.26)", "--ch-r": "999px", "--nav-on-bg": "rgba(185,164,255,.18)"}}}, {"id": "harbor", "group": "dash", "name": "海湾蓝", "en": "Harbor", "modes": ["light", "dark"], "mode": "light", "desc": "天蓝画布托着一张大圆角白板，珊瑚、鹅黄、天蓝的彩色卡片，粗体大写标题。像游艇管理后台那样明快。", "traits": ["天蓝画布", "白板外框", "大写标题"], "swatch": ["#52B2DA", "#F7D45C", "#F4614D"], "recommended": false, "scenario": "明快天蓝画布托起白板外框，高对比指标呈现", "pv": {"light": {"bg": "linear-gradient(180deg,#5DBDE6,#49A7D3)", "bar": "transparent", "side": "#FBFCFE", "card": "#FFFFFF", "line": "transparent", "ink": "#0B2540", "mute": "#5B6E82", "acc": "#0F78B5", "acc2": "#F4614D", "ok": "#16965F", "r": 14, "bw": 0, "sh": "0 6px 14px -8px rgba(5,50,90,.5)", "font": "\"Poppins\",\"Nunito\",\"Segoe UI Variable Display\",\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei UI\",sans-serif"}, "dark": {"bg": "linear-gradient(180deg,#0E3A5E,#071F34)", "bar": "transparent", "side": "#10283F", "card": "#143452", "line": "transparent", "ink": "#EAF6FF", "mute": "#8FB0CA", "acc": "#4FC3F7", "acc2": "#FF8A73", "ok": "#59D8A0", "r": 14, "bw": 0, "sh": "0 8px 18px -8px rgba(0,0,0,.6)", "font": "\"Poppins\",\"Nunito\",\"Segoe UI Variable Display\",\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei UI\",sans-serif"}}, "resolved": {"light": {"--g-canvas": "#E3F3FB", "--g-m1": "rgba(255,255,255,.8)", "--g-m2": "#F3F6FA", "--g-m3": "#FFFFFF", "--g-m4": "rgba(255,255,255,.84)", "--g-fill": "rgba(14,70,120,.07)", "--g-fill-2": "rgba(14,70,120,.13)", "--g-b1": "none", "--g-b2": "none", "--g-b3": "none", "--g-b4": "none", "--g-edge": "rgba(14,70,120,.07)", "--g-edge2": "rgba(14,70,120,.16)", "--g-rim": "transparent", "--g-sep": "rgba(14,70,120,.09)", "--g-spec": "0 0 0 0 transparent", "--g-spec-soft": "0 0 0 0 transparent", "--g-sh1": "0 1px 2px rgba(8,50,90,.05),0 10px 24px -16px rgba(8,60,110,.3)", "--g-sh2": "0 2px 6px rgba(8,50,90,.07),0 18px 34px -16px rgba(8,60,110,.38)", "--g-sh3": "0 4px 10px rgba(8,50,90,.1),0 30px 56px -20px rgba(8,60,110,.5)", "--g-r1": "10px", "--g-r2": "14px", "--g-r3": "18px", "--g-r4": "24px", "--g-r5": "30px", "--g-blue": "#0C6294", "--g-teal": "#086861", "--g-indigo": "#3A4FC4", "--g-green": "#0F6A43", "--g-amber": "#875000", "--g-red": "#A83123", "--g-purple": "#6F3FC4", "--g-gray": "#8793A3", "--g-accent-fill": "linear-gradient(135deg,#2394D4,#0F78B5)", "--g-label": "#0B2540", "--g-label-2": "#3B4E63", "--g-label-3": "#566A7F", "--g-font": "\"Poppins\",\"Nunito\",\"Segoe UI Variable Display\",\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei UI\",\"Microsoft YaHei\",system-ui,sans-serif", "--g-mono": "\"Cascadia Code\",\"SF Mono\",\"JetBrains Mono\",ui-monospace,Consolas,monospace", "--sk-hd-w": "800", "--sk-hd-ls": ".05em", "--sk-hd-tr": "uppercase", "--sk-num-font": "var(--g-font)", "--bt-w": "700", "--sk-bg-size": "100% 100%", "--sk-bg-rep": "no-repeat", "--sk-bg-pos": "0 0", "--fr-r": "28px", "--sk-scheme": "light", "--sk-bg": "radial-gradient(900px 480px at 88% -8%,rgba(255,255,255,.3),transparent 70%),radial-gradient(700px 420px at 4% 104%,rgba(255,255,255,.18),transparent 70%),linear-gradient(180deg,#5EBEE7 0,#48A6D3 100%)", "--fr-bg": "#FBFCFE", "--fr-sh": "0 26px 56px -24px rgba(6,52,92,.6)", "--sk-on-accent": "#fff", "--sk-tint": "rgba(15,120,181,.1)", "--sk-sel": "rgba(15,120,181,.22)", "--sk-focus": "#0F78B5", "--bar-bg": "transparent", "--bar-bd": "0", "--bar-sh": "none", "--logo-bg": "linear-gradient(135deg,#FF8A73,#F4614D)", "--logo-sh": "0 6px 14px -6px rgba(244,97,77,.8)", "--pop-bg": "#FFFFFF", "--pop-bd": "1px solid rgba(14,70,120,.1)", "--pop-r": "20px", "--pop-sh": "0 26px 50px -18px rgba(6,52,92,.5)", "--pop-hv-bg": "rgba(15,120,181,.1)", "--pop-hv-fg": "#0B4A72", "--tabs-bg": "rgba(14,70,120,.06)", "--tabs-r": "999px", "--tab-r": "999px", "--tab-on-bg": "#fff", "--tab-on-sh": "0 6px 16px -6px rgba(8,60,110,.4),0 0 0 1px rgba(14,70,120,.05)", "--seg-bg": "rgba(14,70,120,.07)", "--seg-r": "999px", "--seg-bt-r": "999px", "--seg-on-bg": "#fff", "--seg-on-sh": "0 4px 10px -4px rgba(8,60,110,.4)", "--bt-r": "999px", "--bt-hv-tf": "translateY(-1px)", "--bt-ac-tf": "scale(.96)", "--bp-bg": "linear-gradient(135deg,#0F78B5,#0C6294)", "--bp-sh": "0 10px 20px -8px rgba(12,98,148,.7)", "--bp-hv-sh": "0 14px 24px -8px rgba(12,98,148,.8)", "--in-r": "14px", "--in-fc": "0 0 0 3px rgba(15,120,181,.22)", "--ch-r": "999px", "--nav-on-bg": "#fff", "--sw-on": "#0F78B5", "--sw-off": "rgba(14,70,120,.18)"}, "dark": {"--g-canvas": "#0A2A44", "--g-m1": "rgba(255,255,255,.05)", "--g-m2": "#15324F", "--g-m3": "#1B3B5C", "--g-m4": "rgba(15,37,56,.84)", "--g-fill": "rgba(140,200,240,.1)", "--g-fill-2": "rgba(140,200,240,.18)", "--g-b1": "none", "--g-b2": "none", "--g-b3": "none", "--g-b4": "none", "--g-edge": "rgba(140,200,240,.1)", "--g-edge2": "rgba(140,200,240,.22)", "--g-rim": "transparent", "--g-sep": "rgba(140,200,240,.12)", "--g-spec": "0 0 0 0 transparent", "--g-spec-soft": "0 0 0 0 transparent", "--g-sh1": "0 1px 2px rgba(0,0,0,.2),0 12px 26px -16px rgba(0,0,0,.65)", "--g-sh2": "0 2px 6px rgba(0,0,0,.25),0 20px 36px -16px rgba(0,0,0,.75)", "--g-sh3": "0 4px 10px rgba(0,0,0,.3),0 32px 58px -20px rgba(0,0,0,.85)", "--g-r1": "10px", "--g-r2": "14px", "--g-r3": "18px", "--g-r4": "24px", "--g-r5": "30px", "--g-blue": "#5CC8FA", "--g-teal": "#4FE0C8", "--g-indigo": "#8C9CFF", "--g-green": "#5BDD9C", "--g-amber": "#FFC25C", "--g-red": "#FF8E78", "--g-purple": "#C4A2FF", "--g-gray": "#8DA3B8", "--g-accent-fill": "linear-gradient(135deg,#6AD0FA,#38B2EE)", "--g-label": "#EAF6FF", "--g-label-2": "#B3CBDD", "--g-label-3": "#97B4CA", "--g-font": "\"Poppins\",\"Nunito\",\"Segoe UI Variable Display\",\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei UI\",\"Microsoft YaHei\",system-ui,sans-serif", "--g-mono": "\"Cascadia Code\",\"SF Mono\",\"JetBrains Mono\",ui-monospace,Consolas,monospace", "--sk-hd-w": "800", "--sk-hd-ls": ".05em", "--sk-hd-tr": "uppercase", "--sk-num-font": "var(--g-font)", "--bt-w": "700", "--sk-bg-size": "100% 100%", "--sk-bg-rep": "no-repeat", "--sk-bg-pos": "0 0", "--fr-r": "28px", "--sk-scheme": "dark", "--sk-bg": "radial-gradient(900px 480px at 88% -8%,rgba(80,190,240,.22),transparent 70%),linear-gradient(180deg,#0E3A5E 0,#06192B 100%)", "--fr-bg": "#0F2538", "--fr-sh": "0 26px 56px -24px rgba(0,0,0,.8)", "--sk-on-accent": "#06243C", "--sk-tint": "rgba(92,200,250,.14)", "--sk-sel": "rgba(92,200,250,.32)", "--sk-focus": "#5CC8FA", "--bar-bg": "transparent", "--bar-bd": "0", "--bar-sh": "none", "--logo-bg": "linear-gradient(135deg,#FF9C86,#F4614D)", "--logo-fg": "#fff", "--logo-sh": "0 6px 14px -6px rgba(244,97,77,.6)", "--pop-bg": "#173A5A", "--pop-bd": "1px solid rgba(140,200,240,.22)", "--pop-r": "20px", "--pop-sh": "0 26px 50px -18px rgba(0,0,0,.8)", "--pop-hv-bg": "rgba(92,200,250,.18)", "--pop-hv-fg": "#fff", "--tabs-bg": "rgba(140,200,240,.1)", "--tabs-r": "999px", "--tab-r": "999px", "--tab-on-bg": "rgba(140,200,240,.26)", "--tab-on-sh": "0 6px 16px -6px rgba(0,0,0,.6)", "--seg-bg": "rgba(140,200,240,.1)", "--seg-r": "999px", "--seg-bt-r": "999px", "--seg-on-bg": "rgba(140,200,240,.28)", "--seg-on-sh": "0 4px 10px -4px rgba(0,0,0,.6)", "--bt-r": "999px", "--bt-hv-tf": "translateY(-1px)", "--bt-ac-tf": "scale(.96)", "--bp-bg": "linear-gradient(135deg,#6AD0FA,#38B2EE)", "--bp-fg": "#06243C", "--bp-sh": "0 10px 22px -8px rgba(56,178,238,.6)", "--bp-hv-sh": "0 14px 26px -8px rgba(56,178,238,.75)", "--in-r": "14px", "--in-fc": "0 0 0 3px rgba(92,200,250,.28)", "--ch-r": "999px", "--nav-on-bg": "rgba(140,200,240,.2)", "--sw-on": "#38B2EE", "--sw-off": "rgba(140,200,240,.24)"}}}, {"id": "indigo", "group": "dash", "name": "靛蓝指南", "en": "Indigo Guide", "modes": ["light", "dark"], "mode": "light", "desc": "冷灰白底、白卡发丝线、靛蓝点缀；激活项右缘一道竖条，深靛色的提示气泡。SaaS 分析面板的利落。", "traits": ["发丝白卡", "右缘竖条", "深靛气泡"], "swatch": ["#395EF4", "#333A66", "#F2F4FA"], "recommended": true, "scenario": "经典 SaaS 分析面板，冷灰白底 + 靛蓝右缘竖条，极其契合 Jira 与走势图", "pv": {"light": {"bg": "#F2F4FA", "bar": "#FFFFFF", "side": "#FFFFFF", "card": "#FFFFFF", "line": "rgba(30,40,80,.09)", "ink": "#1E263B", "mute": "#6A7390", "acc": "#395EF4", "acc2": "#7DDEE4", "ok": "#188A5B", "r": 8, "bw": 1, "sh": "0 1px 2px rgba(30,40,90,.06)", "font": "\"Inter\",\"SF Pro Text\",\"Segoe UI Variable Text\",\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei UI\",sans-serif"}, "dark": {"bg": "#0F1220", "bar": "#141829", "side": "#141829", "card": "#181D31", "line": "rgba(160,175,255,.12)", "ink": "#EEF1FA", "mute": "#8F98B5", "acc": "#7C95FF", "acc2": "#5ADBD0", "ok": "#4FD69C", "r": 8, "bw": 1, "sh": "none", "font": "\"Inter\",\"SF Pro Text\",\"Segoe UI Variable Text\",\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei UI\",sans-serif"}}, "resolved": {"light": {"--g-canvas": "#F2F4FA", "--g-m1": "rgba(238,242,252,.7)", "--g-m2": "#FFFFFF", "--g-m3": "#FFFFFF", "--g-m4": "rgba(255,255,255,.9)", "--g-fill": "rgba(40,60,140,.06)", "--g-fill-2": "rgba(40,60,140,.11)", "--g-b1": "none", "--g-b2": "none", "--g-b3": "none", "--g-b4": "none", "--g-edge": "rgba(30,45,110,.09)", "--g-edge2": "rgba(30,45,110,.18)", "--g-rim": "rgba(30,45,110,.09)", "--g-sep": "rgba(30,45,110,.08)", "--g-spec": "0 0 0 0 transparent", "--g-spec-soft": "0 0 0 0 transparent", "--g-sh1": "0 1px 2px rgba(20,30,80,.04)", "--g-sh2": "0 6px 16px -6px rgba(20,30,80,.12)", "--g-sh3": "0 14px 36px -10px rgba(20,30,80,.25)", "--g-r1": "7px", "--g-r2": "10px", "--g-r3": "12px", "--g-r4": "16px", "--g-r5": "20px", "--g-blue": "#2B4DE0", "--g-teal": "#106874", "--g-indigo": "#4D44E5", "--g-green": "#136C47", "--g-amber": "#8B5200", "--g-red": "#B1293A", "--g-purple": "#6E3AD7", "--g-gray": "#8A93AB", "--g-accent-fill": "linear-gradient(135deg,#4F6DF5,#3558F0)", "--g-label": "#1D2438", "--g-label-2": "#485069", "--g-label-3": "#5C6580", "--g-font": "\"Inter\",\"SF Pro Text\",\"Segoe UI Variable Text\",\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei UI\",\"Microsoft YaHei\",system-ui,sans-serif", "--g-mono": "\"JetBrains Mono\",\"Cascadia Code\",\"SF Mono\",ui-monospace,Consolas,monospace", "--sk-hd-w": "650", "--sk-hd-ls": "-.012em", "--sk-num-font": "var(--g-font)", "--bt-w": "600", "--sk-bg-size": "100% 100%", "--sk-bg-rep": "no-repeat", "--sk-bg-pos": "0 0", "--sk-scheme": "light", "--sk-bg": "linear-gradient(180deg,#F6F8FD 0,#EEF1F8 100%)", "--sk-on-accent": "#fff", "--sk-tint": "rgba(53,88,240,.09)", "--sk-sel": "rgba(53,88,240,.22)", "--sk-focus": "#3558F0", "--bar-bg": "rgba(255,255,255,.94)", "--bar-bd": "1px solid rgba(30,45,110,.09)", "--bar-sh": "none", "--logo-bg": "linear-gradient(135deg,#4F6DF5,#3558F0)", "--logo-sh": "0 6px 14px -6px rgba(53,88,240,.6)", "--pop-bg": "#FFFFFF", "--pop-bd": "1px solid rgba(30,45,110,.12)", "--pop-r": "12px", "--pop-sh": "0 18px 40px -12px rgba(20,30,80,.28)", "--pop-hv-bg": "#EEF2FF", "--pop-hv-fg": "#2540C4", "--tabs-bg": "#EDF0F8", "--tabs-r": "11px", "--tab-r": "8px", "--tab-on-bg": "#fff", "--tab-on-fg": "#2540C4", "--tab-on-sh": "0 1px 3px rgba(20,30,80,.14)", "--seg-bg": "#EDF0F8", "--seg-r": "9px", "--seg-bt-r": "7px", "--seg-on-bg": "#fff", "--seg-on-fg": "#2540C4", "--seg-on-sh": "0 1px 3px rgba(20,30,80,.14)", "--bt-bg": "#fff", "--bt-bd": "1px solid rgba(30,45,110,.14)", "--bt-r": "10px", "--bt-sh": "0 1px 2px rgba(20,30,80,.05)", "--bt-hv-bg": "#F6F8FF", "--bt-hv-tf": "none", "--bt-ac-tf": "scale(.98)", "--bp-bg": "linear-gradient(180deg,#4262F2,#3558F0)", "--bp-bd": "1px solid #2D4FE0", "--bp-sh": "0 6px 14px -6px rgba(53,88,240,.7)", "--in-bg": "#fff", "--in-bd": "1px solid rgba(30,45,110,.14)", "--in-r": "10px", "--in-fc": "0 0 0 3px rgba(53,88,240,.18)", "--in-fc-bd": "#3558F0", "--ch-r": "999px", "--nav-on-bg": "transparent", "--nav-on-fg": "#2D4FE0", "--sw-on": "#3558F0", "--sw-off": "#CDD3E6"}, "dark": {"--g-canvas": "#0F1220", "--g-m1": "rgba(255,255,255,.04)", "--g-m2": "#161A2C", "--g-m3": "#1D2238", "--g-m4": "rgba(20,24,41,.9)", "--g-fill": "rgba(140,155,255,.1)", "--g-fill-2": "rgba(140,155,255,.18)", "--g-b1": "none", "--g-b2": "none", "--g-b3": "none", "--g-b4": "none", "--g-edge": "rgba(150,165,255,.12)", "--g-edge2": "rgba(150,165,255,.24)", "--g-rim": "rgba(150,165,255,.12)", "--g-sep": "rgba(150,165,255,.1)", "--g-spec": "0 0 0 0 transparent", "--g-spec-soft": "0 0 0 0 transparent", "--g-sh1": "0 1px 2px rgba(0,0,0,.25)", "--g-sh2": "0 8px 20px -8px rgba(0,0,0,.6)", "--g-sh3": "0 18px 44px -12px rgba(0,0,0,.8)", "--g-r1": "7px", "--g-r2": "10px", "--g-r3": "12px", "--g-r4": "16px", "--g-r5": "20px", "--g-blue": "#8AA2FF", "--g-teal": "#58D8E4", "--g-indigo": "#A5A6FF", "--g-green": "#5FDDA2", "--g-amber": "#FFC45E", "--g-red": "#FF8798", "--g-purple": "#C2A5FF", "--g-gray": "#8F98B5", "--g-accent-fill": "linear-gradient(135deg,#97AEFF,#6C86F5)", "--g-label": "#EEF1FA", "--g-label-2": "#B7BED4", "--g-label-3": "#9AA2BD", "--g-font": "\"Inter\",\"SF Pro Text\",\"Segoe UI Variable Text\",\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei UI\",\"Microsoft YaHei\",system-ui,sans-serif", "--g-mono": "\"JetBrains Mono\",\"Cascadia Code\",\"SF Mono\",ui-monospace,Consolas,monospace", "--sk-hd-w": "650", "--sk-hd-ls": "-.012em", "--sk-num-font": "var(--g-font)", "--bt-w": "600", "--sk-bg-size": "100% 100%", "--sk-bg-rep": "no-repeat", "--sk-bg-pos": "0 0", "--sk-scheme": "dark", "--sk-bg": "linear-gradient(180deg,#121628 0,#0C0F1B 100%)", "--sk-on-accent": "#0B1030", "--sk-tint": "rgba(138,162,255,.15)", "--sk-sel": "rgba(138,162,255,.34)", "--sk-focus": "#8AA2FF", "--bar-bg": "rgba(18,22,40,.94)", "--bar-bd": "1px solid rgba(150,165,255,.12)", "--bar-sh": "none", "--logo-bg": "linear-gradient(135deg,#97AEFF,#6C86F5)", "--logo-fg": "#0B1030", "--logo-sh": "0 6px 14px -6px rgba(108,134,245,.6)", "--pop-bg": "#1D2238", "--pop-bd": "1px solid rgba(150,165,255,.22)", "--pop-r": "12px", "--pop-sh": "0 18px 40px -12px rgba(0,0,0,.8)", "--pop-hv-bg": "rgba(138,162,255,.18)", "--pop-hv-fg": "#fff", "--tabs-bg": "rgba(140,155,255,.1)", "--tabs-r": "11px", "--tab-r": "8px", "--tab-on-bg": "rgba(138,162,255,.26)", "--tab-on-fg": "#fff", "--tab-on-sh": "0 1px 3px rgba(0,0,0,.4)", "--seg-bg": "rgba(140,155,255,.1)", "--seg-r": "9px", "--seg-bt-r": "7px", "--seg-on-bg": "rgba(138,162,255,.28)", "--seg-on-fg": "#fff", "--seg-on-sh": "0 1px 3px rgba(0,0,0,.4)", "--bt-bg": "rgba(140,155,255,.1)", "--bt-bd": "1px solid rgba(150,165,255,.2)", "--bt-r": "10px", "--bt-sh": "none", "--bt-hv-bg": "rgba(140,155,255,.2)", "--bt-hv-tf": "none", "--bt-ac-tf": "scale(.98)", "--bp-bg": "linear-gradient(180deg,#98AEFF,#7C95FF)", "--bp-fg": "#0B1030", "--bp-bd": "1px solid #8AA2FF", "--bp-sh": "0 6px 16px -6px rgba(124,149,255,.6)", "--in-bg": "rgba(140,155,255,.08)", "--in-bd": "1px solid rgba(150,165,255,.2)", "--in-r": "10px", "--in-fc": "0 0 0 3px rgba(138,162,255,.28)", "--in-fc-bd": "#8AA2FF", "--ch-r": "999px", "--nav-on-bg": "transparent", "--nav-on-fg": "#9DB0FF", "--sw-on": "#7C95FF", "--sw-off": "rgba(150,165,255,.26)"}}}, {"id": "coral", "group": "dash", "name": "珊瑚诊室", "en": "Coral Care", "modes": ["light", "dark"], "mode": "light", "desc": "浮起的白色侧栏卡，选中项是一整块珊瑚渐变，页签像文件夹，深靛色的提示块。医疗后台的柔和。", "traits": ["浮动白卡", "珊瑚选中", "文件夹页签"], "swatch": ["#EF6A86", "#3B70F4", "#F3F0F7"], "recommended": false, "scenario": "柔和珊瑚选中态与浮动白卡，亲和力强", "pv": {"light": {"bg": "#EFEFF5", "bar": "transparent", "side": "#FFFFFF", "card": "#FFFFFF", "line": "transparent", "ink": "#2A2B45", "mute": "#7C7F9A", "acc": "#EF6A86", "acc2": "#3B70F4", "ok": "#2FA37A", "r": 14, "bw": 0, "sh": "0 10px 22px -12px rgba(70,60,120,.3)", "font": "\"Nunito Sans\",\"Nunito\",\"Segoe UI Variable Text\",\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei UI\",sans-serif"}, "dark": {"bg": "#1A1C2A", "bar": "transparent", "side": "#242738", "card": "#242738", "line": "transparent", "ink": "#F1F2FA", "mute": "#9A9DB8", "acc": "#FF8FA8", "acc2": "#7FA2FF", "ok": "#5FD6A8", "r": 14, "bw": 0, "sh": "0 10px 22px -12px rgba(0,0,0,.6)", "font": "\"Nunito Sans\",\"Nunito\",\"Segoe UI Variable Text\",\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei UI\",sans-serif"}}, "resolved": {"light": {"--g-canvas": "#EFEFF5", "--g-m1": "rgba(244,244,250,.85)", "--g-m2": "#FFFFFF", "--g-m3": "#FFFFFF", "--g-m4": "rgba(255,255,255,.92)", "--g-fill": "rgba(60,60,120,.06)", "--g-fill-2": "rgba(60,60,120,.11)", "--g-b1": "none", "--g-b2": "none", "--g-b3": "none", "--g-b4": "none", "--g-edge": "rgba(60,60,120,.07)", "--g-edge2": "rgba(60,60,120,.15)", "--g-rim": "transparent", "--g-sep": "rgba(60,60,120,.08)", "--g-spec": "0 0 0 0 transparent", "--g-spec-soft": "0 0 0 0 transparent", "--g-sh1": "0 2px 4px rgba(60,60,120,.04),0 10px 26px -14px rgba(70,70,130,.22)", "--g-sh2": "0 3px 8px rgba(60,60,120,.06),0 18px 36px -14px rgba(70,70,130,.3)", "--g-sh3": "0 6px 14px rgba(60,60,120,.08),0 30px 60px -18px rgba(70,70,130,.42)", "--g-r1": "9px", "--g-r2": "12px", "--g-r3": "16px", "--g-r4": "22px", "--g-r5": "28px", "--g-blue": "#A92949", "--g-teal": "#2050D3", "--g-indigo": "#5D3BDD", "--g-green": "#156A45", "--g-amber": "#864F00", "--g-red": "#A83019", "--g-purple": "#7732CF", "--g-gray": "#8E90AA", "--g-accent-fill": "linear-gradient(135deg,#C02C52,#D13B5B)", "--g-label": "#2A2B45", "--g-label-2": "#55577A", "--g-label-3": "#63658A", "--g-font": "\"Nunito Sans\",\"Nunito\",\"Segoe UI Variable Text\",\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei UI\",\"Microsoft YaHei\",system-ui,sans-serif", "--g-mono": "\"Cascadia Code\",\"SF Mono\",\"JetBrains Mono\",ui-monospace,Consolas,monospace", "--sk-hd-w": "700", "--sk-hd-ls": "-.01em", "--sk-num-font": "var(--g-font)", "--bt-w": "700", "--sk-bg-size": "100% 100%", "--sk-bg-rep": "no-repeat", "--sk-bg-pos": "0 0", "--sk-scheme": "light", "--sk-bg": "radial-gradient(700px 420px at 0% 0%,rgba(255,255,255,.7),transparent 70%),linear-gradient(180deg,#F3F3F9 0,#E9E9F1 100%)", "--sk-on-accent": "#fff", "--sk-tint": "rgba(192,44,82,.09)", "--sk-sel": "rgba(209,59,91,.22)", "--sk-focus": "#C02C52", "--bar-bg": "rgba(255,255,255,.7)", "--bar-bd": "0", "--bar-sh": "none", "--logo-bg": "linear-gradient(135deg,#E24D70,#C02C52)", "--logo-sh": "0 8px 16px -6px rgba(192,44,82,.6)", "--pop-bg": "#FFFFFF", "--pop-bd": "1px solid rgba(60,60,120,.1)", "--pop-r": "18px", "--pop-sh": "0 24px 48px -16px rgba(60,60,120,.4)", "--pop-hv-bg": "#FDEBF0", "--pop-hv-fg": "#A92949", "--tabs-bg": "#F1F1F7", "--tabs-r": "14px", "--tab-r": "11px", "--tab-on-bg": "#fff", "--tab-on-fg": "#A92949", "--tab-on-sh": "0 4px 10px -4px rgba(60,60,120,.3)", "--seg-bg": "#F1F1F7", "--seg-r": "12px", "--seg-bt-r": "9px", "--seg-on-bg": "#fff", "--seg-on-fg": "#A92949", "--seg-on-sh": "0 3px 8px -3px rgba(60,60,120,.3)", "--bt-bg": "#fff", "--bt-r": "12px", "--bt-sh": "0 1px 2px rgba(60,60,120,.08),0 6px 14px -8px rgba(60,60,120,.3)", "--bt-hv-bg": "#fff", "--bt-hv-tf": "translateY(-1px)", "--bt-hv-sh": "0 2px 4px rgba(60,60,120,.08),0 10px 18px -8px rgba(60,60,120,.4)", "--bt-ac-tf": "scale(.97)", "--bp-bg": "linear-gradient(135deg,#C02C52,#D13B5B)", "--bp-sh": "0 10px 20px -8px rgba(192,44,82,.7)", "--bp-hv-sh": "0 14px 24px -8px rgba(192,44,82,.8)", "--in-bg": "#F3F3F8", "--in-r": "13px", "--in-fc": "0 0 0 3px rgba(192,44,82,.18)", "--ch-r": "999px", "--nav-on-bg": "#fff", "--sw-on": "#C02C52", "--sw-off": "#D6D6E4"}, "dark": {"--g-canvas": "#1A1C2A", "--g-m1": "rgba(255,255,255,.04)", "--g-m2": "#242738", "--g-m3": "#2C3045", "--g-m4": "rgba(36,39,56,.92)", "--g-fill": "rgba(190,195,255,.08)", "--g-fill-2": "rgba(190,195,255,.15)", "--g-b1": "none", "--g-b2": "none", "--g-b3": "none", "--g-b4": "none", "--g-edge": "rgba(190,195,255,.1)", "--g-edge2": "rgba(190,195,255,.2)", "--g-rim": "transparent", "--g-sep": "rgba(190,195,255,.1)", "--g-spec": "0 0 0 0 transparent", "--g-spec-soft": "0 0 0 0 transparent", "--g-sh1": "0 2px 4px rgba(0,0,0,.2),0 12px 28px -14px rgba(0,0,0,.6)", "--g-sh2": "0 3px 8px rgba(0,0,0,.25),0 20px 38px -14px rgba(0,0,0,.7)", "--g-sh3": "0 6px 14px rgba(0,0,0,.3),0 32px 62px -18px rgba(0,0,0,.8)", "--g-r1": "9px", "--g-r2": "12px", "--g-r3": "16px", "--g-r4": "22px", "--g-r5": "28px", "--g-blue": "#FF8FA8", "--g-teal": "#8CAEFF", "--g-indigo": "#B3A2FF", "--g-green": "#6FE3B0", "--g-amber": "#FFC77A", "--g-red": "#FF9A8A", "--g-purple": "#D3A8FF", "--g-gray": "#9A9DB8", "--g-accent-fill": "linear-gradient(135deg,#FF9DB3,#FF7F9C)", "--g-label": "#F1F2FA", "--g-label-2": "#BABDD4", "--g-label-3": "#9EA2BF", "--g-font": "\"Nunito Sans\",\"Nunito\",\"Segoe UI Variable Text\",\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei UI\",\"Microsoft YaHei\",system-ui,sans-serif", "--g-mono": "\"Cascadia Code\",\"SF Mono\",\"JetBrains Mono\",ui-monospace,Consolas,monospace", "--sk-hd-w": "700", "--sk-hd-ls": "-.01em", "--sk-num-font": "var(--g-font)", "--bt-w": "700", "--sk-bg-size": "100% 100%", "--sk-bg-rep": "no-repeat", "--sk-bg-pos": "0 0", "--sk-scheme": "dark", "--sk-bg": "radial-gradient(700px 420px at 0% 0%,rgba(255,143,168,.1),transparent 70%),linear-gradient(180deg,#1D1F2F 0,#15172A 100%)", "--sk-on-accent": "#3A0F1F", "--sk-tint": "rgba(255,143,168,.14)", "--sk-sel": "rgba(255,143,168,.32)", "--sk-focus": "#FF8FA8", "--bar-bg": "rgba(36,39,56,.7)", "--bar-bd": "0", "--bar-sh": "none", "--logo-bg": "linear-gradient(135deg,#FF9DB3,#FF7F9C)", "--logo-fg": "#3A0F1F", "--logo-sh": "0 8px 16px -6px rgba(255,127,156,.5)", "--pop-bg": "#2C3045", "--pop-bd": "1px solid rgba(190,195,255,.2)", "--pop-r": "18px", "--pop-sh": "0 24px 48px -16px rgba(0,0,0,.8)", "--pop-hv-bg": "rgba(255,143,168,.18)", "--pop-hv-fg": "#fff", "--tabs-bg": "rgba(190,195,255,.09)", "--tabs-r": "14px", "--tab-r": "11px", "--tab-on-bg": "rgba(255,143,168,.26)", "--tab-on-fg": "#fff", "--tab-on-sh": "0 4px 10px -4px rgba(0,0,0,.5)", "--seg-bg": "rgba(190,195,255,.09)", "--seg-r": "12px", "--seg-bt-r": "9px", "--seg-on-bg": "rgba(255,143,168,.28)", "--seg-on-fg": "#fff", "--seg-on-sh": "0 3px 8px -3px rgba(0,0,0,.5)", "--bt-bg": "rgba(190,195,255,.12)", "--bt-r": "12px", "--bt-sh": "none", "--bt-hv-bg": "rgba(190,195,255,.22)", "--bt-hv-tf": "translateY(-1px)", "--bt-ac-tf": "scale(.97)", "--bp-bg": "linear-gradient(135deg,#FF9DB3,#FF7F9C)", "--bp-fg": "#3A0F1F", "--bp-sh": "0 10px 22px -8px rgba(255,127,156,.55)", "--bp-hv-sh": "0 14px 26px -8px rgba(255,127,156,.7)", "--in-bg": "rgba(190,195,255,.09)", "--in-r": "13px", "--in-fc": "0 0 0 3px rgba(255,143,168,.26)", "--ch-r": "999px", "--nav-on-bg": "rgba(255,143,168,.2)", "--sw-on": "#FF8FA8", "--sw-off": "rgba(190,195,255,.26)"}}}, {"id": "lavender", "group": "dash", "name": "薰衣草", "en": "Lavender", "modes": ["light", "dark"], "mode": "light", "desc": "淡紫画布、奶白大圆角卡、长春蓝的选中行、橙色虚线按钮，画布角落探出几片叶影。", "traits": ["叶影背景", "橙色虚线", "长春蓝选中"], "swatch": ["#667BCE", "#F38302", "#E9EDF6"], "recommended": false, "scenario": "淡紫画布与长春蓝选中、橙色虚线次级按钮", "pv": {"light": {"bg": "#E8ECF7", "bar": "transparent", "side": "#FDF9F7", "card": "#FDF9F7", "line": "transparent", "ink": "#1F2147", "mute": "#6A6E96", "acc": "#5662D6", "acc2": "#F59A1A", "ok": "#1B8A55", "r": 14, "bw": 0, "sh": "0 8px 18px -10px rgba(70,80,180,.35)", "font": "\"Nunito\",\"Quicksand\",\"Segoe UI Variable Text\",\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei UI\",sans-serif"}, "dark": {"bg": "#14162B", "bar": "transparent", "side": "#1E2142", "card": "#23264A", "line": "transparent", "ink": "#ECEDFF", "mute": "#9A9FCC", "acc": "#9AA5FF", "acc2": "#FFB257", "ok": "#62D6A0", "r": 14, "bw": 0, "sh": "0 8px 18px -10px rgba(0,0,0,.6)", "font": "\"Nunito\",\"Quicksand\",\"Segoe UI Variable Text\",\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei UI\",sans-serif"}}, "resolved": {"light": {"--g-canvas": "#E8ECF7", "--g-m1": "rgba(240,242,252,.85)", "--g-m2": "#FFFFFF", "--g-m3": "#FFFFFF", "--g-m4": "rgba(255,255,255,.94)", "--g-fill": "rgba(80,92,190,.07)", "--g-fill-2": "rgba(80,92,190,.13)", "--g-b1": "none", "--g-b2": "none", "--g-b3": "none", "--g-b4": "none", "--g-edge": "rgba(80,92,190,.08)", "--g-edge2": "rgba(80,92,190,.18)", "--g-rim": "transparent", "--g-sep": "rgba(80,92,190,.1)", "--g-spec": "0 0 0 0 transparent", "--g-spec-soft": "0 0 0 0 transparent", "--g-sh1": "0 1px 2px rgba(70,80,160,.05),0 10px 24px -14px rgba(70,80,160,.28)", "--g-sh2": "0 2px 6px rgba(70,80,160,.07),0 18px 34px -14px rgba(70,80,160,.38)", "--g-sh3": "0 4px 10px rgba(70,80,160,.09),0 30px 56px -18px rgba(70,80,160,.5)", "--g-r1": "9px", "--g-r2": "12px", "--g-r3": "16px", "--g-r4": "22px", "--g-r5": "28px", "--g-blue": "#3B49D0", "--g-teal": "#126560", "--g-indigo": "#3D4DC5", "--g-green": "#146840", "--g-amber": "#894A00", "--g-red": "#A42E39", "--g-purple": "#6A39CA", "--g-gray": "#8E92B5", "--g-accent-fill": "linear-gradient(135deg,#586FCA,#4A5FC0)", "--g-label": "#1F2147", "--g-label-2": "#4B4F78", "--g-label-3": "#5E628C", "--g-font": "\"Poppins\",\"Nunito Sans\",\"Segoe UI Variable Text\",\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei UI\",\"Microsoft YaHei\",system-ui,sans-serif", "--g-mono": "\"Cascadia Code\",\"SF Mono\",\"JetBrains Mono\",ui-monospace,Consolas,monospace", "--sk-hd-w": "600", "--sk-hd-ls": "-.005em", "--sk-num-font": "var(--g-font)", "--bt-w": "600", "--sk-bg-size": "290px 290px,290px 290px,32px 32px,30px 30px,100% 100%", "--sk-bg-pos": "calc(100% + 52px) -74px,-70px calc(100% + 92px),41% calc(100% - 3px),71% calc(100% - 3px),0 0", "--sk-bg-rep": "no-repeat", "--fr-r": "30px", "--sk-scheme": "light", "--sk-bg": "radial-gradient(600px 400px at 95% 5%, rgba(143,155,232,0.28), transparent 70%), radial-gradient(500px 380px at 5% 95%, rgba(245,154,26,0.14), transparent 70%), linear-gradient(180deg, #EEF1FA 0%, #E2E7F5 100%)", "--fr-bg": "#FDF9F7", "--fr-sh": "0 30px 60px -30px rgba(60,72,160,.5)", "--sk-on-accent": "#fff", "--sk-tint": "rgba(88,111,202,.1)", "--sk-sel": "rgba(88,111,202,.24)", "--sk-focus": "#3B49D0", "--bar-bg": "transparent", "--bar-bd": "0", "--bar-sh": "none", "--logo-bg": "linear-gradient(135deg,#586FCA,#4A5FC0)", "--logo-sh": "0 8px 16px -6px rgba(74,95,192,.7)", "--pop-bg": "#FFFFFF", "--pop-bd": "1px solid rgba(80,92,190,.12)", "--pop-r": "18px", "--pop-sh": "0 24px 48px -16px rgba(60,72,160,.45)", "--pop-hv-bg": "#EEF1FD", "--pop-hv-fg": "#3B49D0", "--tabs-bg": "#EEF0FA", "--tabs-r": "14px", "--tab-r": "11px", "--tab-on-bg": "linear-gradient(135deg,#586FCA,#4A5FC0)", "--tab-on-fg": "#fff", "--tab-on-sh": "0 8px 16px -8px rgba(74,95,192,.8)", "--seg-bg": "#EEF0FA", "--seg-r": "12px", "--seg-bt-r": "9px", "--seg-on-bg": "linear-gradient(135deg,#586FCA,#4A5FC0)", "--seg-on-fg": "#fff", "--seg-on-sh": "0 6px 12px -6px rgba(74,95,192,.8)", "--bt-bg": "transparent", "--bt-fg": "#3B49D0", "--bt-bd": "1.5px dashed rgba(88,111,202,.62)", "--bt-r": "12px", "--bt-sh": "none", "--bt-hv-bg": "rgba(88,111,202,.1)", "--bt-hv-tf": "translateY(-1px)", "--bt-ac-tf": "scale(.97)", "--bp-bg": "linear-gradient(135deg,#586FCA,#4A5FC0)", "--bp-bd": "0", "--bp-sh": "0 12px 20px -8px rgba(74,95,192,.7)", "--bp-hv-sh": "0 16px 26px -8px rgba(74,95,192,.8)", "--in-bg": "#F3F4FB", "--in-r": "12px", "--in-fc": "0 0 0 3px rgba(88,111,202,.22)", "--ch-r": "999px", "--nav-on-bg": "#fff", "--sw-on": "#586FCA", "--sw-off": "#D5D9EE"}, "dark": {"--g-canvas": "#14162B", "--g-m1": "rgba(255,255,255,.04)", "--g-m2": "#23264A", "--g-m3": "#2B2F58", "--g-m4": "rgba(35,38,74,.94)", "--g-fill": "rgba(170,180,255,.09)", "--g-fill-2": "rgba(170,180,255,.16)", "--g-b1": "none", "--g-b2": "none", "--g-b3": "none", "--g-b4": "none", "--g-edge": "rgba(170,180,255,.1)", "--g-edge2": "rgba(170,180,255,.2)", "--g-rim": "transparent", "--g-sep": "rgba(170,180,255,.1)", "--g-spec": "0 0 0 0 transparent", "--g-spec-soft": "0 0 0 0 transparent", "--g-sh1": "0 1px 2px rgba(0,0,0,.2),0 12px 26px -14px rgba(0,0,0,.6)", "--g-sh2": "0 2px 6px rgba(0,0,0,.25),0 20px 36px -14px rgba(0,0,0,.7)", "--g-sh3": "0 4px 10px rgba(0,0,0,.3),0 32px 58px -18px rgba(0,0,0,.8)", "--g-r1": "9px", "--g-r2": "12px", "--g-r3": "16px", "--g-r4": "22px", "--g-r5": "28px", "--g-blue": "#9AA5FF", "--g-teal": "#59DCD3", "--g-indigo": "#A9B2FF", "--g-green": "#62D6A0", "--g-amber": "#FFB257", "--g-red": "#FF8FA3", "--g-purple": "#C9A8FF", "--g-gray": "#9498C4", "--g-accent-fill": "linear-gradient(135deg,#9AA5FF,#808FF7)", "--g-label": "#ECEDFF", "--g-label-2": "#B9BDE6", "--g-label-3": "#9EA3CF", "--g-font": "\"Poppins\",\"Nunito Sans\",\"Segoe UI Variable Text\",\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei UI\",\"Microsoft YaHei\",system-ui,sans-serif", "--g-mono": "\"Cascadia Code\",\"SF Mono\",\"JetBrains Mono\",ui-monospace,Consolas,monospace", "--sk-hd-w": "600", "--sk-hd-ls": "-.005em", "--sk-num-font": "var(--g-font)", "--bt-w": "600", "--sk-bg-size": "290px 290px,290px 290px,32px 32px,30px 30px,100% 100%", "--sk-bg-pos": "calc(100% + 52px) -74px,-70px calc(100% + 92px),41% calc(100% - 3px),71% calc(100% - 3px),0 0", "--sk-bg-rep": "no-repeat", "--fr-r": "30px", "--sk-scheme": "dark", "--sk-bg": "radial-gradient(600px 400px at 95% 5%, rgba(58,67,146,0.38), transparent 70%), radial-gradient(500px 380px at 5% 95%, rgba(255,178,87,0.12), transparent 70%), linear-gradient(180deg, #191B35 0%, #101226 100%)", "--fr-bg": "#1B1E3A", "--fr-sh": "0 30px 60px -30px rgba(0,0,0,.8)", "--sk-on-accent": "#14163A", "--sk-tint": "rgba(154,165,255,.14)", "--sk-sel": "rgba(154,165,255,.32)", "--sk-focus": "#9AA5FF", "--bar-bg": "transparent", "--bar-bd": "0", "--bar-sh": "none", "--logo-bg": "linear-gradient(135deg,#A9B2FF,#808FF7)", "--logo-fg": "#14163A", "--logo-sh": "0 8px 16px -6px rgba(128,143,247,.55)", "--pop-bg": "#2B2F58", "--pop-bd": "1px solid rgba(170,180,255,.22)", "--pop-r": "18px", "--pop-sh": "0 24px 48px -16px rgba(0,0,0,.8)", "--pop-hv-bg": "rgba(154,165,255,.2)", "--pop-hv-fg": "#fff", "--tabs-bg": "rgba(170,180,255,.1)", "--tabs-r": "14px", "--tab-r": "11px", "--tab-on-bg": "linear-gradient(135deg,#9AA5FF,#808FF7)", "--tab-on-fg": "#14163A", "--tab-on-sh": "0 8px 16px -8px rgba(0,0,0,.6)", "--seg-bg": "rgba(170,180,255,.1)", "--seg-r": "12px", "--seg-bt-r": "9px", "--seg-on-bg": "linear-gradient(135deg,#9AA5FF,#808FF7)", "--seg-on-fg": "#14163A", "--seg-on-sh": "0 6px 12px -6px rgba(0,0,0,.6)", "--bt-bg": "transparent", "--bt-fg": "#B7C0FF", "--bt-bd": "1.5px dashed rgba(170,180,255,.5)", "--bt-r": "12px", "--bt-sh": "none", "--bt-hv-bg": "rgba(170,180,255,.14)", "--bt-hv-tf": "translateY(-1px)", "--bt-ac-tf": "scale(.97)", "--bp-bg": "linear-gradient(135deg,#9AA5FF,#808FF7)", "--bp-fg": "#14163A", "--bp-bd": "0", "--bp-sh": "0 12px 22px -8px rgba(128,143,247,.55)", "--bp-hv-sh": "0 16px 28px -8px rgba(128,143,247,.7)", "--in-bg": "rgba(170,180,255,.1)", "--in-r": "12px", "--in-fc": "0 0 0 3px rgba(154,165,255,.28)", "--ch-r": "999px", "--nav-on-bg": "rgba(154,165,255,.2)", "--sw-on": "#9AA5FF", "--sw-off": "rgba(170,180,255,.26)"}}}, {"id": "night", "group": "dash", "name": "智能夜居", "en": "Night Home", "modes": ["dark", "light"], "mode": "dark", "desc": "石板灰画布里嵌一个深色设备外框，青 / 紫 / 粉 / 橙 / 绿的糖果霓虹和彩色开关磁贴；浅色是「日间」版。", "traits": ["设备外框", "糖果霓虹", "彩色磁贴"], "swatch": ["#31C3F6", "#872DFF", "#F83C76"], "recommended": false, "scenario": "带实体设备外框与糖果霓虹磁贴，适合多工具监控台", "pv": {"dark": {"bg": "linear-gradient(135deg,#4C506D,#353A4D)", "bar": "transparent", "side": "#1F2230", "card": "#262A3B", "line": "rgba(255,255,255,.04)", "ink": "#F4F6FB", "mute": "#A9AEC6", "acc": "#31C3F6", "acc2": "#F83C76", "ok": "#97FE33", "r": 12, "bw": 1, "sh": "0 8px 20px -10px rgba(0,0,0,.6)", "font": "\"DIN Alternate\",\"Bahnschrift\",\"Segoe UI Variable Display\",\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei UI\",sans-serif"}, "light": {"bg": "linear-gradient(135deg,#EEF0F7,#DDE1EE)", "bar": "transparent", "side": "#FFFFFF", "card": "#FFFFFF", "line": "transparent", "ink": "#1D2030", "mute": "#6A6F88", "acc": "#0B7FB8", "acc2": "#D61F69", "ok": "#2D7D1A", "r": 12, "bw": 0, "sh": "0 8px 18px -10px rgba(40,50,90,.3)", "font": "\"DIN Alternate\",\"Bahnschrift\",\"Segoe UI Variable Display\",\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei UI\",sans-serif"}}, "resolved": {"dark": {"--g-canvas": "#2C303E", "--g-m1": "rgba(255,255,255,.04)", "--g-m2": "#212430", "--g-m3": "#2A2E3E", "--g-m4": "rgba(33,36,48,.94)", "--g-fill": "rgba(255,255,255,.07)", "--g-fill-2": "rgba(255,255,255,.13)", "--g-b1": "none", "--g-b2": "none", "--g-b3": "none", "--g-b4": "none", "--g-edge": "rgba(255,255,255,.07)", "--g-edge2": "rgba(255,255,255,.15)", "--g-rim": "transparent", "--g-sep": "rgba(255,255,255,.08)", "--g-spec": "0 0 0 0 transparent", "--g-spec-soft": "0 0 0 0 transparent", "--g-sh1": "0 1px 2px rgba(0,0,0,.3),0 12px 26px -14px rgba(0,0,0,.7)", "--g-sh2": "0 2px 6px rgba(0,0,0,.35),0 20px 36px -14px rgba(0,0,0,.8)", "--g-sh3": "0 4px 10px rgba(0,0,0,.4),0 32px 58px -18px rgba(0,0,0,.85)", "--g-r1": "10px", "--g-r2": "14px", "--g-r3": "18px", "--g-r4": "24px", "--g-r5": "30px", "--g-blue": "#4FCBFF", "--g-teal": "#3EE0C0", "--g-indigo": "#A2AFFF", "--g-green": "#9BFF4A", "--g-amber": "#FFB45C", "--g-red": "#FF91AC", "--g-purple": "#C4A3FF", "--g-gray": "#8F95AE", "--g-accent-fill": "linear-gradient(135deg,#7FD3FB,#34A6EE)", "--g-label": "#F4F6FB", "--g-label-2": "#CDD1E2", "--g-label-3": "#B3B8CE", "--g-font": "\"Nunito\",\"Poppins\",\"Segoe UI Variable Text\",\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei UI\",\"Microsoft YaHei\",system-ui,sans-serif", "--g-mono": "\"Cascadia Code\",\"SF Mono\",\"JetBrains Mono\",ui-monospace,Consolas,monospace", "--sk-hd-w": "700", "--sk-hd-ls": "0", "--sk-num-font": "var(--g-font)", "--bt-w": "700", "--sk-bg-size": "100% 100%", "--sk-bg-rep": "no-repeat", "--sk-bg-pos": "0 0", "--fr-r": "36px", "--sk-scheme": "dark", "--sk-bg": "radial-gradient(900px 560px at 16% -12%,rgba(140,146,190,.34),transparent 70%),linear-gradient(165deg,#4A4E6A 0,#2F3345 100%)", "--fr-bg": "#171A21", "--fr-bd": "7px solid #262A3A", "--fr-sh": "0 34px 60px -22px rgba(0,0,0,.7)", "--sk-on-accent": "#0B1020", "--sk-tint": "rgba(79,203,255,.14)", "--sk-sel": "rgba(79,203,255,.3)", "--sk-focus": "#4FCBFF", "--bar-bg": "transparent", "--bar-bd": "0", "--bar-sh": "none", "--logo-bg": "linear-gradient(135deg,#B58CFF,#7B4DFF)", "--logo-fg": "#fff", "--logo-sh": "0 0 18px -2px rgba(135,45,255,.75)", "--pop-bg": "#2A2E3E", "--pop-bd": "1px solid rgba(255,255,255,.12)", "--pop-r": "20px", "--pop-sh": "0 24px 48px -16px rgba(0,0,0,.8)", "--pop-hv-bg": "rgba(79,203,255,.18)", "--pop-hv-fg": "#fff", "--tabs-bg": "rgba(255,255,255,.06)", "--tabs-r": "999px", "--tab-r": "999px", "--tab-on-bg": "linear-gradient(135deg,#7FD3FB,#34A6EE)", "--tab-on-fg": "#06121E", "--tab-on-sh": "0 0 16px -4px rgba(79,203,255,.65)", "--seg-bg": "rgba(255,255,255,.06)", "--seg-r": "999px", "--seg-bt-r": "999px", "--seg-on-bg": "linear-gradient(135deg,#7FD3FB,#34A6EE)", "--seg-on-fg": "#06121E", "--seg-on-sh": "0 0 14px -4px rgba(79,203,255,.6)", "--bt-r": "999px", "--bt-sh": "none", "--bt-hv-bg": "rgba(255,255,255,.15)", "--bt-hv-tf": "translateY(-1px)", "--bt-ac-tf": "scale(.96)", "--bp-bg": "linear-gradient(135deg,#7FD3FB,#34A6EE)", "--bp-fg": "#06121E", "--bp-sh": "0 0 22px -6px rgba(79,203,255,.8)", "--bp-hv-sh": "0 0 30px -4px rgba(79,203,255,.9)", "--in-r": "14px", "--in-fc": "0 0 0 2px rgba(79,203,255,.55)", "--ch-r": "999px", "--nav-on-bg": "rgba(79,203,255,.14)", "--sw-on": "#4FCBFF", "--sw-off": "rgba(255,255,255,.2)"}, "light": {"--g-canvas": "#E3E6F0", "--g-m1": "rgba(232,235,246,.75)", "--g-m2": "#F5F6FB", "--g-m3": "#FFFFFF", "--g-m4": "rgba(255,255,255,.94)", "--g-fill": "rgba(30,40,90,.06)", "--g-fill-2": "rgba(30,40,90,.12)", "--g-b1": "none", "--g-b2": "none", "--g-b3": "none", "--g-b4": "none", "--g-edge": "rgba(30,40,90,.07)", "--g-edge2": "rgba(30,40,90,.15)", "--g-rim": "transparent", "--g-sep": "rgba(30,40,90,.09)", "--g-spec": "0 0 0 0 transparent", "--g-spec-soft": "0 0 0 0 transparent", "--g-sh1": "0 1px 2px rgba(40,50,100,.06),0 10px 24px -14px rgba(40,50,100,.3)", "--g-sh2": "0 2px 6px rgba(40,50,100,.08),0 18px 34px -14px rgba(40,50,100,.4)", "--g-sh3": "0 4px 10px rgba(40,50,100,.1),0 30px 56px -18px rgba(40,50,100,.5)", "--g-r1": "10px", "--g-r2": "14px", "--g-r3": "18px", "--g-r4": "24px", "--g-r5": "30px", "--g-blue": "#085C86", "--g-teal": "#086255", "--g-indigo": "#3E49BE", "--g-green": "#246415", "--g-amber": "#874400", "--g-red": "#A5183D", "--g-purple": "#6629D4", "--g-gray": "#8A91AC", "--g-accent-fill": "linear-gradient(135deg,#7FD3FB,#34A6EE)", "--g-label": "#0E1220", "--g-label-2": "#434961", "--g-label-3": "#575D77", "--g-font": "\"Nunito\",\"Poppins\",\"Segoe UI Variable Text\",\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei UI\",\"Microsoft YaHei\",system-ui,sans-serif", "--g-mono": "\"Cascadia Code\",\"SF Mono\",\"JetBrains Mono\",ui-monospace,Consolas,monospace", "--sk-hd-w": "700", "--sk-hd-ls": "0", "--sk-num-font": "var(--g-font)", "--bt-w": "700", "--sk-bg-size": "100% 100%", "--sk-bg-rep": "no-repeat", "--sk-bg-pos": "0 0", "--fr-r": "36px", "--sk-scheme": "light", "--sk-bg": "radial-gradient(900px 560px at 16% -12%,rgba(255,255,255,.7),transparent 70%),linear-gradient(165deg,#EEF0F8 0,#D6DBEA 100%)", "--fr-bg": "#FFFFFF", "--fr-bd": "7px solid #F0F2F9", "--fr-sh": "0 34px 60px -26px rgba(40,50,100,.5)", "--sk-on-accent": "#fff", "--sk-tint": "rgba(8,94,136,.1)", "--sk-sel": "rgba(52,166,238,.28)", "--sk-focus": "#085E88", "--bar-bg": "transparent", "--bar-bd": "0", "--bar-sh": "none", "--logo-bg": "linear-gradient(135deg,#B58CFF,#7B4DFF)", "--logo-fg": "#fff", "--logo-sh": "0 6px 14px -4px rgba(123,77,255,.6)", "--pop-bg": "#FFFFFF", "--pop-bd": "1px solid rgba(30,40,90,.12)", "--pop-r": "20px", "--pop-sh": "0 24px 48px -16px rgba(40,50,100,.45)", "--pop-hv-bg": "#E4F2FB", "--pop-hv-fg": "#08486B", "--tabs-bg": "rgba(30,40,90,.07)", "--tabs-r": "999px", "--tab-r": "999px", "--tab-on-bg": "linear-gradient(135deg,#7FD3FB,#34A6EE)", "--tab-on-fg": "#06121E", "--tab-on-sh": "0 8px 16px -6px rgba(52,166,238,.7)", "--seg-bg": "rgba(30,40,90,.07)", "--seg-r": "999px", "--seg-bt-r": "999px", "--seg-on-bg": "linear-gradient(135deg,#7FD3FB,#34A6EE)", "--seg-on-fg": "#06121E", "--seg-on-sh": "0 6px 12px -6px rgba(52,166,238,.7)", "--bt-r": "999px", "--bt-sh": "none", "--bt-hv-bg": "rgba(30,40,90,.13)", "--bt-hv-tf": "translateY(-1px)", "--bt-ac-tf": "scale(.96)", "--bp-bg": "linear-gradient(135deg,#7FD3FB,#34A6EE)", "--bp-fg": "#06121E", "--bp-sh": "0 12px 22px -8px rgba(52,166,238,.75)", "--bp-hv-sh": "0 16px 28px -8px rgba(52,166,238,.9)", "--in-bg": "#EEF0F7", "--in-r": "14px", "--in-fc": "0 0 0 3px rgba(52,166,238,.3)", "--ch-r": "999px", "--nav-on-bg": "rgba(52,166,238,.16)", "--sw-on": "#2B9BE6", "--sw-off": "#CBD0E2"}}}, {"id": "mica", "group": "dash", "name": "云母白", "en": "Mica", "modes": ["light", "dark"], "mode": "light", "desc": "磨砂云母白、斜射的光带、通透的大圆角卡，选中项是一枚黑色药丸；深色是午夜磨砂紫。", "traits": ["磨砂云母", "光带背景", "黑色药丸"], "swatch": ["#17171B", "#6F64E6", "#EEF0F7"], "recommended": true, "scenario": "Windows 11 云母斜射光带 + 纯黑药丸选中态，高级现代感", "pv": {"light": {"bg": "linear-gradient(135deg,#E6E9F3,#F5F6FB 45%,#E2E5F0)", "bar": "transparent", "side": "rgba(255,255,255,.75)", "card": "rgba(255,255,255,.9)", "line": "rgba(255,255,255,.9)", "ink": "#111116", "mute": "#6A6D80", "acc": "#17171B", "acc2": "#6F64E6", "ok": "#2FA37A", "r": 16, "bw": 1, "sh": "0 14px 28px -16px rgba(80,80,140,.4)", "font": "\"SF Pro Display\",\"Inter\",\"Segoe UI Variable Display\",\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei UI\",sans-serif"}, "dark": {"bg": "linear-gradient(135deg,#1C1D32,#0E0F18)", "bar": "transparent", "side": "#1E2036", "card": "#262840", "line": "rgba(255,255,255,.14)", "ink": "#F2F2F8", "mute": "#9EA0BA", "acc": "#F2F2F7", "acc2": "#8F85FF", "ok": "#5FD6A8", "r": 16, "bw": 1, "sh": "0 14px 28px -16px rgba(0,0,0,.7)", "font": "\"SF Pro Display\",\"Inter\",\"Segoe UI Variable Display\",\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei UI\",sans-serif"}}, "resolved": {"light": {"--g-canvas": "#ECEDF5", "--g-m1": "rgba(240,241,248,.8)", "--g-m2": "#FFFFFF", "--g-m3": "#FFFFFF", "--g-m4": "rgba(255,255,255,.94)", "--g-fill": "rgba(40,40,90,.06)", "--g-fill-2": "rgba(40,40,90,.11)", "--g-b1": "none", "--g-b2": "none", "--g-b3": "none", "--g-b4": "none", "--g-edge": "rgba(40,40,90,.06)", "--g-edge2": "rgba(40,40,90,.14)", "--g-rim": "transparent", "--g-sep": "rgba(40,40,90,.08)", "--g-spec": "0 0 0 0 transparent", "--g-spec-soft": "0 0 0 0 transparent", "--g-sh1": "0 1px 2px rgba(60,60,110,.04),0 12px 30px -16px rgba(60,60,120,.26)", "--g-sh2": "0 2px 6px rgba(60,60,110,.06),0 20px 38px -16px rgba(60,60,120,.34)", "--g-sh3": "0 4px 10px rgba(60,60,110,.08),0 32px 60px -20px rgba(60,60,120,.46)", "--g-r1": "10px", "--g-r2": "14px", "--g-r3": "18px", "--g-r4": "24px", "--g-r5": "32px", "--g-blue": "#4C3FE0", "--g-teal": "#1A6570", "--g-indigo": "#2A40EC", "--g-green": "#1B6834", "--g-amber": "#874C08", "--g-red": "#AE191E", "--g-purple": "#6326EB", "--g-gray": "#9396AE", "--g-accent-fill": "linear-gradient(135deg,#6D62E6,#5148D8)", "--g-label": "#111116", "--g-label-2": "#4A4D5C", "--g-label-3": "#626576", "--g-font": "\"Inter\",\"SF Pro Display\",\"Segoe UI Variable Display\",\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei UI\",\"Microsoft YaHei\",system-ui,sans-serif", "--g-mono": "\"Cascadia Code\",\"SF Mono\",\"JetBrains Mono\",ui-monospace,Consolas,monospace", "--sk-hd-w": "700", "--sk-hd-ls": "-.01em", "--sk-num-font": "\"Bahnschrift\",\"DIN Alternate\",\"Barlow Semi Condensed\",\"Roboto Condensed\",\"Segoe UI Variable Display\",\"Segoe UI\",\"PingFang SC\",system-ui,sans-serif", "--bt-w": "600", "--sk-bg-size": "100% 100%", "--sk-bg-rep": "no-repeat", "--sk-bg-pos": "0 0", "--fr-r": "38px", "--sk-scheme": "light", "--sk-bg": "linear-gradient(112deg,transparent 6%,rgba(255,255,255,.7) 18%,transparent 30%),linear-gradient(112deg,transparent 48%,rgba(255,255,255,.55) 60%,transparent 72%),linear-gradient(180deg,#E4E6F1 0,#F1F2F9 100%)", "--fr-bg": "rgba(255,255,255,.72)", "--fr-bd": "1px solid rgba(255,255,255,.95)", "--fr-bf": "blur(26px) saturate(1.3)", "--fr-sh": "0 46px 80px -36px rgba(70,70,130,.42)", "--sk-on-accent": "#fff", "--sk-tint": "rgba(76,63,224,.09)", "--sk-sel": "rgba(111,100,230,.24)", "--sk-focus": "#4C3FE0", "--bar-bg": "transparent", "--bar-bd": "0", "--bar-sh": "none", "--logo-bg": "linear-gradient(135deg,#8A80F2,#5148D8)", "--logo-sh": "0 8px 16px -6px rgba(81,72,216,.6)", "--pop-bg": "#FFFFFF", "--pop-bd": "1px solid rgba(40,40,90,.1)", "--pop-r": "20px", "--pop-sh": "0 26px 52px -18px rgba(60,60,120,.45)", "--pop-hv-bg": "#F0EFFE", "--pop-hv-fg": "#3A2FC4", "--tabs-bg": "rgba(40,40,90,.06)", "--tabs-r": "999px", "--tab-r": "999px", "--tab-on-bg": "#17171B", "--tab-on-fg": "#FFFFFF", "--tab-on-sh": "0 8px 16px -8px rgba(23,23,27,.6)", "--seg-bg": "rgba(40,40,90,.06)", "--seg-r": "999px", "--seg-bt-r": "999px", "--seg-on-bg": "#17171B", "--seg-on-fg": "#FFFFFF", "--seg-on-sh": "0 6px 12px -6px rgba(23,23,27,.6)", "--bt-r": "999px", "--bt-sh": "none", "--bt-hv-bg": "rgba(40,40,90,.12)", "--bt-hv-tf": "translateY(-1px)", "--bt-ac-tf": "scale(.96)", "--bp-bg": "#17171B", "--bp-fg": "#FFFFFF", "--bp-sh": "0 12px 22px -8px rgba(23,23,27,.6)", "--bp-hv-sh": "0 16px 28px -8px rgba(23,23,27,.7)", "--in-bg": "#F1F2F8", "--in-r": "16px", "--in-fc": "0 0 0 3px rgba(111,100,230,.24)", "--ch-r": "999px", "--nav-on-bg": "#17171B", "--nav-on-fg": "#FFFFFF", "--sw-on": "#4C3FE0", "--sw-off": "#D6D8E6"}, "dark": {"--g-canvas": "#12131C", "--g-m1": "rgba(255,255,255,.04)", "--g-m2": "#262839", "--g-m3": "#2E3046", "--g-m4": "rgba(38,40,57,.94)", "--g-fill": "rgba(190,195,255,.08)", "--g-fill-2": "rgba(190,195,255,.15)", "--g-b1": "none", "--g-b2": "none", "--g-b3": "none", "--g-b4": "none", "--g-edge": "rgba(190,195,255,.09)", "--g-edge2": "rgba(190,195,255,.18)", "--g-rim": "transparent", "--g-sep": "rgba(190,195,255,.1)", "--g-spec": "0 0 0 0 transparent", "--g-spec-soft": "0 0 0 0 transparent", "--g-sh1": "0 1px 2px rgba(0,0,0,.25),0 12px 28px -14px rgba(0,0,0,.65)", "--g-sh2": "0 2px 6px rgba(0,0,0,.3),0 20px 38px -14px rgba(0,0,0,.75)", "--g-sh3": "0 4px 10px rgba(0,0,0,.35),0 32px 60px -18px rgba(0,0,0,.85)", "--g-r1": "10px", "--g-r2": "14px", "--g-r3": "18px", "--g-r4": "24px", "--g-r5": "32px", "--g-blue": "#AEA6FF", "--g-teal": "#5FD3E6", "--g-indigo": "#9FAAFF", "--g-green": "#6BDC8C", "--g-amber": "#FFC27A", "--g-red": "#FF8F94", "--g-purple": "#C3A4FF", "--g-gray": "#9396B4", "--g-accent-fill": "linear-gradient(135deg,#B7B0FF,#9288F5)", "--g-label": "#F2F3FA", "--g-label-2": "#BFC2D6", "--g-label-3": "#A3A7C0", "--g-font": "\"Inter\",\"SF Pro Display\",\"Segoe UI Variable Display\",\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei UI\",\"Microsoft YaHei\",system-ui,sans-serif", "--g-mono": "\"Cascadia Code\",\"SF Mono\",\"JetBrains Mono\",ui-monospace,Consolas,monospace", "--sk-hd-w": "700", "--sk-hd-ls": "-.01em", "--sk-num-font": "\"Bahnschrift\",\"DIN Alternate\",\"Barlow Semi Condensed\",\"Roboto Condensed\",\"Segoe UI Variable Display\",\"Segoe UI\",\"PingFang SC\",system-ui,sans-serif", "--bt-w": "600", "--sk-bg-size": "100% 100%", "--sk-bg-rep": "no-repeat", "--sk-bg-pos": "0 0", "--fr-r": "38px", "--sk-scheme": "dark", "--sk-bg": "linear-gradient(112deg,transparent 6%,rgba(150,150,230,.1) 18%,transparent 30%),linear-gradient(112deg,transparent 48%,rgba(150,150,230,.08) 60%,transparent 72%),linear-gradient(180deg,#1B1C2C 0,#0E0F18 100%)", "--fr-bg": "rgba(34,36,54,.72)", "--fr-bd": "1px solid rgba(255,255,255,.1)", "--fr-bf": "blur(26px) saturate(1.2)", "--fr-sh": "0 46px 80px -36px rgba(0,0,0,.8)", "--sk-on-accent": "#14141A", "--sk-tint": "rgba(174,166,255,.14)", "--sk-sel": "rgba(174,166,255,.32)", "--sk-focus": "#AEA6FF", "--bar-bg": "transparent", "--bar-bd": "0", "--bar-sh": "none", "--logo-bg": "linear-gradient(135deg,#B7B0FF,#8A80F2)", "--logo-fg": "#14141A", "--logo-sh": "0 8px 16px -6px rgba(138,128,242,.5)", "--pop-bg": "#2E3046", "--pop-bd": "1px solid rgba(190,195,255,.18)", "--pop-r": "20px", "--pop-sh": "0 26px 52px -18px rgba(0,0,0,.8)", "--pop-hv-bg": "rgba(174,166,255,.2)", "--pop-hv-fg": "#fff", "--tabs-bg": "rgba(190,195,255,.09)", "--tabs-r": "999px", "--tab-r": "999px", "--tab-on-bg": "#F2F2F7", "--tab-on-fg": "#17171B", "--tab-on-sh": "0 8px 16px -8px rgba(0,0,0,.6)", "--seg-bg": "rgba(190,195,255,.09)", "--seg-r": "999px", "--seg-bt-r": "999px", "--seg-on-bg": "#F2F2F7", "--seg-on-fg": "#17171B", "--seg-on-sh": "0 6px 12px -6px rgba(0,0,0,.6)", "--bt-r": "999px", "--bt-sh": "none", "--bt-hv-bg": "rgba(190,195,255,.2)", "--bt-hv-tf": "translateY(-1px)", "--bt-ac-tf": "scale(.96)", "--bp-bg": "#F2F2F7", "--bp-fg": "#17171B", "--bp-sh": "0 12px 24px -8px rgba(0,0,0,.6)", "--bp-hv-sh": "0 16px 30px -8px rgba(0,0,0,.7)", "--in-bg": "rgba(190,195,255,.09)", "--in-r": "16px", "--in-fc": "0 0 0 3px rgba(174,166,255,.3)", "--ch-r": "999px", "--nav-on-bg": "#F2F2F7", "--nav-on-fg": "#17171B", "--sw-on": "#AEA6FF", "--sw-off": "rgba(190,195,255,.26)"}}}, {"id": "linkface", "group": "dash", "name": "斜切蓝", "en": "Linkface", "modes": ["light", "dark"], "mode": "light", "desc": "斜切的蓝色几何块当背景，衬线的大数字和大写小标题，选中项是整块实心蓝。", "traits": ["斜切几何", "衬线数字", "实心选中"], "swatch": ["#3F8CFF", "#5B8FFD", "#F6FAFF"], "recommended": false, "scenario": "几何斜切蓝背景 + 衬线大数字，适合重度 KPI 看板", "pv": {"light": {"bg": "linear-gradient(160deg,#4B9EFA 0,#5B8FFD 26%,#F6FAFF 26.2%)", "bar": "rgba(255,255,255,.85)", "side": "#FFFFFF", "card": "#FFFFFF", "line": "rgba(40,80,160,.1)", "ink": "#1A2740", "mute": "#6A7F9C", "acc": "#2B6DE4", "acc2": "#E8883C", "ok": "#2E9E70", "r": 3, "bw": 1, "sh": "0 4px 12px -8px rgba(40,90,200,.35)", "font": "\"Source Serif 4\",\"Source Serif Pro\",\"Noto Serif SC\",\"Songti SC\",Georgia,\"Times New Roman\",serif"}, "dark": {"bg": "linear-gradient(160deg,#1B4FB5 0,#2A62D6 26%,#0D1526 26.2%)", "bar": "rgba(13,21,38,.85)", "side": "#131E38", "card": "#162240", "line": "rgba(120,160,255,.15)", "ink": "#EAF0FF", "mute": "#8DA2C8", "acc": "#6FA8FF", "acc2": "#FFA05C", "ok": "#4FD69C", "r": 3, "bw": 1, "sh": "none", "font": "\"Source Serif 4\",\"Source Serif Pro\",\"Noto Serif SC\",\"Songti SC\",Georgia,\"Times New Roman\",serif"}}, "resolved": {"light": {"--g-canvas": "#F2F7FF", "--g-m1": "rgba(244,248,254,.9)", "--g-m2": "#FFFFFF", "--g-m3": "#FFFFFF", "--g-m4": "rgba(255,255,255,.95)", "--g-fill": "rgba(30,90,200,.06)", "--g-fill-2": "rgba(30,90,200,.12)", "--g-b1": "none", "--g-b2": "none", "--g-b3": "none", "--g-b4": "none", "--g-edge": "rgba(30,90,200,.1)", "--g-edge2": "rgba(30,90,200,.2)", "--g-rim": "transparent", "--g-sep": "rgba(30,90,200,.1)", "--g-spec": "0 0 0 0 transparent", "--g-spec-soft": "0 0 0 0 transparent", "--g-sh1": "0 1px 2px rgba(20,70,170,.05),0 8px 20px -14px rgba(20,70,170,.3)", "--g-sh2": "0 2px 6px rgba(20,70,170,.07),0 14px 28px -14px rgba(20,70,170,.4)", "--g-sh3": "0 4px 10px rgba(20,70,170,.09),0 26px 50px -18px rgba(20,70,170,.5)", "--g-r1": "3px", "--g-r2": "4px", "--g-r3": "6px", "--g-r4": "8px", "--g-r5": "10px", "--g-blue": "#175CC2", "--g-teal": "#0B6B6E", "--g-indigo": "#3052D9", "--g-green": "#206F45", "--g-amber": "#964C12", "--g-red": "#B32D26", "--g-purple": "#653AE6", "--g-gray": "#8C9AB5", "--g-accent-fill": "linear-gradient(135deg,#2870E4,#2A5BD8)", "--g-label": "#14264A", "--g-label-2": "#44547A", "--g-label-3": "#59698C", "--g-font": "\"Segoe UI Variable Text\",\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei UI\",\"Microsoft YaHei\",system-ui,sans-serif", "--g-mono": "\"Cascadia Code\",\"SF Mono\",\"JetBrains Mono\",ui-monospace,Consolas,monospace", "--sk-hd-font": "\"Cambria\",\"Source Serif Pro\",\"Noto Serif\",\"Times New Roman\",\"PingFang SC\",\"Microsoft YaHei UI\",\"Microsoft YaHei\",serif", "--sk-hd-w": "700", "--sk-hd-ls": ".04em", "--sk-hd-tr": "uppercase", "--sk-num-font": "\"Cambria\",\"Source Serif Pro\",\"Noto Serif\",\"Times New Roman\",\"PingFang SC\",\"Microsoft YaHei UI\",serif", "--bt-w": "600", "--sk-bg-size": "74% 150px,36% 130px,100% 100%", "--sk-bg-pos": "0 0,0 100%,0 0", "--sk-bg-rep": "no-repeat", "--fr-r": "8px", "--ch-r": "4px", "--sk-scheme": "light", "--sk-bg": "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' preserveAspectRatio='none'><defs><linearGradient id='g' x1='0' y1='0' x2='1' y2='0'><stop offset='0' stop-color='%234B9EFA'/><stop offset='1' stop-color='%235B8FFD'/></linearGradient></defs><polygon points='0,0 100,0 90,100 0,100' fill='url(%23g)'/></svg>\"),url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' preserveAspectRatio='none'><defs><linearGradient id='g' x1='0' y1='0' x2='1' y2='0'><stop offset='0' stop-color='%2348A1FD'/><stop offset='1' stop-color='%235B8FFD'/></linearGradient></defs><polygon points='0,0 64,0 30,100 0,100' fill='url(%23g)'/></svg>\"),linear-gradient(180deg,#F6FAFF 0,#EAF2FF 100%)", "--fr-bg": "#FFFFFF", "--fr-sh": "0 28px 50px -24px rgba(20,70,170,.6)", "--sk-on-accent": "#fff", "--sk-tint": "rgba(40,112,228,.09)", "--sk-sel": "rgba(72,161,253,.28)", "--sk-focus": "#2870E4", "--bar-bg": "rgba(255,255,255,.5)", "--bar-bd": "0", "--bar-sh": "none", "--logo-bg": "linear-gradient(135deg,#4B9EFA,#2A5BD8)", "--logo-sh": "0 6px 12px -6px rgba(42,91,216,.7)", "--pop-bg": "#FFFFFF", "--pop-bd": "1px solid rgba(30,90,200,.16)", "--pop-r": "6px", "--pop-sh": "0 22px 44px -16px rgba(20,70,170,.45)", "--pop-hv-bg": "#EAF2FF", "--pop-hv-fg": "#0F4DA8", "--tabs-bg": "#EEF4FD", "--tabs-r": "4px", "--tab-r": "3px", "--tab-on-bg": "#FFFFFF", "--tab-on-fg": "#0F4DA8", "--tab-on-sh": "0 1px 3px rgba(20,70,170,.18),inset 0 -2px 0 #2870E4", "--seg-bg": "#EEF4FD", "--seg-r": "4px", "--seg-bt-r": "3px", "--seg-on-bg": "#FFFFFF", "--seg-on-fg": "#0F4DA8", "--seg-on-sh": "0 1px 3px rgba(20,70,170,.18),inset 0 -2px 0 #2870E4", "--bt-bg": "#FFFFFF", "--bt-bd": "1px solid #CFE0FA", "--bt-r": "4px", "--bt-sh": "none", "--bt-hv-bg": "#EEF4FD", "--bt-hv-tf": "none", "--bt-ac-tf": "scale(.98)", "--bp-bg": "linear-gradient(135deg,#2870E4,#2A5BD8)", "--bp-bd": "0", "--bp-sh": "0 8px 16px -8px rgba(42,91,216,.8)", "--bp-hv-sh": "0 12px 20px -8px rgba(42,91,216,.85)", "--in-bg": "#F5F9FF", "--in-bd": "1px solid #DCE7F8", "--in-r": "4px", "--in-fc": "0 0 0 3px rgba(40,112,228,.2)", "--nav-on-bg": "#2870E4", "--nav-on-fg": "#FFFFFF", "--sw-on": "#2870E4", "--sw-off": "#CCD9EE"}, "dark": {"--g-canvas": "#0C1424", "--g-m1": "rgba(120,160,255,.06)", "--g-m2": "#16233D", "--g-m3": "#1B2A47", "--g-m4": "rgba(22,35,61,.95)", "--g-fill": "rgba(140,175,255,.09)", "--g-fill-2": "rgba(140,175,255,.16)", "--g-b1": "none", "--g-b2": "none", "--g-b3": "none", "--g-b4": "none", "--g-edge": "rgba(140,175,255,.14)", "--g-edge2": "rgba(140,175,255,.24)", "--g-rim": "transparent", "--g-sep": "rgba(140,175,255,.12)", "--g-spec": "0 0 0 0 transparent", "--g-spec-soft": "0 0 0 0 transparent", "--g-sh1": "0 1px 2px rgba(0,0,0,.25),0 10px 22px -14px rgba(0,0,0,.65)", "--g-sh2": "0 2px 6px rgba(0,0,0,.3),0 16px 30px -14px rgba(0,0,0,.75)", "--g-sh3": "0 4px 10px rgba(0,0,0,.35),0 28px 52px -18px rgba(0,0,0,.85)", "--g-r1": "3px", "--g-r2": "4px", "--g-r3": "6px", "--g-r4": "8px", "--g-r5": "10px", "--g-blue": "#77ADFF", "--g-teal": "#4FD1D9", "--g-indigo": "#94A6FF", "--g-green": "#5BD99A", "--g-amber": "#FFB366", "--g-red": "#FF8F86", "--g-purple": "#B79CFF", "--g-gray": "#8CA0C4", "--g-accent-fill": "linear-gradient(135deg,#8DBBFF,#5E9BFF)", "--g-label": "#EAF1FF", "--g-label-2": "#B4C4E2", "--g-label-3": "#97A9CC", "--g-font": "\"Segoe UI Variable Text\",\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei UI\",\"Microsoft YaHei\",system-ui,sans-serif", "--g-mono": "\"Cascadia Code\",\"SF Mono\",\"JetBrains Mono\",ui-monospace,Consolas,monospace", "--sk-hd-font": "\"Cambria\",\"Source Serif Pro\",\"Noto Serif\",\"Times New Roman\",\"PingFang SC\",\"Microsoft YaHei UI\",\"Microsoft YaHei\",serif", "--sk-hd-w": "700", "--sk-hd-ls": ".04em", "--sk-hd-tr": "uppercase", "--sk-num-font": "\"Cambria\",\"Source Serif Pro\",\"Noto Serif\",\"Times New Roman\",\"PingFang SC\",\"Microsoft YaHei UI\",serif", "--bt-w": "600", "--sk-bg-size": "74% 150px,36% 130px,100% 100%", "--sk-bg-pos": "0 0,0 100%,0 0", "--sk-bg-rep": "no-repeat", "--fr-r": "8px", "--ch-r": "4px", "--sk-scheme": "dark", "--sk-bg": "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' preserveAspectRatio='none'><defs><linearGradient id='g' x1='0' y1='0' x2='1' y2='0'><stop offset='0' stop-color='%231B4FB5'/><stop offset='1' stop-color='%232A62D6'/></linearGradient></defs><polygon points='0,0 100,0 90,100 0,100' fill='url(%23g)'/></svg>\"),url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' preserveAspectRatio='none'><defs><linearGradient id='g' x1='0' y1='0' x2='1' y2='0'><stop offset='0' stop-color='%231A4AA8'/><stop offset='1' stop-color='%232A62D6'/></linearGradient></defs><polygon points='0,0 64,0 30,100 0,100' fill='url(%23g)'/></svg>\"),linear-gradient(180deg,#101B30 0,#0A111F 100%)", "--fr-bg": "#111B30", "--fr-sh": "0 28px 50px -24px rgba(0,0,0,.8)", "--sk-on-accent": "#07162E", "--sk-tint": "rgba(119,173,255,.14)", "--sk-sel": "rgba(119,173,255,.32)", "--sk-focus": "#77ADFF", "--bar-bg": "rgba(12,20,36,.5)", "--bar-bd": "0", "--bar-sh": "none", "--logo-bg": "linear-gradient(135deg,#8DBBFF,#4B86F0)", "--logo-fg": "#07162E", "--logo-sh": "0 6px 12px -6px rgba(75,134,240,.6)", "--pop-bg": "#1B2A47", "--pop-bd": "1px solid rgba(140,175,255,.24)", "--pop-r": "6px", "--pop-sh": "0 22px 44px -16px rgba(0,0,0,.8)", "--pop-hv-bg": "rgba(119,173,255,.2)", "--pop-hv-fg": "#fff", "--tabs-bg": "rgba(140,175,255,.1)", "--tabs-r": "4px", "--tab-r": "3px", "--tab-on-bg": "#1F3359", "--tab-on-fg": "#FFFFFF", "--tab-on-sh": "0 1px 3px rgba(0,0,0,.4),inset 0 -2px 0 #77ADFF", "--seg-bg": "rgba(140,175,255,.1)", "--seg-r": "4px", "--seg-bt-r": "3px", "--seg-on-bg": "#1F3359", "--seg-on-fg": "#FFFFFF", "--seg-on-sh": "0 1px 3px rgba(0,0,0,.4),inset 0 -2px 0 #77ADFF", "--bt-bg": "rgba(140,175,255,.08)", "--bt-bd": "1px solid rgba(140,175,255,.3)", "--bt-r": "4px", "--bt-sh": "none", "--bt-hv-bg": "rgba(140,175,255,.18)", "--bt-hv-tf": "none", "--bt-ac-tf": "scale(.98)", "--bp-bg": "linear-gradient(135deg,#8DBBFF,#5E9BFF)", "--bp-fg": "#07162E", "--bp-bd": "0", "--bp-sh": "0 8px 18px -8px rgba(94,155,255,.6)", "--bp-hv-sh": "0 12px 22px -8px rgba(94,155,255,.75)", "--in-bg": "rgba(140,175,255,.09)", "--in-bd": "1px solid rgba(140,175,255,.2)", "--in-r": "4px", "--in-fc": "0 0 0 3px rgba(119,173,255,.28)", "--nav-on-bg": "#2A5BD8", "--nav-on-fg": "#FFFFFF", "--sw-on": "#77ADFF", "--sw-off": "rgba(140,175,255,.28)"}}}, {"id": "minimal", "group": "dash", "name": "极简蓝白", "en": "Minimal", "modes": ["light", "dark"], "mode": "light", "desc": "近白底、发丝线、虚线的预览卡、一抹 #2563EB 蓝，选中项左缘一道蓝条。克制的工具型界面。", "traits": ["发丝线", "虚线卡片", "左缘蓝条"], "swatch": ["#2563EB", "#F7F8FA", "#E6E8EF"], "recommended": false, "scenario": "虚线预览卡 + 左缘 #2563EB 蓝条，纯粹工具型风格", "pv": {"light": {"bg": "#F1F2F6", "bar": "#FFFFFF", "side": "#FFFFFF", "card": "#FBFBFD", "line": "#E6E8EF", "ink": "#0E1220", "mute": "#667085", "acc": "#2563EB", "acc2": "#7C3AED", "ok": "#16A34A", "r": 8, "bw": 1, "sh": "none", "font": "\"Inter\",\"SF Pro Text\",\"Segoe UI Variable Text\",\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei UI\",sans-serif"}, "dark": {"bg": "#0A0B0F", "bar": "#101218", "side": "#101218", "card": "#14161D", "line": "#252938", "ink": "#ECEEF4", "mute": "#8A90A3", "acc": "#3B76F6", "acc2": "#A78BFA", "ok": "#34D399", "r": 8, "bw": 1, "sh": "none", "font": "\"Inter\",\"SF Pro Text\",\"Segoe UI Variable Text\",\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei UI\",sans-serif"}}, "resolved": {"light": {"--g-canvas": "#EFEEF3", "--g-m1": "rgba(244,245,249,.9)", "--g-m2": "#FBFBFD", "--g-m3": "#FFFFFF", "--g-m4": "rgba(255,255,255,.96)", "--g-fill": "rgba(20,30,70,.05)", "--g-fill-2": "rgba(20,30,70,.1)", "--g-b1": "none", "--g-b2": "none", "--g-b3": "none", "--g-b4": "none", "--g-edge": "rgba(20,30,70,.09)", "--g-edge2": "rgba(20,30,70,.17)", "--g-rim": "transparent", "--g-sep": "rgba(20,30,70,.08)", "--g-spec": "0 0 0 0 transparent", "--g-spec-soft": "0 0 0 0 transparent", "--g-sh1": "0 1px 2px rgba(20,24,60,.04)", "--g-sh2": "0 2px 6px rgba(20,24,60,.06),0 12px 24px -14px rgba(20,24,60,.2)", "--g-sh3": "0 4px 12px rgba(20,24,60,.08),0 26px 48px -18px rgba(20,24,60,.3)", "--g-r1": "5px", "--g-r2": "7px", "--g-r3": "10px", "--g-r4": "14px", "--g-r5": "18px", "--g-blue": "#1350D4", "--g-teal": "#0D665F", "--g-indigo": "#493FE4", "--g-green": "#116A33", "--g-amber": "#944407", "--g-red": "#B01C1C", "--g-purple": "#6C23EB", "--g-gray": "#8B93A7", "--g-accent-fill": "#2563EB", "--g-label": "#0E1220", "--g-label-2": "#4B5366", "--g-label-3": "#5F6B80", "--g-font": "\"Gilroy\",\"Plus Jakarta Sans\",\"Inter\",\"Segoe UI Variable Text\",\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei UI\",\"Microsoft YaHei\",system-ui,sans-serif", "--g-mono": "\"Cascadia Code\",\"SF Mono\",\"JetBrains Mono\",ui-monospace,Consolas,monospace", "--sk-hd-w": "700", "--sk-hd-ls": "-.01em", "--sk-num-font": "var(--g-font)", "--bt-w": "600", "--sk-bg-size": "100% 100%", "--sk-bg-rep": "no-repeat", "--sk-bg-pos": "0 0", "--fr-r": "18px", "--ch-r": "6px", "--sk-scheme": "light", "--sk-bg": "linear-gradient(180deg,#F2F1F6 0,#EAE9F0 100%)", "--fr-bg": "#FFFFFF", "--fr-bd": "1px solid rgba(20,24,60,.06)", "--fr-sh": "0 26px 50px -32px rgba(20,24,60,.3)", "--sk-on-accent": "#fff", "--sk-tint": "rgba(37,99,235,.08)", "--sk-sel": "rgba(37,99,235,.22)", "--sk-focus": "#2563EB", "--bar-bg": "transparent", "--bar-bd": "0", "--bar-sh": "none", "--logo-bg": "#2563EB", "--logo-sh": "none", "--pop-bg": "#FFFFFF", "--pop-bd": "1px solid rgba(20,30,70,.12)", "--pop-r": "12px", "--pop-sh": "0 18px 40px -16px rgba(20,24,60,.35)", "--pop-hv-bg": "#EEF3FE", "--pop-hv-fg": "#1350D4", "--tabs-bg": "transparent", "--tabs-r": "0", "--tab-r": "0", "--tab-on-bg": "transparent", "--tab-on-fg": "#1350D4", "--tab-on-sh": "inset 0 -2px 0 #2563EB", "--seg-bg": "#EEEFF5", "--seg-r": "9px", "--seg-bt-r": "7px", "--seg-on-bg": "#FFFFFF", "--seg-on-fg": "#1350D4", "--seg-on-sh": "0 1px 2px rgba(20,24,60,.15)", "--bt-bg": "#FFFFFF", "--bt-fg": "#1350D4", "--bt-bd": "1px solid rgba(37,99,235,.5)", "--bt-r": "8px", "--bt-sh": "none", "--bt-hv-bg": "#EEF3FE", "--bt-hv-tf": "none", "--bt-ac-tf": "scale(.98)", "--bp-bg": "#2563EB", "--bp-bd": "0", "--bp-sh": "0 1px 2px rgba(37,99,235,.4)", "--bp-hv-sh": "0 6px 14px -6px rgba(37,99,235,.6)", "--in-bg": "#F6F7FA", "--in-bd": "1px solid rgba(20,30,70,.1)", "--in-r": "8px", "--in-fc": "0 0 0 3px rgba(37,99,235,.2)", "--nav-on-bg": "rgba(37,99,235,.07)", "--sw-on": "#2563EB", "--sw-off": "#D3D6E2"}, "dark": {"--g-canvas": "#0A0B0F", "--g-m1": "rgba(255,255,255,.035)", "--g-m2": "#14161D", "--g-m3": "#1A1D26", "--g-m4": "rgba(20,22,29,.95)", "--g-fill": "rgba(255,255,255,.06)", "--g-fill-2": "rgba(255,255,255,.11)", "--g-b1": "none", "--g-b2": "none", "--g-b3": "none", "--g-b4": "none", "--g-edge": "rgba(255,255,255,.08)", "--g-edge2": "rgba(255,255,255,.16)", "--g-rim": "transparent", "--g-sep": "rgba(255,255,255,.08)", "--g-spec": "0 0 0 0 transparent", "--g-spec-soft": "0 0 0 0 transparent", "--g-sh1": "0 1px 2px rgba(0,0,0,.3)", "--g-sh2": "0 2px 6px rgba(0,0,0,.35),0 12px 24px -14px rgba(0,0,0,.6)", "--g-sh3": "0 4px 12px rgba(0,0,0,.4),0 26px 48px -18px rgba(0,0,0,.8)", "--g-r1": "5px", "--g-r2": "7px", "--g-r3": "10px", "--g-r4": "14px", "--g-r5": "18px", "--g-blue": "#6B9BFF", "--g-teal": "#2DD4BF", "--g-indigo": "#8B93FF", "--g-green": "#4ADE80", "--g-amber": "#FBBF24", "--g-red": "#F87171", "--g-purple": "#A78BFA", "--g-gray": "#8189A0", "--g-accent-fill": "#2F6BEA", "--g-label": "#F2F4F8", "--g-label-2": "#B4BBCB", "--g-label-3": "#9AA3B6", "--g-font": "\"Gilroy\",\"Plus Jakarta Sans\",\"Inter\",\"Segoe UI Variable Text\",\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei UI\",\"Microsoft YaHei\",system-ui,sans-serif", "--g-mono": "\"Cascadia Code\",\"SF Mono\",\"JetBrains Mono\",ui-monospace,Consolas,monospace", "--sk-hd-w": "700", "--sk-hd-ls": "-.01em", "--sk-num-font": "var(--g-font)", "--bt-w": "600", "--sk-bg-size": "100% 100%", "--sk-bg-rep": "no-repeat", "--sk-bg-pos": "0 0", "--fr-r": "18px", "--ch-r": "6px", "--sk-scheme": "dark", "--sk-bg": "radial-gradient(900px 500px at 50% -10%,rgba(60,90,200,.14),transparent 70%),linear-gradient(180deg,#0C0D12 0,#07080B 100%)", "--fr-bg": "#101218", "--fr-bd": "1px solid rgba(255,255,255,.07)", "--fr-sh": "0 26px 50px -30px rgba(0,0,0,.9)", "--sk-on-accent": "#06101F", "--sk-tint": "rgba(107,155,255,.13)", "--sk-sel": "rgba(107,155,255,.3)", "--sk-focus": "#6B9BFF", "--bar-bg": "transparent", "--bar-bd": "0", "--bar-sh": "none", "--logo-bg": "#2F6BEA", "--logo-fg": "#fff", "--logo-sh": "none", "--pop-bg": "#1A1D26", "--pop-bd": "1px solid rgba(255,255,255,.14)", "--pop-r": "12px", "--pop-sh": "0 18px 40px -16px rgba(0,0,0,.85)", "--pop-hv-bg": "rgba(107,155,255,.16)", "--pop-hv-fg": "#fff", "--tabs-bg": "transparent", "--tabs-r": "0", "--tab-r": "0", "--tab-on-bg": "transparent", "--tab-on-fg": "#8CB1FF", "--tab-on-sh": "inset 0 -2px 0 #6B9BFF", "--seg-bg": "rgba(255,255,255,.07)", "--seg-r": "9px", "--seg-bt-r": "7px", "--seg-on-bg": "#262B38", "--seg-on-fg": "#8CB1FF", "--seg-on-sh": "0 1px 2px rgba(0,0,0,.4)", "--bt-bg": "transparent", "--bt-fg": "#8CB1FF", "--bt-bd": "1px solid rgba(107,155,255,.5)", "--bt-r": "8px", "--bt-sh": "none", "--bt-hv-bg": "rgba(107,155,255,.14)", "--bt-hv-tf": "none", "--bt-ac-tf": "scale(.98)", "--bp-bg": "#2F6BEA", "--bp-fg": "#FFFFFF", "--bp-bd": "0", "--bp-sh": "0 1px 2px rgba(0,0,0,.4)", "--bp-hv-sh": "0 6px 16px -6px rgba(47,107,234,.7)", "--in-bg": "rgba(255,255,255,.05)", "--in-bd": "1px solid rgba(255,255,255,.1)", "--in-r": "8px", "--in-fc": "0 0 0 3px rgba(107,155,255,.28)", "--nav-on-bg": "rgba(107,155,255,.12)", "--sw-on": "#2F6BEA", "--sw-off": "rgba(255,255,255,.2)"}}}, {"id": "blush", "group": "dash", "name": "樱粉小店", "en": "Blush Shop", "modes": ["light", "dark"], "mode": "light", "desc": "薰灰画布上的白色大卡、樱粉主色，选中项是淡粉药丸，步骤卡是粉彩渐变；深色是梅紫夜。", "traits": ["白色大卡", "淡粉药丸", "粉彩渐变"], "swatch": ["#F0405F", "#80B2EF", "#FFE4E9"], "recommended": false, "scenario": "薰灰画布配樱粉药丸与柔和粉彩渐变", "pv": {"light": {"bg": "#D9D8E8", "bar": "transparent", "side": "#FFFFFF", "card": "#F7F7FA", "line": "transparent", "ink": "#1F1B2E", "mute": "#6A6682", "acc": "#F0405F", "acc2": "#80B2EF", "ok": "#2FA37A", "r": 14, "bw": 0, "sh": "0 8px 18px -10px rgba(90,80,140,.35)", "font": "\"Nunito\",\"Quicksand\",\"Segoe UI Variable Text\",\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei UI\",sans-serif"}, "dark": {"bg": "#241A2E", "bar": "transparent", "side": "#2E2240", "card": "#352846", "line": "transparent", "ink": "#F6EEFA", "mute": "#B3A4C4", "acc": "#FF7B95", "acc2": "#8FB6FF", "ok": "#6AD9A6", "r": 14, "bw": 0, "sh": "0 8px 18px -10px rgba(0,0,0,.6)", "font": "\"Nunito\",\"Quicksand\",\"Segoe UI Variable Text\",\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei UI\",sans-serif"}}, "resolved": {"light": {"--g-canvas": "#EDECF6", "--g-m1": "rgba(236,235,246,.8)", "--g-m2": "#FFFFFF", "--g-m3": "#FFFFFF", "--g-m4": "rgba(255,255,255,.95)", "--g-fill": "rgba(60,50,120,.06)", "--g-fill-2": "rgba(60,50,120,.11)", "--g-b1": "none", "--g-b2": "none", "--g-b3": "none", "--g-b4": "none", "--g-edge": "rgba(60,50,120,.07)", "--g-edge2": "rgba(60,50,120,.15)", "--g-rim": "transparent", "--g-sep": "rgba(60,50,120,.08)", "--g-spec": "0 0 0 0 transparent", "--g-spec-soft": "0 0 0 0 transparent", "--g-sh1": "0 1px 2px rgba(60,50,120,.04),0 10px 26px -16px rgba(70,60,130,.26)", "--g-sh2": "0 2px 6px rgba(60,50,120,.06),0 18px 36px -16px rgba(70,60,130,.34)", "--g-sh3": "0 4px 10px rgba(60,50,120,.08),0 30px 58px -18px rgba(70,60,130,.46)", "--g-r1": "10px", "--g-r2": "14px", "--g-r3": "18px", "--g-r4": "24px", "--g-r5": "30px", "--g-blue": "#AE1848", "--g-teal": "#19616C", "--g-indigo": "#373EE0", "--g-green": "#1A6432", "--g-amber": "#894607", "--g-red": "#AA181D", "--g-purple": "#5E1FEA", "--g-gray": "#9A98B4", "--g-accent-fill": "linear-gradient(135deg,#E0275B,#D11F52)", "--g-label": "#1F1B2E", "--g-label-2": "#4A4660", "--g-label-3": "#5A5672", "--g-font": "\"Poppins\",\"Inter\",\"Segoe UI Variable Text\",\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei UI\",\"Microsoft YaHei\",system-ui,sans-serif", "--g-mono": "\"Cascadia Code\",\"SF Mono\",\"JetBrains Mono\",ui-monospace,Consolas,monospace", "--sk-hd-w": "700", "--sk-hd-ls": "-.005em", "--sk-num-font": "var(--g-font)", "--bt-w": "600", "--sk-bg-size": "100% 100%", "--sk-bg-rep": "no-repeat", "--sk-bg-pos": "0 0", "--fr-r": "30px", "--sk-scheme": "light", "--sk-bg": "linear-gradient(90deg,transparent 0 26%,rgba(140,150,225,.14) 26% 74%,transparent 74% 100%),linear-gradient(180deg,#D7D6E6 0,#CFCFE3 100%)", "--fr-bg": "#F3F2FA", "--fr-sh": "0 40px 70px -34px rgba(70,60,130,.55)", "--sk-on-accent": "#fff", "--sk-tint": "rgba(224,39,91,.09)", "--sk-sel": "rgba(254,83,119,.22)", "--sk-focus": "#E0275B", "--bar-bg": "transparent", "--bar-bd": "0", "--bar-sh": "none", "--logo-bg": "linear-gradient(135deg,#FF7C99,#E0275B)", "--logo-sh": "0 8px 16px -6px rgba(224,39,91,.6)", "--pop-bg": "#FFFFFF", "--pop-bd": "1px solid rgba(60,50,120,.1)", "--pop-r": "20px", "--pop-sh": "0 26px 50px -18px rgba(70,60,130,.45)", "--pop-hv-bg": "#FFE9EE", "--pop-hv-fg": "#AE1848", "--tabs-bg": "#F0EFF8", "--tabs-r": "999px", "--tab-r": "999px", "--tab-on-bg": "#FFE4E9", "--tab-on-fg": "#AE1848", "--tab-on-sh": "0 4px 10px -4px rgba(224,39,91,.35)", "--seg-bg": "#F0EFF8", "--seg-r": "999px", "--seg-bt-r": "999px", "--seg-on-bg": "#FFE4E9", "--seg-on-fg": "#AE1848", "--seg-on-sh": "0 3px 8px -3px rgba(224,39,91,.35)", "--bt-bg": "#FFE9EE", "--bt-fg": "#AE1848", "--bt-r": "999px", "--bt-sh": "none", "--bt-hv-bg": "#FFDCE4", "--bt-hv-tf": "translateY(-1px)", "--bt-ac-tf": "scale(.96)", "--bp-bg": "linear-gradient(135deg,#E0275B,#D11F52)", "--bp-sh": "0 12px 20px -8px rgba(209,31,82,.6)", "--bp-hv-sh": "0 16px 26px -8px rgba(209,31,82,.75)", "--in-bg": "#F3F2FA", "--in-r": "14px", "--in-fc": "0 0 0 3px rgba(224,39,91,.2)", "--ch-r": "999px", "--nav-on-bg": "#FFE4E9", "--nav-on-fg": "#AE1848", "--sw-on": "#E0275B", "--sw-off": "#D9D8E8"}, "dark": {"--g-canvas": "#241A2E", "--g-m1": "rgba(255,255,255,.04)", "--g-m2": "#352846", "--g-m3": "#3F3054", "--g-m4": "rgba(53,40,70,.95)", "--g-fill": "rgba(255,200,220,.08)", "--g-fill-2": "rgba(255,200,220,.15)", "--g-b1": "none", "--g-b2": "none", "--g-b3": "none", "--g-b4": "none", "--g-edge": "rgba(255,200,220,.09)", "--g-edge2": "rgba(255,200,220,.18)", "--g-rim": "transparent", "--g-sep": "rgba(255,200,220,.1)", "--g-spec": "0 0 0 0 transparent", "--g-spec-soft": "0 0 0 0 transparent", "--g-sh1": "0 1px 2px rgba(0,0,0,.25),0 12px 28px -14px rgba(0,0,0,.65)", "--g-sh2": "0 2px 6px rgba(0,0,0,.3),0 20px 38px -14px rgba(0,0,0,.75)", "--g-sh3": "0 4px 10px rgba(0,0,0,.35),0 32px 60px -18px rgba(0,0,0,.85)", "--g-r1": "10px", "--g-r2": "14px", "--g-r3": "18px", "--g-r4": "24px", "--g-r5": "30px", "--g-blue": "#FF97AC", "--g-teal": "#5FD6E0", "--g-indigo": "#AAB2FF", "--g-green": "#6FE3A6", "--g-amber": "#FFC27A", "--g-red": "#FF9999", "--g-purple": "#C9A8FF", "--g-gray": "#A294B8", "--g-accent-fill": "linear-gradient(135deg,#FF9AAF,#FF7B95)", "--g-label": "#F8EFFA", "--g-label-2": "#D0C2DC", "--g-label-3": "#B6A7C6", "--g-font": "\"Poppins\",\"Inter\",\"Segoe UI Variable Text\",\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei UI\",\"Microsoft YaHei\",system-ui,sans-serif", "--g-mono": "\"Cascadia Code\",\"SF Mono\",\"JetBrains Mono\",ui-monospace,Consolas,monospace", "--sk-hd-w": "700", "--sk-hd-ls": "-.005em", "--sk-num-font": "var(--g-font)", "--bt-w": "600", "--sk-bg-size": "100% 100%", "--sk-bg-rep": "no-repeat", "--sk-bg-pos": "0 0", "--fr-r": "30px", "--sk-scheme": "dark", "--sk-bg": "linear-gradient(90deg,transparent 0 26%,rgba(255,140,170,.06) 26% 74%,transparent 74% 100%),linear-gradient(180deg,#2A1E36 0,#1C1426 100%)", "--fr-bg": "#2C2038", "--fr-sh": "0 40px 70px -34px rgba(0,0,0,.8)", "--sk-on-accent": "#2A0A14", "--sk-tint": "rgba(255,151,172,.14)", "--sk-sel": "rgba(255,151,172,.32)", "--sk-focus": "#FF97AC", "--bar-bg": "transparent", "--bar-bd": "0", "--bar-sh": "none", "--logo-bg": "linear-gradient(135deg,#FF9AAF,#FF7B95)", "--logo-fg": "#2A0A14", "--logo-sh": "0 8px 16px -6px rgba(255,123,149,.5)", "--pop-bg": "#3F3054", "--pop-bd": "1px solid rgba(255,200,220,.2)", "--pop-r": "20px", "--pop-sh": "0 26px 50px -18px rgba(0,0,0,.8)", "--pop-hv-bg": "rgba(255,151,172,.2)", "--pop-hv-fg": "#fff", "--tabs-bg": "rgba(255,200,220,.09)", "--tabs-r": "999px", "--tab-r": "999px", "--tab-on-bg": "rgba(255,151,172,.26)", "--tab-on-fg": "#FFE4EB", "--tab-on-sh": "0 4px 10px -4px rgba(0,0,0,.5)", "--seg-bg": "rgba(255,200,220,.09)", "--seg-r": "999px", "--seg-bt-r": "999px", "--seg-on-bg": "rgba(255,151,172,.28)", "--seg-on-fg": "#FFE4EB", "--seg-on-sh": "0 3px 8px -3px rgba(0,0,0,.5)", "--bt-bg": "rgba(255,151,172,.14)", "--bt-fg": "#FFB3C3", "--bt-r": "999px", "--bt-sh": "none", "--bt-hv-bg": "rgba(255,151,172,.26)", "--bt-hv-tf": "translateY(-1px)", "--bt-ac-tf": "scale(.96)", "--bp-bg": "linear-gradient(135deg,#FF9AAF,#FF7B95)", "--bp-fg": "#2A0A14", "--bp-sh": "0 12px 22px -8px rgba(255,123,149,.55)", "--bp-hv-sh": "0 16px 28px -8px rgba(255,123,149,.7)", "--in-bg": "rgba(255,200,220,.09)", "--in-r": "14px", "--in-fc": "0 0 0 3px rgba(255,151,172,.26)", "--ch-r": "999px", "--nav-on-bg": "rgba(255,151,172,.2)", "--nav-on-fg": "#FFB3C3", "--sw-on": "#FF97AC", "--sw-off": "rgba(255,200,220,.26)"}}}, {"id": "swiss", "group": "studio", "name": "瑞士网格", "en": "Swiss Grid", "modes": ["light", "dark"], "mode": "light", "desc": "国际主义的平面排版：纯黑 1px 线框、零圆角、紧字距的粗体字，分区带两位序号，选中和悬停都是反白。信号橙只出现一两处。", "traits": ["零圆角", "黑线框", "反白选中"], "swatch": ["#0A0A0A", "#1A2FD0", "#FF4F12"], "recommended": false, "scenario": "国际主义平面网格：0 圆角 + 1px 纯黑线框 + 反白选中，极度硬朗", "pv": {"light": {"bg": "#EBEBE8", "bar": "#FFFFFF", "side": "#FFFFFF", "card": "#FFFFFF", "line": "#0A0A0A", "ink": "#0A0A0A", "mute": "#5C5C57", "acc": "#1A2FD0", "acc2": "#FF4F12", "ok": "#095E32", "r": 0, "bw": 1, "sh": "none", "font": "\"Helvetica Neue\",\"Arial Nova\",Helvetica,Arial,\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei UI\",sans-serif"}, "dark": {"bg": "#0A0A0B", "bar": "#0A0A0B", "side": "#131314", "card": "#131314", "line": "rgba(244,244,242,.7)", "ink": "#F4F4F2", "mute": "#A0A09B", "acc": "#8393FF", "acc2": "#FF5A1F", "ok": "#5FD48A", "r": 0, "bw": 1, "sh": "none", "font": "\"Helvetica Neue\",\"Arial Nova\",Helvetica,Arial,\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei UI\",sans-serif"}}, "resolved": {"light": {"--g-canvas": "#EBEBE8", "--g-m1": "rgba(10,10,10,.035)", "--g-m2": "#FFFFFF", "--g-m3": "#FFFFFF", "--g-m4": "#FFFFFF", "--g-fill": "rgba(10,10,10,.06)", "--g-fill-2": "rgba(10,10,10,.12)", "--g-b1": "none", "--g-b2": "none", "--g-b3": "none", "--g-b4": "none", "--g-edge": "rgba(10,10,10,.16)", "--g-edge2": "#0A0A0A", "--g-rim": "#0A0A0A", "--g-sep": "rgba(10,10,10,.16)", "--g-spec": "0 0 0 0 transparent", "--g-spec-soft": "0 0 0 0 transparent", "--g-sh1": "0 0 0 0 transparent", "--g-sh2": "0 0 0 0 transparent", "--g-sh3": "0 14px 28px -16px rgba(10,10,10,.42)", "--g-r1": "0", "--g-r2": "0", "--g-r3": "0", "--g-r4": "0", "--g-r5": "0", "--g-blue": "#1A2FD0", "--g-teal": "#0A0A0A", "--g-indigo": "#3B3FB5", "--g-green": "#095E32", "--g-amber": "#7F4400", "--g-red": "#A81B0C", "--g-purple": "#6A2BB5", "--g-gray": "#686863", "--g-accent-fill": "#0A0A0A", "--g-label": "#0A0A0A", "--g-label-2": "#3F3F3B", "--g-label-3": "#5C5C57", "--g-font": "\"Helvetica Neue\",\"Neue Haas Grotesk Text Pro\",\"Arial Nova\",\"Helvetica\",\"Arial\",\"Segoe UI Variable Text\",\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei UI\",\"Microsoft YaHei\",system-ui,sans-serif", "--g-mono": "\"JetBrains Mono\",\"SF Mono\",\"Cascadia Mono\",\"IBM Plex Mono\",Consolas,monospace", "--sk-hd-font": "var(--g-font)", "--sk-hd-w": "700", "--sk-hd-ls": "-.02em", "--sk-lb-font": "var(--g-mono)", "--sk-lb-tr": "uppercase", "--sk-lb-ls": ".08em", "--sk-num-font": "var(--g-font)", "--bt-w": "600", "--sk-scheme": "light", "--hl": "#C93A0B", "--sk-on-accent": "#FFFFFF", "--sk-tint": "rgba(26,47,208,.08)", "--sk-sel": "rgba(255,79,18,.32)", "--sk-focus": "#1A2FD0", "--bar-bg": "#FFFFFF", "--bar-bd": "1px solid #0A0A0A", "--bar-sh": "none", "--logo-bg": "#0A0A0A", "--logo-fg": "#FFFFFF", "--logo-sh": "none", "--pop-bg": "#FFFFFF", "--pop-bd": "1px solid #0A0A0A", "--pop-r": "0", "--pop-sh": "0 14px 28px -16px rgba(10,10,10,.42)", "--pop-hv-bg": "#0A0A0A", "--pop-hv-fg": "#FFFFFF", "--tabs-bg": "transparent", "--tabs-bd": "0", "--tabs-r": "0", "--tab-r": "0", "--tab-on-bg": "transparent", "--tab-on-fg": "#0A0A0A", "--tab-on-sh": "inset 0 -3px 0 #0A0A0A", "--seg-bg": "transparent", "--seg-bd": "1px solid #0A0A0A", "--seg-r": "0", "--seg-bt-r": "0", "--seg-on-bg": "#0A0A0A", "--seg-on-fg": "#FFFFFF", "--seg-on-sh": "none", "--bt-bg": "#FFFFFF", "--bt-fg": "#0A0A0A", "--bt-bd": "1px solid #0A0A0A", "--bt-r": "0", "--bt-hv-bg": "#FFFFFF", "--bt-sh": "none", "--bt-ac-tf": "translateY(1px)", "--bp-bg": "#0A0A0A", "--bp-fg": "#FFFFFF", "--bp-bd": "1px solid #0A0A0A", "--bp-sh": "none", "--bp-hv-bg": "#1A2FD0", "--bp-hv-sh": "none", "--in-bg": "#FFFFFF", "--in-bd": "1px solid #0A0A0A", "--in-r": "0", "--in-sh": "none", "--in-fc": "inset 0 0 0 1px #1A2FD0", "--in-fc-bd": "#1A2FD0", "--ch-bd": "1px solid currentColor", "--ch-r": "0", "--ch-tr": "uppercase", "--ch-ls": ".06em", "--nav-on-bg": "#0A0A0A", "--nav-on-fg": "#FFFFFF", "--sw-on": "#FF4F12", "--sw-off": "#C9C9C3"}, "dark": {"--g-canvas": "#0A0A0B", "--g-m1": "rgba(244,244,242,.045)", "--g-m2": "#131314", "--g-m3": "#1A1A1C", "--g-m4": "#0F0F10", "--g-fill": "rgba(244,244,242,.08)", "--g-fill-2": "rgba(244,244,242,.16)", "--g-b1": "none", "--g-b2": "none", "--g-b3": "none", "--g-b4": "none", "--g-edge": "rgba(244,244,242,.16)", "--g-edge2": "rgba(244,244,242,.78)", "--g-rim": "rgba(244,244,242,.7)", "--g-sep": "rgba(244,244,242,.16)", "--g-spec": "0 0 0 0 transparent", "--g-spec-soft": "0 0 0 0 transparent", "--g-sh1": "0 0 0 0 transparent", "--g-sh2": "0 0 0 0 transparent", "--g-sh3": "0 18px 36px -16px rgba(0,0,0,.9)", "--g-r1": "0", "--g-r2": "0", "--g-r3": "0", "--g-r4": "0", "--g-r5": "0", "--g-blue": "#8393FF", "--g-teal": "#F4F4F2", "--g-indigo": "#98A6FF", "--g-green": "#5FD48A", "--g-amber": "#FFB43D", "--g-red": "#FF7A66", "--g-purple": "#B995FF", "--g-gray": "#9A9A96", "--g-accent-fill": "#F4F4F2", "--g-label": "#F4F4F2", "--g-label-2": "#C2C2BE", "--g-label-3": "#AEAEAA", "--g-font": "\"Helvetica Neue\",\"Neue Haas Grotesk Text Pro\",\"Arial Nova\",\"Helvetica\",\"Arial\",\"Segoe UI Variable Text\",\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei UI\",\"Microsoft YaHei\",system-ui,sans-serif", "--g-mono": "\"JetBrains Mono\",\"SF Mono\",\"Cascadia Mono\",\"IBM Plex Mono\",Consolas,monospace", "--sk-hd-font": "var(--g-font)", "--sk-hd-w": "700", "--sk-hd-ls": "-.02em", "--sk-lb-font": "var(--g-mono)", "--sk-lb-tr": "uppercase", "--sk-lb-ls": ".08em", "--sk-num-font": "var(--g-font)", "--bt-w": "600", "--sk-scheme": "dark", "--hl": "#FF7A45", "--sk-on-accent": "#0A0A0B", "--sk-tint": "rgba(131,147,255,.14)", "--sk-sel": "rgba(255,90,31,.42)", "--sk-focus": "#FF5A1F", "--bar-bg": "#0A0A0B", "--bar-bd": "1px solid rgba(244,244,242,.78)", "--bar-sh": "none", "--logo-bg": "#F4F4F2", "--logo-fg": "#0A0A0B", "--logo-sh": "none", "--pop-bg": "#131314", "--pop-bd": "1px solid rgba(244,244,242,.78)", "--pop-r": "0", "--pop-sh": "0 18px 36px -16px rgba(0,0,0,.9)", "--pop-hv-bg": "#F4F4F2", "--pop-hv-fg": "#0A0A0B", "--tabs-bg": "transparent", "--tabs-bd": "0", "--tabs-r": "0", "--tab-r": "0", "--tab-on-bg": "transparent", "--tab-on-fg": "#F4F4F2", "--tab-on-sh": "inset 0 -3px 0 #F4F4F2", "--seg-bg": "transparent", "--seg-bd": "1px solid rgba(244,244,242,.78)", "--seg-r": "0", "--seg-bt-r": "0", "--seg-on-bg": "#F4F4F2", "--seg-on-fg": "#0A0A0B", "--seg-on-sh": "none", "--bt-bg": "transparent", "--bt-fg": "#F4F4F2", "--bt-bd": "1px solid rgba(244,244,242,.78)", "--bt-r": "0", "--bt-hv-bg": "transparent", "--bt-sh": "none", "--bt-ac-tf": "translateY(1px)", "--bp-bg": "#F4F4F2", "--bp-fg": "#0A0A0B", "--bp-bd": "1px solid #F4F4F2", "--bp-sh": "none", "--bp-hv-bg": "#FF5A1F", "--bp-hv-sh": "none", "--in-bg": "transparent", "--in-bd": "1px solid rgba(244,244,242,.78)", "--in-r": "0", "--in-sh": "none", "--in-fc": "inset 0 0 0 1px #FF5A1F", "--in-fc-bd": "#FF5A1F", "--ch-bd": "1px solid currentColor", "--ch-r": "0", "--ch-tr": "uppercase", "--ch-ls": ".06em", "--nav-on-bg": "#F4F4F2", "--nav-on-fg": "#0A0A0B", "--sw-on": "#FF5A1F", "--sw-off": "#3A3A3C"}}}, {"id": "dot", "group": "studio", "name": "点阵", "en": "Dot Matrix", "modes": ["dark", "light"], "mode": "dark", "desc": "OLED 纯黑的点阵画布，药丸形的控件、等宽的小标题，大数字是半调圆点，一粒红点当记号。像一台透明外壳的小设备。", "traits": ["点阵画布", "药丸控件", "半调数字"], "swatch": ["#050505", "#F2F2F0", "#D71921"], "recommended": false, "scenario": "Nothing OS 风格 OLED 点阵画布 + 等宽字体 + 红点记号，硬件工程师最爱", "pv": {"dark": {"bg": "radial-gradient(circle,rgba(255,255,255,.22) 1px,transparent 1.5px) 0 0/9px 9px,#050505", "bar": "#0A0A0A", "side": "#0F0F0F", "card": "#0F0F0F", "line": "rgba(255,255,255,.2)", "ink": "#F2F2F0", "mute": "#9E9E98", "acc": "#F2F2F0", "acc2": "#D71921", "ok": "#6DD58C", "r": 12, "bw": 1, "sh": "none", "font": "\"JetBrains Mono\",\"Cascadia Mono\",Consolas,\"Segoe UI\",\"PingFang SC\",sans-serif"}, "light": {"bg": "radial-gradient(circle,rgba(10,10,10,.24) 1px,transparent 1.5px) 0 0/9px 9px,#E7E7E4", "bar": "#F8F8F6", "side": "#F8F8F6", "card": "#F8F8F6", "line": "rgba(10,10,10,.22)", "ink": "#0A0A0A", "mute": "#62625C", "acc": "#0A0A0A", "acc2": "#D71921", "ok": "#0B6E3C", "r": 12, "bw": 1, "sh": "none", "font": "\"JetBrains Mono\",\"Cascadia Mono\",Consolas,\"Segoe UI\",\"PingFang SC\",sans-serif"}}, "resolved": {"dark": {"--g-canvas": "#050505", "--g-m1": "rgba(255,255,255,.04)", "--g-m2": "#0F0F0F", "--g-m3": "#171717", "--g-m4": "#0A0A0A", "--g-fill": "rgba(255,255,255,.07)", "--g-fill-2": "rgba(255,255,255,.14)", "--g-b1": "none", "--g-b2": "none", "--g-b3": "none", "--g-b4": "none", "--g-edge": "rgba(255,255,255,.1)", "--g-edge2": "rgba(255,255,255,.3)", "--g-rim": "rgba(255,255,255,.18)", "--g-sep": "rgba(255,255,255,.14)", "--g-spec": "0 0 0 0 transparent", "--g-spec-soft": "0 0 0 0 transparent", "--g-sh1": "0 0 0 0 transparent", "--g-sh2": "0 0 0 0 transparent", "--g-sh3": "0 18px 40px -16px rgba(0,0,0,.95)", "--g-r1": "8px", "--g-r2": "12px", "--g-r3": "16px", "--g-r4": "22px", "--g-r5": "28px", "--g-blue": "#F2F2F0", "--g-teal": "#5EDDD0", "--g-indigo": "#9DB0FF", "--g-green": "#6DD58C", "--g-amber": "#FFC247", "--g-red": "#FF6B6E", "--g-purple": "#C3A6FF", "--g-gray": "#9C9C95", "--g-accent-fill": "#F2F2F0", "--g-label": "#F2F2F0", "--g-label-2": "#BCBCB6", "--g-label-3": "#A5A59E", "--g-font": "\"Segoe UI Variable Display\",\"Segoe UI Variable Text\",\"Segoe UI\",\"SF Pro Display\",\"Helvetica Neue\",\"PingFang SC\",\"Microsoft YaHei UI\",\"Microsoft YaHei\",system-ui,sans-serif", "--g-mono": "\"JetBrains Mono\",\"SF Mono\",\"Cascadia Mono\",\"IBM Plex Mono\",Consolas,monospace", "--sk-hd-font": "var(--g-font)", "--sk-hd-w": "600", "--sk-hd-ls": "-.01em", "--sk-lb-font": "var(--g-mono)", "--sk-lb-tr": "uppercase", "--sk-lb-ls": ".1em", "--sk-num-font": "var(--g-mono)", "--sk-bg-size": "16px 16px", "--sk-bg-pos": "0 0", "--sk-bg-rep": "repeat", "--bt-w": "500", "--sk-scheme": "dark", "--hl": "#FF5A5F", "--sk-bg": "radial-gradient(circle at center,rgba(255,255,255,.2) 1px,transparent 1.5px)", "--sk-on-accent": "#0A0A0A", "--sk-tint": "rgba(255,255,255,.1)", "--sk-sel": "rgba(215,25,33,.5)", "--sk-focus": "#F2F2F0", "--bar-bg": "#0A0A0A", "--bar-bd": "1px dotted rgba(255,255,255,.4)", "--bar-sh": "none", "--logo-bg": "#D71921", "--logo-fg": "#FFFFFF", "--logo-sh": "none", "--pop-bg": "#141414", "--pop-bd": "1px solid rgba(255,255,255,.26)", "--pop-r": "20px", "--pop-sh": "0 22px 44px -18px rgba(0,0,0,.95)", "--pop-hv-bg": "#F2F2F0", "--pop-hv-fg": "#0A0A0A", "--tabs-bg": "transparent", "--tabs-bd": "1px solid rgba(255,255,255,.22)", "--tabs-r": "999px", "--tab-r": "999px", "--tab-on-bg": "#F2F2F0", "--tab-on-fg": "#0A0A0A", "--tab-on-sh": "none", "--seg-bg": "transparent", "--seg-bd": "1px solid rgba(255,255,255,.26)", "--seg-r": "999px", "--seg-bt-r": "999px", "--seg-on-bg": "#F2F2F0", "--seg-on-fg": "#0A0A0A", "--seg-on-sh": "none", "--bt-bg": "transparent", "--bt-fg": "#F2F2F0", "--bt-bd": "1px solid rgba(255,255,255,.34)", "--bt-r": "999px", "--bt-hv-bg": "rgba(255,255,255,.1)", "--bt-sh": "none", "--bt-ac-tf": "scale(.97)", "--bp-bg": "#F2F2F0", "--bp-fg": "#0A0A0A", "--bp-bd": "1px solid #F2F2F0", "--bp-sh": "none", "--bp-hv-bg": "#FFFFFF", "--bp-hv-sh": "none", "--in-bg": "rgba(255,255,255,.04)", "--in-bd": "1px solid rgba(255,255,255,.26)", "--in-r": "14px", "--in-sh": "none", "--in-fc": "0 0 0 2px rgba(255,255,255,.5)", "--in-fc-bd": "#F2F2F0", "--ch-bd": "1px solid color-mix(in srgb,currentColor 55%,transparent)", "--ch-r": "999px", "--ch-tr": "uppercase", "--ch-ls": ".06em", "--nav-on-bg": "#F2F2F0", "--nav-on-fg": "#0A0A0A", "--sw-on": "#F2F2F0", "--sw-off": "rgba(255,255,255,.18)"}, "light": {"--g-canvas": "#E7E7E4", "--g-m1": "rgba(10,10,10,.035)", "--g-m2": "#F8F8F6", "--g-m3": "#FFFFFF", "--g-m4": "#F8F8F6", "--g-fill": "rgba(10,10,10,.06)", "--g-fill-2": "rgba(10,10,10,.12)", "--g-b1": "none", "--g-b2": "none", "--g-b3": "none", "--g-b4": "none", "--g-edge": "rgba(10,10,10,.12)", "--g-edge2": "rgba(10,10,10,.34)", "--g-rim": "rgba(10,10,10,.22)", "--g-sep": "rgba(10,10,10,.14)", "--g-spec": "0 0 0 0 transparent", "--g-spec-soft": "0 0 0 0 transparent", "--g-sh1": "0 0 0 0 transparent", "--g-sh2": "0 0 0 0 transparent", "--g-sh3": "0 18px 36px -18px rgba(10,10,10,.4)", "--g-r1": "8px", "--g-r2": "12px", "--g-r3": "16px", "--g-r4": "22px", "--g-r5": "28px", "--g-blue": "#0A0A0A", "--g-teal": "#005F57", "--g-indigo": "#3A40A5", "--g-green": "#0A5C31", "--g-amber": "#7A4200", "--g-red": "#A8121A", "--g-purple": "#5B2FA8", "--g-gray": "#62625E", "--g-accent-fill": "#0A0A0A", "--g-label": "#0A0A0A", "--g-label-2": "#44443F", "--g-label-3": "#5A5A55", "--g-font": "\"Segoe UI Variable Display\",\"Segoe UI Variable Text\",\"Segoe UI\",\"SF Pro Display\",\"Helvetica Neue\",\"PingFang SC\",\"Microsoft YaHei UI\",\"Microsoft YaHei\",system-ui,sans-serif", "--g-mono": "\"JetBrains Mono\",\"SF Mono\",\"Cascadia Mono\",\"IBM Plex Mono\",Consolas,monospace", "--sk-hd-font": "var(--g-font)", "--sk-hd-w": "600", "--sk-hd-ls": "-.01em", "--sk-lb-font": "var(--g-mono)", "--sk-lb-tr": "uppercase", "--sk-lb-ls": ".1em", "--sk-num-font": "var(--g-mono)", "--sk-bg-size": "16px 16px", "--sk-bg-pos": "0 0", "--sk-bg-rep": "repeat", "--bt-w": "500", "--sk-scheme": "light", "--hl": "#D71921", "--sk-bg": "radial-gradient(circle at center,rgba(10,10,10,.22) 1px,transparent 1.5px)", "--sk-on-accent": "#F8F8F6", "--sk-tint": "rgba(10,10,10,.07)", "--sk-sel": "rgba(215,25,33,.26)", "--sk-focus": "#0A0A0A", "--bar-bg": "#F8F8F6", "--bar-bd": "1px dotted rgba(10,10,10,.45)", "--bar-sh": "none", "--logo-bg": "#D71921", "--logo-fg": "#FFFFFF", "--logo-sh": "none", "--pop-bg": "#FFFFFF", "--pop-bd": "1px solid rgba(10,10,10,.26)", "--pop-r": "20px", "--pop-sh": "0 22px 44px -20px rgba(10,10,10,.5)", "--pop-hv-bg": "#0A0A0A", "--pop-hv-fg": "#F8F8F6", "--tabs-bg": "transparent", "--tabs-bd": "1px solid rgba(10,10,10,.22)", "--tabs-r": "999px", "--tab-r": "999px", "--tab-on-bg": "#0A0A0A", "--tab-on-fg": "#F8F8F6", "--tab-on-sh": "none", "--seg-bg": "transparent", "--seg-bd": "1px solid rgba(10,10,10,.28)", "--seg-r": "999px", "--seg-bt-r": "999px", "--seg-on-bg": "#0A0A0A", "--seg-on-fg": "#F8F8F6", "--seg-on-sh": "none", "--bt-bg": "transparent", "--bt-fg": "#0A0A0A", "--bt-bd": "1px solid rgba(10,10,10,.34)", "--bt-r": "999px", "--bt-hv-bg": "rgba(10,10,10,.07)", "--bt-sh": "none", "--bt-ac-tf": "scale(.97)", "--bp-bg": "#0A0A0A", "--bp-fg": "#F8F8F6", "--bp-bd": "1px solid #0A0A0A", "--bp-sh": "none", "--bp-hv-bg": "#2A2A28", "--bp-hv-sh": "none", "--in-bg": "rgba(10,10,10,.03)", "--in-bd": "1px solid rgba(10,10,10,.28)", "--in-r": "14px", "--in-sh": "none", "--in-fc": "0 0 0 2px rgba(10,10,10,.4)", "--in-fc-bd": "#0A0A0A", "--ch-bd": "1px solid color-mix(in srgb,currentColor 55%,transparent)", "--ch-r": "999px", "--ch-tr": "uppercase", "--ch-ls": ".06em", "--nav-on-bg": "#0A0A0A", "--nav-on-fg": "#F8F8F6", "--sw-on": "#0A0A0A", "--sw-off": "rgba(10,10,10,.2)"}}}, {"id": "blueprint", "group": "studio", "name": "蓝图", "en": "Blueprint", "modes": ["light", "dark"], "mode": "light", "desc": "制图纸上的方格、墨蓝细线和面板角标，等宽大写的标注，红笔批注；深色是青色晒图。", "traits": ["方格制图纸", "角标十字", "红笔批注"], "swatch": ["#EEF2F7", "#1744B8", "#C8340F"], "recommended": true, "scenario": "工程制图纸方格 + 十字准星角标 (`registration marks`) + 虚线边框，芯片/驱动研发绝配", "pv": {"light": {"bg": "linear-gradient(rgba(23,68,184,.12) 1px,transparent 1px) 0 0/7px 7px,linear-gradient(90deg,rgba(23,68,184,.12) 1px,transparent 1px) 0 0/7px 7px,#EEF2F7", "bar": "#FBFDFF", "side": "#FBFDFF", "card": "#FBFDFF", "line": "rgba(23,68,184,.55)", "ink": "#0F2350", "mute": "#506590", "acc": "#1744B8", "acc2": "#C8340F", "ok": "#0F6B3F", "r": 0, "bw": 1, "sh": "none", "font": "\"Bahnschrift\",\"JetBrains Mono\",Consolas,\"Segoe UI\",\"PingFang SC\",sans-serif"}, "dark": {"bg": "linear-gradient(rgba(220,235,255,.13) 1px,transparent 1px) 0 0/7px 7px,linear-gradient(90deg,rgba(220,235,255,.13) 1px,transparent 1px) 0 0/7px 7px,#0A2A5C", "bar": "#0C3069", "side": "#0E3470", "card": "#0E3470", "line": "rgba(220,235,255,.5)", "ink": "#F2F7FF", "mute": "#A9C0E6", "acc": "#8CC8FF", "acc2": "#FFD166", "ok": "#7FE3A0", "r": 0, "bw": 1, "sh": "none", "font": "\"Bahnschrift\",\"JetBrains Mono\",Consolas,\"Segoe UI\",\"PingFang SC\",sans-serif"}}, "resolved": {"light": {"--g-canvas": "#EEF2F7", "--g-m1": "rgba(23,68,184,.045)", "--g-m2": "#FBFDFF", "--g-m3": "#FFFFFF", "--g-m4": "#FBFDFF", "--g-fill": "rgba(23,68,184,.07)", "--g-fill-2": "rgba(23,68,184,.13)", "--g-b1": "none", "--g-b2": "none", "--g-b3": "none", "--g-b4": "none", "--g-edge": "rgba(23,68,184,.22)", "--g-edge2": "rgba(23,68,184,.5)", "--g-rim": "rgba(23,68,184,.58)", "--g-sep": "rgba(23,68,184,.2)", "--g-spec": "0 0 0 0 transparent", "--g-spec-soft": "0 0 0 0 transparent", "--g-sh1": "0 0 0 0 transparent", "--g-sh2": "0 0 0 0 transparent", "--g-sh3": "6px 6px 0 rgba(23,68,184,.14)", "--g-r1": "0", "--g-r2": "0", "--g-r3": "0", "--g-r4": "0", "--g-r5": "0", "--g-blue": "#1744B8", "--g-teal": "#0A5F66", "--g-indigo": "#3744A8", "--g-green": "#0F5F3A", "--g-amber": "#7A4A00", "--g-red": "#A81E17", "--g-purple": "#5B34B0", "--g-gray": "#586684", "--g-accent-fill": "#1744B8", "--g-label": "#0F2350", "--g-label-2": "#34497D", "--g-label-3": "#485C89", "--g-font": "\"Bahnschrift\",\"DIN Alternate\",\"Segoe UI Variable Text\",\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei UI\",\"Microsoft YaHei\",system-ui,sans-serif", "--g-mono": "\"JetBrains Mono\",\"IBM Plex Mono\",\"Cascadia Mono\",\"SF Mono\",Consolas,monospace", "--sk-hd-font": "var(--g-font)", "--sk-hd-w": "600", "--sk-hd-ls": ".02em", "--sk-lb-font": "var(--g-mono)", "--sk-lb-tr": "uppercase", "--sk-lb-ls": ".1em", "--sk-num-font": "var(--g-mono)", "--sk-bg-size": "16px 16px,16px 16px,80px 80px,80px 80px", "--sk-bg-pos": "-1px -1px", "--sk-bg-rep": "repeat", "--bt-w": "600", "--sk-scheme": "light", "--hl": "#C8340F", "--ink": "#1744B8", "--sk-bg": "linear-gradient(rgba(23,68,184,.07) 1px,transparent 1px),linear-gradient(90deg,rgba(23,68,184,.07) 1px,transparent 1px),linear-gradient(rgba(23,68,184,.13) 1px,transparent 1px),linear-gradient(90deg,rgba(23,68,184,.13) 1px,transparent 1px)", "--sk-on-accent": "#FFFFFF", "--sk-tint": "rgba(23,68,184,.09)", "--sk-sel": "rgba(200,52,15,.22)", "--sk-focus": "#C8340F", "--bar-bg": "#FBFDFF", "--bar-bd": "1px solid rgba(23,68,184,.75)", "--bar-sh": "none", "--logo-bg": "transparent", "--logo-fg": "#1744B8", "--logo-sh": "inset 0 0 0 1.5px #1744B8", "--pop-bg": "#FBFDFF", "--pop-bd": "1px solid #1744B8", "--pop-r": "0", "--pop-sh": "5px 5px 0 rgba(23,68,184,.16)", "--pop-hv-bg": "#1744B8", "--pop-hv-fg": "#FFFFFF", "--tabs-bg": "transparent", "--tabs-bd": "0", "--tabs-r": "0", "--tab-r": "0", "--tab-on-bg": "transparent", "--tab-on-fg": "#0F2350", "--tab-on-sh": "inset 0 -2px 0 #1744B8", "--seg-bg": "transparent", "--seg-bd": "1px solid rgba(23,68,184,.65)", "--seg-r": "0", "--seg-bt-r": "0", "--seg-on-bg": "#1744B8", "--seg-on-fg": "#FFFFFF", "--seg-on-sh": "none", "--bt-bg": "rgba(255,255,255,.7)", "--bt-fg": "#0F2350", "--bt-bd": "1px solid rgba(23,68,184,.65)", "--bt-r": "0", "--bt-hv-bg": "rgba(23,68,184,.1)", "--bt-sh": "none", "--bt-ac-tf": "translateY(1px)", "--bp-bg": "#1744B8", "--bp-fg": "#FFFFFF", "--bp-bd": "1px solid #0F2E85", "--bp-sh": "none", "--bp-hv-bg": "#0F2E85", "--bp-hv-sh": "none", "--in-bg": "#FFFFFF", "--in-bd": "1px solid rgba(23,68,184,.5)", "--in-r": "0", "--in-sh": "none", "--in-fc": "0 0 0 1px #1744B8", "--in-fc-bd": "#1744B8", "--ch-bd": "1px dashed currentColor", "--ch-r": "0", "--ch-tr": "uppercase", "--ch-ls": ".06em", "--nav-on-bg": "rgba(23,68,184,.12)", "--nav-on-fg": "#0F2350", "--sw-on": "#1744B8", "--sw-off": "rgba(23,68,184,.22)"}, "dark": {"--g-canvas": "#0A2A5C", "--g-m1": "rgba(255,255,255,.05)", "--g-m2": "#0E3470", "--g-m3": "#123B7D", "--g-m4": "#0C3069", "--g-fill": "rgba(255,255,255,.06)", "--g-fill-2": "rgba(255,255,255,.1)", "--g-b1": "none", "--g-b2": "none", "--g-b3": "none", "--g-b4": "none", "--g-edge": "rgba(220,235,255,.2)", "--g-edge2": "rgba(220,235,255,.5)", "--g-rim": "rgba(220,235,255,.5)", "--g-sep": "rgba(220,235,255,.2)", "--g-spec": "0 0 0 0 transparent", "--g-spec-soft": "0 0 0 0 transparent", "--g-sh1": "0 0 0 0 transparent", "--g-sh2": "0 0 0 0 transparent", "--g-sh3": "6px 6px 0 rgba(2,12,36,.5)", "--g-r1": "0", "--g-r2": "0", "--g-r3": "0", "--g-r4": "0", "--g-r5": "0", "--g-blue": "#9DD0FF", "--g-teal": "#6FE0D0", "--g-indigo": "#9FB4FF", "--g-green": "#7FE3A0", "--g-amber": "#FFD166", "--g-red": "#FFB4AA", "--g-purple": "#D6BFFF", "--g-gray": "#AEBFDD", "--g-accent-fill": "#8CC8FF", "--g-label": "#F2F7FF", "--g-label-2": "#C3D5F2", "--g-label-3": "#B5C8EA", "--g-font": "\"Bahnschrift\",\"DIN Alternate\",\"Segoe UI Variable Text\",\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei UI\",\"Microsoft YaHei\",system-ui,sans-serif", "--g-mono": "\"JetBrains Mono\",\"IBM Plex Mono\",\"Cascadia Mono\",\"SF Mono\",Consolas,monospace", "--sk-hd-font": "var(--g-font)", "--sk-hd-w": "600", "--sk-hd-ls": ".02em", "--sk-lb-font": "var(--g-mono)", "--sk-lb-tr": "uppercase", "--sk-lb-ls": ".1em", "--sk-num-font": "var(--g-mono)", "--sk-bg-size": "16px 16px,16px 16px,80px 80px,80px 80px", "--sk-bg-pos": "-1px -1px", "--sk-bg-rep": "repeat", "--bt-w": "600", "--sk-scheme": "dark", "--hl": "#FFD166", "--ink": "#8CC8FF", "--sk-bg": "linear-gradient(rgba(220,235,255,.06) 1px,transparent 1px),linear-gradient(90deg,rgba(220,235,255,.06) 1px,transparent 1px),linear-gradient(rgba(220,235,255,.12) 1px,transparent 1px),linear-gradient(90deg,rgba(220,235,255,.12) 1px,transparent 1px)", "--sk-on-accent": "#06204A", "--sk-tint": "rgba(140,200,255,.14)", "--sk-sel": "rgba(255,209,102,.34)", "--sk-focus": "#FFD166", "--bar-bg": "#0C3069", "--bar-bd": "1px solid rgba(220,235,255,.65)", "--bar-sh": "none", "--logo-bg": "transparent", "--logo-fg": "#F2F7FF", "--logo-sh": "inset 0 0 0 1.5px #F2F7FF", "--pop-bg": "#0E3470", "--pop-bd": "1px solid rgba(220,235,255,.7)", "--pop-r": "0", "--pop-sh": "6px 6px 0 rgba(2,12,36,.5)", "--pop-hv-bg": "#F2F7FF", "--pop-hv-fg": "#06204A", "--tabs-bg": "transparent", "--tabs-bd": "0", "--tabs-r": "0", "--tab-r": "0", "--tab-on-bg": "transparent", "--tab-on-fg": "#F2F7FF", "--tab-on-sh": "inset 0 -2px 0 #FFD166", "--seg-bg": "transparent", "--seg-bd": "1px solid rgba(220,235,255,.6)", "--seg-r": "0", "--seg-bt-r": "0", "--seg-on-bg": "#F2F7FF", "--seg-on-fg": "#06204A", "--seg-on-sh": "none", "--bt-bg": "rgba(255,255,255,.05)", "--bt-fg": "#F2F7FF", "--bt-bd": "1px solid rgba(220,235,255,.6)", "--bt-r": "0", "--bt-hv-bg": "rgba(255,255,255,.14)", "--bt-sh": "none", "--bt-ac-tf": "translateY(1px)", "--bp-bg": "#F2F7FF", "--bp-fg": "#06204A", "--bp-bd": "1px solid #F2F7FF", "--bp-sh": "none", "--bp-hv-bg": "#FFD166", "--bp-hv-sh": "none", "--in-bg": "rgba(2,12,36,.35)", "--in-bd": "1px solid rgba(220,235,255,.5)", "--in-r": "0", "--in-sh": "none", "--in-fc": "0 0 0 1px #FFD166", "--in-fc-bd": "#FFD166", "--ch-bd": "1px dashed currentColor", "--ch-r": "0", "--ch-tr": "uppercase", "--ch-ls": ".06em", "--nav-on-bg": "rgba(255,255,255,.12)", "--nav-on-fg": "#F2F7FF", "--sw-on": "#F2F7FF", "--sw-off": "rgba(220,235,255,.24)"}}}, {"id": "noir", "group": "studio", "name": "黑金", "en": "Noir & Brass", "modes": ["dark"], "mode": "dark", "desc": "墨绿近黑的底、黄铜色的细线和双层压框，衬线的数字与小型大写，等级章是一枚奖牌。只有深色。", "traits": ["黄铜细线", "双层压框", "奖牌等级"], "swatch": ["#0C0F0D", "#C9A96A", "#EFE8D8"], "recommended": false, "scenario": "墨绿近黑底 + 黄铜细线双层压框 + 衬线大数字，奢华暗色质感", "pv": {"dark": {"bg": "radial-gradient(120% 90% at 80% -10%,rgba(201,169,106,.16),transparent 60%),#0C0F0D", "bar": "#0A0D0B", "side": "#131815", "card": "#131815", "line": "rgba(201,169,106,.4)", "ink": "#EFE8D8", "mute": "#A0967F", "acc": "#C9A96A", "acc2": "#7CC49A", "ok": "#7CC49A", "r": 2, "bw": 1, "sh": "inset 0 0 0 3px #131815,inset 0 0 0 4px rgba(201,169,106,.18)", "font": "\"Cormorant Garamond\",\"Bodoni MT\",Didot,Georgia,\"Noto Serif SC\",\"Songti SC\",serif"}}, "resolved": {"dark": {"--g-canvas": "#0C0F0D", "--g-m1": "rgba(201,169,106,.045)", "--g-m2": "#131815", "--g-m3": "#1A211D", "--g-m4": "#0F1311", "--g-fill": "rgba(201,169,106,.08)", "--g-fill-2": "rgba(201,169,106,.15)", "--g-b1": "none", "--g-b2": "none", "--g-b3": "none", "--g-b4": "none", "--g-edge": "rgba(201,169,106,.16)", "--g-edge2": "rgba(201,169,106,.36)", "--g-rim": "rgba(201,169,106,.32)", "--g-sep": "rgba(201,169,106,.15)", "--g-spec": "0 0 0 0 transparent", "--g-spec-soft": "0 0 0 0 transparent", "--g-sh1": "0 0 0 0 transparent", "--g-sh2": "0 10px 24px -14px rgba(0,0,0,.8)", "--g-sh3": "0 24px 48px -18px rgba(0,0,0,.92)", "--g-r1": "1px", "--g-r2": "2px", "--g-r3": "2px", "--g-r4": "3px", "--g-r5": "4px", "--g-blue": "#C9A96A", "--g-teal": "#6BC0AE", "--g-indigo": "#93A5D9", "--g-green": "#7CC49A", "--g-amber": "#E8A55A", "--g-red": "#E5857A", "--g-purple": "#B79BD6", "--g-gray": "#8E9A92", "--g-accent-fill": "linear-gradient(180deg,#D9BE86,#BC9A55)", "--g-label": "#EFE8D8", "--g-label-2": "#BDB39C", "--g-label-3": "#A89E88", "--g-font": "\"Segoe UI Variable Text\",\"Segoe UI\",\"Helvetica Neue\",\"PingFang SC\",\"Microsoft YaHei UI\",\"Microsoft YaHei\",system-ui,sans-serif", "--g-mono": "\"JetBrains Mono\",\"IBM Plex Mono\",\"Cascadia Mono\",\"SF Mono\",Consolas,monospace", "--sk-hd-font": "var(--g-serif)", "--sk-hd-w": "600", "--sk-hd-ls": ".02em", "--sk-lb-tr": "uppercase", "--sk-lb-ls": ".16em", "--sk-num-font": "var(--g-serif)", "--bt-w": "500", "--brass": "#C9A96A", "--brass-hi": "#D9BE86", "--sk-scheme": "dark", "--hl": "#D9BE86", "--sk-bg": "radial-gradient(1100px 620px at 82% -12%,rgba(201,169,106,.09),transparent 65%),radial-gradient(900px 560px at -8% 108%,rgba(46,100,80,.16),transparent 65%)", "--sk-bg-size": "100% 100%", "--sk-bg-rep": "no-repeat", "--sk-bg-pos": "0 0", "--sk-fx": "repeating-linear-gradient(90deg,rgba(201,169,106,.035) 0,rgba(201,169,106,.035) 1px,transparent 1px,transparent 7px)", "--sk-fx-o": "1", "--sk-on-accent": "#15110A", "--sk-tint": "rgba(201,169,106,.12)", "--sk-sel": "rgba(201,169,106,.34)", "--sk-focus": "#D9BE86", "--bar-bg": "#0A0D0B", "--bar-bd": "1px solid rgba(201,169,106,.4)", "--bar-sh": "none", "--logo-bg": "transparent", "--logo-fg": "#C9A96A", "--logo-sh": "inset 0 0 0 1px #C9A96A,inset 0 0 0 3px #0A0D0B,inset 0 0 0 4px rgba(201,169,106,.55)", "--pop-bg": "#161C18", "--pop-bd": "1px solid rgba(201,169,106,.5)", "--pop-r": "2px", "--pop-sh": "0 22px 44px -16px rgba(0,0,0,.92)", "--pop-hv-bg": "rgba(201,169,106,.18)", "--pop-hv-fg": "#FFF6DE", "--tabs-bg": "transparent", "--tabs-bd": "0", "--tabs-r": "0", "--tab-r": "0", "--tab-on-bg": "transparent", "--tab-on-fg": "#D9BE86", "--tab-on-sh": "inset 0 -1px 0 #C9A96A", "--seg-bg": "transparent", "--seg-bd": "1px solid rgba(201,169,106,.4)", "--seg-r": "0", "--seg-bt-r": "0", "--seg-on-bg": "#C9A96A", "--seg-on-fg": "#15110A", "--seg-on-sh": "none", "--bt-bg": "transparent", "--bt-fg": "#E7DFC9", "--bt-bd": "1px solid rgba(201,169,106,.42)", "--bt-r": "2px", "--bt-hv-bg": "rgba(201,169,106,.14)", "--bt-sh": "none", "--bt-ac-tf": "translateY(1px)", "--bp-bg": "linear-gradient(180deg,#D9BE86,#BC9A55)", "--bp-fg": "#15110A", "--bp-bd": "1px solid #E3CB98", "--bp-sh": "inset 0 1px 0 rgba(255,255,255,.35)", "--bp-hv-sh": "inset 0 1px 0 rgba(255,255,255,.45)", "--in-bg": "rgba(0,0,0,.28)", "--in-bd": "1px solid rgba(201,169,106,.3)", "--in-r": "2px", "--in-sh": "none", "--in-fc": "0 0 0 1px #C9A96A", "--in-fc-bd": "#C9A96A", "--ch-bd": "1px solid color-mix(in srgb,currentColor 50%,transparent)", "--ch-r": "2px", "--ch-tr": "uppercase", "--ch-ls": ".08em", "--nav-on-bg": "rgba(201,169,106,.12)", "--nav-on-fg": "#FFF6DE", "--sw-on": "#C9A96A", "--sw-off": "rgba(201,169,106,.2)"}}}, {"id": "tactile", "group": "studio", "name": "触感", "en": "Tactile", "modes": ["light", "dark"], "mode": "light", "desc": "暖灰的机身、凸起的按键、凹陷的屏窗和扬声器网孔，信号橙当主键。像一台设计过的硬件；深色是石墨版。", "traits": ["拟物按键", "凹陷屏窗", "网孔画布"], "swatch": ["#D6D3CB", "#EE5A14", "#26271F"], "recommended": true, "scenario": "Teenage Engineering / 博朗硬件风：网孔画布 + 凸起拟物按键 + 凹陷输入框 + 信号橙主键", "pv": {"light": {"bg": "radial-gradient(circle,rgba(60,50,30,.2) 1px,transparent 1.4px) 0 0/6px 6px,#D6D3CB", "bar": "#E4E1DA", "side": "#E7E4DD", "card": "#E7E4DD", "line": "rgba(60,50,30,.3)", "ink": "#1D1C19", "mute": "#57534A", "acc": "#EE5A14", "acc2": "#1B3F94", "ok": "#1F6B3A", "r": 8, "bw": 1, "sh": "inset 0 1px 0 rgba(255,255,255,.8),0 2px 0 rgba(60,50,30,.22),0 8px 14px -8px rgba(60,50,30,.5)", "font": "\"Bahnschrift\",\"Helvetica Neue\",Arial,\"Segoe UI\",\"PingFang SC\",sans-serif"}, "dark": {"bg": "radial-gradient(circle,rgba(255,255,255,.12) 1px,transparent 1.4px) 0 0/6px 6px,#1C1D1F", "bar": "#26272A", "side": "#2A2B2E", "card": "#2A2B2E", "line": "rgba(0,0,0,.5)", "ink": "#ECE9E2", "mute": "#A5A29A", "acc": "#FF6A1A", "acc2": "#7FA6FF", "ok": "#6BCB8B", "r": 8, "bw": 1, "sh": "inset 0 1px 0 rgba(255,255,255,.08),0 2px 0 rgba(0,0,0,.5),0 8px 14px -8px rgba(0,0,0,.8)", "font": "\"Bahnschrift\",\"Helvetica Neue\",Arial,\"Segoe UI\",\"PingFang SC\",sans-serif"}}, "resolved": {"light": {"--g-canvas": "#DAD7CF", "--g-m1": "rgba(60,50,30,.07)", "--g-m2": "#E9E6DF", "--g-m3": "#F3F1EB", "--g-m4": "#E0DDD5", "--g-fill": "rgba(60,50,30,.08)", "--g-fill-2": "rgba(60,50,30,.15)", "--g-b1": "none", "--g-b2": "none", "--g-b3": "none", "--g-b4": "none", "--g-edge": "rgba(60,50,30,.16)", "--g-edge2": "rgba(60,50,30,.34)", "--g-rim": "rgba(60,50,30,.28)", "--g-sep": "rgba(60,50,30,.16)", "--g-spec": "0 0 0 0 transparent", "--g-spec-soft": "0 0 0 0 transparent", "--g-sh1": "inset 0 1px 0 rgba(255,255,255,.9),0 1px 0 rgba(60,50,30,.2),0 8px 16px -10px rgba(60,50,30,.45)", "--g-sh2": "inset 0 1px 0 rgba(255,255,255,.95),0 2px 0 rgba(60,50,30,.22),0 12px 22px -12px rgba(60,50,30,.55)", "--g-sh3": "inset 0 1px 0 rgba(255,255,255,.95),0 24px 44px -16px rgba(60,50,30,.62)", "--g-r1": "6px", "--g-r2": "8px", "--g-r3": "10px", "--g-r4": "14px", "--g-r5": "18px", "--g-blue": "#1B3F94", "--g-teal": "#0B5257", "--g-indigo": "#3A4FA3", "--g-green": "#17582F", "--g-amber": "#6F3F00", "--g-red": "#8E2016", "--g-purple": "#5A3188", "--g-gray": "#5A5750", "--g-accent-fill": "linear-gradient(180deg,#F26A1F,#E04E0B)", "--g-label": "#1D1C19", "--g-label-2": "#46433C", "--g-label-3": "#504C44", "--g-font": "\"Bahnschrift\",\"Helvetica Neue\",\"Arial Nova\",\"Segoe UI Variable Text\",\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei UI\",\"Microsoft YaHei\",system-ui,sans-serif", "--g-mono": "\"JetBrains Mono\",\"SF Mono\",\"Cascadia Mono\",\"IBM Plex Mono\",Consolas,monospace", "--sk-hd-font": "var(--g-font)", "--sk-hd-w": "700", "--sk-hd-ls": ".005em", "--sk-lb-tr": "uppercase", "--sk-lb-ls": ".08em", "--sk-num-font": "var(--g-font)", "--sk-bg-size": "100% 100%,8px 8px", "--sk-bg-pos": "0 0", "--sk-bg-rep": "no-repeat,repeat", "--bt-w": "600", "--sk-scheme": "light", "--hl": "#A8350A", "--sk-bg": "linear-gradient(180deg,rgba(255,255,255,.4),transparent 240px),radial-gradient(circle at center,rgba(60,50,30,.17) 1px,transparent 1.5px)", "--sk-on-accent": "#FFFFFF", "--sk-tint": "rgba(27,63,148,.09)", "--sk-sel": "rgba(238,90,20,.3)", "--sk-focus": "#C2440A", "--bar-bg": "linear-gradient(180deg,#E8E5DE,#D4D1C9)", "--bar-bd": "1px solid rgba(60,50,30,.42)", "--bar-sh": "inset 0 1px 0 rgba(255,255,255,.75)", "--logo-bg": "linear-gradient(180deg,#F26A1F,#E04E0B)", "--logo-fg": "#1A0F08", "--logo-sh": "inset 0 1px 0 rgba(255,255,255,.5),0 1px 2px rgba(80,30,5,.55)", "--pop-bg": "#F1EFE9", "--pop-bd": "1px solid rgba(60,50,30,.42)", "--pop-r": "10px", "--pop-sh": "inset 0 1px 0 #FFFFFF,0 20px 38px -14px rgba(60,50,30,.6)", "--pop-hv-bg": "#F26A1F", "--pop-hv-fg": "#1A0F08", "--tabs-bg": "rgba(60,50,30,.13)", "--tabs-bd": "0", "--tabs-r": "10px", "--tab-r": "8px", "--tab-on-bg": "linear-gradient(180deg,#FCFBF8,#E0DDD5)", "--tab-on-fg": "#1D1C19", "--tab-on-sh": "inset 0 1px 0 #FFFFFF,0 1px 2px rgba(60,50,30,.5),0 0 0 1px rgba(60,50,30,.22)", "--seg-bg": "rgba(60,50,30,.13)", "--seg-bd": "0", "--seg-r": "9px", "--seg-bt-r": "7px", "--seg-on-bg": "linear-gradient(180deg,#FCFBF8,#E0DDD5)", "--seg-on-fg": "#1D1C19", "--seg-on-sh": "inset 0 1px 0 #FFFFFF,0 1px 2px rgba(60,50,30,.5),0 0 0 1px rgba(60,50,30,.22)", "--bt-bg": "linear-gradient(180deg,#F7F5F0,#DEDBD3)", "--bt-fg": "#1D1C19", "--bt-bd": "1px solid rgba(60,50,30,.4)", "--bt-r": "8px", "--bt-hv-bg": "linear-gradient(180deg,#FDFCFA,#E6E3DB)", "--bt-sh": "inset 0 1px 0 rgba(255,255,255,.95),0 2px 0 rgba(60,50,30,.26),0 4px 6px -3px rgba(60,50,30,.4)", "--bt-ac-tf": "translateY(1px)", "--bp-bg": "linear-gradient(180deg,#F26A1F,#E04E0B)", "--bp-fg": "#1A0F08", "--bp-bd": "1px solid #B83C06", "--bp-sh": "inset 0 1px 0 rgba(255,255,255,.55),0 2px 0 #A5350A,0 4px 6px -3px rgba(120,40,0,.5)", "--bp-hv-sh": "inset 0 1px 0 rgba(255,255,255,.6),0 2px 0 #A5350A,0 5px 8px -3px rgba(120,40,0,.55)", "--in-bg": "#D5D2C9", "--in-bd": "1px solid rgba(60,50,30,.32)", "--in-r": "8px", "--in-sh": "inset 0 2px 4px rgba(60,50,30,.3),0 1px 0 rgba(255,255,255,.7)", "--in-fc": "inset 0 2px 4px rgba(60,50,30,.3),0 0 0 2px rgba(238,90,20,.55)", "--in-fc-bd": "#E04E0B", "--ch-bd": "1px solid color-mix(in srgb,currentColor 35%,transparent)", "--ch-r": "6px", "--ch-tr": "uppercase", "--ch-ls": ".05em", "--nav-on-bg": "linear-gradient(180deg,#FCFBF8,#E0DDD5)", "--nav-on-fg": "#1D1C19", "--sw-on": "#E04E0B", "--sw-off": "#B7B3A8"}, "dark": {"--g-canvas": "#1C1D1F", "--g-m1": "rgba(0,0,0,.26)", "--g-m2": "#2A2B2E", "--g-m3": "#333438", "--g-m4": "#242528", "--g-fill": "rgba(255,255,255,.07)", "--g-fill-2": "rgba(255,255,255,.11)", "--g-b1": "none", "--g-b2": "none", "--g-b3": "none", "--g-b4": "none", "--g-edge": "rgba(0,0,0,.4)", "--g-edge2": "rgba(0,0,0,.62)", "--g-rim": "rgba(0,0,0,.55)", "--g-sep": "rgba(255,255,255,.1)", "--g-spec": "0 0 0 0 transparent", "--g-spec-soft": "0 0 0 0 transparent", "--g-sh1": "inset 0 1px 0 rgba(255,255,255,.08),0 1px 0 rgba(0,0,0,.6),0 10px 18px -10px rgba(0,0,0,.8)", "--g-sh2": "inset 0 1px 0 rgba(255,255,255,.1),0 2px 0 rgba(0,0,0,.6),0 14px 24px -12px rgba(0,0,0,.85)", "--g-sh3": "inset 0 1px 0 rgba(255,255,255,.1),0 26px 48px -16px rgba(0,0,0,.9)", "--g-r1": "6px", "--g-r2": "8px", "--g-r3": "10px", "--g-r4": "14px", "--g-r5": "18px", "--g-blue": "#8FB2FF", "--g-teal": "#5ED0C4", "--g-indigo": "#97A8FF", "--g-green": "#6BCB8B", "--g-amber": "#F2B24A", "--g-red": "#FF8D7F", "--g-purple": "#BFA0F5", "--g-gray": "#B7B5B0", "--g-accent-fill": "linear-gradient(180deg,#FF7A2B,#E8540B)", "--g-label": "#ECE9E2", "--g-label-2": "#C8C5BC", "--g-label-3": "#B9B6AE", "--g-font": "\"Bahnschrift\",\"Helvetica Neue\",\"Arial Nova\",\"Segoe UI Variable Text\",\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei UI\",\"Microsoft YaHei\",system-ui,sans-serif", "--g-mono": "\"JetBrains Mono\",\"SF Mono\",\"Cascadia Mono\",\"IBM Plex Mono\",Consolas,monospace", "--sk-hd-font": "var(--g-font)", "--sk-hd-w": "700", "--sk-hd-ls": ".005em", "--sk-lb-tr": "uppercase", "--sk-lb-ls": ".08em", "--sk-num-font": "var(--g-font)", "--sk-bg-size": "100% 100%,8px 8px", "--sk-bg-pos": "0 0", "--sk-bg-rep": "no-repeat,repeat", "--bt-w": "600", "--sk-scheme": "dark", "--hl": "#FF8A4C", "--sk-bg": "linear-gradient(180deg,rgba(255,255,255,.05),transparent 240px),radial-gradient(circle at center,rgba(255,255,255,.1) 1px,transparent 1.5px)", "--sk-on-accent": "#0E1626", "--sk-tint": "rgba(127,166,255,.14)", "--sk-sel": "rgba(255,106,26,.38)", "--sk-focus": "#FF8A4C", "--bar-bg": "linear-gradient(180deg,#2E2F33,#232427)", "--bar-bd": "1px solid rgba(0,0,0,.7)", "--bar-sh": "inset 0 1px 0 rgba(255,255,255,.08)", "--logo-bg": "linear-gradient(180deg,#FF7A2B,#E8540B)", "--logo-fg": "#1A0F08", "--logo-sh": "inset 0 1px 0 rgba(255,255,255,.4),0 1px 2px rgba(0,0,0,.6)", "--pop-bg": "#303135", "--pop-bd": "1px solid rgba(0,0,0,.7)", "--pop-r": "10px", "--pop-sh": "inset 0 1px 0 rgba(255,255,255,.1),0 22px 40px -14px rgba(0,0,0,.9)", "--pop-hv-bg": "#FF7A2B", "--pop-hv-fg": "#1A0F08", "--tabs-bg": "rgba(0,0,0,.35)", "--tabs-bd": "0", "--tabs-r": "10px", "--tab-r": "8px", "--tab-on-bg": "linear-gradient(180deg,#4A4B51,#383940)", "--tab-on-fg": "#ECE9E2", "--tab-on-sh": "inset 0 1px 0 rgba(255,255,255,.18),0 1px 2px rgba(0,0,0,.7),0 0 0 1px rgba(0,0,0,.5)", "--seg-bg": "rgba(0,0,0,.35)", "--seg-bd": "0", "--seg-r": "9px", "--seg-bt-r": "7px", "--seg-on-bg": "linear-gradient(180deg,#4A4B51,#383940)", "--seg-on-fg": "#ECE9E2", "--seg-on-sh": "inset 0 1px 0 rgba(255,255,255,.18),0 1px 2px rgba(0,0,0,.7),0 0 0 1px rgba(0,0,0,.5)", "--bt-bg": "linear-gradient(180deg,#46474D,#35363B)", "--bt-fg": "#ECE9E2", "--bt-bd": "1px solid rgba(0,0,0,.65)", "--bt-r": "8px", "--bt-hv-bg": "linear-gradient(180deg,#505157,#3D3E44)", "--bt-sh": "inset 0 1px 0 rgba(255,255,255,.16),0 2px 0 rgba(0,0,0,.6),0 4px 6px -3px rgba(0,0,0,.7)", "--bt-ac-tf": "translateY(1px)", "--bp-bg": "linear-gradient(180deg,#FF7A2B,#E8540B)", "--bp-fg": "#1A0F08", "--bp-bd": "1px solid #8F3306", "--bp-sh": "inset 0 1px 0 rgba(255,255,255,.45),0 2px 0 #8F3306,0 4px 6px -3px rgba(0,0,0,.7)", "--bp-hv-sh": "inset 0 1px 0 rgba(255,255,255,.55),0 2px 0 #8F3306,0 5px 8px -3px rgba(0,0,0,.75)", "--in-bg": "rgba(0,0,0,.34)", "--in-bd": "1px solid rgba(0,0,0,.6)", "--in-r": "8px", "--in-sh": "inset 0 2px 4px rgba(0,0,0,.55),0 1px 0 rgba(255,255,255,.07)", "--in-fc": "inset 0 2px 4px rgba(0,0,0,.55),0 0 0 2px rgba(255,138,76,.55)", "--in-fc-bd": "#FF8A4C", "--ch-bd": "1px solid color-mix(in srgb,currentColor 40%,transparent)", "--ch-r": "6px", "--ch-tr": "uppercase", "--ch-ls": ".05em", "--nav-on-bg": "linear-gradient(180deg,#4A4B51,#383940)", "--nav-on-fg": "#ECE9E2", "--sw-on": "#E8540B", "--sw-off": "#17181A"}}}, {"id": "mdn-prism", "group": "modern", "name": "棱镜渐变", "en": "Prism", "modes": ["light", "dark"], "mode": "light", "desc": "紫、粉、青三团渐变铺满画布，侧栏与弹层带磨砂，卡片近乎不透明，靛蓝强调色，14–24px 大圆角。", "traits": ["渐变底色", "磨砂侧栏", "靛蓝强调"], "swatch": ["#4f46e5", "#818cf8", "#eceffd"], "recommended": true, "scenario": "紫粉青三色极光画布 + 磨砂侧栏 + 靛蓝强调，Fresh 主题的最佳现代演进版", "pv": {"light": {"bg": "radial-gradient(60% 55% at 6% 0%,rgba(99,102,241,.30),transparent 70%),radial-gradient(50% 50% at 100% 6%,rgba(236,72,153,.20),transparent 70%),radial-gradient(70% 60% at 62% 100%,rgba(34,211,238,.22),transparent 72%),#eceffd", "bar": "#f7f8fe", "side": "#f7f8fe", "card": "#fcfcff", "line": "#d3d6ea", "ink": "#14142b", "mute": "#5f6486", "acc": "#4f46e5", "acc2": "#9333ea", "ok": "#15803d", "r": 14, "bw": 1, "sh": "0 1px 2px rgba(40,44,70,.06), 0 4px 14px -6px rgba(40,44,70,.12)", "font": "\"Inter\",\"SF Pro Text\",\"Segoe UI Variable Text\",\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei UI\",system-ui,sans-serif"}, "dark": {"bg": "radial-gradient(60% 55% at 6% 0%,rgba(99,102,241,.42),transparent 70%),radial-gradient(50% 50% at 100% 6%,rgba(217,70,239,.26),transparent 70%),radial-gradient(70% 60% at 62% 100%,rgba(34,211,238,.20),transparent 72%),#0b0b1b", "bar": "#111125", "side": "#111125", "card": "#181830", "line": "#24253b", "ink": "#f0f0ff", "mute": "#8e92bb", "acc": "#818cf8", "acc2": "#c084fc", "ok": "#4ade80", "r": 14, "bw": 1, "sh": "0 1px 2px rgba(0,0,0,.40), 0 6px 16px -6px rgba(0,0,0,.50)", "font": "\"Inter\",\"SF Pro Text\",\"Segoe UI Variable Text\",\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei UI\",system-ui,sans-serif"}}, "resolved": {"light": {"--g-canvas": "#eceffd", "--g-m1": "rgba(255,255,255,.58)", "--g-m2": "rgba(255,255,255,.82)", "--g-m3": "rgba(255,255,255,.94)", "--g-m4": "rgba(255,255,255,.96)", "--g-fill": "rgba(20,20,43,0.05)", "--g-fill-2": "rgba(20,20,43,0.09)", "--g-b1": "blur(12px) saturate(165%)", "--g-b2": "blur(28px) saturate(165%)", "--g-b3": "blur(36px) saturate(165%)", "--g-b4": "blur(40px) saturate(165%)", "--g-edge": "rgba(20,20,43,0.08)", "--g-edge2": "rgba(20,20,43,0.15)", "--g-rim": "rgba(255,255,255,.60)", "--g-sep": "rgba(60,64,120,.14)", "--g-spec": "inset 0 1px 0 rgba(255,255,255,.7)", "--g-spec-soft": "0 0 0 0 transparent", "--g-sh1": "0 1px 2px rgba(40,44,70,.06), 0 4px 14px -6px rgba(40,44,70,.12)", "--g-sh2": "0 2px 6px rgba(40,44,70,.06), 0 14px 32px -10px rgba(40,44,70,.20)", "--g-sh3": "0 4px 12px rgba(40,44,70,.08), 0 30px 64px -16px rgba(40,44,70,.32)", "--g-r1": "8px", "--g-r2": "10px", "--g-r3": "14px", "--g-r4": "18px", "--g-r5": "24px", "--g-blue": "#4338ca", "--g-teal": "#0f766e", "--g-indigo": "#4f46e5", "--g-green": "#15803d", "--g-amber": "#b45309", "--g-red": "#dc2626", "--g-purple": "#9333ea", "--g-gray": "#5f6486", "--g-accent-fill": "#4f46e5", "--g-label": "#14142b", "--g-label-2": "#464a6b", "--g-label-3": "#5f6486", "--g-font": "\"Inter\",\"SF Pro Text\",\"Segoe UI Variable Text\",\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei UI\",system-ui,sans-serif", "--g-mono": "\"SF Mono\",ui-monospace,\"JetBrains Mono\",Menlo,Consolas,monospace", "--sk-scheme": "light", "--sk-bg": "radial-gradient(60% 55% at 6% 0%,rgba(99,102,241,.30),transparent 70%),radial-gradient(50% 50% at 100% 6%,rgba(236,72,153,.20),transparent 70%),radial-gradient(70% 60% at 62% 100%,rgba(34,211,238,.22),transparent 72%)", "--sk-bg-size": "100% 100%", "--sk-bg-rep": "no-repeat", "--sk-bg-pos": "0 0", "--sk-on-accent": "#ffffff", "--sk-tint": "rgba(79,70,229,0.1)", "--sk-sel": "rgba(79,70,229,0.22)", "--sk-focus": "#6366f1", "--pop-bg": "rgba(255,255,255,.96)", "--pop-bd": "1px solid rgba(20,20,43,0.15)", "--pop-r": "18px", "--pop-sh": "0 4px 12px rgba(40,44,70,.08), 0 30px 64px -16px rgba(40,44,70,.32)", "--pop-hv-fg": "#14142b", "--bt-r": "12px", "--bp-bg": "#4f46e5", "--bp-fg": "#ffffff", "--bp-bd": "0", "--bp-sh": "0 1px 2px rgba(40,44,70,.06), 0 4px 14px -6px rgba(40,44,70,.12)", "--bp-hv-sh": "0 2px 6px rgba(40,44,70,.06), 0 14px 32px -10px rgba(40,44,70,.20)", "--in-bg": "rgba(255,255,255,.94)", "--in-bd": "1px solid rgba(20,20,43,0.15)", "--in-r": "20px", "--in-sh": "0 1px 2px rgba(40,44,70,.06), 0 4px 14px -6px rgba(40,44,70,.12)", "--in-fc": "0 1px 2px rgba(40,44,70,.06), 0 4px 14px -6px rgba(40,44,70,.12), 0 0 0 3px rgba(99,102,241,0.22)", "--in-fc-bd": "#6366f1", "--sw-on": "#4f46e5", "--sw-off": "#bcbfcf", "--bt-bg": "rgba(255,255,255,.94)", "--bt-fg": "#14142b", "--bt-bd": "1px solid rgba(20,20,43,0.14)", "--bt-sh": "none", "--bt-hv-bg": "#f2f2f4", "--bt-hv-sh": "none", "--bt-hv-tf": "none", "--bt-ac-tf": "scale(.98)", "--nav-on-bg": "rgba(79,70,229,0.12)", "--nav-on-sh": "none", "--pop-hv-bg": "rgba(79,70,229,0.12)"}, "dark": {"--g-canvas": "#0b0b1b", "--g-m1": "rgba(22,22,46,.55)", "--g-m2": "rgba(28,28,56,.74)", "--g-m3": "rgba(40,40,76,.88)", "--g-m4": "rgba(30,30,60,.94)", "--g-fill": "rgba(240,240,255,0.07)", "--g-fill-2": "rgba(240,240,255,0.12)", "--g-b1": "blur(12px) saturate(150%)", "--g-b2": "blur(28px) saturate(150%)", "--g-b3": "blur(36px) saturate(150%)", "--g-b4": "blur(40px) saturate(150%)", "--g-edge": "rgba(240,240,255,0.1)", "--g-edge2": "rgba(240,240,255,0.18)", "--g-rim": "rgba(255,255,255,.10)", "--g-sep": "rgba(190,196,255,.14)", "--g-spec": "inset 0 1px 0 rgba(255,255,255,.08)", "--g-spec-soft": "0 0 0 0 transparent", "--g-sh1": "0 1px 2px rgba(0,0,0,.40), 0 6px 16px -6px rgba(0,0,0,.50)", "--g-sh2": "0 2px 6px rgba(0,0,0,.40), 0 16px 36px -10px rgba(0,0,0,.65)", "--g-sh3": "0 4px 12px rgba(0,0,0,.45), 0 32px 70px -16px rgba(0,0,0,.80)", "--g-r1": "8px", "--g-r2": "10px", "--g-r3": "14px", "--g-r4": "18px", "--g-r5": "24px", "--g-blue": "#a5b4fc", "--g-teal": "#2dd4bf", "--g-indigo": "#818cf8", "--g-green": "#4ade80", "--g-amber": "#fbbf24", "--g-red": "#f87171", "--g-purple": "#c084fc", "--g-gray": "#8e92bb", "--g-accent-fill": "#818cf8", "--g-label": "#f0f0ff", "--g-label-2": "#b9bbe0", "--g-label-3": "#8e92bb", "--g-font": "\"Inter\",\"SF Pro Text\",\"Segoe UI Variable Text\",\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei UI\",system-ui,sans-serif", "--g-mono": "\"SF Mono\",ui-monospace,\"JetBrains Mono\",Menlo,Consolas,monospace", "--sk-scheme": "dark", "--sk-bg": "radial-gradient(60% 55% at 6% 0%,rgba(99,102,241,.42),transparent 70%),radial-gradient(50% 50% at 100% 6%,rgba(217,70,239,.26),transparent 70%),radial-gradient(70% 60% at 62% 100%,rgba(34,211,238,.20),transparent 72%)", "--sk-bg-size": "100% 100%", "--sk-bg-rep": "no-repeat", "--sk-bg-pos": "0 0", "--sk-on-accent": "#06060e", "--sk-tint": "rgba(129,140,248,0.16)", "--sk-sel": "rgba(129,140,248,0.3)", "--sk-focus": "#818cf8", "--pop-bg": "rgba(30,30,60,.94)", "--pop-bd": "1px solid rgba(240,240,255,0.18)", "--pop-r": "18px", "--pop-sh": "0 4px 12px rgba(0,0,0,.45), 0 32px 70px -16px rgba(0,0,0,.80)", "--pop-hv-fg": "#f0f0ff", "--bt-r": "12px", "--bp-bg": "#818cf8", "--bp-fg": "#06060e", "--bp-bd": "0", "--bp-sh": "0 1px 2px rgba(0,0,0,.40), 0 6px 16px -6px rgba(0,0,0,.50)", "--bp-hv-sh": "0 2px 6px rgba(0,0,0,.40), 0 16px 36px -10px rgba(0,0,0,.65)", "--in-bg": "rgba(40,40,76,.88)", "--in-bd": "1px solid rgba(240,240,255,0.18)", "--in-r": "20px", "--in-sh": "0 1px 2px rgba(0,0,0,.40), 0 6px 16px -6px rgba(0,0,0,.50)", "--in-fc": "0 1px 2px rgba(0,0,0,.40), 0 6px 16px -6px rgba(0,0,0,.50), 0 0 0 3px rgba(129,140,248,0.3)", "--in-fc-bd": "#818cf8", "--sw-on": "#818cf8", "--sw-off": "#50505f", "--bt-bg": "rgba(40,40,76,.88)", "--bt-fg": "#f0f0ff", "--bt-bd": "1px solid rgba(240,240,255,0.16)", "--bt-sh": "none", "--bt-hv-bg": "#393958", "--bt-hv-sh": "none", "--bt-hv-tf": "none", "--bt-ac-tf": "scale(.98)", "--nav-on-bg": "rgba(129,140,248,0.18)", "--nav-on-sh": "none", "--pop-hv-bg": "rgba(129,140,248,0.18)"}}}, {"id": "mdn-zinc", "group": "modern", "name": "锌灰极简", "en": "Zinc", "modes": ["light", "dark"], "mode": "light", "desc": "纯白与近黑的底，1px 锌灰细线，黑白互换的主按钮，几乎没有阴影，圆角紧凑，shadcn 式的中性与克制。", "traits": ["锌灰细线", "黑白主按钮", "紧凑圆角"], "swatch": ["#18181b", "#fafafa", "#ffffff"], "recommended": true, "scenario": "shadcn/ui 纯正锌灰极简，1px 发丝线 + 黑白反差主键，极致克制", "pv": {"light": {"bg": "#ffffff", "bar": "#fafafa", "side": "#fafafa", "card": "#ffffff", "line": "#e4e4e7", "ink": "#09090b", "mute": "#71717a", "acc": "#18181b", "acc2": "#7e22ce", "ok": "#15803d", "r": 8, "bw": 1, "sh": "0 0 0 1px rgba(20,22,30,.06), 0 1px 2px rgba(20,22,30,.05)", "font": "\"Inter\",\"SF Pro Text\",\"Segoe UI Variable Text\",\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei UI\",system-ui,sans-serif"}, "dark": {"bg": "#09090b", "bar": "#101012", "side": "#101012", "card": "#111113", "line": "#27272a", "ink": "#fafafa", "mute": "#8c8c96", "acc": "#fafafa", "acc2": "#c084fc", "ok": "#4ade80", "r": 8, "bw": 1, "sh": "0 0 0 1px rgba(255,255,255,.06), 0 1px 2px rgba(0,0,0,.45)", "font": "\"Inter\",\"SF Pro Text\",\"Segoe UI Variable Text\",\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei UI\",system-ui,sans-serif"}}, "resolved": {"light": {"--g-canvas": "#ffffff", "--g-m1": "#fafafa", "--g-m2": "#ffffff", "--g-m3": "#ffffff", "--g-m4": "#ffffff", "--g-fill": "rgba(9,9,11,0.05)", "--g-fill-2": "rgba(9,9,11,0.09)", "--g-b1": "none", "--g-b2": "none", "--g-b3": "none", "--g-b4": "none", "--g-edge": "rgba(9,9,11,0.08)", "--g-edge2": "rgba(9,9,11,0.15)", "--g-rim": "transparent", "--g-sep": "#e4e4e7", "--g-spec": "0 0 0 0 transparent", "--g-spec-soft": "0 0 0 0 transparent", "--g-sh1": "0 0 0 1px rgba(20,22,30,.06), 0 1px 2px rgba(20,22,30,.05)", "--g-sh2": "0 0 0 1px rgba(20,22,30,.07), 0 6px 18px -6px rgba(20,22,30,.14)", "--g-sh3": "0 0 0 1px rgba(20,22,30,.08), 0 22px 56px -14px rgba(20,22,30,.28)", "--g-r1": "4px", "--g-r2": "6px", "--g-r3": "8px", "--g-r4": "10px", "--g-r5": "14px", "--g-blue": "#2563eb", "--g-teal": "#0f766e", "--g-indigo": "#4f46e5", "--g-green": "#15803d", "--g-amber": "#b45309", "--g-red": "#dc2626", "--g-purple": "#7e22ce", "--g-gray": "#71717a", "--g-accent-fill": "#18181b", "--g-label": "#09090b", "--g-label-2": "#52525b", "--g-label-3": "#71717a", "--g-font": "\"Inter\",\"SF Pro Text\",\"Segoe UI Variable Text\",\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei UI\",system-ui,sans-serif", "--g-mono": "\"SF Mono\",ui-monospace,\"JetBrains Mono\",Menlo,Consolas,monospace", "--sk-scheme": "light", "--sk-bg": "none", "--sk-bg-size": "100% 100%", "--sk-bg-rep": "no-repeat", "--sk-bg-pos": "0 0", "--sk-on-accent": "#ffffff", "--sk-tint": "rgba(24,24,27,0.1)", "--sk-sel": "rgba(24,24,27,0.22)", "--sk-focus": "#a1a1aa", "--pop-bg": "#ffffff", "--pop-bd": "1px solid rgba(9,9,11,0.15)", "--pop-r": "10px", "--pop-sh": "0 0 0 1px rgba(20,22,30,.08), 0 22px 56px -14px rgba(20,22,30,.28)", "--pop-hv-fg": "#09090b", "--bt-r": "8px", "--bp-bg": "#18181b", "--bp-fg": "#ffffff", "--bp-bd": "0", "--bp-sh": "none", "--bp-hv-sh": "none", "--in-bg": "#ffffff", "--in-bd": "1px solid rgba(9,9,11,0.15)", "--in-r": "12px", "--in-sh": "0 0 0 1px rgba(20,22,30,.06), 0 1px 2px rgba(20,22,30,.05)", "--in-fc": "0 0 0 1px rgba(20,22,30,.06), 0 1px 2px rgba(20,22,30,.05), 0 0 0 3px rgba(161,161,170,0.22)", "--in-fc-bd": "#a1a1aa", "--sw-on": "#18181b", "--sw-off": "#c9c9c9", "--bt-bg": "#ffffff", "--bt-fg": "#09090b", "--bt-bd": "1px solid rgba(9,9,11,0.14)", "--bt-sh": "none", "--bt-hv-bg": "#f3f3f3", "--bt-hv-sh": "none", "--bt-hv-tf": "none", "--bt-ac-tf": "scale(.98)", "--nav-on-bg": "rgba(9,9,11,0.07)", "--nav-on-sh": "none", "--pop-hv-bg": "rgba(9,9,11,0.07)"}, "dark": {"--g-canvas": "#09090b", "--g-m1": "#101012", "--g-m2": "#111113", "--g-m3": "#18181b", "--g-m4": "#18181b", "--g-fill": "rgba(250,250,250,0.07)", "--g-fill-2": "rgba(250,250,250,0.12)", "--g-b1": "none", "--g-b2": "none", "--g-b3": "none", "--g-b4": "none", "--g-edge": "rgba(250,250,250,0.1)", "--g-edge2": "rgba(250,250,250,0.18)", "--g-rim": "transparent", "--g-sep": "#27272a", "--g-spec": "0 0 0 0 transparent", "--g-spec-soft": "0 0 0 0 transparent", "--g-sh1": "0 0 0 1px rgba(255,255,255,.06), 0 1px 2px rgba(0,0,0,.45)", "--g-sh2": "0 0 0 1px rgba(255,255,255,.08), 0 8px 24px -8px rgba(0,0,0,.6)", "--g-sh3": "0 0 0 1px rgba(255,255,255,.10), 0 28px 64px -14px rgba(0,0,0,.75)", "--g-r1": "4px", "--g-r2": "6px", "--g-r3": "8px", "--g-r4": "10px", "--g-r5": "14px", "--g-blue": "#60a5fa", "--g-teal": "#2dd4bf", "--g-indigo": "#818cf8", "--g-green": "#4ade80", "--g-amber": "#fbbf24", "--g-red": "#f87171", "--g-purple": "#c084fc", "--g-gray": "#8c8c96", "--g-accent-fill": "#fafafa", "--g-label": "#fafafa", "--g-label-2": "#a1a1aa", "--g-label-3": "#8c8c96", "--g-font": "\"Inter\",\"SF Pro Text\",\"Segoe UI Variable Text\",\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei UI\",system-ui,sans-serif", "--g-mono": "\"SF Mono\",ui-monospace,\"JetBrains Mono\",Menlo,Consolas,monospace", "--sk-scheme": "dark", "--sk-bg": "none", "--sk-bg-size": "100% 100%", "--sk-bg-rep": "no-repeat", "--sk-bg-pos": "0 0", "--sk-on-accent": "#040406", "--sk-tint": "rgba(250,250,250,0.16)", "--sk-sel": "rgba(250,250,250,0.3)", "--sk-focus": "#71717a", "--pop-bg": "#18181b", "--pop-bd": "1px solid rgba(250,250,250,0.18)", "--pop-r": "10px", "--pop-sh": "0 0 0 1px rgba(255,255,255,.10), 0 28px 64px -14px rgba(0,0,0,.75)", "--pop-hv-fg": "#fafafa", "--bt-r": "8px", "--bp-bg": "#fafafa", "--bp-fg": "#040406", "--bp-bd": "0", "--bp-sh": "none", "--bp-hv-sh": "none", "--in-bg": "#18181b", "--in-bd": "1px solid rgba(250,250,250,0.18)", "--in-r": "12px", "--in-sh": "0 0 0 1px rgba(255,255,255,.06), 0 1px 2px rgba(0,0,0,.45)", "--in-fc": "0 0 0 1px rgba(255,255,255,.06), 0 1px 2px rgba(0,0,0,.45), 0 0 0 3px rgba(113,113,122,0.3)", "--in-fc-bd": "#71717a", "--sw-on": "#fafafa", "--sw-off": "#515153", "--bt-bg": "#18181b", "--bt-fg": "#fafafa", "--bt-bd": "1px solid rgba(250,250,250,0.16)", "--bt-sh": "none", "--bt-hv-bg": "#2f2f31", "--bt-hv-sh": "none", "--bt-hv-tf": "none", "--bt-ac-tf": "scale(.98)", "--nav-on-bg": "rgba(250,250,250,0.1)", "--nav-on-sh": "none", "--pop-hv-bg": "rgba(250,250,250,0.1)"}}}, {"id": "mdn-ember", "group": "modern", "name": "余烬暖调", "en": "Ember", "modes": ["light", "dark"], "mode": "light", "desc": "暖灰纸色与炭黑，陶土橙强调色，选中项左缘一道橙条，柔和圆角，安静耐看。", "traits": ["暖灰纸色", "陶土橙", "左缘橙条"], "swatch": ["#bf4f2a", "#d97757", "#faf9f5"], "recommended": true, "scenario": "Claude / Anthropic 风格暖灰纸底 + 陶土橙 + 左缘橙条，长时编码最护眼", "pv": {"light": {"bg": "#faf9f5", "bar": "#f2f0e8", "side": "#f2f0e8", "card": "#ffffff", "line": "#e6e2d6", "ink": "#1f1e1b", "mute": "#76736b", "acc": "#bf4f2a", "acc2": "#7c3aed", "ok": "#2e7d32", "r": 10, "bw": 1, "sh": "0 1px 2px rgba(40,44,70,.06), 0 4px 14px -6px rgba(40,44,70,.12)", "font": "\"Inter\",\"SF Pro Text\",\"Segoe UI Variable Text\",\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei UI\",system-ui,sans-serif"}, "dark": {"bg": "#1c1b19", "bar": "#161513", "side": "#161513", "card": "#252421", "line": "#3a3834", "ink": "#f2efe6", "mute": "#8f8a7c", "acc": "#d97757", "acc2": "#b69cf5", "ok": "#7fc77a", "r": 10, "bw": 1, "sh": "0 1px 2px rgba(0,0,0,.40), 0 6px 16px -6px rgba(0,0,0,.50)", "font": "\"Inter\",\"SF Pro Text\",\"Segoe UI Variable Text\",\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei UI\",system-ui,sans-serif"}}, "resolved": {"light": {"--g-canvas": "#faf9f5", "--g-m1": "#f2f0e8", "--g-m2": "#ffffff", "--g-m3": "#ffffff", "--g-m4": "#ffffff", "--g-fill": "rgba(31,30,27,0.05)", "--g-fill-2": "rgba(31,30,27,0.09)", "--g-b1": "none", "--g-b2": "none", "--g-b3": "none", "--g-b4": "none", "--g-edge": "rgba(31,30,27,0.08)", "--g-edge2": "rgba(31,30,27,0.15)", "--g-rim": "transparent", "--g-sep": "#e6e2d6", "--g-spec": "0 0 0 0 transparent", "--g-spec-soft": "0 0 0 0 transparent", "--g-sh1": "0 1px 2px rgba(40,44,70,.06), 0 4px 14px -6px rgba(40,44,70,.12)", "--g-sh2": "0 2px 6px rgba(40,44,70,.06), 0 14px 32px -10px rgba(40,44,70,.20)", "--g-sh3": "0 4px 12px rgba(40,44,70,.08), 0 30px 64px -16px rgba(40,44,70,.32)", "--g-r1": "6px", "--g-r2": "8px", "--g-r3": "10px", "--g-r4": "14px", "--g-r5": "20px", "--g-blue": "#a8431f", "--g-teal": "#0f766e", "--g-indigo": "#4f46e5", "--g-green": "#2e7d32", "--g-amber": "#a16207", "--g-red": "#b91c1c", "--g-purple": "#7c3aed", "--g-gray": "#76736b", "--g-accent-fill": "#bf4f2a", "--g-label": "#1f1e1b", "--g-label-2": "#5b5850", "--g-label-3": "#76736b", "--g-font": "\"Inter\",\"SF Pro Text\",\"Segoe UI Variable Text\",\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei UI\",system-ui,sans-serif", "--g-mono": "\"SF Mono\",ui-monospace,\"JetBrains Mono\",Menlo,Consolas,monospace", "--sk-scheme": "light", "--sk-bg": "none", "--sk-bg-size": "100% 100%", "--sk-bg-rep": "no-repeat", "--sk-bg-pos": "0 0", "--sk-on-accent": "#ffffff", "--sk-tint": "rgba(191,79,42,0.1)", "--sk-sel": "rgba(191,79,42,0.22)", "--sk-focus": "#d97757", "--pop-bg": "#ffffff", "--pop-bd": "1px solid rgba(31,30,27,0.15)", "--pop-r": "14px", "--pop-sh": "0 4px 12px rgba(40,44,70,.08), 0 30px 64px -16px rgba(40,44,70,.32)", "--pop-hv-fg": "#1f1e1b", "--bt-r": "10px", "--bp-bg": "#bf4f2a", "--bp-fg": "#ffffff", "--bp-bd": "0", "--bp-sh": "0 1px 2px rgba(40,44,70,.06), 0 4px 14px -6px rgba(40,44,70,.12)", "--bp-hv-sh": "0 2px 6px rgba(40,44,70,.06), 0 14px 32px -10px rgba(40,44,70,.20)", "--in-bg": "#ffffff", "--in-bd": "1px solid rgba(31,30,27,0.15)", "--in-r": "16px", "--in-sh": "0 1px 2px rgba(40,44,70,.06), 0 4px 14px -6px rgba(40,44,70,.12)", "--in-fc": "0 1px 2px rgba(40,44,70,.06), 0 4px 14px -6px rgba(40,44,70,.12), 0 0 0 3px rgba(217,119,87,0.22)", "--in-fc-bd": "#d97757", "--sw-on": "#bf4f2a", "--sw-off": "#cac9c5", "--bt-bg": "#ffffff", "--bt-fg": "#1f1e1b", "--bt-bd": "1px solid rgba(31,30,27,0.14)", "--bt-sh": "none", "--bt-hv-bg": "#f4f4f4", "--bt-hv-sh": "none", "--bt-hv-tf": "none", "--bt-ac-tf": "scale(.98)", "--nav-on-bg": "rgba(31,30,27,0.05)", "--nav-on-sh": "inset 3px 0 0 #bf4f2a", "--pop-hv-bg": "rgba(31,30,27,0.07)"}, "dark": {"--g-canvas": "#1c1b19", "--g-m1": "#161513", "--g-m2": "#252421", "--g-m3": "#2d2b28", "--g-m4": "#2d2b28", "--g-fill": "rgba(242,239,230,0.07)", "--g-fill-2": "rgba(242,239,230,0.12)", "--g-b1": "none", "--g-b2": "none", "--g-b3": "none", "--g-b4": "none", "--g-edge": "rgba(242,239,230,0.1)", "--g-edge2": "rgba(242,239,230,0.18)", "--g-rim": "transparent", "--g-sep": "#3a3834", "--g-spec": "0 0 0 0 transparent", "--g-spec-soft": "0 0 0 0 transparent", "--g-sh1": "0 1px 2px rgba(0,0,0,.40), 0 6px 16px -6px rgba(0,0,0,.50)", "--g-sh2": "0 2px 6px rgba(0,0,0,.40), 0 16px 36px -10px rgba(0,0,0,.65)", "--g-sh3": "0 4px 12px rgba(0,0,0,.45), 0 32px 70px -16px rgba(0,0,0,.80)", "--g-r1": "6px", "--g-r2": "8px", "--g-r3": "10px", "--g-r4": "14px", "--g-r5": "20px", "--g-blue": "#e8926f", "--g-teal": "#5fc2b5", "--g-indigo": "#9aa0ff", "--g-green": "#7fc77a", "--g-amber": "#e5b455", "--g-red": "#f87171", "--g-purple": "#b69cf5", "--g-gray": "#8f8a7c", "--g-accent-fill": "#d97757", "--g-label": "#f2efe6", "--g-label-2": "#bdb8aa", "--g-label-3": "#8f8a7c", "--g-font": "\"Inter\",\"SF Pro Text\",\"Segoe UI Variable Text\",\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei UI\",system-ui,sans-serif", "--g-mono": "\"SF Mono\",ui-monospace,\"JetBrains Mono\",Menlo,Consolas,monospace", "--sk-scheme": "dark", "--sk-bg": "none", "--sk-bg-size": "100% 100%", "--sk-bg-rep": "no-repeat", "--sk-bg-pos": "0 0", "--sk-on-accent": "#0e0e0c", "--sk-tint": "rgba(217,119,87,0.16)", "--sk-sel": "rgba(217,119,87,0.3)", "--sk-focus": "#d97757", "--pop-bg": "#2d2b28", "--pop-bd": "1px solid rgba(242,239,230,0.18)", "--pop-r": "14px", "--pop-sh": "0 4px 12px rgba(0,0,0,.45), 0 32px 70px -16px rgba(0,0,0,.80)", "--pop-hv-fg": "#f2efe6", "--bt-r": "10px", "--bp-bg": "#d97757", "--bp-fg": "#0e0e0c", "--bp-bd": "0", "--bp-sh": "0 1px 2px rgba(0,0,0,.40), 0 6px 16px -6px rgba(0,0,0,.50)", "--bp-hv-sh": "0 2px 6px rgba(0,0,0,.40), 0 16px 36px -10px rgba(0,0,0,.65)", "--in-bg": "#2d2b28", "--in-bd": "1px solid rgba(242,239,230,0.18)", "--in-r": "16px", "--in-sh": "0 1px 2px rgba(0,0,0,.40), 0 6px 16px -6px rgba(0,0,0,.50)", "--in-fc": "0 1px 2px rgba(0,0,0,.40), 0 6px 16px -6px rgba(0,0,0,.50), 0 0 0 3px rgba(217,119,87,0.3)", "--in-fc-bd": "#d97757", "--sw-on": "#d97757", "--sw-off": "#5c5b56", "--bt-bg": "#2d2b28", "--bt-fg": "#f2efe6", "--bt-bd": "1px solid rgba(242,239,230,0.16)", "--bt-sh": "none", "--bt-hv-bg": "#413f3b", "--bt-hv-sh": "none", "--bt-hv-tf": "none", "--bt-ac-tf": "scale(.98)", "--nav-on-bg": "rgba(242,239,230,0.06)", "--nav-on-sh": "inset 3px 0 0 #d97757", "--pop-hv-bg": "rgba(242,239,230,0.1)"}}}, {"id": "mdn-float", "group": "modern", "name": "悬浮舞台", "en": "Float", "modes": ["light", "dark"], "mode": "light", "desc": "天蓝渐变铺在窗口底层，主内容区像一张浮起的圆角卡片，侧栏透出底色，蓝色强调。", "traits": ["渐变底色", "浮起内容卡", "天蓝强调"], "swatch": ["#2563eb", "#60a5fa", "#cfe0fb"], "recommended": true, "scenario": "Arc 浏览器式悬浮圆角舞台卡 (`stage float`)，左侧导航直接透出天蓝渐变底", "pv": {"light": {"bg": "linear-gradient(165deg,#bcd7fb 0%,#d6e5fb 50%,#e6dcfa 100%),#cfe0fb", "bar": "#dae7fc", "side": "#dae7fc", "card": "#fbfcff", "line": "#bacced", "ink": "#0f1b33", "mute": "#5a6988", "acc": "#2563eb", "acc2": "#7c3aed", "ok": "#15803d", "r": 12, "bw": 1, "sh": "0 1px 2px rgba(40,44,70,.06), 0 4px 14px -6px rgba(40,44,70,.12)", "font": "\"Inter\",\"SF Pro Text\",\"Segoe UI Variable Text\",\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei UI\",system-ui,sans-serif"}, "dark": {"bg": "linear-gradient(165deg,#13203a 0%,#0e1a30 55%,#1a1530 100%),#0e1626", "bar": "#0b121e", "side": "#0b121e", "card": "#111b2e", "line": "#222d44", "ink": "#eaf0ff", "mute": "#8493bb", "acc": "#60a5fa", "acc2": "#c084fc", "ok": "#4ade80", "r": 12, "bw": 1, "sh": "0 1px 2px rgba(0,0,0,.40), 0 6px 16px -6px rgba(0,0,0,.50)", "font": "\"Inter\",\"SF Pro Text\",\"Segoe UI Variable Text\",\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei UI\",system-ui,sans-serif"}}, "resolved": {"light": {"--g-canvas": "#cfe0fb", "--g-m1": "rgba(255,255,255,.22)", "--g-m2": "#ffffff", "--g-m3": "#f3f7ff", "--g-m4": "#ffffff", "--g-fill": "rgba(15,27,51,0.05)", "--g-fill-2": "rgba(15,27,51,0.09)", "--g-b1": "none", "--g-b2": "none", "--g-b3": "none", "--g-b4": "none", "--g-edge": "rgba(15,27,51,0.08)", "--g-edge2": "rgba(15,27,51,0.15)", "--g-rim": "transparent", "--g-sep": "rgba(60,80,150,.14)", "--g-spec": "0 0 0 0 transparent", "--g-spec-soft": "0 0 0 0 transparent", "--g-sh1": "0 1px 2px rgba(40,44,70,.06), 0 4px 14px -6px rgba(40,44,70,.12)", "--g-sh2": "0 2px 6px rgba(40,44,70,.06), 0 14px 32px -10px rgba(40,44,70,.20)", "--g-sh3": "0 4px 12px rgba(40,44,70,.08), 0 30px 64px -16px rgba(40,44,70,.32)", "--g-r1": "8px", "--g-r2": "10px", "--g-r3": "12px", "--g-r4": "16px", "--g-r5": "22px", "--g-blue": "#1d4ed8", "--g-teal": "#0f766e", "--g-indigo": "#4f46e5", "--g-green": "#15803d", "--g-amber": "#b45309", "--g-red": "#dc2626", "--g-purple": "#7c3aed", "--g-gray": "#5a6988", "--g-accent-fill": "#2563eb", "--g-label": "#0f1b33", "--g-label-2": "#41506f", "--g-label-3": "#5a6988", "--g-font": "\"Inter\",\"SF Pro Text\",\"Segoe UI Variable Text\",\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei UI\",system-ui,sans-serif", "--g-mono": "\"SF Mono\",ui-monospace,\"JetBrains Mono\",Menlo,Consolas,monospace", "--sk-scheme": "light", "--sk-bg": "linear-gradient(165deg,#bcd7fb 0%,#d6e5fb 50%,#e6dcfa 100%)", "--sk-bg-size": "100% 100%", "--sk-bg-rep": "no-repeat", "--sk-bg-pos": "0 0", "--sk-on-accent": "#ffffff", "--sk-tint": "rgba(37,99,235,0.1)", "--sk-sel": "rgba(37,99,235,0.22)", "--sk-focus": "#3b82f6", "--pop-bg": "#ffffff", "--pop-bd": "1px solid rgba(15,27,51,0.15)", "--pop-r": "16px", "--pop-sh": "0 4px 12px rgba(40,44,70,.08), 0 30px 64px -16px rgba(40,44,70,.32)", "--pop-hv-fg": "#0f1b33", "--bt-r": "10px", "--bp-bg": "#2563eb", "--bp-fg": "#ffffff", "--bp-bd": "0", "--bp-sh": "0 1px 2px rgba(40,44,70,.06), 0 4px 14px -6px rgba(40,44,70,.12)", "--bp-hv-sh": "0 2px 6px rgba(40,44,70,.06), 0 14px 32px -10px rgba(40,44,70,.20)", "--in-bg": "#f3f7ff", "--in-bd": "1px solid rgba(15,27,51,0.15)", "--in-r": "18px", "--in-sh": "0 1px 2px rgba(40,44,70,.06), 0 4px 14px -6px rgba(40,44,70,.12)", "--in-fc": "0 1px 2px rgba(40,44,70,.06), 0 4px 14px -6px rgba(40,44,70,.12), 0 0 0 3px rgba(59,130,246,0.22)", "--in-fc-bd": "#3b82f6", "--sw-on": "#2563eb", "--sw-off": "#a5b5cf", "--bt-bg": "#f3f7ff", "--bt-fg": "#0f1b33", "--bt-bd": "1px solid transparent", "--bt-sh": "0 1px 2px rgba(40,44,70,.06), 0 4px 14px -6px rgba(40,44,70,.12)", "--bt-hv-bg": "#f3f7ff", "--bt-hv-sh": "0 2px 6px rgba(40,44,70,.06), 0 14px 32px -10px rgba(40,44,70,.20)", "--bt-hv-tf": "translateY(-1px)", "--bt-ac-tf": "translateY(0) scale(.99)", "--nav-on-bg": "rgba(37,99,235,0.12)", "--nav-on-sh": "none", "--pop-hv-bg": "rgba(37,99,235,0.12)", "--sk-stage-bg": "#fbfcff", "--sk-stage-r": "22px", "--sk-stage-sh": "0 4px 12px rgba(40,44,70,.08), 0 30px 64px -16px rgba(40,44,70,.32)"}, "dark": {"--g-canvas": "#0e1626", "--g-m1": "rgba(0,0,0,.20)", "--g-m2": "#16233b", "--g-m3": "#1d2c4a", "--g-m4": "#1d2c4a", "--g-fill": "rgba(234,240,255,0.07)", "--g-fill-2": "rgba(234,240,255,0.12)", "--g-b1": "none", "--g-b2": "none", "--g-b3": "none", "--g-b4": "none", "--g-edge": "rgba(234,240,255,0.1)", "--g-edge2": "rgba(234,240,255,0.18)", "--g-rim": "transparent", "--g-sep": "rgba(160,185,255,.14)", "--g-spec": "0 0 0 0 transparent", "--g-spec-soft": "0 0 0 0 transparent", "--g-sh1": "0 1px 2px rgba(0,0,0,.40), 0 6px 16px -6px rgba(0,0,0,.50)", "--g-sh2": "0 2px 6px rgba(0,0,0,.40), 0 16px 36px -10px rgba(0,0,0,.65)", "--g-sh3": "0 4px 12px rgba(0,0,0,.45), 0 32px 70px -16px rgba(0,0,0,.80)", "--g-r1": "8px", "--g-r2": "10px", "--g-r3": "12px", "--g-r4": "16px", "--g-r5": "22px", "--g-blue": "#93c5fd", "--g-teal": "#2dd4bf", "--g-indigo": "#818cf8", "--g-green": "#4ade80", "--g-amber": "#fbbf24", "--g-red": "#f87171", "--g-purple": "#c084fc", "--g-gray": "#8493bb", "--g-accent-fill": "#60a5fa", "--g-label": "#eaf0ff", "--g-label-2": "#b0bde0", "--g-label-3": "#8493bb", "--g-font": "\"Inter\",\"SF Pro Text\",\"Segoe UI Variable Text\",\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei UI\",system-ui,sans-serif", "--g-mono": "\"SF Mono\",ui-monospace,\"JetBrains Mono\",Menlo,Consolas,monospace", "--sk-scheme": "dark", "--sk-bg": "linear-gradient(165deg,#13203a 0%,#0e1a30 55%,#1a1530 100%)", "--sk-bg-size": "100% 100%", "--sk-bg-rep": "no-repeat", "--sk-bg-pos": "0 0", "--sk-on-accent": "#070b13", "--sk-tint": "rgba(96,165,250,0.16)", "--sk-sel": "rgba(96,165,250,0.3)", "--sk-focus": "#60a5fa", "--pop-bg": "#1d2c4a", "--pop-bd": "1px solid rgba(234,240,255,0.18)", "--pop-r": "16px", "--pop-sh": "0 4px 12px rgba(0,0,0,.45), 0 32px 70px -16px rgba(0,0,0,.80)", "--pop-hv-fg": "#eaf0ff", "--bt-r": "10px", "--bp-bg": "#60a5fa", "--bp-fg": "#070b13", "--bp-bd": "0", "--bp-sh": "0 1px 2px rgba(0,0,0,.40), 0 6px 16px -6px rgba(0,0,0,.50)", "--bp-hv-sh": "0 2px 6px rgba(0,0,0,.40), 0 16px 36px -10px rgba(0,0,0,.65)", "--in-bg": "#1d2c4a", "--in-bd": "1px solid rgba(234,240,255,0.18)", "--in-r": "18px", "--in-sh": "0 1px 2px rgba(0,0,0,.40), 0 6px 16px -6px rgba(0,0,0,.50)", "--in-fc": "0 1px 2px rgba(0,0,0,.40), 0 6px 16px -6px rgba(0,0,0,.50), 0 0 0 3px rgba(96,165,250,0.3)", "--in-fc-bd": "#60a5fa", "--sw-on": "#60a5fa", "--sw-off": "#505767", "--bt-bg": "#1d2c4a", "--bt-fg": "#eaf0ff", "--bt-bd": "1px solid transparent", "--bt-sh": "0 1px 2px rgba(0,0,0,.40), 0 6px 16px -6px rgba(0,0,0,.50)", "--bt-hv-bg": "#1d2c4a", "--bt-hv-sh": "0 2px 6px rgba(0,0,0,.40), 0 16px 36px -10px rgba(0,0,0,.65)", "--bt-hv-tf": "translateY(-1px)", "--bt-ac-tf": "translateY(0) scale(.99)", "--nav-on-bg": "rgba(96,165,250,0.18)", "--nav-on-sh": "none", "--pop-hv-bg": "rgba(96,165,250,0.18)", "--sk-stage-bg": "#111b2e", "--sk-stage-r": "22px", "--sk-stage-sh": "0 4px 12px rgba(0,0,0,.45), 0 32px 70px -16px rgba(0,0,0,.80)"}}}, {"id": "mdn-clay", "group": "modern", "name": "软陶拟物", "en": "Clay", "modes": ["light", "dark"], "mode": "light", "desc": "软陶质感的暖米色，双向柔和投影让卡片像捏出来的，选中项压陷进侧栏，大圆角，珊瑚红强调。", "traits": ["软陶质感", "双向投影", "压陷选中"], "swatch": ["#c4502f", "#e0805f", "#e9e4dc"], "recommended": false, "scenario": "温暖软陶双向投影 + 压陷式选中导航，柔和触感", "pv": {"light": {"bg": "#e9e4dc", "bar": "#e4dfd6", "side": "#e4dfd6", "card": "#eee9e1", "line": "#d5cec4", "ink": "#2b2620", "mute": "#6d6558", "acc": "#c4502f", "acc2": "#7c3aed", "ok": "#2e7d32", "r": 14, "bw": 0, "sh": "6px 6px 14px rgba(150,128,100,.22), -5px -5px 12px rgba(255,255,255,.85)", "font": "\"Nunito\",\"SF Pro Rounded\",\"Varela Round\",\"Segoe UI Variable Text\",\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei UI\",system-ui,sans-serif"}, "dark": {"bg": "#26231f", "bar": "#211e1b", "side": "#211e1b", "card": "#2b2824", "line": "#3c3832", "ink": "#f3ece0", "mute": "#948a79", "acc": "#e0805f", "acc2": "#b69cf5", "ok": "#86c47a", "r": 14, "bw": 0, "sh": "6px 6px 14px rgba(0,0,0,.45), -4px -4px 12px rgba(255,255,255,.035)", "font": "\"Nunito\",\"SF Pro Rounded\",\"Varela Round\",\"Segoe UI Variable Text\",\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei UI\",system-ui,sans-serif"}}, "resolved": {"light": {"--g-canvas": "#e9e4dc", "--g-m1": "#e4dfd6", "--g-m2": "#eee9e1", "--g-m3": "#f3efe8", "--g-m4": "#f3efe8", "--g-fill": "rgba(43,38,32,0.05)", "--g-fill-2": "rgba(43,38,32,0.09)", "--g-b1": "none", "--g-b2": "none", "--g-b3": "none", "--g-b4": "none", "--g-edge": "rgba(43,38,32,0.08)", "--g-edge2": "rgba(43,38,32,0.15)", "--g-rim": "transparent", "--g-sep": "rgba(110,92,70,.16)", "--g-spec": "0 0 0 0 transparent", "--g-spec-soft": "0 0 0 0 transparent", "--g-sh1": "6px 6px 14px rgba(150,128,100,.22), -5px -5px 12px rgba(255,255,255,.85)", "--g-sh2": "10px 10px 24px rgba(150,128,100,.26), -8px -8px 18px rgba(255,255,255,.90)", "--g-sh3": "18px 22px 48px rgba(150,128,100,.34), -10px -10px 24px rgba(255,255,255,.70)", "--g-r1": "12px", "--g-r2": "16px", "--g-r3": "20px", "--g-r4": "24px", "--g-r5": "30px", "--g-blue": "#a8431f", "--g-teal": "#0f766e", "--g-indigo": "#4f46e5", "--g-green": "#2e7d32", "--g-amber": "#9a5b0a", "--g-red": "#b91c1c", "--g-purple": "#7c3aed", "--g-gray": "#6d6558", "--g-accent-fill": "#c4502f", "--g-label": "#2b2620", "--g-label-2": "#5e564b", "--g-label-3": "#6d6558", "--g-font": "\"Nunito\",\"SF Pro Rounded\",\"Varela Round\",\"Segoe UI Variable Text\",\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei UI\",system-ui,sans-serif", "--g-mono": "\"SF Mono\",ui-monospace,\"JetBrains Mono\",Menlo,Consolas,monospace", "--sk-scheme": "light", "--sk-bg": "none", "--sk-bg-size": "100% 100%", "--sk-bg-rep": "no-repeat", "--sk-bg-pos": "0 0", "--sk-on-accent": "#ffffff", "--sk-tint": "rgba(196,80,47,0.1)", "--sk-sel": "rgba(196,80,47,0.22)", "--sk-focus": "#e07a5f", "--pop-bg": "#f3efe8", "--pop-bd": "1px solid rgba(43,38,32,0.15)", "--pop-r": "24px", "--pop-sh": "18px 22px 48px rgba(150,128,100,.34), -10px -10px 24px rgba(255,255,255,.70)", "--pop-hv-fg": "#2b2620", "--bt-r": "16px", "--bp-bg": "#c4502f", "--bp-fg": "#ffffff", "--bp-bd": "0", "--bp-sh": "6px 6px 14px rgba(150,128,100,.22), -5px -5px 12px rgba(255,255,255,.85)", "--bp-hv-sh": "10px 10px 24px rgba(150,128,100,.26), -8px -8px 18px rgba(255,255,255,.90)", "--in-bg": "#f3efe8", "--in-bd": "1px solid rgba(43,38,32,0.15)", "--in-r": "24px", "--in-sh": "inset 4px 4px 10px rgba(150,128,100,.3), inset -4px -4px 10px rgba(255,255,255,.85)", "--in-fc": "inset 4px 4px 10px rgba(150,128,100,.3), inset -4px -4px 10px rgba(255,255,255,.85), 0 0 0 3px rgba(224,122,95,0.22)", "--in-fc-bd": "#e07a5f", "--sw-on": "#c4502f", "--sw-off": "#bfbab3", "--bt-bg": "#f3efe8", "--bt-fg": "#2b2620", "--bt-bd": "1px solid transparent", "--bt-sh": "6px 6px 14px rgba(150,128,100,.22), -5px -5px 12px rgba(255,255,255,.85)", "--bt-hv-bg": "#f3efe8", "--bt-hv-sh": "10px 10px 24px rgba(150,128,100,.26), -8px -8px 18px rgba(255,255,255,.90)", "--bt-hv-tf": "translateY(-1px)", "--bt-ac-tf": "translateY(0) scale(.99)", "--nav-on-bg": "rgba(43,38,32,0.02)", "--nav-on-sh": "inset 3px 3px 7px rgba(150,128,100,.32), inset -3px -3px 7px rgba(255,255,255,.85)", "--pop-hv-bg": "rgba(43,38,32,0.07)"}, "dark": {"--g-canvas": "#26231f", "--g-m1": "#211e1b", "--g-m2": "#2b2824", "--g-m3": "#312e29", "--g-m4": "#312e29", "--g-fill": "rgba(243,236,224,0.07)", "--g-fill-2": "rgba(243,236,224,0.12)", "--g-b1": "none", "--g-b2": "none", "--g-b3": "none", "--g-b4": "none", "--g-edge": "rgba(243,236,224,0.1)", "--g-edge2": "rgba(243,236,224,0.18)", "--g-rim": "transparent", "--g-sep": "rgba(255,240,220,.10)", "--g-spec": "0 0 0 0 transparent", "--g-spec-soft": "0 0 0 0 transparent", "--g-sh1": "6px 6px 14px rgba(0,0,0,.45), -4px -4px 12px rgba(255,255,255,.035)", "--g-sh2": "10px 10px 24px rgba(0,0,0,.55), -6px -6px 16px rgba(255,255,255,.04)", "--g-sh3": "18px 22px 48px rgba(0,0,0,.70), -8px -8px 20px rgba(255,255,255,.04)", "--g-r1": "12px", "--g-r2": "16px", "--g-r3": "20px", "--g-r4": "24px", "--g-r5": "30px", "--g-blue": "#eba188", "--g-teal": "#5fc2b5", "--g-indigo": "#9aa0ff", "--g-green": "#86c47a", "--g-amber": "#e5b455", "--g-red": "#f87171", "--g-purple": "#b69cf5", "--g-gray": "#948a79", "--g-accent-fill": "#e0805f", "--g-label": "#f3ece0", "--g-label-2": "#c2b8a6", "--g-label-3": "#948a79", "--g-font": "\"Nunito\",\"SF Pro Rounded\",\"Varela Round\",\"Segoe UI Variable Text\",\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei UI\",system-ui,sans-serif", "--g-mono": "\"SF Mono\",ui-monospace,\"JetBrains Mono\",Menlo,Consolas,monospace", "--sk-scheme": "dark", "--sk-bg": "none", "--sk-bg-size": "100% 100%", "--sk-bg-rep": "no-repeat", "--sk-bg-pos": "0 0", "--sk-on-accent": "#131210", "--sk-tint": "rgba(224,128,95,0.16)", "--sk-sel": "rgba(224,128,95,0.3)", "--sk-focus": "#e0805f", "--pop-bg": "#312e29", "--pop-bd": "1px solid rgba(243,236,224,0.18)", "--pop-r": "24px", "--pop-sh": "18px 22px 48px rgba(0,0,0,.70), -8px -8px 20px rgba(255,255,255,.04)", "--pop-hv-fg": "#f3ece0", "--bt-r": "16px", "--bp-bg": "#e0805f", "--bp-fg": "#131210", "--bp-bd": "0", "--bp-sh": "6px 6px 14px rgba(0,0,0,.45), -4px -4px 12px rgba(255,255,255,.035)", "--bp-hv-sh": "10px 10px 24px rgba(0,0,0,.55), -6px -6px 16px rgba(255,255,255,.04)", "--in-bg": "#312e29", "--in-bd": "1px solid rgba(243,236,224,0.18)", "--in-r": "24px", "--in-sh": "inset 4px 4px 10px rgba(0,0,0,.5), inset -3px -3px 8px rgba(255,255,255,.04)", "--in-fc": "inset 4px 4px 10px rgba(0,0,0,.5), inset -3px -3px 8px rgba(255,255,255,.04), 0 0 0 3px rgba(224,128,95,0.3)", "--in-fc-bd": "#e0805f", "--sw-on": "#e0805f", "--sw-off": "#645f59", "--bt-bg": "#312e29", "--bt-fg": "#f3ece0", "--bt-bd": "1px solid transparent", "--bt-sh": "6px 6px 14px rgba(0,0,0,.45), -4px -4px 12px rgba(255,255,255,.035)", "--bt-hv-bg": "#312e29", "--bt-hv-sh": "10px 10px 24px rgba(0,0,0,.55), -6px -6px 16px rgba(255,255,255,.04)", "--bt-hv-tf": "translateY(-1px)", "--bt-ac-tf": "translateY(0) scale(.99)", "--nav-on-bg": "rgba(243,236,224,0.02)", "--nav-on-sh": "inset 3px 3px 7px rgba(0,0,0,.45), inset -2px -2px 6px rgba(255,255,255,.04)", "--pop-hv-bg": "rgba(243,236,224,0.1)"}}}, {"id": "mdn-lagoon", "group": "modern", "name": "潟湖青绿", "en": "Lagoon", "modes": ["light", "dark"], "mode": "light", "desc": "海盐白与深海青，青绿强调色，淡青色调的次级按钮与大圆角，右上角一抹青绿光晕。", "traits": ["青绿强调", "淡青按钮", "右上光晕"], "swatch": ["#0f766e", "#2dd4bf", "#eef7f6"], "recommended": true, "scenario": "海盐白与深海青绿，右上青绿光晕，清爽理性的硬件研发风", "pv": {"light": {"bg": "radial-gradient(70% 55% at 100% 0%,rgba(45,212,191,.16),transparent 70%),#eef7f6", "bar": "#e2f0ee", "side": "#e2f0ee", "card": "#ffffff", "line": "#d3e5e2", "ink": "#0e2523", "mute": "#587673", "acc": "#0f766e", "acc2": "#7c3aed", "ok": "#15803d", "r": 14, "bw": 1, "sh": "0 1px 2px rgba(40,44,70,.06), 0 4px 14px -6px rgba(40,44,70,.12)", "font": "\"Inter\",\"SF Pro Text\",\"Segoe UI Variable Text\",\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei UI\",system-ui,sans-serif"}, "dark": {"bg": "radial-gradient(70% 55% at 100% 0%,rgba(45,212,191,.14),transparent 70%),#08171a", "bar": "#061214", "side": "#061214", "card": "#0d2326", "line": "#1b3b3d", "ink": "#e4f5f3", "mute": "#7fa09c", "acc": "#2dd4bf", "acc2": "#c084fc", "ok": "#4ade80", "r": 14, "bw": 1, "sh": "0 1px 2px rgba(0,0,0,.40), 0 6px 16px -6px rgba(0,0,0,.50)", "font": "\"Inter\",\"SF Pro Text\",\"Segoe UI Variable Text\",\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei UI\",system-ui,sans-serif"}}, "resolved": {"light": {"--g-canvas": "#eef7f6", "--g-m1": "#e2f0ee", "--g-m2": "#ffffff", "--g-m3": "#ffffff", "--g-m4": "#ffffff", "--g-fill": "rgba(14,37,35,0.05)", "--g-fill-2": "rgba(14,37,35,0.09)", "--g-b1": "none", "--g-b2": "none", "--g-b3": "none", "--g-b4": "none", "--g-edge": "rgba(14,37,35,0.08)", "--g-edge2": "rgba(14,37,35,0.15)", "--g-rim": "transparent", "--g-sep": "#d3e5e2", "--g-spec": "0 0 0 0 transparent", "--g-spec-soft": "0 0 0 0 transparent", "--g-sh1": "0 1px 2px rgba(40,44,70,.06), 0 4px 14px -6px rgba(40,44,70,.12)", "--g-sh2": "0 2px 6px rgba(40,44,70,.06), 0 14px 32px -10px rgba(40,44,70,.20)", "--g-sh3": "0 4px 12px rgba(40,44,70,.08), 0 30px 64px -16px rgba(40,44,70,.32)", "--g-r1": "10px", "--g-r2": "12px", "--g-r3": "14px", "--g-r4": "18px", "--g-r5": "26px", "--g-blue": "#0b5f58", "--g-teal": "#0f766e", "--g-indigo": "#4f46e5", "--g-green": "#15803d", "--g-amber": "#b45309", "--g-red": "#dc2626", "--g-purple": "#7c3aed", "--g-gray": "#587673", "--g-accent-fill": "#0f766e", "--g-label": "#0e2523", "--g-label-2": "#3d5a57", "--g-label-3": "#587673", "--g-font": "\"Inter\",\"SF Pro Text\",\"Segoe UI Variable Text\",\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei UI\",system-ui,sans-serif", "--g-mono": "\"SF Mono\",ui-monospace,\"JetBrains Mono\",Menlo,Consolas,monospace", "--sk-scheme": "light", "--sk-bg": "radial-gradient(70% 55% at 100% 0%,rgba(45,212,191,.16),transparent 70%)", "--sk-bg-size": "100% 100%", "--sk-bg-rep": "no-repeat", "--sk-bg-pos": "0 0", "--sk-on-accent": "#ffffff", "--sk-tint": "rgba(15,118,110,0.1)", "--sk-sel": "rgba(15,118,110,0.22)", "--sk-focus": "#14b8a6", "--pop-bg": "#ffffff", "--pop-bd": "1px solid rgba(14,37,35,0.15)", "--pop-r": "18px", "--pop-sh": "0 4px 12px rgba(40,44,70,.08), 0 30px 64px -16px rgba(40,44,70,.32)", "--pop-hv-fg": "#0e2523", "--bt-r": "12px", "--bp-bg": "#0f766e", "--bp-fg": "#ffffff", "--bp-bd": "0", "--bp-sh": "0 1px 2px rgba(40,44,70,.06), 0 4px 14px -6px rgba(40,44,70,.12)", "--bp-hv-sh": "0 2px 6px rgba(40,44,70,.06), 0 14px 32px -10px rgba(40,44,70,.20)", "--in-bg": "#ffffff", "--in-bd": "1px solid rgba(14,37,35,0.15)", "--in-r": "20px", "--in-sh": "0 1px 2px rgba(40,44,70,.06), 0 4px 14px -6px rgba(40,44,70,.12)", "--in-fc": "0 1px 2px rgba(40,44,70,.06), 0 4px 14px -6px rgba(40,44,70,.12), 0 0 0 3px rgba(20,184,166,0.22)", "--in-fc-bd": "#14b8a6", "--sw-on": "#0f766e", "--sw-off": "#bdc9c8", "--bt-bg": "rgba(15,118,110,0.1)", "--bt-fg": "#0b5f58", "--bt-bd": "1px solid transparent", "--bt-sh": "none", "--bt-hv-bg": "rgba(15,118,110,0.18)", "--bt-hv-sh": "none", "--bt-hv-tf": "none", "--bt-ac-tf": "scale(.98)", "--nav-on-bg": "rgba(15,118,110,0.12)", "--nav-on-sh": "none", "--pop-hv-bg": "rgba(15,118,110,0.12)"}, "dark": {"--g-canvas": "#08171a", "--g-m1": "#061214", "--g-m2": "#0d2326", "--g-m3": "#12302f", "--g-m4": "#12302f", "--g-fill": "rgba(228,245,243,0.07)", "--g-fill-2": "rgba(228,245,243,0.12)", "--g-b1": "none", "--g-b2": "none", "--g-b3": "none", "--g-b4": "none", "--g-edge": "rgba(228,245,243,0.1)", "--g-edge2": "rgba(228,245,243,0.18)", "--g-rim": "transparent", "--g-sep": "#1b3b3d", "--g-spec": "0 0 0 0 transparent", "--g-spec-soft": "0 0 0 0 transparent", "--g-sh1": "0 1px 2px rgba(0,0,0,.40), 0 6px 16px -6px rgba(0,0,0,.50)", "--g-sh2": "0 2px 6px rgba(0,0,0,.40), 0 16px 36px -10px rgba(0,0,0,.65)", "--g-sh3": "0 4px 12px rgba(0,0,0,.45), 0 32px 70px -16px rgba(0,0,0,.80)", "--g-r1": "10px", "--g-r2": "12px", "--g-r3": "14px", "--g-r4": "18px", "--g-r5": "26px", "--g-blue": "#5eead4", "--g-teal": "#2dd4bf", "--g-indigo": "#818cf8", "--g-green": "#4ade80", "--g-amber": "#fbbf24", "--g-red": "#f87171", "--g-purple": "#c084fc", "--g-gray": "#7fa09c", "--g-accent-fill": "#2dd4bf", "--g-label": "#e4f5f3", "--g-label-2": "#a9c8c4", "--g-label-3": "#7fa09c", "--g-font": "\"Inter\",\"SF Pro Text\",\"Segoe UI Variable Text\",\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei UI\",system-ui,sans-serif", "--g-mono": "\"SF Mono\",ui-monospace,\"JetBrains Mono\",Menlo,Consolas,monospace", "--sk-scheme": "dark", "--sk-bg": "radial-gradient(70% 55% at 100% 0%,rgba(45,212,191,.14),transparent 70%)", "--sk-bg-size": "100% 100%", "--sk-bg-rep": "no-repeat", "--sk-bg-pos": "0 0", "--sk-on-accent": "#040c0d", "--sk-tint": "rgba(45,212,191,0.16)", "--sk-sel": "rgba(45,212,191,0.3)", "--sk-focus": "#2dd4bf", "--pop-bg": "#12302f", "--pop-bd": "1px solid rgba(228,245,243,0.18)", "--pop-r": "18px", "--pop-sh": "0 4px 12px rgba(0,0,0,.45), 0 32px 70px -16px rgba(0,0,0,.80)", "--pop-hv-fg": "#e4f5f3", "--bt-r": "12px", "--bp-bg": "#2dd4bf", "--bp-fg": "#040c0d", "--bp-bd": "0", "--bp-sh": "0 1px 2px rgba(0,0,0,.40), 0 6px 16px -6px rgba(0,0,0,.50)", "--bp-hv-sh": "0 2px 6px rgba(0,0,0,.40), 0 16px 36px -10px rgba(0,0,0,.65)", "--in-bg": "#12302f", "--in-bd": "1px solid rgba(228,245,243,0.18)", "--in-r": "20px", "--in-sh": "0 1px 2px rgba(0,0,0,.40), 0 6px 16px -6px rgba(0,0,0,.50)", "--in-fc": "0 1px 2px rgba(0,0,0,.40), 0 6px 16px -6px rgba(0,0,0,.50), 0 0 0 3px rgba(45,212,191,0.3)", "--in-fc-bd": "#2dd4bf", "--sw-on": "#2dd4bf", "--sw-off": "#4a5a5b", "--bt-bg": "rgba(45,212,191,0.16)", "--bt-fg": "#5eead4", "--bt-bd": "1px solid transparent", "--bt-sh": "none", "--bt-hv-bg": "rgba(45,212,191,0.26)", "--bt-hv-sh": "none", "--bt-hv-tf": "none", "--bt-ac-tf": "scale(.98)", "--nav-on-bg": "rgba(45,212,191,0.18)", "--nav-on-sh": "none", "--pop-hv-bg": "rgba(45,212,191,0.18)"}}}, {"id": "vsc-catppuccin-mocha", "group": "vscode", "name": "Catppuccin Mocha", "en": "Catppuccin Mocha", "modes": ["dark"], "mode": "dark", "desc": "VS Code 热门主题「Catppuccin Mocha」的深色配色，强调色 #cba6f7，扁平、无模糊。", "traits": ["VS Code", "深色底", "扁平"], "swatch": ["#cba6f7", "#cba6f7", "#1e1e2e"], "recommended": true, "scenario": "VS Code 顶流暖调暗色主题，柔和粉紫强调，与代码区零割裂", "pv": {"dark": {"bg": "#1e1e2e", "bar": "#181825", "side": "#181825", "card": "#313244", "line": "#313244", "ink": "#cdd6f4", "mute": "#7f849c", "acc": "#cba6f7", "acc2": "#89b4fa", "ok": "#a6e3a1", "r": 6, "bw": 1, "sh": "none", "font": "-apple-system,\"Segoe UI\",\"PingFang SC\",system-ui,sans-serif"}}, "resolved": {"dark": {"--g-canvas": "#1e1e2e", "--g-m1": "#181825", "--g-m2": "#181825", "--g-m3": "#313244", "--g-m4": "#313244", "--g-fill": "rgba(205,214,244,0.07)", "--g-fill-2": "rgba(205,214,244,0.12)", "--g-b1": "none", "--g-b2": "none", "--g-b3": "none", "--g-b4": "none", "--g-edge": "rgba(205,214,244,0.1)", "--g-edge2": "#444659", "--g-rim": "rgba(205,214,244,0.1)", "--g-sep": "#313244", "--g-spec": "0 0 0 0 transparent", "--g-spec-soft": "0 0 0 0 transparent", "--g-sh1": "0 0 0 1px rgba(0,0,0,.35), 0 2px 8px rgba(0,0,0,.28)", "--g-sh2": "0 0 0 1px rgba(0,0,0,.4), 0 10px 28px -8px rgba(0,0,0,.55)", "--g-sh3": "0 0 0 1px rgba(0,0,0,.45), 0 28px 64px -14px rgba(0,0,0,.65)", "--g-r1": "8px", "--g-r2": "10px", "--g-r3": "14px", "--g-r4": "18px", "--g-r5": "24px", "--g-blue": "#cba6f7", "--g-teal": "#94e2d5", "--g-indigo": "#b4befe", "--g-green": "#a6e3a1", "--g-amber": "#f9e2af", "--g-red": "#f38ba8", "--g-purple": "#cba6f7", "--g-gray": "#7f849c", "--g-accent-fill": "#cba6f7", "--g-label": "#cdd6f4", "--g-label-2": "#989fb9", "--g-label-3": "#7f849c", "--g-font": "-apple-system,BlinkMacSystemFont,\"SF Pro Text\",\"SF Pro Display\",\"PingFang SC\",\"Hiragino Sans GB\",\"Microsoft YaHei UI\",\"Microsoft YaHei\",\"Segoe UI\",system-ui,sans-serif", "--g-mono": "\"SF Mono\",ui-monospace,\"JetBrains Mono\",Menlo,Consolas,monospace", "--sk-on-accent": "#0d0d14", "--sk-tint": "rgba(203,166,247,0.16)", "--nav-on-bg": "rgba(203,166,247,0.16)"}}}, {"id": "vsc-catppuccin-latte", "group": "vscode", "name": "Catppuccin Latte", "en": "Catppuccin Latte", "modes": ["light"], "mode": "light", "desc": "VS Code 热门主题「Catppuccin Latte」的浅色配色，强调色 #8839ef，扁平、无模糊。", "traits": ["VS Code", "浅色底", "扁平"], "swatch": ["#8839ef", "#8839ef", "#eff1f5"], "recommended": false, "scenario": "Catppuccin 浅色拿铁版，温润不刺眼", "pv": {"light": {"bg": "#eff1f5", "bar": "#e6e9ef", "side": "#e6e9ef", "card": "#ffffff", "line": "#ccd0da", "ink": "#4c4f69", "mute": "#8c8fa1", "acc": "#8839ef", "acc2": "#1e66f5", "ok": "#40a02b", "r": 6, "bw": 1, "sh": "none", "font": "-apple-system,\"Segoe UI\",\"PingFang SC\",system-ui,sans-serif"}}, "resolved": {"light": {"--g-canvas": "#eff1f5", "--g-m1": "#e6e9ef", "--g-m2": "#e6e9ef", "--g-m3": "#ffffff", "--g-m4": "#ffffff", "--g-fill": "rgba(76,79,105,0.06)", "--g-fill-2": "rgba(76,79,105,0.1)", "--g-b1": "none", "--g-b2": "none", "--g-b3": "none", "--g-b4": "none", "--g-edge": "rgba(76,79,105,0.08)", "--g-edge2": "#c6cad4", "--g-rim": "rgba(76,79,105,0.1)", "--g-sep": "#ccd0da", "--g-spec": "0 0 0 0 transparent", "--g-spec-soft": "0 0 0 0 transparent", "--g-sh1": "0 0 0 .5px rgba(20,25,50,.08), 0 2px 8px rgba(20,25,50,.08)", "--g-sh2": "0 0 0 .5px rgba(20,25,50,.1), 0 12px 32px -10px rgba(20,25,50,.22)", "--g-sh3": "0 0 0 .5px rgba(20,25,50,.12), 0 28px 60px -16px rgba(20,25,50,.32)", "--g-r1": "8px", "--g-r2": "10px", "--g-r3": "14px", "--g-r4": "18px", "--g-r5": "24px", "--g-blue": "#8839ef", "--g-teal": "#179299", "--g-indigo": "#7287fd", "--g-green": "#40a02b", "--g-amber": "#df8e1d", "--g-red": "#d20f39", "--g-purple": "#8839ef", "--g-gray": "#8c8fa1", "--g-accent-fill": "#8839ef", "--g-label": "#4c4f69", "--g-label-2": "#7d8093", "--g-label-3": "#8c8fa1", "--g-font": "-apple-system,BlinkMacSystemFont,\"SF Pro Text\",\"SF Pro Display\",\"PingFang SC\",\"Hiragino Sans GB\",\"Microsoft YaHei UI\",\"Microsoft YaHei\",\"Segoe UI\",system-ui,sans-serif", "--g-mono": "\"SF Mono\",ui-monospace,\"JetBrains Mono\",Menlo,Consolas,monospace", "--sk-on-accent": "#ffffff", "--sk-tint": "rgba(136,57,239,0.12)", "--nav-on-bg": "rgba(136,57,239,0.12)"}}}, {"id": "vsc-tokyo-night", "group": "vscode", "name": "Tokyo Night", "en": "Tokyo Night", "modes": ["dark"], "mode": "dark", "desc": "VS Code 热门主题「Tokyo Night」的深色配色，强调色 #7aa2f7，扁平、无模糊。", "traits": ["VS Code", "深色底", "扁平"], "swatch": ["#7aa2f7", "#bb9af7", "#1a1b26"], "recommended": true, "scenario": "东京之夜深邃蓝紫配色，现代 IDE 标杆暗色方案", "pv": {"dark": {"bg": "#1a1b26", "bar": "#16161e", "side": "#16161e", "card": "#292e42", "line": "#292e42", "ink": "#c0caf5", "mute": "#565f89", "acc": "#7aa2f7", "acc2": "#bb9af7", "ok": "#9ece6a", "r": 6, "bw": 1, "sh": "none", "font": "-apple-system,\"Segoe UI\",\"PingFang SC\",system-ui,sans-serif"}}, "resolved": {"dark": {"--g-canvas": "#1a1b26", "--g-m1": "#16161e", "--g-m2": "#16161e", "--g-m3": "#292e42", "--g-m4": "#292e42", "--g-fill": "rgba(192,202,245,0.07)", "--g-fill-2": "rgba(192,202,245,0.12)", "--g-b1": "none", "--g-b2": "none", "--g-b3": "none", "--g-b4": "none", "--g-edge": "rgba(192,202,245,0.1)", "--g-edge2": "#3b4157", "--g-rim": "rgba(192,202,245,0.1)", "--g-sep": "#292e42", "--g-spec": "0 0 0 0 transparent", "--g-spec-soft": "0 0 0 0 transparent", "--g-sh1": "0 0 0 1px rgba(0,0,0,.35), 0 2px 8px rgba(0,0,0,.28)", "--g-sh2": "0 0 0 1px rgba(0,0,0,.4), 0 10px 28px -8px rgba(0,0,0,.55)", "--g-sh3": "0 0 0 1px rgba(0,0,0,.45), 0 28px 64px -14px rgba(0,0,0,.65)", "--g-r1": "8px", "--g-r2": "10px", "--g-r3": "14px", "--g-r4": "18px", "--g-r5": "24px", "--g-blue": "#7aa2f7", "--g-teal": "#1abc9c", "--g-indigo": "#7dcfff", "--g-green": "#9ece6a", "--g-amber": "#e0af68", "--g-red": "#f7768e", "--g-purple": "#bb9af7", "--g-gray": "#565f89", "--g-accent-fill": "#7aa2f7", "--g-label": "#c0caf5", "--g-label-2": "#8e96b7", "--g-label-3": "#565f89", "--g-font": "-apple-system,BlinkMacSystemFont,\"SF Pro Text\",\"SF Pro Display\",\"PingFang SC\",\"Hiragino Sans GB\",\"Microsoft YaHei UI\",\"Microsoft YaHei\",\"Segoe UI\",system-ui,sans-serif", "--g-mono": "\"SF Mono\",ui-monospace,\"JetBrains Mono\",Menlo,Consolas,monospace", "--sk-on-accent": "#0c0c10", "--sk-tint": "rgba(122,162,247,0.16)", "--nav-on-bg": "rgba(122,162,247,0.16)"}}}, {"id": "vsc-one-dark-pro", "group": "vscode", "name": "One Dark Pro", "en": "One Dark Pro", "modes": ["dark"], "mode": "dark", "desc": "VS Code 热门主题「One Dark Pro」的深色配色，强调色 #61afef，扁平、无模糊。", "traits": ["VS Code", "深色底", "扁平"], "swatch": ["#61afef", "#c678dd", "#282c34"], "recommended": false, "scenario": "Atom / VS Code 经典暗色，代码块与波形图对比极佳", "pv": {"dark": {"bg": "#282c34", "bar": "#21252b", "side": "#21252b", "card": "#2c313a", "line": "#3b4048", "ink": "#abb2bf", "mute": "#636d83", "acc": "#61afef", "acc2": "#c678dd", "ok": "#98c379", "r": 6, "bw": 1, "sh": "none", "font": "-apple-system,\"Segoe UI\",\"PingFang SC\",system-ui,sans-serif"}}, "resolved": {"dark": {"--g-canvas": "#282c34", "--g-m1": "#21252b", "--g-m2": "#21252b", "--g-m3": "#2c313a", "--g-m4": "#2c313a", "--g-fill": "rgba(171,178,191,0.07)", "--g-fill-2": "rgba(171,178,191,0.12)", "--g-b1": "none", "--g-b2": "none", "--g-b3": "none", "--g-b4": "none", "--g-edge": "rgba(171,178,191,0.1)", "--g-edge2": "#484e56", "--g-rim": "rgba(171,178,191,0.1)", "--g-sep": "#3b4048", "--g-spec": "0 0 0 0 transparent", "--g-spec-soft": "0 0 0 0 transparent", "--g-sh1": "0 0 0 1px rgba(0,0,0,.35), 0 2px 8px rgba(0,0,0,.28)", "--g-sh2": "0 0 0 1px rgba(0,0,0,.4), 0 10px 28px -8px rgba(0,0,0,.55)", "--g-sh3": "0 0 0 1px rgba(0,0,0,.45), 0 28px 64px -14px rgba(0,0,0,.65)", "--g-r1": "8px", "--g-r2": "10px", "--g-r3": "14px", "--g-r4": "18px", "--g-r5": "24px", "--g-blue": "#61afef", "--g-teal": "#56b6c2", "--g-indigo": "#528bff", "--g-green": "#98c379", "--g-amber": "#e5c07b", "--g-red": "#e06c75", "--g-purple": "#c678dd", "--g-gray": "#636d83", "--g-accent-fill": "#61afef", "--g-label": "#abb2bf", "--g-label-2": "#848a95", "--g-label-3": "#636d83", "--g-font": "-apple-system,BlinkMacSystemFont,\"SF Pro Text\",\"SF Pro Display\",\"PingFang SC\",\"Hiragino Sans GB\",\"Microsoft YaHei UI\",\"Microsoft YaHei\",\"Segoe UI\",system-ui,sans-serif", "--g-mono": "\"SF Mono\",ui-monospace,\"JetBrains Mono\",Menlo,Consolas,monospace", "--sk-on-accent": "#121418", "--sk-tint": "rgba(97,175,239,0.16)", "--nav-on-bg": "rgba(97,175,239,0.16)"}}}, {"id": "vsc-dracula", "group": "vscode", "name": "Dracula", "en": "Dracula", "modes": ["dark"], "mode": "dark", "desc": "VS Code 热门主题「Dracula」的深色配色，强调色 #bd93f9，扁平、无模糊。", "traits": ["VS Code", "深色底", "扁平"], "swatch": ["#bd93f9", "#bd93f9", "#282a36"], "recommended": false, "scenario": "经典吸血鬼高饱和暗色紫粉配", "pv": {"dark": {"bg": "#282a36", "bar": "#21222c", "side": "#21222c", "card": "#343746", "line": "#44475a", "ink": "#f8f8f2", "mute": "#6272a4", "acc": "#bd93f9", "acc2": "#8be9fd", "ok": "#50fa7b", "r": 6, "bw": 1, "sh": "none", "font": "-apple-system,\"Segoe UI\",\"PingFang SC\",system-ui,sans-serif"}}, "resolved": {"dark": {"--g-canvas": "#282a36", "--g-m1": "#21222c", "--g-m2": "#21222c", "--g-m3": "#343746", "--g-m4": "#343746", "--g-fill": "rgba(248,248,242,0.07)", "--g-fill-2": "rgba(248,248,242,0.12)", "--g-b1": "none", "--g-b2": "none", "--g-b3": "none", "--g-b4": "none", "--g-edge": "rgba(248,248,242,0.1)", "--g-edge2": "#5a5c6c", "--g-rim": "rgba(248,248,242,0.1)", "--g-sep": "#44475a", "--g-spec": "0 0 0 0 transparent", "--g-spec-soft": "0 0 0 0 transparent", "--g-sh1": "0 0 0 1px rgba(0,0,0,.35), 0 2px 8px rgba(0,0,0,.28)", "--g-sh2": "0 0 0 1px rgba(0,0,0,.4), 0 10px 28px -8px rgba(0,0,0,.55)", "--g-sh3": "0 0 0 1px rgba(0,0,0,.45), 0 28px 64px -14px rgba(0,0,0,.65)", "--g-r1": "8px", "--g-r2": "10px", "--g-r3": "14px", "--g-r4": "18px", "--g-r5": "24px", "--g-blue": "#bd93f9", "--g-teal": "#8be9fd", "--g-indigo": "#9aa5ce", "--g-green": "#50fa7b", "--g-amber": "#f1fa8c", "--g-red": "#ff5555", "--g-purple": "#bd93f9", "--g-gray": "#6272a4", "--g-accent-fill": "#bd93f9", "--g-label": "#f8f8f2", "--g-label-2": "#bababa", "--g-label-3": "#6272a4", "--g-font": "-apple-system,BlinkMacSystemFont,\"SF Pro Text\",\"SF Pro Display\",\"PingFang SC\",\"Hiragino Sans GB\",\"Microsoft YaHei UI\",\"Microsoft YaHei\",\"Segoe UI\",system-ui,sans-serif", "--g-mono": "\"SF Mono\",ui-monospace,\"JetBrains Mono\",Menlo,Consolas,monospace", "--sk-on-accent": "#121318", "--sk-tint": "rgba(189,147,249,0.16)", "--nav-on-bg": "rgba(189,147,249,0.16)"}}}, {"id": "vsc-github-dark", "group": "vscode", "name": "GitHub Dark", "en": "GitHub Dark", "modes": ["dark"], "mode": "dark", "desc": "VS Code 热门主题「GitHub Dark」的深色配色，强调色 #2f81f7，扁平、无模糊。", "traits": ["VS Code", "深色底", "扁平"], "swatch": ["#2f81f7", "#a371f7", "#0d1117"], "recommended": false, "scenario": "GitHub 官方暗色规范，冷静权威的代码审查质感", "pv": {"dark": {"bg": "#0d1117", "bar": "#161b22", "side": "#161b22", "card": "#21262d", "line": "#30363d", "ink": "#e6edf3", "mute": "#7d8590", "acc": "#2f81f7", "acc2": "#a371f7", "ok": "#3fb950", "r": 6, "bw": 1, "sh": "none", "font": "-apple-system,\"Segoe UI\",\"PingFang SC\",system-ui,sans-serif"}}, "resolved": {"dark": {"--g-canvas": "#0d1117", "--g-m1": "#161b22", "--g-m2": "#161b22", "--g-m3": "#21262d", "--g-m4": "#21262d", "--g-fill": "rgba(230,237,243,0.07)", "--g-fill-2": "rgba(230,237,243,0.12)", "--g-b1": "none", "--g-b2": "none", "--g-b3": "none", "--g-b4": "none", "--g-edge": "rgba(230,237,243,0.1)", "--g-edge2": "#464c53", "--g-rim": "rgba(230,237,243,0.1)", "--g-sep": "#30363d", "--g-spec": "0 0 0 0 transparent", "--g-spec-soft": "0 0 0 0 transparent", "--g-sh1": "0 0 0 1px rgba(0,0,0,.35), 0 2px 8px rgba(0,0,0,.28)", "--g-sh2": "0 0 0 1px rgba(0,0,0,.4), 0 10px 28px -8px rgba(0,0,0,.55)", "--g-sh3": "0 0 0 1px rgba(0,0,0,.45), 0 28px 64px -14px rgba(0,0,0,.65)", "--g-r1": "8px", "--g-r2": "10px", "--g-r3": "14px", "--g-r4": "18px", "--g-r5": "24px", "--g-blue": "#2f81f7", "--g-teal": "#39c5cf", "--g-indigo": "#79c0ff", "--g-green": "#3fb950", "--g-amber": "#d29922", "--g-red": "#f85149", "--g-purple": "#a371f7", "--g-gray": "#7d8590", "--g-accent-fill": "#2f81f7", "--g-label": "#e6edf3", "--g-label-2": "#a5abb1", "--g-label-3": "#7d8590", "--g-font": "-apple-system,BlinkMacSystemFont,\"SF Pro Text\",\"SF Pro Display\",\"PingFang SC\",\"Hiragino Sans GB\",\"Microsoft YaHei UI\",\"Microsoft YaHei\",\"Segoe UI\",system-ui,sans-serif", "--g-mono": "\"SF Mono\",ui-monospace,\"JetBrains Mono\",Menlo,Consolas,monospace", "--sk-on-accent": "#0c0f13", "--sk-tint": "rgba(47,129,247,0.16)", "--nav-on-bg": "rgba(47,129,247,0.16)"}}}, {"id": "vsc-github-light", "group": "vscode", "name": "GitHub Light", "en": "GitHub Light", "modes": ["light"], "mode": "light", "desc": "VS Code 热门主题「GitHub Light」的浅色配色，强调色 #0969da，扁平、无模糊。", "traits": ["VS Code", "浅色底", "扁平"], "swatch": ["#0969da", "#8250df", "#ffffff"], "recommended": true, "scenario": "GitHub 官方浅色规范，最干净的白底蓝字工程风", "pv": {"light": {"bg": "#ffffff", "bar": "#f6f8fa", "side": "#f6f8fa", "card": "#ffffff", "line": "#d0d7de", "ink": "#1f2328", "mute": "#6e7781", "acc": "#0969da", "acc2": "#8250df", "ok": "#1a7f37", "r": 6, "bw": 1, "sh": "none", "font": "-apple-system,\"Segoe UI\",\"PingFang SC\",system-ui,sans-serif"}}, "resolved": {"light": {"--g-canvas": "#ffffff", "--g-m1": "#f6f8fa", "--g-m2": "#f6f8fa", "--g-m3": "#ffffff", "--g-m4": "#ffffff", "--g-fill": "rgba(31,35,40,0.06)", "--g-fill-2": "rgba(31,35,40,0.1)", "--g-b1": "none", "--g-b2": "none", "--g-b3": "none", "--g-b4": "none", "--g-edge": "rgba(31,35,40,0.08)", "--g-edge2": "#c7ced5", "--g-rim": "rgba(31,35,40,0.1)", "--g-sep": "#d0d7de", "--g-spec": "0 0 0 0 transparent", "--g-spec-soft": "0 0 0 0 transparent", "--g-sh1": "0 0 0 .5px rgba(20,25,50,.08), 0 2px 8px rgba(20,25,50,.08)", "--g-sh2": "0 0 0 .5px rgba(20,25,50,.1), 0 12px 32px -10px rgba(20,25,50,.22)", "--g-sh3": "0 0 0 .5px rgba(20,25,50,.12), 0 28px 60px -16px rgba(20,25,50,.32)", "--g-r1": "8px", "--g-r2": "10px", "--g-r3": "14px", "--g-r4": "18px", "--g-r5": "24px", "--g-blue": "#0969da", "--g-teal": "#1b7c83", "--g-indigo": "#0550ae", "--g-green": "#1a7f37", "--g-amber": "#9a6700", "--g-red": "#cf222e", "--g-purple": "#8250df", "--g-gray": "#6e7781", "--g-accent-fill": "#0969da", "--g-label": "#1f2328", "--g-label-2": "#626568", "--g-label-3": "#6e7781", "--g-font": "-apple-system,BlinkMacSystemFont,\"SF Pro Text\",\"SF Pro Display\",\"PingFang SC\",\"Hiragino Sans GB\",\"Microsoft YaHei UI\",\"Microsoft YaHei\",\"Segoe UI\",system-ui,sans-serif", "--g-mono": "\"SF Mono\",ui-monospace,\"JetBrains Mono\",Menlo,Consolas,monospace", "--sk-on-accent": "#ffffff", "--sk-tint": "rgba(9,105,218,0.12)", "--nav-on-bg": "rgba(9,105,218,0.12)"}}}, {"id": "vsc-night-owl", "group": "vscode", "name": "Night Owl", "en": "Night Owl", "modes": ["dark"], "mode": "dark", "desc": "VS Code 热门主题「Night Owl」的深色配色，强调色 #82aaff，扁平、无模糊。", "traits": ["VS Code", "深色底", "扁平"], "swatch": ["#82aaff", "#c792ea", "#011627"], "recommended": false, "scenario": "专为夜间低光编程调校的深海蓝暗色", "pv": {"dark": {"bg": "#011627", "bar": "#01111d", "side": "#01111d", "card": "#0b2942", "line": "#122d42", "ink": "#d6deeb", "mute": "#637777", "acc": "#82aaff", "acc2": "#c792ea", "ok": "#addb67", "r": 6, "bw": 1, "sh": "none", "font": "-apple-system,\"Segoe UI\",\"PingFang SC\",system-ui,sans-serif"}}, "resolved": {"dark": {"--g-canvas": "#011627", "--g-m1": "#01111d", "--g-m2": "#01111d", "--g-m3": "#0b2942", "--g-m4": "#0b2942", "--g-fill": "rgba(214,222,235,0.07)", "--g-fill-2": "rgba(214,222,235,0.12)", "--g-b1": "none", "--g-b2": "none", "--g-b3": "none", "--g-b4": "none", "--g-edge": "rgba(214,222,235,0.1)", "--g-edge2": "#2a4256", "--g-rim": "rgba(214,222,235,0.1)", "--g-sep": "#122d42", "--g-spec": "0 0 0 0 transparent", "--g-spec-soft": "0 0 0 0 transparent", "--g-sh1": "0 0 0 1px rgba(0,0,0,.35), 0 2px 8px rgba(0,0,0,.28)", "--g-sh2": "0 0 0 1px rgba(0,0,0,.4), 0 10px 28px -8px rgba(0,0,0,.55)", "--g-sh3": "0 0 0 1px rgba(0,0,0,.45), 0 28px 64px -14px rgba(0,0,0,.65)", "--g-r1": "8px", "--g-r2": "10px", "--g-r3": "14px", "--g-r4": "18px", "--g-r5": "24px", "--g-blue": "#82aaff", "--g-teal": "#7fdbca", "--g-indigo": "#7e57c2", "--g-green": "#addb67", "--g-amber": "#ecc48d", "--g-red": "#ef5350", "--g-purple": "#c792ea", "--g-gray": "#637777", "--g-accent-fill": "#82aaff", "--g-label": "#d6deeb", "--g-label-2": "#96a2b0", "--g-label-3": "#637777", "--g-font": "-apple-system,BlinkMacSystemFont,\"SF Pro Text\",\"SF Pro Display\",\"PingFang SC\",\"Hiragino Sans GB\",\"Microsoft YaHei UI\",\"Microsoft YaHei\",\"Segoe UI\",system-ui,sans-serif", "--g-mono": "\"SF Mono\",ui-monospace,\"JetBrains Mono\",Menlo,Consolas,monospace", "--sk-on-accent": "#010910", "--sk-tint": "rgba(130,170,255,0.16)", "--nav-on-bg": "rgba(130,170,255,0.16)"}}}, {"id": "vsc-rose-pine", "group": "vscode", "name": "Rosé Pine", "en": "Rosé Pine", "modes": ["dark"], "mode": "dark", "desc": "VS Code 热门主题「Rosé Pine」的深色配色，强调色 #c4a7e7，扁平、无模糊。", "traits": ["VS Code", "深色底", "扁平"], "swatch": ["#c4a7e7", "#c4a7e7", "#191724"], "recommended": false, "scenario": "松木玫瑰低饱和暗色，静谧优雅", "pv": {"dark": {"bg": "#191724", "bar": "#1f1d2e", "side": "#1f1d2e", "card": "#26233a", "line": "#312e47", "ink": "#e0def4", "mute": "#6e6a86", "acc": "#c4a7e7", "acc2": "#31748f", "ok": "#9ccfd8", "r": 6, "bw": 1, "sh": "none", "font": "-apple-system,\"Segoe UI\",\"PingFang SC\",system-ui,sans-serif"}}, "resolved": {"dark": {"--g-canvas": "#191724", "--g-m1": "#1f1d2e", "--g-m2": "#1f1d2e", "--g-m3": "#26233a", "--g-m4": "#26233a", "--g-fill": "rgba(224,222,244,0.07)", "--g-fill-2": "rgba(224,222,244,0.12)", "--g-b1": "none", "--g-b2": "none", "--g-b3": "none", "--g-b4": "none", "--g-edge": "rgba(224,222,244,0.1)", "--g-edge2": "#46435c", "--g-rim": "rgba(224,222,244,0.1)", "--g-sep": "#312e47", "--g-spec": "0 0 0 0 transparent", "--g-spec-soft": "0 0 0 0 transparent", "--g-sh1": "0 0 0 1px rgba(0,0,0,.35), 0 2px 8px rgba(0,0,0,.28)", "--g-sh2": "0 0 0 1px rgba(0,0,0,.4), 0 10px 28px -8px rgba(0,0,0,.55)", "--g-sh3": "0 0 0 1px rgba(0,0,0,.45), 0 28px 64px -14px rgba(0,0,0,.65)", "--g-r1": "8px", "--g-r2": "10px", "--g-r3": "14px", "--g-r4": "18px", "--g-r5": "24px", "--g-blue": "#c4a7e7", "--g-teal": "#9ccfd8", "--g-indigo": "#908caa", "--g-green": "#9ccfd8", "--g-amber": "#f6c177", "--g-red": "#eb6f92", "--g-purple": "#c4a7e7", "--g-gray": "#6e6a86", "--g-accent-fill": "#c4a7e7", "--g-label": "#e0def4", "--g-label-2": "#a4a2b6", "--g-label-3": "#6e6a86", "--g-font": "-apple-system,BlinkMacSystemFont,\"SF Pro Text\",\"SF Pro Display\",\"PingFang SC\",\"Hiragino Sans GB\",\"Microsoft YaHei UI\",\"Microsoft YaHei\",\"Segoe UI\",system-ui,sans-serif", "--g-mono": "\"SF Mono\",ui-monospace,\"JetBrains Mono\",Menlo,Consolas,monospace", "--sk-on-accent": "#111019", "--sk-tint": "rgba(196,167,231,0.16)", "--nav-on-bg": "rgba(196,167,231,0.16)"}}}, {"id": "vsc-rose-pine-dawn", "group": "vscode", "name": "Rosé Pine Dawn", "en": "Rosé Pine Dawn", "modes": ["light"], "mode": "light", "desc": "VS Code 热门主题「Rosé Pine Dawn」的浅色配色，强调色 #907aa9，扁平、无模糊。", "traits": ["VS Code", "浅色底", "扁平"], "swatch": ["#907aa9", "#907aa9", "#faf4ed"], "recommended": false, "scenario": "松木玫瑰晨曦浅色，暖调护眼", "pv": {"light": {"bg": "#faf4ed", "bar": "#fffaf3", "side": "#fffaf3", "card": "#ffffff", "line": "#dfdad9", "ink": "#575279", "mute": "#9893a5", "acc": "#907aa9", "acc2": "#286983", "ok": "#56949f", "r": 6, "bw": 1, "sh": "none", "font": "-apple-system,\"Segoe UI\",\"PingFang SC\",system-ui,sans-serif"}}, "resolved": {"light": {"--g-canvas": "#faf4ed", "--g-m1": "#fffaf3", "--g-m2": "#fffaf3", "--g-m3": "#ffffff", "--g-m4": "#ffffff", "--g-fill": "rgba(87,82,121,0.06)", "--g-fill-2": "rgba(87,82,121,0.1)", "--g-b1": "none", "--g-b2": "none", "--g-b3": "none", "--g-b4": "none", "--g-edge": "rgba(87,82,121,0.08)", "--g-edge2": "#d8d3d4", "--g-rim": "rgba(87,82,121,0.1)", "--g-sep": "#dfdad9", "--g-spec": "0 0 0 0 transparent", "--g-spec-soft": "0 0 0 0 transparent", "--g-sh1": "0 0 0 .5px rgba(20,25,50,.08), 0 2px 8px rgba(20,25,50,.08)", "--g-sh2": "0 0 0 .5px rgba(20,25,50,.1), 0 12px 32px -10px rgba(20,25,50,.22)", "--g-sh3": "0 0 0 .5px rgba(20,25,50,.12), 0 28px 60px -16px rgba(20,25,50,.32)", "--g-r1": "8px", "--g-r2": "10px", "--g-r3": "14px", "--g-r4": "18px", "--g-r5": "24px", "--g-blue": "#907aa9", "--g-teal": "#56949f", "--g-indigo": "#797593", "--g-green": "#56949f", "--g-amber": "#ea9d34", "--g-red": "#b4637a", "--g-purple": "#907aa9", "--g-gray": "#9893a5", "--g-accent-fill": "#907aa9", "--g-label": "#575279", "--g-label-2": "#88839c", "--g-label-3": "#9893a5", "--g-font": "-apple-system,BlinkMacSystemFont,\"SF Pro Text\",\"SF Pro Display\",\"PingFang SC\",\"Hiragino Sans GB\",\"Microsoft YaHei UI\",\"Microsoft YaHei\",\"Segoe UI\",system-ui,sans-serif", "--g-mono": "\"SF Mono\",ui-monospace,\"JetBrains Mono\",Menlo,Consolas,monospace", "--sk-on-accent": "#14171f", "--sk-tint": "rgba(144,122,169,0.12)", "--nav-on-bg": "rgba(144,122,169,0.12)"}}}, {"id": "vsc-ayu-mirage", "group": "vscode", "name": "Ayu Mirage", "en": "Ayu Mirage", "modes": ["dark"], "mode": "dark", "desc": "VS Code 热门主题「Ayu Mirage」的深色配色，强调色 #ffcc66，扁平、无模糊。", "traits": ["VS Code", "深色底", "扁平"], "swatch": ["#ffcc66", "#dfbfff", "#1f2430"], "recommended": false, "scenario": "Ayu 暮色深灰蓝 + 暖金强调色", "pv": {"dark": {"bg": "#1f2430", "bar": "#1c212b", "side": "#1c212b", "card": "#2a3141", "line": "#2a3040", "ink": "#cccac2", "mute": "#707a8c", "acc": "#ffcc66", "acc2": "#dfbfff", "ok": "#d5ff80", "r": 6, "bw": 1, "sh": "none", "font": "-apple-system,\"Segoe UI\",\"PingFang SC\",system-ui,sans-serif"}}, "resolved": {"dark": {"--g-canvas": "#1f2430", "--g-m1": "#1c212b", "--g-m2": "#1c212b", "--g-m3": "#2a3141", "--g-m4": "#2a3141", "--g-fill": "rgba(204,202,194,0.07)", "--g-fill-2": "rgba(204,202,194,0.12)", "--g-b1": "none", "--g-b2": "none", "--g-b3": "none", "--g-b4": "none", "--g-edge": "rgba(204,202,194,0.1)", "--g-edge2": "#3d4250", "--g-rim": "rgba(204,202,194,0.1)", "--g-sep": "#2a3040", "--g-spec": "0 0 0 0 transparent", "--g-spec-soft": "0 0 0 0 transparent", "--g-sh1": "0 0 0 1px rgba(0,0,0,.35), 0 2px 8px rgba(0,0,0,.28)", "--g-sh2": "0 0 0 1px rgba(0,0,0,.4), 0 10px 28px -8px rgba(0,0,0,.55)", "--g-sh3": "0 0 0 1px rgba(0,0,0,.45), 0 28px 64px -14px rgba(0,0,0,.65)", "--g-r1": "8px", "--g-r2": "10px", "--g-r3": "14px", "--g-r4": "18px", "--g-r5": "24px", "--g-blue": "#ffcc66", "--g-teal": "#95e6cb", "--g-indigo": "#5ccfe6", "--g-green": "#d5ff80", "--g-amber": "#ffcc66", "--g-red": "#f28779", "--g-purple": "#dfbfff", "--g-gray": "#707a8c", "--g-accent-fill": "#ffcc66", "--g-label": "#cccac2", "--g-label-2": "#989896", "--g-label-3": "#707a8c", "--g-font": "-apple-system,BlinkMacSystemFont,\"SF Pro Text\",\"SF Pro Display\",\"PingFang SC\",\"Hiragino Sans GB\",\"Microsoft YaHei UI\",\"Microsoft YaHei\",\"Segoe UI\",system-ui,sans-serif", "--g-mono": "\"SF Mono\",ui-monospace,\"JetBrains Mono\",Menlo,Consolas,monospace", "--sk-on-accent": "#0f1218", "--sk-tint": "rgba(255,204,102,0.16)", "--nav-on-bg": "rgba(255,204,102,0.16)"}}}, {"id": "vsc-nord", "group": "vscode", "name": "Nord", "en": "Nord", "modes": ["dark"], "mode": "dark", "desc": "VS Code 热门主题「Nord」的深色配色，强调色 #88c0d0，扁平、无模糊。", "traits": ["VS Code", "深色底", "扁平"], "swatch": ["#88c0d0", "#b48ead", "#2e3440"], "recommended": false, "scenario": "北极冰川冷色调暗色，极简冷静", "pv": {"dark": {"bg": "#2e3440", "bar": "#292e39", "side": "#292e39", "card": "#3b4252", "line": "#3b4252", "ink": "#d8dee9", "mute": "#7b88a1", "acc": "#88c0d0", "acc2": "#b48ead", "ok": "#a3be8c", "r": 6, "bw": 1, "sh": "none", "font": "-apple-system,\"Segoe UI\",\"PingFang SC\",system-ui,sans-serif"}}, "resolved": {"dark": {"--g-canvas": "#2e3440", "--g-m1": "#292e39", "--g-m2": "#292e39", "--g-m3": "#3b4252", "--g-m4": "#3b4252", "--g-fill": "rgba(216,222,233,0.07)", "--g-fill-2": "rgba(216,222,233,0.12)", "--g-b1": "none", "--g-b2": "none", "--g-b3": "none", "--g-b4": "none", "--g-edge": "rgba(216,222,233,0.1)", "--g-edge2": "#4e5564", "--g-rim": "rgba(216,222,233,0.1)", "--g-sep": "#3b4252", "--g-spec": "0 0 0 0 transparent", "--g-spec-soft": "0 0 0 0 transparent", "--g-sh1": "0 0 0 1px rgba(0,0,0,.35), 0 2px 8px rgba(0,0,0,.28)", "--g-sh2": "0 0 0 1px rgba(0,0,0,.4), 0 10px 28px -8px rgba(0,0,0,.55)", "--g-sh3": "0 0 0 1px rgba(0,0,0,.45), 0 28px 64px -14px rgba(0,0,0,.65)", "--g-r1": "8px", "--g-r2": "10px", "--g-r3": "14px", "--g-r4": "18px", "--g-r5": "24px", "--g-blue": "#88c0d0", "--g-teal": "#8fbcbb", "--g-indigo": "#5e81ac", "--g-green": "#a3be8c", "--g-amber": "#ebcb8b", "--g-red": "#bf616a", "--g-purple": "#b48ead", "--g-gray": "#7b88a1", "--g-accent-fill": "#88c0d0", "--g-label": "#d8dee9", "--g-label-2": "#a5abb6", "--g-label-3": "#7b88a1", "--g-font": "-apple-system,BlinkMacSystemFont,\"SF Pro Text\",\"SF Pro Display\",\"PingFang SC\",\"Hiragino Sans GB\",\"Microsoft YaHei UI\",\"Microsoft YaHei\",\"Segoe UI\",system-ui,sans-serif", "--g-mono": "\"SF Mono\",ui-monospace,\"JetBrains Mono\",Menlo,Consolas,monospace", "--sk-on-accent": "#17191f", "--sk-tint": "rgba(136,192,208,0.16)", "--nav-on-bg": "rgba(136,192,208,0.16)"}}}, {"id": "vsc-gruvbox-dark", "group": "vscode", "name": "Gruvbox Dark", "en": "Gruvbox Dark", "modes": ["dark"], "mode": "dark", "desc": "VS Code 热门主题「Gruvbox Dark」的深色配色，强调色 #fabd2f，扁平、无模糊。", "traits": ["VS Code", "深色底", "扁平"], "swatch": ["#fabd2f", "#d3869b", "#282828"], "recommended": false, "scenario": "复古暖棕暗色 + 琥珀黄，终端极客经典", "pv": {"dark": {"bg": "#282828", "bar": "#1d2021", "side": "#1d2021", "card": "#3c3836", "line": "#3c3836", "ink": "#ebdbb2", "mute": "#928374", "acc": "#fabd2f", "acc2": "#d3869b", "ok": "#b8bb26", "r": 6, "bw": 1, "sh": "none", "font": "-apple-system,\"Segoe UI\",\"PingFang SC\",system-ui,sans-serif"}}, "resolved": {"dark": {"--g-canvas": "#282828", "--g-m1": "#1d2021", "--g-m2": "#1d2021", "--g-m3": "#3c3836", "--g-m4": "#3c3836", "--g-fill": "rgba(235,219,178,0.07)", "--g-fill-2": "rgba(235,219,178,0.12)", "--g-b1": "none", "--g-b2": "none", "--g-b3": "none", "--g-b4": "none", "--g-edge": "rgba(235,219,178,0.1)", "--g-edge2": "#514c45", "--g-rim": "rgba(235,219,178,0.1)", "--g-sep": "#3c3836", "--g-spec": "0 0 0 0 transparent", "--g-spec-soft": "0 0 0 0 transparent", "--g-sh1": "0 0 0 1px rgba(0,0,0,.35), 0 2px 8px rgba(0,0,0,.28)", "--g-sh2": "0 0 0 1px rgba(0,0,0,.4), 0 10px 28px -8px rgba(0,0,0,.55)", "--g-sh3": "0 0 0 1px rgba(0,0,0,.45), 0 28px 64px -14px rgba(0,0,0,.65)", "--g-r1": "8px", "--g-r2": "10px", "--g-r3": "14px", "--g-r4": "18px", "--g-r5": "24px", "--g-blue": "#fabd2f", "--g-teal": "#8ec07c", "--g-indigo": "#458588", "--g-green": "#b8bb26", "--g-amber": "#fabd2f", "--g-red": "#fb4934", "--g-purple": "#d3869b", "--g-gray": "#928374", "--g-accent-fill": "#fabd2f", "--g-label": "#ebdbb2", "--g-label-2": "#b0a589", "--g-label-3": "#928374", "--g-font": "-apple-system,BlinkMacSystemFont,\"SF Pro Text\",\"SF Pro Display\",\"PingFang SC\",\"Hiragino Sans GB\",\"Microsoft YaHei UI\",\"Microsoft YaHei\",\"Segoe UI\",system-ui,sans-serif", "--g-mono": "\"SF Mono\",ui-monospace,\"JetBrains Mono\",Menlo,Consolas,monospace", "--sk-on-accent": "#101212", "--sk-tint": "rgba(250,189,47,0.16)", "--nav-on-bg": "rgba(250,189,47,0.16)"}}}, {"id": "vsc-monokai-pro", "group": "vscode", "name": "Monokai Pro", "en": "Monokai Pro", "modes": ["dark"], "mode": "dark", "desc": "VS Code 热门主题「Monokai Pro」的深色配色，强调色 #ffd866，扁平、无模糊。", "traits": ["VS Code", "深色底", "扁平"], "swatch": ["#ffd866", "#ab9df2", "#2d2a2e"], "recommended": false, "scenario": "经典暖炭黑 + 亮黄强调色", "pv": {"dark": {"bg": "#2d2a2e", "bar": "#221f22", "side": "#221f22", "card": "#403e41", "line": "#403e41", "ink": "#fcfcfa", "mute": "#939293", "acc": "#ffd866", "acc2": "#ab9df2", "ok": "#a9dc76", "r": 6, "bw": 1, "sh": "none", "font": "-apple-system,\"Segoe UI\",\"PingFang SC\",system-ui,sans-serif"}}, "resolved": {"dark": {"--g-canvas": "#2d2a2e", "--g-m1": "#221f22", "--g-m2": "#221f22", "--g-m3": "#403e41", "--g-m4": "#403e41", "--g-fill": "rgba(252,252,250,0.07)", "--g-fill-2": "rgba(252,252,250,0.12)", "--g-b1": "none", "--g-b2": "none", "--g-b3": "none", "--g-b4": "none", "--g-edge": "rgba(252,252,250,0.1)", "--g-edge2": "#575557", "--g-rim": "rgba(252,252,250,0.1)", "--g-sep": "#403e41", "--g-spec": "0 0 0 0 transparent", "--g-spec-soft": "0 0 0 0 transparent", "--g-sh1": "0 0 0 1px rgba(0,0,0,.35), 0 2px 8px rgba(0,0,0,.28)", "--g-sh2": "0 0 0 1px rgba(0,0,0,.4), 0 10px 28px -8px rgba(0,0,0,.55)", "--g-sh3": "0 0 0 1px rgba(0,0,0,.45), 0 28px 64px -14px rgba(0,0,0,.65)", "--g-r1": "8px", "--g-r2": "10px", "--g-r3": "14px", "--g-r4": "18px", "--g-r5": "24px", "--g-blue": "#ffd866", "--g-teal": "#78dce8", "--g-indigo": "#ab9df2", "--g-green": "#a9dc76", "--g-amber": "#ffd866", "--g-red": "#ff6188", "--g-purple": "#ab9df2", "--g-gray": "#939293", "--g-accent-fill": "#ffd866", "--g-label": "#fcfcfa", "--g-label-2": "#bebdbd", "--g-label-3": "#939293", "--g-font": "-apple-system,BlinkMacSystemFont,\"SF Pro Text\",\"SF Pro Display\",\"PingFang SC\",\"Hiragino Sans GB\",\"Microsoft YaHei UI\",\"Microsoft YaHei\",\"Segoe UI\",system-ui,sans-serif", "--g-mono": "\"SF Mono\",ui-monospace,\"JetBrains Mono\",Menlo,Consolas,monospace", "--sk-on-accent": "#131113", "--sk-tint": "rgba(255,216,102,0.16)", "--nav-on-bg": "rgba(255,216,102,0.16)"}}}, {"id": "vsc-synthwave-84", "group": "vscode", "name": "Synthwave ’84", "en": "Synthwave ’84", "modes": ["dark"], "mode": "dark", "desc": "VS Code 热门主题「Synthwave ’84」的深色配色，强调色 #ff7edb，扁平、无模糊。", "traits": ["VS Code", "深色底", "扁平"], "swatch": ["#ff7edb", "#b893ce", "#262335"], "recommended": false, "scenario": "赛博复古紫红霓虹暗色", "pv": {"dark": {"bg": "#262335", "bar": "#1e1b2e", "side": "#1e1b2e", "card": "#34294f", "line": "#34294f", "ink": "#e8e3f5", "mute": "#848bbd", "acc": "#ff7edb", "acc2": "#b893ce", "ok": "#72f1b8", "r": 6, "bw": 1, "sh": "none", "font": "-apple-system,\"Segoe UI\",\"PingFang SC\",system-ui,sans-serif"}}, "resolved": {"dark": {"--g-canvas": "#262335", "--g-m1": "#1e1b2e", "--g-m2": "#1e1b2e", "--g-m3": "#34294f", "--g-m4": "#34294f", "--g-fill": "rgba(232,227,245,0.07)", "--g-fill-2": "rgba(232,227,245,0.12)", "--g-b1": "none", "--g-b2": "none", "--g-b3": "none", "--g-b4": "none", "--g-edge": "rgba(232,227,245,0.1)", "--g-edge2": "#4a3f63", "--g-rim": "rgba(232,227,245,0.1)", "--g-sep": "#34294f", "--g-spec": "0 0 0 0 transparent", "--g-spec-soft": "0 0 0 0 transparent", "--g-sh1": "0 0 0 1px rgba(0,0,0,.35), 0 2px 8px rgba(0,0,0,.28)", "--g-sh2": "0 0 0 1px rgba(0,0,0,.4), 0 10px 28px -8px rgba(0,0,0,.55)", "--g-sh3": "0 0 0 1px rgba(0,0,0,.45), 0 28px 64px -14px rgba(0,0,0,.65)", "--g-r1": "8px", "--g-r2": "10px", "--g-r3": "14px", "--g-r4": "18px", "--g-r5": "24px", "--g-blue": "#ff7edb", "--g-teal": "#36f9f6", "--g-indigo": "#9d7cf5", "--g-green": "#72f1b8", "--g-amber": "#fede5d", "--g-red": "#fe4450", "--g-purple": "#b893ce", "--g-gray": "#848bbd", "--g-accent-fill": "#ff7edb", "--g-label": "#e8e3f5", "--g-label-2": "#aea9bb", "--g-label-3": "#848bbd", "--g-font": "-apple-system,BlinkMacSystemFont,\"SF Pro Text\",\"SF Pro Display\",\"PingFang SC\",\"Hiragino Sans GB\",\"Microsoft YaHei UI\",\"Microsoft YaHei\",\"Segoe UI\",system-ui,sans-serif", "--g-mono": "\"SF Mono\",ui-monospace,\"JetBrains Mono\",Menlo,Consolas,monospace", "--sk-on-accent": "#100f19", "--sk-tint": "rgba(255,126,219,0.16)", "--nav-on-bg": "rgba(255,126,219,0.16)"}}}, {"id": "vsc-solarized-light", "group": "vscode", "name": "Solarized Light", "en": "Solarized Light", "modes": ["light"], "mode": "light", "desc": "VS Code 热门主题「Solarized Light」的浅色配色，强调色 #268bd2，扁平、无模糊。", "traits": ["VS Code", "浅色底", "扁平"], "swatch": ["#268bd2", "#6c71c4", "#fdf6e3"], "recommended": false, "scenario": "经典羊皮纸护眼浅色方案", "pv": {"light": {"bg": "#fdf6e3", "bar": "#eee8d5", "side": "#eee8d5", "card": "#fffdf6", "line": "#ddd6c1", "ink": "#586e75", "mute": "#93a1a1", "acc": "#268bd2", "acc2": "#6c71c4", "ok": "#859900", "r": 6, "bw": 1, "sh": "none", "font": "-apple-system,\"Segoe UI\",\"PingFang SC\",system-ui,sans-serif"}}, "resolved": {"light": {"--g-canvas": "#fdf6e3", "--g-m1": "#eee8d5", "--g-m2": "#eee8d5", "--g-m3": "#fffdf6", "--g-m4": "#fffdf6", "--g-fill": "rgba(88,110,117,0.06)", "--g-fill-2": "rgba(88,110,117,0.1)", "--g-b1": "none", "--g-b2": "none", "--g-b3": "none", "--g-b4": "none", "--g-edge": "rgba(88,110,117,0.08)", "--g-edge2": "#d6d1bd", "--g-rim": "rgba(88,110,117,0.1)", "--g-sep": "#ddd6c1", "--g-spec": "0 0 0 0 transparent", "--g-spec-soft": "0 0 0 0 transparent", "--g-sh1": "0 0 0 .5px rgba(20,25,50,.08), 0 2px 8px rgba(20,25,50,.08)", "--g-sh2": "0 0 0 .5px rgba(20,25,50,.1), 0 12px 32px -10px rgba(20,25,50,.22)", "--g-sh3": "0 0 0 .5px rgba(20,25,50,.12), 0 28px 60px -16px rgba(20,25,50,.32)", "--g-r1": "8px", "--g-r2": "10px", "--g-r3": "14px", "--g-r4": "18px", "--g-r5": "24px", "--g-blue": "#268bd2", "--g-teal": "#2aa198", "--g-indigo": "#6c71c4", "--g-green": "#859900", "--g-amber": "#b58900", "--g-red": "#dc322f", "--g-purple": "#6c71c4", "--g-gray": "#93a1a1", "--g-accent-fill": "#268bd2", "--g-label": "#586e75", "--g-label-2": "#8a9796", "--g-label-3": "#93a1a1", "--g-font": "-apple-system,BlinkMacSystemFont,\"SF Pro Text\",\"SF Pro Display\",\"PingFang SC\",\"Hiragino Sans GB\",\"Microsoft YaHei UI\",\"Microsoft YaHei\",\"Segoe UI\",system-ui,sans-serif", "--g-mono": "\"SF Mono\",ui-monospace,\"JetBrains Mono\",Menlo,Consolas,monospace", "--sk-on-accent": "#14171f", "--sk-tint": "rgba(38,139,210,0.12)", "--nav-on-bg": "rgba(38,139,210,0.12)"}}}];
+
+const TW_WALLPAPER_GRADIENTS = {
+  aurora: {
+    light: 'radial-gradient(65% 55% at 14% 12%, rgba(90,169,255,0.42), transparent 65%), radial-gradient(60% 55% at 88% 18%, rgba(194,113,224,0.42), transparent 65%), radial-gradient(70% 60% at 50% 95%, rgba(255,185,202,0.45), transparent 70%), linear-gradient(135deg, #C9D6FF 0%, #E7C9F5 52%, #FFD6E1 100%)',
+    dark: 'radial-gradient(65% 55% at 14% 12%, rgba(90,100,220,0.38), transparent 65%), radial-gradient(60% 55% at 88% 18%, rgba(140,60,180,0.38), transparent 65%), linear-gradient(135deg, #1E1538 0%, #3A1D52 52%, #142042 100%)'
+  },
+  bay: {
+    light: 'radial-gradient(70% 60% at 20% 10%, rgba(56,189,248,0.45), transparent 65%), radial-gradient(65% 55% at 85% 85%, rgba(45,212,191,0.38), transparent 65%), linear-gradient(135deg, #BAE6FD 0%, #E0F2FE 50%, #CCFBF1 100%)',
+    dark: 'radial-gradient(70% 60% at 20% 10%, rgba(14,116,144,0.5), transparent 65%), linear-gradient(135deg, #082F49 0%, #0D3E5F 50%, #0F2942 100%)'
+  },
+  sunset: {
+    light: 'radial-gradient(65% 55% at 15% 15%, rgba(251,146,60,0.38), transparent 65%), radial-gradient(65% 60% at 85% 20%, rgba(244,114,182,0.38), transparent 65%), linear-gradient(135deg, #FDE68A 0%, #FBCFE8 55%, #E9D5FF 100%)',
+    dark: 'radial-gradient(65% 55% at 15% 15%, rgba(190,24,93,0.42), transparent 65%), linear-gradient(135deg, #3B0764 0%, #511E39 52%, #1E1B4B 100%)'
+  },
+  graphite: {
+    light: 'radial-gradient(60% 50% at 20% 0%, rgba(148,163,184,0.35), transparent 70%), linear-gradient(135deg, #CBD5E1 0%, #E2E8F0 50%, #F1F5F9 100%)',
+    dark: 'radial-gradient(60% 50% at 20% 0%, rgba(71,85,105,0.35), transparent 70%), linear-gradient(135deg, #0F172A 0%, #1B1F28 50%, #111827 100%)'
+  }
+};
+
+const TW_LIGHT_VSC_DARK_PAIR = {
+  'vsc-catppuccin-latte': 'vsc-catppuccin-mocha',
+  'vsc-github-light': 'vsc-github-dark',
+  'vsc-rose-pine-dawn': 'vsc-rose-pine',
+  'vsc-solarized-light': 'vsc-night-owl'
+};
+
+const TW_DSH_STRUCTURAL_CSS = "\nhtml[data-ak-skin] body{background:transparent;font-family:var(--dsw-font-family)}\nhtml[data-ak-skin] body,html[data-ak-skin] body *{\n  --dsw-elevation-panel:var(--dsw-elevation-stroke),var(--ak-g-sh1);\n  --dsw-elevation-soft:var(--dsw-elevation-stroke),var(--ak-g-sh1);\n  --dsw-elevation-prominent:var(--dsw-elevation-stroke),var(--ak-g-sh2);\n}\nhtml[data-ak-skin] [data-slot=\"root\"]>div{background:transparent}\n\n/* Sidebar column: frosted rail. */\nhtml[data-ak-skin] [class*=\"_sidebarCol\"]{\n  position:relative;\n  isolation:isolate;\n  background:var(--ak-g-m1);\n  border-right:1px solid var(--ak-g-sep);\n}\n/* Filter the background independently so caption buttons remain fixed to the viewport. */\nhtml[data-ak-skin] [class*=\"_sidebarCol\"]::before{\n  content:\"\";\n  position:absolute;inset:0;z-index:-1;pointer-events:none;\n  -webkit-backdrop-filter:var(--ak-g-b2,none);backdrop-filter:var(--ak-g-b2,none);\n}\nhtml[data-ak-skin] [class*=\"_centerCol\"]{background:transparent}\n/* The column paints the rail; the sidebar root, one wrapper below it, must not paint the opaque rail token over a translucent pattern. */\nhtml[data-ak-skin] [class*=\"_sidebarCol\"]{--dsw-specific-sidebar-fill:transparent}\n/* The stock bottom fade of the session list paints that token, so the list fades out through a mask instead; the mask suits patterned and frosted rails. */\nhtml[data-ak-skin] [class*=\"_treeBody\"]>[class*=\"_fade\"]{display:none}\nhtml[data-ak-skin] [class*=\"_treeBody\"]>div[class*=\"_list\"]{\n  -webkit-mask-image:linear-gradient(to bottom,#000 calc(100% - 24px),transparent);\n  mask-image:linear-gradient(to bottom,#000 calc(100% - 24px),transparent);\n}\n\n/* Windows caption row: the strip carries the rail's own fill and frost, so the rail, the strip and the native caption overlay read as one surface. */\nhtml[data-ak-skin][data-windows-titlebar] [class*=\"_frame\"]:has(>[class*=\"_sidebarCol\"]){background:transparent}\nhtml[data-ak-skin][data-windows-titlebar] [class*=\"_frame\"]:has(>[class*=\"_sidebarCol\"])::before{\n  background:var(--ak-g-m1);\n  -webkit-backdrop-filter:var(--ak-g-b2,none);backdrop-filter:var(--ak-g-b2,none);\n}\n/* The stage keeps the rounded top-left corner of the stock Windows layout; the rail shows outside the quarter circle. */\nhtml[data-ak-skin][data-windows-titlebar] [class*=\"_centerCol\"]{position:relative}\nhtml[data-ak-skin][data-windows-titlebar] [class*=\"_centerCol\"]::before{\n  content:\"\";\n  position:absolute;top:0;left:0;z-index:1;pointer-events:none;\n  width:var(--dsh-windows-content-radius,16px);height:var(--dsh-windows-content-radius,16px);\n  background:radial-gradient(circle var(--dsh-windows-content-radius,16px) at 100% 100%,transparent calc(var(--dsh-windows-content-radius,16px) - .5px),var(--ak-g-m1) var(--dsh-windows-content-radius,16px));\n}\n\n/* Buttons and rows in the sidebar follow the skin's button/nav tokens. */\nhtml[data-ak-skin] button[class*=\"_newSession\"]{\n  background:var(--ak-bt-bg,var(--ak-g-m3));\n  border:var(--ak-bt-bd,1px solid var(--ak-g-edge));\n  border-radius:var(--ak-bt-r,var(--dsw-radius-md));\n  box-shadow:var(--ak-bt-sh,none);\n  color:var(--ak-bt-fg,var(--dsw-alias-label-primary));\n  transition:transform .16s ease,box-shadow .16s ease,background .16s ease;\n}\nhtml[data-ak-skin] button[class*=\"_newSession\"]:hover{\n  background:var(--ak-bt-hv-bg,var(--ak-g-fill-2));\n  transform:var(--ak-bt-hv-tf,none);\n  box-shadow:var(--ak-bt-hv-sh,var(--ak-bt-sh,none));\n}\nhtml[data-ak-skin] button[class*=\"_newSession\"]:active{\n  transform:var(--ak-bt-ac-tf,none);\n  box-shadow:var(--ak-bt-ac-sh,var(--ak-bt-sh,none));\n}\nhtml[data-ak-skin] [class*=\"_sessionRow\"][class*=\"_selected\"]{\n  background:var(--ak-nav-on-bg,var(--ak-g-fill-2));\n  color:var(--ak-nav-on-fg,var(--dsw-alias-label-primary));\n  box-shadow:var(--ak-nav-on-sh,none);\n}\n\n/* Composer card. */\nhtml[data-ak-skin] [data-slot=\"conversation.composer\"] [class*=\"_card\"]{\n  background:var(--ak-in-bg,var(--ak-g-m2));\n  border:var(--ak-in-bd,1px solid var(--ak-g-edge));\n  border-radius:var(--ak-in-r,var(--dsw-radius-xl));\n  -webkit-backdrop-filter:var(--ak-g-b2,none);backdrop-filter:var(--ak-g-b2,none);\n  box-shadow:var(--ak-in-sh,var(--ak-g-sh1)),var(--ak-g-spec,none);\n}\nhtml[data-ak-skin] [data-slot=\"conversation.composer\"] [class*=\"_card\"]:focus-within{\n  border-color:var(--ak-in-fc-bd,var(--ak-g-blue));\n  box-shadow:var(--ak-in-fc,var(--ak-g-sh2));\n}\n\n/* Dialogs and menus. */\nhtml[data-ak-skin] [role=\"dialog\"]{\n  -webkit-backdrop-filter:var(--ak-g-b3,none);backdrop-filter:var(--ak-g-b3,none);\n  border:var(--ak-pop-bd,1px solid var(--ak-g-edge2));\n  box-shadow:var(--ak-pop-sh,var(--ak-g-sh3));\n}\nhtml[data-ak-skin] [role=\"menu\"],html[data-ak-skin] [role=\"listbox\"]{\n  border:var(--ak-pop-bd,1px solid var(--ak-g-edge2));\n  box-shadow:var(--ak-pop-sh,var(--ak-g-sh3));\n  border-radius:var(--ak-pop-r,var(--dsw-radius-lg));\n}\nhtml[data-ak-skin] [role=\"menuitem\"]:hover,html[data-ak-skin] [role=\"option\"]:hover{\n  background:var(--ak-pop-hv-bg,var(--ak-g-fill-2));\n  color:var(--ak-pop-hv-fg,inherit);\n}\n\n/* Keyboard focus ring. */\nhtml[data-ak-skin] :focus-visible{\n  outline:var(--ak-sk-focus-w,2px) solid var(--ak-sk-focus,var(--ak-g-blue));\n  outline-offset:2px;\n}\n\n/* Contemporary skins use the current composer and panel-navigation markers. */\nhtml:is([data-ak-skin=\"swiss\"],[data-ak-skin=\"dot\"],[data-ak-skin=\"blueprint\"],[data-ak-skin=\"noir\"],[data-ak-skin=\"tactile\"]) button[class*=\"_newSession\"]{\n  font-weight:var(--ak-bt-w,500);\n  letter-spacing:var(--ak-bt-ls,normal);\n  text-transform:var(--ak-bt-tr,none);\n}\nhtml:is([data-ak-skin=\"swiss\"],[data-ak-skin=\"dot\"],[data-ak-skin=\"blueprint\"],[data-ak-skin=\"noir\"],[data-ak-skin=\"tactile\"]) [data-slot=\"conversation.composer\"] [data-composer-card]{\n  background:var(--ak-in-bg);\n  border:var(--ak-in-bd);\n  border-radius:var(--ak-in-r);\n  box-shadow:var(--ak-in-sh);\n  -webkit-backdrop-filter:none;backdrop-filter:none;\n}\nhtml:is([data-ak-skin=\"swiss\"],[data-ak-skin=\"dot\"],[data-ak-skin=\"blueprint\"],[data-ak-skin=\"noir\"],[data-ak-skin=\"tactile\"]) [data-slot=\"conversation.composer\"] [data-composer-card]:focus-within{\n  border-color:var(--ak-in-fc-bd);\n  box-shadow:var(--ak-in-fc);\n}\nhtml:is([data-ak-skin=\"swiss\"],[data-ak-skin=\"dot\"],[data-ak-skin=\"blueprint\"],[data-ak-skin=\"noir\"],[data-ak-skin=\"tactile\"]) [role=\"dialog\"]{\n  background:var(--ak-pop-bg);\n  border-radius:var(--ak-pop-r);\n}\nhtml:is([data-ak-skin=\"swiss\"],[data-ak-skin=\"dot\"],[data-ak-skin=\"blueprint\"],[data-ak-skin=\"noir\"],[data-ak-skin=\"tactile\"]) [role=\"dialog\"] :is(h2,h3){\n  font-family:var(--ak-sk-hd-font,var(--dsw-font-family));\n  font-weight:var(--ak-sk-hd-w,500);\n  letter-spacing:var(--ak-sk-hd-ls,normal);\n}\nhtml:is([data-ak-skin=\"swiss\"],[data-ak-skin=\"dot\"],[data-ak-skin=\"blueprint\"],[data-ak-skin=\"noir\"],[data-ak-skin=\"tactile\"]) :is(button[class*=\"_panelRow\"][aria-current=\"page\"],[data-row-key^=\"session:\"][aria-selected=\"true\"],[role=\"dialog\"] button[class*=\"_navCell\"][aria-current=\"true\"]){\n  background:var(--ak-nav-on-bg);\n  color:var(--ak-nav-on-fg);\n  --dsw-alias-label-primary:var(--ak-nav-on-fg);\n  --dsw-alias-label-secondary:var(--ak-nav-on-fg);\n  --dsw-alias-label-tertiary:var(--ak-nav-on-fg);\n}\n\n/* Swiss: square outline controls, tight headings, and inverse selected rows. */\nhtml[data-ak-skin=\"swiss\"] :is(button[class*=\"_panelRow\"],[data-row-key^=\"session:\"]){\n  border-radius:0;\n  border-bottom:1px solid var(--ak-g-sep);\n}\nhtml[data-ak-skin=\"swiss\"] button[class*=\"_panelRow\"]{font-weight:var(--ak-sk-hd-w);letter-spacing:var(--ak-bt-ls)}\nhtml[data-ak-skin=\"swiss\"] button[class*=\"_newSession\"]:hover{\n  background:var(--ak-inv-bg);color:var(--ak-inv-fg);\n}\nhtml[data-ak-skin=\"swiss\"] [data-slot=\"conversation.composer\"] [data-composer-card]{border-color:var(--ak-g-rim)}\nhtml[data-ak-skin=\"swiss\"] [role=\"menuitem\"]{border-radius:0}\n\n/* Dot Matrix: pill navigation and dotted interior dividers over the dot canvas. */\nhtml[data-ak-skin=\"dot\"] :is(button[class*=\"_panelRow\"],[data-row-key^=\"session:\"]){border-radius:999px}\nhtml[data-ak-skin=\"dot\"] [class*=\"_panelTitle\"]{\n  font-family:var(--ak-g-mono);letter-spacing:var(--ak-sk-lb-ls);text-transform:var(--ak-sk-lb-tr);\n}\nhtml[data-ak-skin=\"dot\"] [role=\"dialog\"] [class*=\"_header\"]{border-bottom:1px dotted var(--ak-g-edge2)}\nhtml[data-ak-skin=\"dot\"] [role=\"menuitem\"]{border-radius:var(--ak-g-r4)}\n\n/* Blueprint: drawing-paper grid, corner registration marks, and dashed rows. */\nhtml[data-ak-skin=\"blueprint\"] :is(button[class*=\"_panelRow\"],[data-row-key^=\"session:\"]){\n  border-radius:0;\n  border-bottom:1px dashed var(--ak-g-sep);\n}\nhtml[data-ak-skin=\"blueprint\"] :is(button[class*=\"_panelRow\"][aria-current=\"page\"],[data-row-key^=\"session:\"][aria-selected=\"true\"]){\n  box-shadow:inset 3px 0 0 var(--ak-ink);\n}\nhtml[data-ak-skin=\"blueprint\"] [class*=\"_panelTitle\"]{\n  font-family:var(--ak-g-mono);letter-spacing:var(--ak-sk-lb-ls);text-transform:var(--ak-sk-lb-tr);\n}\nhtml[data-ak-skin=\"blueprint\"] [data-slot=\"conversation.composer\"] [data-composer-card]{\n  background:\n    linear-gradient(var(--ak-ink-m),var(--ak-ink-m)) left 4px top 7px/7px 1px no-repeat,\n    linear-gradient(var(--ak-ink-m),var(--ak-ink-m)) left 7px top 4px/1px 7px no-repeat,\n    linear-gradient(var(--ak-ink-m),var(--ak-ink-m)) right 4px top 7px/7px 1px no-repeat,\n    linear-gradient(var(--ak-ink-m),var(--ak-ink-m)) right 7px top 4px/1px 7px no-repeat,\n    linear-gradient(var(--ak-ink-m),var(--ak-ink-m)) left 4px bottom 7px/7px 1px no-repeat,\n    linear-gradient(var(--ak-ink-m),var(--ak-ink-m)) left 7px bottom 4px/1px 7px no-repeat,\n    linear-gradient(var(--ak-ink-m),var(--ak-ink-m)) right 4px bottom 7px/7px 1px no-repeat,\n    linear-gradient(var(--ak-ink-m),var(--ak-ink-m)) right 7px bottom 4px/1px 7px no-repeat,\n    var(--ak-in-bg);\n}\nhtml[data-ak-skin=\"blueprint\"] [role=\"dialog\"] [class*=\"_header\"]{border-bottom:1px dashed var(--ak-g-edge2)}\nhtml[data-ak-skin=\"blueprint\"] [role=\"menuitem\"]{border-radius:0}\n\n/* Noir & Brass: warm fine borders, recessed double frames, and serif headings. */\nhtml[data-ak-skin=\"noir\"] :is(button[class*=\"_panelRow\"],[data-row-key^=\"session:\"]){\n  border-radius:0;\n  border-bottom:1px solid var(--ak-g-sep);\n}\nhtml[data-ak-skin=\"noir\"] :is(button[class*=\"_panelRow\"][aria-current=\"page\"],[data-row-key^=\"session:\"][aria-selected=\"true\"]){\n  box-shadow:inset 2px 0 0 var(--ak-brass);\n}\nhtml[data-ak-skin=\"noir\"] button[class*=\"_panelRow\"][aria-current=\"page\"] [class*=\"_panelTitle\"]{color:var(--ak-brass-hi)}\nhtml[data-ak-skin=\"noir\"] [data-slot=\"conversation.composer\"] [data-composer-card]{\n  box-shadow:inset 0 0 0 3px var(--ak-g-m4),inset 0 0 0 4px var(--ak-g-sep);\n}\nhtml[data-ak-skin=\"noir\"] [data-slot=\"conversation.composer\"] [data-composer-card]:focus-within{\n  box-shadow:inset 0 0 0 3px var(--ak-g-m4),inset 0 0 0 4px var(--ak-g-sep),var(--ak-in-fc);\n}\nhtml[data-ak-skin=\"noir\"] [role=\"dialog\"]{\n  box-shadow:inset 0 0 0 4px var(--ak-g-m4),inset 0 0 0 5px var(--ak-g-sep),var(--ak-pop-sh);\n}\nhtml[data-ak-skin=\"noir\"] [class*=\"_panelTitle\"]{letter-spacing:var(--ak-sk-mn-ls);text-transform:var(--ak-sk-mn-tr)}\n\n/* Tactile: raised neutral keys, recessed input, and pressed navigation indicators. */\nhtml[data-ak-skin=\"tactile\"] body{\n  --ak-tactile-nav-sh:inset 0 2px 5px rgba(0,0,0,.28),0 1px 0 rgba(255,255,255,.5);\n  --ak-tactile-title-sh:0 1px 0 rgba(255,255,255,.6);\n}\nhtml[data-ak-skin=\"tactile\"] body[data-ds-dark-theme]{\n  --ak-tactile-nav-sh:inset 0 2px 5px rgba(0,0,0,.6),0 1px 0 rgba(255,255,255,.07);\n  --ak-tactile-title-sh:0 -1px 0 rgba(0,0,0,.5);\n}\nhtml[data-ak-skin=\"tactile\"] button[class*=\"_panelRow\"]{border-radius:var(--ak-g-r3);font-weight:var(--ak-bt-w)}\nhtml[data-ak-skin=\"tactile\"] :is(button[class*=\"_panelRow\"][aria-current=\"page\"],[data-row-key^=\"session:\"][aria-selected=\"true\"]){\n  background:var(--ak-g-m1);\n  box-shadow:var(--ak-tactile-nav-sh);\n}\nhtml[data-ak-skin=\"tactile\"] button[class*=\"_panelRow\"][aria-current=\"page\"] [class*=\"_panelGlyph\"]{\n  color:var(--ak-hl);\n}\nhtml[data-ak-skin=\"tactile\"] [role=\"dialog\"] :is(h2,h3){text-shadow:var(--ak-tactile-title-sh)}\n\n/* Modern styles: the open panel row and the selected session row share the style's selection fill. */\nhtml[data-ak-skin^=\"mdn-\"] :is(button[class*=\"_panelRow\"][aria-current=\"page\"],[data-row-key^=\"session:\"][aria-selected=\"true\"]){\n  background:var(--ak-nav-on-bg);\n  box-shadow:var(--ak-nav-on-sh,none);\n}\n\n/* Float lifts the stage into a rounded card on the gradient canvas; under the Windows caption row the card starts at the row's edge. */\nhtml[data-ak-skin=\"mdn-float\"] [class*=\"_sidebarCol\"]{border-right:0}\nhtml[data-ak-skin=\"mdn-float\"] [class*=\"_centerCol\"]{\n  margin:10px 10px 10px 0;\n  border-radius:var(--ak-sk-stage-r);\n  background:var(--ak-sk-stage-bg);\n  box-shadow:var(--ak-sk-stage-sh);\n}\nhtml[data-ak-skin=\"mdn-float\"][data-windows-titlebar] [class*=\"_centerCol\"]{margin-top:0}\nhtml[data-ak-skin=\"mdn-float\"][data-windows-titlebar] [class*=\"_centerCol\"]::before{display:none}\n";
+
+class TabonKBThemeEngine {
+  static normalizeSkinId(id) {
+    if (!id || typeof id !== "string") return "fresh";
+    if (id === "tw-fresh") return "fresh";
+    if (id === "tw-standard") return "standard";
+    if (TW_SKINS_CATALOG.some(s => s.id === id)) return id;
+    return "fresh";
+  }
+
+  static getSkinById(id) {
+    const norm = TabonKBThemeEngine.normalizeSkinId(id);
+    return TW_SKINS_CATALOG.find(s => s.id === norm) || TW_SKINS_CATALOG[0];
+  }
+
+  static getSkin(id) {
+    return TabonKBThemeEngine.getSkinById(id);
+  }
+
+  static getAllSkins() {
+    return TW_SKINS_CATALOG;
+  }
+
+  static isObsidianDark() {
+    try {
+      if (typeof document !== "undefined" && document.body) {
+        return document.body.classList.contains("theme-dark");
+      }
+    } catch (_) {}
+    return false;
+  }
+
+  static getEffectiveMode(skin, modePref) {
+    let desired = "light";
+    if (modePref === "dark" || modePref === "light") {
+      desired = modePref;
+    } else {
+      desired = TabonKBThemeEngine.isObsidianDark() ? "dark" : "light";
+    }
+    if (skin && Array.isArray(skin.modes) && skin.modes.length > 0) {
+      return skin.modes.includes(desired) ? desired : skin.modes[0];
+    }
+    return desired;
+  }
+
+  static firstColor(val, fallback) {
+    if (!val || typeof val !== "string") return fallback;
+    const m = /#[0-9a-fA-F]{3,8}\b|(?:rgba?|hsla?)\([^)]*\)/.exec(val);
+    return m ? m[0] : fallback;
+  }
+
+  static resolveSkinTokens(skinId, modePref = "auto", wallId = "aurora") {
+    const skin = TabonKBThemeEngine.getSkinById(skinId);
+    const mode = TabonKBThemeEngine.getEffectiveMode(skin, modePref);
+    const baseTokens = (skin.resolved && skin.resolved[mode]) ? Object.assign({}, skin.resolved[mode]) : {};
+
+    if ((skin.id === "glass" || skin.id === "fresh") && wallId && TW_WALLPAPER_GRADIENTS[wallId]) {
+      const wg = TW_WALLPAPER_GRADIENTS[wallId][mode];
+      if (wg && !(skin.id === "fresh" && wallId === "aurora")) {
+        baseTokens["--sk-bg"] = wg;
+      }
+    }
+
+    const solidAccent = TabonKBThemeEngine.firstColor(
+      baseTokens["--bp-bg"] || baseTokens["--g-accent-fill"],
+      baseTokens["--g-blue"] || "#2563EB"
+    );
+    baseTokens["--tw-accent-solid"] = solidAccent;
+
+    // Resolve dark palette counterpart for DSView logic analyzer
+    let darkSkin = skin;
+    if (!skin.modes.includes("dark") && TW_LIGHT_VSC_DARK_PAIR[skin.id]) {
+      darkSkin = TabonKBThemeEngine.getSkinById(TW_LIGHT_VSC_DARK_PAIR[skin.id]);
+    }
+    const darkTokens = (darkSkin.resolved && (darkSkin.resolved.dark || darkSkin.resolved[darkSkin.modes[0]])) || baseTokens;
+
+    const isFloat = Boolean(baseTokens["--sk-stage-bg"] || baseTokens["--fr-bg"]);
+
+    return {
+      skin,
+      mode,
+      wallId: wallId || "aurora",
+      tokens: baseTokens,
+      darkTokens,
+      solidAccent,
+      isFloat
+    };
+  }
+
+  static applyTokensToElement(el, resolvedOrSkinId, modePref = "auto", wallId = "aurora", force = false) {
+    if (!el || !resolvedOrSkinId) return;
+    const resolved = (typeof resolvedOrSkinId === "string")
+      ? TabonKBThemeEngine.resolveSkinTokens(resolvedOrSkinId, modePref, wallId)
+      : resolvedOrSkinId;
+    if (!resolved || !resolved.tokens) return;
+    const { skin, mode, tokens, solidAccent, isFloat } = resolved;
+
+    const sig = `${skin.id}|${mode}|${resolved.wallId || "aurora"}`;
+    if (!force && el._twAppliedSig === sig) {
+      return;
+    }
+    el._twAppliedSig = sig;
+
+    const prevKeys = el._twAppliedTokenKeys || [];
+    for (const k of prevKeys) {
+      if (!(k in tokens)) {
+        el.style.removeProperty(k);
+      }
+    }
+
+    const appliedKeys = [];
+    for (const [k, v] of Object.entries(tokens)) {
+      el.style.setProperty(k, v);
+      appliedKeys.push(k);
+    }
+
+    // Bridge core Obsidian CSS variables onto the container so legacy selectors harmonize automatically
+    const bridgeVars = {
+      "--background-primary": tokens["--g-m2"] || "#ffffff",
+      "--background-primary-alt": tokens["--g-m3"] || tokens["--g-m2"] || "#f8fafc",
+      "--background-secondary": tokens["--g-m1"] || "#f1f5f9",
+      "--background-secondary-alt": tokens["--g-m4"] || tokens["--g-m1"] || "#f1f5f9",
+      "--background-modifier-border": tokens["--g-edge2"] || tokens["--g-edge"] || "rgba(148,163,184,0.25)",
+      "--background-modifier-hover": tokens["--g-fill"] || "rgba(148,163,184,0.08)",
+      "--text-normal": tokens["--g-label"] || "#0f172a",
+      "--text-muted": tokens["--g-label-2"] || "#475569",
+      "--text-faint": tokens["--g-label-3"] || "#64748b",
+      "--interactive-accent": solidAccent,
+      "--interactive-accent-hover": tokens["--g-blue"] || solidAccent
+    };
+    for (const [bk, bv] of Object.entries(bridgeVars)) {
+      el.style.setProperty(bk, bv);
+      appliedKeys.push(bk);
+    }
+
+    el._twAppliedTokenKeys = appliedKeys;
+    if (el.dataset) {
+      el.dataset.twSkin = skin.id;
+      el.dataset.twGroup = skin.group;
+      el.dataset.twMode = mode;
+      el.dataset.twStageFloat = isFloat ? "true" : "false";
+    }
+
+    if (el.classList) {
+      // Strip previously applied skin classes. Keep component-owned classes that merely share
+      // the `tw-theme-` prefix (e.g. the theme-library popover's own `tw-theme-library-popover`),
+      // otherwise applying tokens deletes the host element's own hook class and its CSS can never match.
+      const RESERVED_TW_THEME_CLASSES = ["tw-theme-library-popover"];
+      Array.from(el.classList).forEach(cls => {
+        if (cls.startsWith("tw-theme-") && !RESERVED_TW_THEME_CLASSES.includes(cls)) el.classList.remove(cls);
+      });
+      el.classList.add("tw-theme-bridged", `tw-theme-${skin.id}`);
+      if (skin.id === "fresh") {
+        el.classList.add("tw-theme-fresh");
+      } else if (skin.id === "standard") {
+        el.classList.add("tw-theme-standard");
+      }
+    }
+  }
+
+  static applyToLogicRoot(laRootEl, resolved, followMode = "dark") {
+    if (!laRootEl || !resolved) return;
+    if (followMode === false || followMode === "native") {
+      laRootEl.removeAttribute("data-la-theme");
+      const keys = laRootEl._twLaKeys || [];
+      for (const k of keys) laRootEl.style.removeProperty(k);
+      laRootEl._twLaKeys = [];
+      return;
+    }
+
+    const srcTokens = (followMode === "current") ? resolved.tokens : (resolved.darkTokens || resolved.tokens);
+    const canvasBg = TabonKBThemeEngine.firstColor(srcTokens["--g-canvas"], "#1e1e2e");
+    const panelBg = TabonKBThemeEngine.firstColor(srcTokens["--g-m2"], canvasBg);
+    const raisedBg = TabonKBThemeEngine.firstColor(srcTokens["--g-m3"], panelBg);
+    const borderCol = TabonKBThemeEngine.firstColor(srcTokens["--g-sep"] || srcTokens["--g-edge2"], "#313244");
+    const fgCol = TabonKBThemeEngine.firstColor(srcTokens["--g-label"], "#cdd6f4");
+    const muteCol = TabonKBThemeEngine.firstColor(srcTokens["--g-label-2"], "#a6adc8");
+    const faintCol = TabonKBThemeEngine.firstColor(srcTokens["--g-label-3"], "#7f849c");
+    const accCol = TabonKBThemeEngine.firstColor(srcTokens["--g-blue"] || srcTokens["--bp-bg"], "#89b4fa");
+    const amberCol = TabonKBThemeEngine.firstColor(srcTokens["--g-amber"], "#eeb211");
+
+    const laVars = {
+      "--la-back": canvasBg,
+      "--la-panel": panelBg,
+      "--la-raised": raisedBg,
+      "--la-fore": fgCol,
+      "--la-fore-dim": faintCol,
+      "--la-sel": srcTokens["--sk-sel"] || "rgba(56, 189, 248, 0.25)",
+      "--la-meas-act": amberCol,
+      "--la-meas-box": accCol,
+      "--background-primary": canvasBg,
+      "--background-secondary": panelBg,
+      "--background-modifier-hover": srcTokens["--g-fill"] || "rgba(255,255,255,0.08)",
+      "--background-modifier-border": borderCol,
+      "--background-modifier-border-focus": accCol,
+      "--text-normal": fgCol,
+      "--text-muted": muteCol,
+      "--text-faint": faintCol,
+      "--interactive-normal": raisedBg,
+      "--interactive-hover": panelBg,
+      "--interactive-accent": accCol,
+      "--text-color": fgCol
+    };
+
+    const applied = [];
+    for (const [k, v] of Object.entries(laVars)) {
+      laRootEl.style.setProperty(k, v);
+      applied.push(k);
+    }
+    laRootEl._twLaKeys = applied;
+    laRootEl.dataset.laTheme = resolved.skin.id;
+  }
+
+  static buildDshThemePayload(plugin, previewSkinId = null) {
+    const settings = (plugin && plugin.settings) || {};
+    const skinId = previewSkinId || settings.workbenchTheme || "fresh";
+    const modePref = settings.workbenchThemeMode || "auto";
+    const wallId = settings.workbenchWallpaper || "aurora";
+    const resolved = TabonKBThemeEngine.resolveSkinTokens(skinId, modePref, wallId);
+    const t = resolved.tokens;
+    const mode = resolved.mode;
+    const dshSkinId = (resolved.skin.id === "fresh") ? "glass" : (resolved.skin.id === "standard" ? "mdn-zinc" : resolved.skin.id);
+
+    const get = (name, fb) => (t[name] !== undefined ? t[name] : fb);
+    const rebase = (val) => String(val || "").replace(/var\(\s*(--[\w-]+)/g, (ref, name) =>
+      (name in t) ? `var(--ak-${name.slice(2)}` : ref
+    );
+    const px = (val, fb) => {
+      const p = parseFloat(val || "");
+      return Number.isFinite(p) ? p : fb;
+    };
+
+    const label = get("--g-label", mode === "dark" ? "#f1f5f9" : "#1d1d1f");
+    const label2 = get("--g-label-2", label);
+    const label3 = get("--g-label-3", label2);
+    const accent = resolved.solidAccent || "#2563eb";
+    const onAccent = get("--bp-fg", get("--sk-on-accent", "#ffffff"));
+    const fill = get("--g-fill", "rgba(118,118,128,0.12)");
+    const fill2 = get("--g-fill-2", "rgba(118,118,128,0.20)");
+    const m1 = get("--g-m1", "transparent");
+    const m2 = get("--g-m2", mode === "dark" ? "#1e293b" : "#ffffff");
+    const m3 = get("--g-m3", m2);
+    const pop = get("--pop-bg", get("--g-m4", m3));
+    const red = get("--g-red", "#ef4444");
+    const green = get("--g-green", "#10b981");
+    const amber = get("--g-amber", "#f59e0b");
+    const canvas = get("--g-canvas", mode === "dark" ? "#0f172a" : "#f8fafc");
+    const edge = get("--g-edge", "rgba(148,163,184,0.18)");
+    const edge2 = get("--g-edge2", "rgba(148,163,184,0.28)");
+    const sep = get("--g-sep", edge);
+    const idle = get("--sw-off", fill2);
+    const raised = get("--in-bg", m3);
+    const hv = get("--pop-hv-bg", fill2);
+    const r = [1, 2, 3, 4, 5].map(i => px(t[`--g-r${i}`], 8 + i * 2));
+    const mix = (col, pct, base) => `color-mix(in srgb, ${col} ${pct}%, ${base})`;
+    const tint = (col, pct) => mix(col, pct, "transparent");
+    const isDark = mode === "dark";
+    const toast = isDark ? pop : mix(label, 90, canvas);
+
+    const dswTokens = {
+      "--dsw-alias-bg-base": "transparent",
+      "--dsw-alias-bg-layer-1": m2,
+      "--dsw-alias-bg-layer-2": m3,
+      "--dsw-alias-bg-layer-3": m3,
+      "--dsw-alias-bg-overlay": pop,
+      "--dsw-alias-bg-module-platform": m1,
+      "--dsw-alias-bg-multi-select": m1,
+      "--dsw-alias-bg-skeleton": fill,
+      "--dsw-alias-border-l1": sep,
+      "--dsw-alias-border-l2": edge,
+      "--dsw-alias-border-l3": edge2,
+      "--dsw-alias-border-l4": edge2,
+      "--dsw-alias-brand-primary": accent,
+      "--dsw-alias-brand-primary-invert": onAccent,
+      "--dsw-alias-brand-text": label,
+      "--dsw-alias-button-primary-fill": accent,
+      "--dsw-alias-button-primary-hover": mix(accent, 86, onAccent),
+      "--dsw-alias-button-primary-dimmed": fill,
+      "--dsw-alias-button-info-fill": accent,
+      "--dsw-alias-button-info-hover": mix(accent, 86, onAccent),
+      "--dsw-alias-button-contrast-fill": label2,
+      "--dsw-alias-button-elevated-fill": get("--bt-bg", m3),
+      "--dsw-alias-button-floating-fill": get("--bt-bg", m3),
+      "--dsw-alias-button-floating-hover": get("--bt-hv-bg", fill2),
+      "--dsw-alias-button-ghost-active-fill": fill2,
+      "--dsw-alias-button-ghost-active-hover": fill2,
+      "--dsw-alias-button-ghost-active-border": edge2,
+      "--dsw-alias-interactive-bg-hover": fill,
+      "--dsw-alias-interactive-bg-active": fill2,
+      "--dsw-alias-interactive-bg-hover-accent": get("--sk-sel", fill2),
+      "--dsw-alias-label-primary": label,
+      "--dsw-alias-label-secondary": label2,
+      "--dsw-alias-label-tertiary": label3,
+      "--dsw-alias-label-caption": label3,
+      "--dsw-alias-label-dimmed": label3,
+      "--dsw-alias-label-primary-bluish": label,
+      "--dsw-alias-label-primary-dimmed": label2,
+      "--dsw-alias-label-primary-foreground": onAccent,
+      "--dsw-alias-link": get("--g-blue", accent),
+      "--dsw-alias-menu-icon": label2,
+      "--dsw-alias-menu-group-header-fill": pop,
+      "--dsw-alias-markdown-code-block": fill,
+      "--dsw-alias-markdown-code-block-banner": fill2,
+      "--dsw-alias-markdown-inline-code": fill2,
+      "--dsw-alias-markdown-tag": fill,
+      "--dsw-alias-markdown-placeholder": fill,
+      "--dsw-alias-markdown-code-segment-selected": fill2,
+      "--dsw-alias-markdown-code-segment-unselected": fill,
+      "--dsw-alias-scrollbar-bg-l1": get("--sk-sb", fill2),
+      "--dsw-alias-scrollbar-bg-l2": get("--sk-sb", fill2),
+      "--dsw-alias-scrollbar-hover-l1": get("--sk-sb-hv", fill2),
+      "--dsw-alias-scrollbar-hover-l2": get("--sk-sb-hv", fill2),
+      "--dsw-alias-state-error-primary": red,
+      "--dsw-alias-state-error-secondary": red,
+      "--dsw-alias-state-success-primary": green,
+      "--dsw-alias-state-success-secondary": green,
+      "--dsw-alias-state-success-tertiary": tint(green, 16),
+      "--dsw-alias-state-warn-primary": amber,
+      "--dsw-alias-state-warn-secondary": amber,
+      "--dsw-alias-state-warn-label": amber,
+      "--dsw-alias-state-warn-tertiary": tint(amber, 16),
+      "--dsw-alias-state-business-primary": accent,
+      "--dsw-alias-state-business-tertiary": get("--sk-tint", tint(accent, 14)),
+      "--dsw-alias-interactive-bg-hover-danger": tint(red, 14),
+      "--dsw-specific-sidebar-fill": (get("--g-b2", "none") !== "none") ? "transparent" : m1,
+      "--dsw-specific-sidebar-nav-item-hover": fill,
+      "--dsw-specific-sidebar-nav-item-active": hv,
+      "--dsw-specific-sidebar-nav-item-active-accent": get("--sk-tint", fill2),
+      "--dsw-specific-bubble": get("--sk-tint", fill),
+      "--dsw-specific-bubble-highlight": get("--sk-sel", fill2),
+      "--dsw-specific-input-major": raised,
+      "--dsw-specific-selector": fill,
+      "--dsw-specific-tip": fill,
+      "--dsw-specific-menu": pop,
+      "--dsw-menu-surface-fill": pop,
+      "--dsw-menu-backdrop-filter": get("--g-b4", "blur(40px) saturate(150%)"),
+      "--dsw-font-family": get("--g-font", "system-ui, sans-serif"),
+      "--ds-font-family-code": get("--g-mono", "ui-monospace, monospace"),
+      "--dsw-radius-xs": `${Math.round(r[0] / 2)}px`,
+      "--dsw-radius-sm": `${r[0]}px`,
+      "--dsw-radius-md": `${r[2]}px`,
+      "--dsw-radius-lg": `${r[3]}px`,
+      "--dsw-radius-xl": `${r[4]}px`,
+      "--dsw-radius-panel": `${Math.round(r[4] * 1.15)}px`,
+      "--dsw-shadow-lv1": get("--g-sh1", "none"),
+      "--dsw-shadow-lv1-blur": get("--g-sh1", "none"),
+      "--dsw-shadow-lv2": get("--g-sh2", "none"),
+      "--dsw-shadow-lv3": get("--g-sh3", "none"),
+      "--dsw-alias-toast-bg": toast,
+      "--dsw-alias-toast-label": isDark ? label : "#fff",
+      "--dsw-alias-tooltip-bg": toast,
+      "--dsw-alias-label-primary-inverted": isDark ? canvas : "#fff",
+      "--dsw-alias-switch-thumb": isDark ? label : "#fff",
+      "--dsw-alias-state-idle-primary": idle,
+      "--dsw-alias-interactive-bg-hover-solid": mix(label, 8, canvas),
+      "--dsw-alias-markdown-citation": fill2,
+      "--dsw-alias-bg-document-preview": m2,
+      "--dsw-alias-bg-document-selection": tint(accent, 40),
+      "--dsw-alias-label-document-preview": label2,
+      "--dsw-alias-brand-primary-new-colorprimary-new-color": accent,
+      "--dsw-alias-border-l2-darkmode-thin": edge,
+      "--dsw-alias-label-deep-diving": mix(accent, 78, label),
+      "--dsw-alias-label-deep-diving-shimmer": mix(accent, 40, label),
+      "--dsw-alias-label-shimmer": tint(label, 34),
+      "--dsw-alias-button-tool-bar-fill": tint(pop, 84),
+      "--dsw-alias-button-tool-bar-fill-invisible": tint(pop, 58),
+      "--dsw-alias-button-tool-bar-hover": tint(pop, 94),
+      "--dsw-alias-code-diff-added": tint(green, 14),
+      "--dsw-alias-code-diff-deleted": tint(red, 14),
+      "--dsw-alias-file-diff-added-bg": mix(green, 16, m2),
+      "--dsw-alias-file-diff-added-gutter": mix(green, 10, m2),
+      "--dsw-alias-file-diff-added-marker": green,
+      "--dsw-alias-file-diff-deleted-bg": mix(red, 16, m2),
+      "--dsw-alias-file-diff-deleted-gutter": mix(red, 10, m2),
+      "--dsw-alias-file-diff-deleted-marker": red,
+      "--dsw-specific-login-input": raised
+    };
+
+    const decls = [];
+    for (const [k, v] of Object.entries(t)) {
+      if (k.startsWith("--")) {
+        decls.push(`--ak-${k.slice(2)}:${rebase(v)} !important`);
+      }
+    }
+    decls.push(`--ak-accent:${accent} !important`);
+    decls.push(`--ak-on-accent:${rebase(onAccent)} !important`);
+    for (const [k, v] of Object.entries(dswTokens)) {
+      decls.push(`${k}:${rebase(v)} !important`);
+    }
+
+    const bgImg = rebase(t["--sk-bg"] || "none");
+    const bgSize = t["--sk-bg-size"] || "100% 100%";
+    const bgPos = t["--sk-bg-pos"] || "0 0";
+    const bgRep = t["--sk-bg-rep"] || "no-repeat";
+    const fx = t["--sk-fx"];
+    const fxRule = (fx && fx !== "none")
+      ? `html[data-ak-skin] body::before{content:"";position:fixed;inset:0;z-index:2147483000;pointer-events:none;background-image:${rebase(fx)};opacity:${t["--sk-fx-o"] || ".03"};mix-blend-mode:overlay}`
+      : "";
+
+    const extraHarmonyCss = `
+html, html[data-ak-skin], body, body[data-theme], #root {
+  ${decls.join(";")};
+  color-scheme: ${mode} !important;
+  color: var(--dsw-alias-label-primary) !important;
+}
+html[data-ak-skin] {
+  background-color: ${canvas} !important;
+  background-image: ${bgImg} !important;
+  background-size: ${bgSize} !important;
+  background-position: ${bgPos} !important;
+  background-repeat: ${bgRep} !important;
+  background-attachment: fixed !important;
+}
+html[data-ak-skin] body,
+html[data-ak-skin] #root,
+html[data-ak-skin] [data-slot="root"] > div,
+html[data-ak-skin] [class*="_centerCol"],
+html[data-ak-skin] [class*="_frame"],
+html[data-ak-skin] [class*="ChatView"],
+html[data-ak-skin] [class*="wSkVaW_root"],
+html[data-ak-skin] [class*="wSkVaW_body"],
+html[data-ak-skin] [class*="wSkVaW_viewArea"],
+html[data-ak-skin] [class*="wSkVaW_scrollBody"] {
+  background: transparent !important;
+  background-color: transparent !important;
+}
+${fxRule}
+`;
+
+    return {
+      type: "tabonkb-dsh-apply-theme",
+      skinId: dshSkinId,
+      rawSkinId: resolved.skin.id,
+      mode,
+      wallId: resolved.wallId || "aurora",
+      css: `${TW_DSH_STRUCTURAL_CSS}\n${extraHarmonyCss}`
+    };
+  }
+
+  static syncDshSkinStorage(skinId, wallId = "aurora", plugin = null, previewSkinId = null) {
+    try {
+      const payload = TabonKBThemeEngine.buildDshThemePayload(plugin, previewSkinId || skinId);
+      const dshSkinId = payload.skinId;
+      if (typeof localStorage !== "undefined") {
+        localStorage.setItem("dt.skin", dshSkinId);
+        localStorage.removeItem("dsh.antutu.off");
+        localStorage.setItem("dt.wall", wallId || "aurora");
+      }
+
+      if (typeof document !== "undefined") {
+        const iframes = document.querySelectorAll("iframe.tw-dsh-studio-iframe");
+        iframes.forEach(ifr => {
+          try {
+            if (ifr.contentWindow) {
+              ifr.contentWindow.postMessage(payload, "*");
+            }
+          } catch (_) {}
+        });
+      }
+    } catch (_) {}
+  }
+
+  static applyGlobalTheme(plugin, previewSkinId = null) {
+    if (TabonKBThemeEngine._isApplying) return null;
+    TabonKBThemeEngine._isApplying = true;
+    try {
+      const settings = (plugin && plugin.settings) || {};
+      const skinId = previewSkinId || settings.workbenchTheme || "fresh";
+      const modePref = settings.workbenchThemeMode || "auto";
+      const wallId = settings.workbenchWallpaper || "aurora";
+      const dsviewFollow = settings.dsviewFollowTheme !== false ? (settings.dsviewThemeMode || "dark") : "native";
+
+      const resolved = TabonKBThemeEngine.resolveSkinTokens(skinId, modePref, wallId);
+
+      // 1. Update body dataset only if changed (NEVER loop 60 style properties on document.body to avoid triggering Obsidian css-change MutationObserver loops)
+      if (typeof document !== "undefined" && document.body) {
+        const isFresh = resolved.skin.id === "fresh";
+        if (document.body.classList.contains("tw-theme-fresh-active") !== isFresh) {
+          document.body.classList.toggle("tw-theme-fresh-active", isFresh);
+        }
+        if (document.body.dataset.twActiveSkin !== resolved.skin.id) {
+          document.body.dataset.twActiveSkin = resolved.skin.id;
+        }
+        if (document.body.dataset.twActiveMode !== resolved.mode) {
+          document.body.dataset.twActiveMode = resolved.mode;
+        }
+      }
+
+      // 2. Apply to all workbench containers & floating popovers
+      if (typeof document !== "undefined") {
+        const containers = document.querySelectorAll(".tabonkb-workbench-container");
+        containers.forEach(c => TabonKBThemeEngine.applyTokensToElement(c, resolved));
+
+        const popovers = document.querySelectorAll("#twThemeLibraryPopover, .tw-tools-switch-popover, .tw-la-popover");
+        popovers.forEach(p => TabonKBThemeEngine.applyTokensToElement(p, resolved, "auto", "aurora", true));
+
+        // Update top-bar theme label & dot if present
+        document.querySelectorAll(".tw-top-theme-label, .tw-top-theme-name").forEach(lbl => {
+          lbl.textContent = resolved.skin.name.split(" ")[0];
+        });
+        document.querySelectorAll(".tw-top-theme-dot").forEach(dot => {
+          dot.style.background = (resolved.skin.swatch && resolved.skin.swatch[0]) || resolved.solidAccent;
+        });
+
+        // 3. Apply to DSView Logic Analyzer roots (.tw-la-root)
+        document.querySelectorAll(".tw-la-root").forEach(laEl => {
+          TabonKBThemeEngine.applyToLogicRoot(laEl, resolved, dsviewFollow);
+        });
+      }
+
+      // 4. Refresh active Workbench View charts & graphs so SVG/Canvas pick up new tokens immediately
+      try {
+        const app = (plugin && plugin.app) || (typeof window !== "undefined" ? window.app : null);
+        if (app && app.workspace && typeof app.workspace.getLeavesOfType === "function") {
+          const leaves = app.workspace.getLeavesOfType("tabonkb-workbench-view") || [];
+          leaves.forEach(leaf => {
+            const v = leaf && leaf.view;
+            if (!v) return;
+            if (v.homeTrendCardEl && typeof v.updateHomeTrendCard === "function") {
+              v.updateHomeTrendCard();
+            }
+            if (v.graphCanvas && typeof v.graphCanvas.draw === "function") {
+              if (typeof v.graphCanvas.syncWorkbenchThemeColors === "function") {
+                v.graphCanvas.syncWorkbenchThemeColors(true);
+              }
+              v.graphCanvas.draw();
+            }
+            if (v.weknoraManage && v.weknoraManage.graphView && v.weknoraManage.graphView.engine) {
+              const eng = v.weknoraManage.graphView.engine;
+              if (typeof eng.syncWorkbenchThemeColors === "function") {
+                eng.syncWorkbenchThemeColors(true);
+              }
+              if (typeof eng.render === "function") eng.render();
+            }
+            if (v.toolsView && v.toolsView.activeView) {
+              const av = v.toolsView.activeView;
+              if (av.waveView) {
+                if (typeof av.waveView.syncThemeColors === "function") av.waveView.syncThemeColors(true);
+                av.waveView.requestRedraw();
+              }
+              if (av.powerzPanel && typeof av.powerzPanel.refreshTheme === "function") {
+                av.powerzPanel.refreshTheme();
+              }
+            }
+          });
+        }
+      } catch (_) {}
+
+      // 5. Sync DSH iframe & localStorage
+      TabonKBThemeEngine.syncDshSkinStorage(resolved.skin.id, resolved.wallId, plugin, previewSkinId);
+
+      return resolved;
+    } finally {
+      TabonKBThemeEngine._isApplying = false;
+    }
+  }
+
+  static closeThemeLibraryPopover(wasKept = false) {
+    if (typeof document === "undefined") return;
+    const existing = document.getElementById("twThemeLibraryPopover");
+    if (existing) {
+      if (typeof existing._twClose === "function") existing._twClose(wasKept);
+      else existing.remove();
+    }
+  }
+
+  static openThemeLibraryPopover(anchorEl, options = {}) {
+    if (typeof document === "undefined" || !anchorEl) return;
+    const existing = document.getElementById("twThemeLibraryPopover");
+    if (existing) {
+      const sameAnchor = existing._twAnchor === anchorEl;
+      if (existing._twClose) existing._twClose(false);
+      else existing.remove();
+      if (sameAnchor) return;
+    }
+
+    const isPluginObj = options && (options.settings || options.app || typeof options.saveSettings === "function") && !options.plugin;
+    if (isPluginObj) options = { plugin: options };
+    const plugin = options.plugin || null;
+    const settings = (plugin && plugin.settings) || {};
+    const savedSkinId = TabonKBThemeEngine.normalizeSkinId(settings.workbenchTheme || "fresh");
+    let currentPickedId = savedSkinId;
+    let kept = false;
+    let isClosed = false;
+
+    const pop = document.createElement("div");
+    pop.id = "twThemeLibraryPopover";
+    pop.className = "tw-theme-library-popover";
+    pop._twAnchor = anchorEl;
+
+    // Apply current theme tokens directly to the popover so it is styled without polluting document.body
+    const initResolved = TabonKBThemeEngine.resolveSkinTokens(savedSkinId, settings.workbenchThemeMode || "auto", settings.workbenchWallpaper || "aurora");
+    TabonKBThemeEngine.applyTokensToElement(pop, initResolved, "auto", "aurora", true);
+
+    const groups = [
+      { key: "workbench", title: "工作台原生基准 (2)" },
+      { key: "modern", title: "Modern 现代风格 (6)" },
+      { key: "classic", title: "Classic 经典风格 (6)" },
+      { key: "studio", title: "Studio 当代工作室 (5)" },
+      { key: "dash", title: "Dash 行业仪表盘 (9)" },
+      { key: "vscode", title: "VS Code 热门配色 (16)" }
+    ];
+
+    pop.innerHTML = `
+      <div class="tw-tlib-top">
+        <div class="tw-tlib-search-row">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          <input type="search" class="tw-tlib-search-input" placeholder="搜索 44 套主题 (如 毛玻璃 / 蓝图 / Mocha / 锌灰)..." />
+          <kbd class="tw-tlib-esc-kbd" title="按 Esc 恢复并关闭">Esc</kbd>
+        </div>
+        <div class="tw-tlib-controls-row">
+          <div class="tw-tlib-mode-seg">
+            <button type="button" data-mode="auto" class="tw-tlib-seg-btn ${(settings.workbenchThemeMode || "auto") === "auto" ? "active" : ""}">跟随系统</button>
+            <button type="button" data-mode="light" class="tw-tlib-seg-btn ${settings.workbenchThemeMode === "light" ? "active" : ""}">☀ 浅色</button>
+            <button type="button" data-mode="dark" class="tw-tlib-seg-btn ${settings.workbenchThemeMode === "dark" ? "active" : ""}">🌙 深色</button>
+          </div>
+          <div class="tw-tlib-wall-seg" title="液态玻璃与莫兰迪壁纸切换">
+            <button type="button" data-wall="aurora" class="tw-tlib-wall-btn ${(settings.workbenchWallpaper || "aurora") === "aurora" ? "active" : ""}">极光</button>
+            <button type="button" data-wall="bay" class="tw-tlib-wall-btn ${settings.workbenchWallpaper === "bay" ? "active" : ""}">海湾</button>
+            <button type="button" data-wall="sunset" class="tw-tlib-wall-btn ${settings.workbenchWallpaper === "sunset" ? "active" : ""}">暮色</button>
+            <button type="button" data-wall="graphite" class="tw-tlib-wall-btn ${settings.workbenchWallpaper === "graphite" ? "active" : ""}">石墨</button>
+          </div>
+        </div>
+      </div>
+      <div class="tw-tlib-list"></div>
+      <div class="tw-tlib-foot">
+        <span>悬停实时预览 · 点击即选即存</span>
+        <span>共 44 套主题</span>
+      </div>
+    `;
+
+    const listEl = pop.querySelector(".tw-tlib-list");
+    const searchInput = pop.querySelector(".tw-tlib-search-input");
+
+    const renderRows = (query = "") => {
+      const q = query.trim().toLowerCase();
+      let html = "";
+      for (const g of groups) {
+        const matched = TW_SKINS_CATALOG.filter(sk => sk.group === g.key && (
+          !q ||
+          sk.name.toLowerCase().includes(q) ||
+          sk.en.toLowerCase().includes(q) ||
+          sk.id.toLowerCase().includes(q) ||
+          (sk.traits || []).some(t => t.toLowerCase().includes(q))
+        ));
+        if (matched.length === 0) continue;
+        html += `<div class="tw-tlib-section">
+          <div class="tw-tlib-sec-title">${g.title}</div>
+          ${matched.map(sk => {
+            const isSel = sk.id === currentPickedId;
+            const modeTag = sk.modes.length > 1 ? "浅/深" : (sk.modes[0] === "dark" ? "深色" : "浅色");
+            const swatches = (sk.swatch || []).map(c => `<i style="background:${c}"></i>`).join("");
+            return `<button type="button" class="tw-tlib-item ${isSel ? "active" : ""}" data-skin="${sk.id}">
+              <span class="tw-tlib-swatch">${swatches}</span>
+              <span class="tw-tlib-name">${sk.name}</span>
+              <span class="tw-tlib-en">${sk.en}</span>
+              <span class="tw-tlib-tag">${modeTag}</span>
+              <span class="tw-tlib-check">${isSel ? "✓" : ""}</span>
+            </button>`;
+          }).join("")}
+        </div>`;
+      }
+      if (!html) {
+        html = `<div class="tw-tlib-empty">未找到匹配的主题</div>`;
+      }
+      listEl.innerHTML = html;
+
+      listEl.querySelectorAll(".tw-tlib-item").forEach(btn => {
+        const sid = btn.dataset.skin;
+        btn.onmouseenter = () => {
+          TabonKBThemeEngine.applyGlobalTheme(plugin, sid);
+        };
+        btn.onclick = async (e) => {
+          e.stopPropagation();
+          kept = true;
+          currentPickedId = sid;
+          if (plugin && plugin.settings) {
+            plugin.settings.workbenchTheme = sid;
+            if (typeof plugin.saveSettings === "function") {
+              await plugin.saveSettings({ themeOnly: true });
+            }
+          }
+          TabonKBThemeEngine.applyGlobalTheme(plugin, null);
+          if (typeof options.onPick === "function") options.onPick(sid);
+          const skObj = TabonKBThemeEngine.getSkinById(sid);
+          try {
+            const NoticeCls = typeof Notice !== "undefined" ? Notice : (window.Notice || null);
+            if (NoticeCls) new NoticeCls(`✓ 已切换工作台主题：${skObj.name}`, 1800);
+          } catch (_) {}
+          closePopover(true);
+        };
+      });
+    };
+
+    renderRows("");
+
+    searchInput.oninput = () => renderRows(searchInput.value);
+    searchInput.onkeydown = (e) => {
+      if (e.key === "Enter") {
+        const firstBtn = listEl.querySelector(".tw-tlib-item");
+        if (firstBtn) firstBtn.click();
+      }
+    };
+
+    pop.querySelectorAll(".tw-tlib-seg-btn").forEach(btn => {
+      btn.onclick = async (e) => {
+        e.stopPropagation();
+        const m = btn.dataset.mode;
+        pop.querySelectorAll(".tw-tlib-seg-btn").forEach(b => b.classList.toggle("active", b === btn));
+        if (plugin && plugin.settings) {
+          plugin.settings.workbenchThemeMode = m;
+          if (typeof plugin.saveSettings === "function") await plugin.saveSettings({ themeOnly: true });
+        }
+        TabonKBThemeEngine.applyGlobalTheme(plugin, null);
+        if (typeof options.onModeChange === "function") options.onModeChange(m);
+      };
+    });
+
+    pop.querySelectorAll(".tw-tlib-wall-btn").forEach(btn => {
+      btn.onclick = async (e) => {
+        e.stopPropagation();
+        const w = btn.dataset.wall;
+        pop.querySelectorAll(".tw-tlib-wall-btn").forEach(b => b.classList.toggle("active", b === btn));
+        if (plugin && plugin.settings) {
+          plugin.settings.workbenchWallpaper = w;
+          if (typeof plugin.saveSettings === "function") await plugin.saveSettings({ themeOnly: true });
+        }
+        TabonKBThemeEngine.applyGlobalTheme(plugin, null);
+        if (typeof options.onWallChange === "function") options.onWallChange(w);
+      };
+    });
+
+    document.body.appendChild(pop);
+
+    // Position popover with viewport boundary detection (UI_DESIGN_SPEC.md)
+    const rect = anchorEl.getBoundingClientRect();
+    const popW = 370;
+    const popH = 440;
+    let left = rect.right - popW;
+    if (rect.left < 100) {
+      left = Math.max(8, rect.right - 6);
+      const bottomOffset = Math.max(12, window.innerHeight - rect.bottom);
+      pop.style.left = `${left}px`;
+      pop.style.bottom = `${bottomOffset}px`;
+      pop.style.top = "auto";
+    } else {
+      if (left < 8) left = 8;
+      if (left + popW > window.innerWidth - 8) left = window.innerWidth - popW - 8;
+      let top = rect.bottom + 6;
+      if (top + popH > window.innerHeight - 12 && rect.top > popH) {
+        top = rect.top - popH - 6;
+      }
+      pop.style.left = `${left}px`;
+      pop.style.top = `${Math.max(8, top)}px`;
+    }
+
+    const onDocDown = (e) => {
+      if (!pop.contains(e.target) && !anchorEl.contains(e.target)) {
+        closePopover(false);
+      }
+    };
+    const onKeyDown = (e) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        closePopover(false);
+      }
+    };
+
+    let bindTimer = null;
+    function closePopover(wasKept) {
+      if (isClosed) return;
+      isClosed = true;
+      if (bindTimer) clearTimeout(bindTimer);
+      document.removeEventListener("pointerdown", onDocDown, true);
+      document.removeEventListener("keydown", onKeyDown, true);
+      if (pop.parentNode) pop.parentNode.removeChild(pop);
+      if (!wasKept && !kept) {
+        TabonKBThemeEngine.applyGlobalTheme(plugin, null);
+      }
+    }
+
+    pop._twClose = closePopover;
+    pop.querySelector(".tw-tlib-esc-kbd").onclick = () => closePopover(false);
+
+    bindTimer = setTimeout(() => {
+      if (isClosed) return;
+      document.addEventListener("pointerdown", onDocDown, true);
+      document.addEventListener("keydown", onKeyDown, true);
+      searchInput.focus({ preventScroll: true });
+    }, 10);
+  }
+}
+
+if (typeof window !== "undefined") {
+  window.TabonKBThemeEngine = TabonKBThemeEngine;
+  window.TW_SKINS_CATALOG = TW_SKINS_CATALOG;
+}
+
 /**
  * AgentAdapter: Standardized Abstract Base Class for Agent Hub Providers (Pi, Codex, Gemini).
  * Defines common event emitter interface, status lifecycles, and contract methods.
@@ -2326,6 +3163,11 @@ function buildDshDaemonEnv(vaultBasePath) {
     // 凭证抽取静默回退
   }
 
+  // 用户在 UI 中即时选择的上下文 (Harness「+」菜单 / Agent 抽屉选项) 优先于 data.json 静态默认，
+  // 二者均已在 applyDshCtxSelection / saveProject / saveLocalProject 中写入 process.env。
+  if (process.env.OPENGROK_DEFAULT_PROJECT) env.OPENGROK_DEFAULT_PROJECT = process.env.OPENGROK_DEFAULT_PROJECT;
+  if (process.env.TABONKB_LOCAL_PROJECT_JSON) env.TABONKB_LOCAL_PROJECT_JSON = process.env.TABONKB_LOCAL_PROJECT_JSON;
+
   // 释放权限给 Harness：允许派生外部程序 (cmd.exe/git.exe/ssh.exe) 与跨目录访问，免借票审批
   env.DSH_PERMISSION_MODE = 'danger-full-access';
 
@@ -2493,7 +3335,14 @@ Bringup 或多步疑难排障，先用规划模式拆成可观测的小步，每
 
 六、交付与沉淀
 引用代码统一给出「路径:行号」（如 drivers/power/supply/xxx.c:123 或 03-Driver/05-Charger/xxx.md），便于工作台右侧点击联动。
-结论按「现象 / 根因 / 证据（日志片段+出处）/ 改动 / 验证 / 遗留风险」六段式整理，写入 00-Inbox/ 或对应模块目录（03-Driver/<模块>/、04-Debug/、06-Spec/）；正式命名归档与索引维护交给「知识库管理」预设。`),
+结论按「现象 / 根因 / 证据（日志片段+出处）/ 改动 / 验证 / 遗留风险」六段式整理，写入 00-Inbox/ 或对应模块目录（03-Driver/<模块>/、04-Debug/、06-Spec/）；正式命名归档与索引维护交给「知识库管理」预设。
+
+七、会话工程上下文（用户在「+」菜单绑定，经环境变量下发）
+1. 本地工程 TABONKB_LOCAL_PROJECT_JSON（JSON：serverId/serverName/workspaceName/linuxPath/platform/project/priDriverRel/publicDriverRel）为最高优先级事实源：检索与定位优先项目专属定制路径 priDriverRel，其次公共差分 publicDriverRel，原厂基线仅作对照且禁止直接修改；建议编译/烧录命令一律按该工程的 platform+project 组装，不要凭通用模板。
+2. OpenGrok OPENGROK_DEFAULT_PROJECT：非空即代表用户圈定的目标源码工程，opengrok_search_code / opengrok_list_projects 的 project 参数默认取该值，跨库联检仅在用户明确要求时放宽。
+3. Jira 工单绑定 TABONKB_JIRA_ISSUE_JSON（JSON：key/summary/status/priority/assignee/url）：先用 jira_get_issue 拉取描述/复现条件，再 jira_list_attachments 与 jira_download_attachment 取证附件；答复引用工单号并贴合其环境。
+4. Gerrit 过滤器 TABONKB_GERRIT_FILTER（all/open/merged/mine/reviewing）：gerrit_search_changes 默认按该范围组织查询条件，非 all 时优先收窄到对应变更集。
+5. 新建对话时上述绑定会被清空；若环境变量缺失或为空，按未绑定处理，不要沿用上一会话的工程假设。`),
           planningGroup,
           compactionGroup
         ]
@@ -4378,9 +5227,55 @@ function getDshFileBridgeScript() {
     setTimeout(function() { observer.disconnect(); }, 15000);
   }
 
-  // 监听来自宿主 (Obsidian) 的双击切换侧栏消息
+  // 3. 实时应用来自宿主工作台的主题消息 (跨源 postMessage + localStorage 同步)
+  function applyTabonKbDshTheme(payload) {
+    if (!payload || !payload.css) return;
+    try {
+      var skinId = payload.skinId || 'glass';
+      var wallId = payload.wallId || 'aurora';
+      var mode = payload.mode || 'light';
+      document.documentElement.dataset.akSkin = skinId;
+      document.documentElement.dataset.akWall = wallId;
+      document.documentElement.style.colorScheme = mode;
+      if (document.body) {
+        document.body.dataset.theme = mode;
+      }
+      var styleEl = document.getElementById('tabonkb-dsh-theme-style');
+      if (!styleEl) {
+        styleEl = document.createElement('style');
+        styleEl.id = 'tabonkb-dsh-theme-style';
+        (document.head || document.documentElement).appendChild(styleEl);
+      }
+      styleEl.textContent = payload.css;
+      try {
+        localStorage.setItem('dt.skin', skinId);
+        localStorage.setItem('dt.wall', wallId);
+        localStorage.removeItem('dsh.antutu.off');
+        window.dispatchEvent(new StorageEvent('storage', { key: 'dt.skin', newValue: skinId }));
+      } catch (_) {}
+    } catch (_) {}
+  }
+
+  // Keep #tabonkb-dsh-theme-style at the end of <head> so DSH dynamic style tags do not override it
+  try {
+    var headObserver = new MutationObserver(function() {
+      var st = document.getElementById('tabonkb-dsh-theme-style');
+      if (st && document.head && document.head.lastElementChild !== st) {
+        document.head.appendChild(st);
+      }
+    });
+    if (document.head) {
+      headObserver.observe(document.head, { childList: true });
+    }
+  } catch (_) {}
+
+  // 监听来自宿主 (Obsidian) 的双击切换侧栏与主题同步消息
   window.addEventListener('message', function(e) {
     if (!e || !e.data) return;
+    if (e.data.type === 'tabonkb-dsh-apply-theme') {
+      applyTabonKbDshTheme(e.data);
+      return;
+    }
     if (e.data.type === 'tabonkb-dsh-toggle-sidebar') {
       var btn = findDshToggleBtn();
       if (!btn) return;
@@ -4394,6 +5289,711 @@ function getDshFileBridgeScript() {
       }
     }
   });
+
+  // Notify parent Obsidian Workbench that DSH iframe bridge is ready for theme sync
+  function notifyReady() {
+    try {
+      if (window.parent && window.parent !== window) {
+        window.parent.postMessage({ type: 'tabonkb-dsh-ready' }, '*');
+      }
+    } catch (_) {}
+  }
+  notifyReady();
+  setTimeout(notifyReady, 150);
+  setTimeout(notifyReady, 500);
+})();
+`.trim();
+}
+
+/**
+ * TabonKB 定制化: DSH「+」菜单注入工程上下文配置项桥接脚本
+ * - MutationObserver 侦测原生「+」弹出菜单 (识别 文件/file/压缩/compact/权限/模型 等特征词)
+ * - 菜单尾部追加「上下文」分组: OpenGrok / Gerrit / Jira 工单 / 本地工程 (与自研 Agent 抽屉同源)
+ * - 点击项右侧级联出自研毛玻璃面板 (外置 DOM, 不受 React 重渲染影响), 选项即选即关
+ * - 选项数据与当前值全部经 postMessage 与宿主双向同步, 不落 iframe 侧 localStorage
+ */
+function getDshContextBridgeScript() {
+  return `
+(function () {
+  if (window._twxCtxBridgeInstalled) return;
+  window._twxCtxBridgeInstalled = true;
+
+  var CSS = [
+    '.twx-ctx-block{padding:2px 0;}',
+    '.twx-sep{height:1px;background:rgba(128,128,128,.18);margin:4px 10px;}',
+    '.twx-glabel{padding:3px 12px 2px;font-size:10px;font-weight:600;letter-spacing:.4px;color:#8b949e;}',
+    '.twx-item{display:flex;align-items:center;gap:8px;padding:6px 10px;margin:0 4px;border-radius:6px;font-size:12px;cursor:pointer;color:inherit;}',
+    '.twx-item:hover{background:rgba(128,128,128,.12);}',
+    '.twx-dot{width:7px;height:7px;border-radius:50%;flex:0 0 auto;}',
+    '.twx-name{font-weight:500;}',
+    '.twx-val{margin-left:auto;font-size:10.5px;color:#8b949e;max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}',
+    '.twx-arrow{color:#8b949e;font-size:11px;margin-left:2px;}',
+    '.twx-panel{position:fixed;z-index:2147483000;width:262px;max-height:min(340px,calc(100vh - 40px));display:flex;flex-direction:column;border-radius:10px;overflow:hidden;font-family:inherit;font-size:12px;color:inherit;',
+    'background:var(--ds-background-secondary,Canvas);border:1px solid rgba(128,128,128,.25);box-shadow:0 12px 32px -4px rgba(0,0,0,.28);backdrop-filter:blur(20px) saturate(180%);-webkit-backdrop-filter:blur(20px) saturate(180%);}',
+    '.twx-p-search{display:flex;align-items:center;gap:6px;padding:7px 10px;border-bottom:1px solid rgba(128,128,128,.16);}',
+    '.twx-p-search input{flex:1;min-width:0;border:0;outline:0;background:transparent;font-size:11.5px;color:inherit;}',
+    '.twx-p-nav{display:flex;align-items:center;gap:8px;padding:5px 10px;border-bottom:1px solid rgba(128,128,128,.14);font-size:11px;}',
+    '.twx-back{cursor:pointer;color:#8b949e;padding:1px 4px;border-radius:4px;white-space:nowrap;}',
+    '.twx-back:hover{background:rgba(128,128,128,.14);color:inherit;}',
+    '.twx-nav-title{flex:1;min-width:0;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}',
+    '.twx-p-list{overflow-y:auto;padding:4px;flex:1;}',
+    '.twx-opt{display:flex;align-items:center;gap:7px;padding:6px 8px;border-radius:6px;cursor:pointer;font-size:11.5px;}',
+    '.twx-opt:hover{background:rgba(128,128,128,.12);}',
+    '.twx-opt.on{background:rgba(37,99,235,.14);}',
+    '.twx-opt .t-main{min-width:0;flex:1;}',
+    '.twx-opt .t-name{display:block;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}',
+    '.twx-opt .t-desc{display:block;font-size:10px;color:#8b949e;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}',
+    '.twx-opt .t-check{color:#10B981;font-size:11px;flex:0 0 auto;}',
+    '.twx-tag{display:inline-block;margin-left:5px;padding:0 5px;border-radius:5px;font-size:9.5px;font-weight:500;background:rgba(128,128,128,.14);color:#8b949e;vertical-align:1px;}',
+    '.twx-arr{color:#8b949e;font-size:11px;flex:0 0 auto;}',
+    '.twx-cur{display:flex;align-items:center;gap:7px;margin:0 0 5px;padding:7px 9px;border-radius:7px;border-left:2px solid #10B981;background:rgba(16,185,129,.08);font-size:11.5px;}',
+    '.twx-cur-ic{color:#10B981;font-size:12px;flex:0 0 auto;}',
+    '.twx-cur .t-name{color:#10B981;font-weight:600;}',
+    '.twx-cur-x{flex:0 0 auto;margin-left:auto;background:transparent;border:0;cursor:pointer;color:#94A3B8;padding:2px 5px;font-size:10.5px;border-radius:4px;}',
+    '.twx-cur-x:hover{background:rgba(128,128,128,.14);color:inherit;}',
+    '.twx-srv{padding:5px 8px 2px;font-size:10px;font-weight:600;color:#8b949e;}',
+    '.twx-gbtn{display:block;margin:6px auto 2px;padding:3px 10px;font-size:10.5px;border-radius:6px;border:1px solid rgba(128,128,128,.3);background:transparent;color:inherit;cursor:pointer;}',
+    '.twx-gbtn:hover{background:rgba(128,128,128,.12);}',
+    '.twx-loading,.twx-empty{padding:16px;text-align:center;font-size:11px;color:#8b949e;}',
+    '.twx-chips{display:inline-flex;align-items:center;gap:4px;margin-left:4px;}',
+    '.twx-chip .t-x:hover{opacity:1 !important;}'
+  ].join('\\n');
+
+  var styleEl = document.createElement('style');
+  styleEl.id = 'twx-ctx-style';
+  styleEl.textContent = CSS;
+  (document.head || document.documentElement).appendChild(styleEl);
+
+  var OG_PROJECTS = [
+    { id: 'auto', name: 'Auto', desc: '按提问及平台智能推断' },
+    { id: 'W_sprd_os_dev', name: 'W_sprd_os_dev', desc: '展锐主线' },
+    { id: 'V_sprd_os_dev', name: 'V_sprd_os_dev', desc: '展锐分支' },
+    { id: 'W_mp1_os_dev', name: 'W_mp1_os_dev', desc: 'MTK 主线' },
+    { id: 'A17_mp1_os_dev', name: 'A17_mp1_os_dev', desc: 'MTK A17' },
+    { id: 'T_U_sprd_oversea_release', name: 'T_U_sprd_oversea', desc: '展锐海外' },
+    { id: 'T_U_mp1_oversea_release', name: 'T_U_mp1_oversea', desc: 'MTK 海外' },
+    { id: 'V_oversea_release', name: 'V_oversea_release', desc: '海外分支' },
+    { id: 'S_U_aiot_oversea_release', name: 'S_U_aiot_oversea', desc: 'AIoT 版' },
+    { id: 'Aselsan_release_A16_1.57', name: 'Aselsan_A16', desc: '专网定制' }
+  ];
+  var GERRIT_FILTERS = [
+    { id: 'all', name: '全部', desc: '检索全库代码评审' },
+    { id: 'open', name: '开放中', desc: '当前处于评审中' },
+    { id: 'merged', name: '已合入', desc: '已通过并合入主干' },
+    { id: 'mine', name: '我提交', desc: '本人创建的变更单' },
+    { id: 'reviewing', name: '待我审', desc: '指派给我的待评审单' }
+  ];
+  var ROWS = [
+    { key: 'opengrok', name: 'OpenGrok', color: '#10B981' },
+    { key: 'gerrit', name: 'Gerrit', color: '#6366F1' },
+    { key: 'jira', name: 'Jira 工单', color: '#0EA5E9' },
+    { key: 'localproj', name: '本地工程', color: '#F59E0B' }
+  ];
+  var GERRIT_LABELS = { all: '全部', open: '开放中', merged: '已合入', mine: '我提交', reviewing: '待我审' };
+
+  var ctxState = { values: {}, lists: { jira: [], localproj: [] } };
+  var menuEl = null;
+  var panelEl = null;
+  var openKey = null;
+  var panelQuery = '';
+  var chipsEl = null;
+  // 本地工程四级递进导航状态 (与自研抽屉 localProjNavState 同构):
+  // servers(服务器) > workspaces(总代码路径) > platforms(CPU平台) > projects(机型)
+  var lpNav = { step: 'servers', serverId: null, workspaceName: null, platform: null };
+
+  function esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+  }
+
+  function askHost() {
+    try {
+      if (window.parent && window.parent !== window) {
+        window.parent.postMessage({ type: 'tabonkb-dsh-ctx-state-req' }, '*');
+      }
+    } catch (_) {}
+  }
+
+  window.addEventListener('message', function (e) {
+    if (!e || !e.data) return;
+    if (e.data.type === 'tabonkb-dsh-ctx-state') {
+      ctxState.values = e.data.values || {};
+      if (e.data.lists) ctxState.lists = e.data.lists;
+      refreshVals();
+      updateCtxChips();
+      if (panelEl) renderPanelList();
+    }
+  });
+
+  function valLabel(key) {
+    var v = ctxState.values || {};
+    if (key === 'opengrok') return (!v.opengrok || v.opengrok === 'auto') ? 'Auto' : String(v.opengrok);
+    if (key === 'gerrit') return GERRIT_LABELS[v.gerrit] || '全部';
+    if (key === 'jira') return (v.jira && v.jira.key) ? v.jira.key : '未指定';
+    if (key === 'localproj') return (v.localproj && v.localproj.label) ? v.localproj.label : '未指定';
+    return '';
+  }
+
+  function refreshVals() {
+    if (!menuEl) return;
+    var nodes = menuEl.querySelectorAll('.twx-item');
+    for (var i = 0; i < nodes.length; i++) {
+      var k = nodes[i].getAttribute('data-k');
+      var ve = nodes[i].querySelector('.twx-val');
+      if (ve) ve.textContent = valLabel(k);
+    }
+  }
+
+  // ---- 「+」菜单识别与注入 ----
+  var MENU_KEYS = ['文件', 'file', '目标', 'goal', '压缩', 'compact', '权限', 'permission', '模型', 'model', '下载', 'export', '添加', '指令'];
+  function looksLikeAttachMenu(el) {
+    if (!el || el.nodeType !== 1) return false;
+    // 先做廉价的几何/定位过滤, 只有「底部浮层」才读取 innerText (避免高频 mutation 下的强制排版)
+    var r = el.getBoundingClientRect();
+    if (r.width < 150 || r.height < 110) return false;
+    if (r.top < window.innerHeight * 0.25) return false;
+    var cs = getComputedStyle(el);
+    if (cs.position !== 'fixed' && cs.position !== 'absolute') return false;
+    var t = (el.innerText || '').toLowerCase();
+    if (t.length < 20 || t.length > 3000) return false;
+    var hits = 0;
+    for (var i = 0; i < MENU_KEYS.length; i++) {
+      if (t.indexOf(MENU_KEYS[i]) !== -1) hits++;
+    }
+    return hits >= 4;
+  }
+
+  function pickMenu(root) {
+    // 只在「新增/属性变化的子树」内查找菜单, 避免全文档 innerText 扫描造成流式渲染卡顿
+    var best = null, bestArea = 1e12;
+    function consider(el) {
+      if (!el || el.nodeType !== 1) return;
+      if (el.closest && el.closest('.twx-panel')) return;
+      if (!looksLikeAttachMenu(el)) return;
+      var a = el.offsetWidth * el.offsetHeight;
+      if (a < bestArea) { bestArea = a; best = el; }
+    }
+    consider(root);
+    if (root && root.querySelectorAll) {
+      var inner = root.querySelectorAll('*');
+      for (var i = 0; i < inner.length; i++) consider(inner[i]);
+    }
+    return best;
+  }
+
+  function onMenuFound(menu) {
+    if (menu !== menuEl) { menuEl = menu; injectGroup(menu); }
+    else if (!menuEl.querySelector('.twx-ctx-block')) injectGroup(menuEl);
+    else refreshVals();
+    askHost();
+  }
+
+  function injectGroup(menu) {
+    if (menu.querySelector('.twx-ctx-block')) return;
+    var blk = document.createElement('div');
+    blk.className = 'twx-ctx-block';
+    var html = '<div class="twx-sep"></div><div class="twx-glabel">上下文</div>';
+    for (var i = 0; i < ROWS.length; i++) {
+      var r = ROWS[i];
+      html += '<div class="twx-item" data-k="' + r.key + '">' +
+        '<span class="twx-dot" style="background:' + r.color + '"></span>' +
+        '<span class="twx-name">' + r.name + '</span>' +
+        '<span class="twx-val">' + esc(valLabel(r.key)) + '</span>' +
+        '<span class="twx-arrow">›</span></div>';
+    }
+    blk.innerHTML = html;
+    menu.appendChild(blk);
+  }
+
+  // ---- 级联选项面板 (自有 DOM, 非 React 托管) ----
+  function openPanel(key, itemEl) {
+    if (openKey === key && panelEl) { closePanel(); return; }
+    closePanel();
+    openKey = key;
+    panelQuery = '';
+    lpNav = { step: 'servers', serverId: null, workspaceName: null, platform: null };
+    var itemR = itemEl.getBoundingClientRect();
+    var menuR = (menuEl && menuEl.isConnected) ? menuEl.getBoundingClientRect() : itemR;
+    var w = 262;
+    var left = itemR.right - 6; // 6px 微重叠, 消除父子浮窗裂隙
+    if (left + w > window.innerWidth - 8) {
+      left = menuR.left - w + 6; // 视口右侧不足时向左翻转
+    }
+    panelEl = document.createElement('div');
+    panelEl.className = 'twx-panel';
+    panelEl.style.left = Math.max(8, left) + 'px';
+    // 底端与「+」菜单底边对齐, 向上生长, 杜绝探出窗口下缘
+    var bottomPx = window.innerHeight - menuR.bottom;
+    panelEl.style.bottom = Math.max(8, bottomPx) + 'px';
+    panelEl.innerHTML =
+      '<div class="twx-p-search" style="display:none;"><input type="text" placeholder="搜索..." /></div>' +
+      '<div class="twx-p-nav" style="display:none;"><span class="twx-back" data-act="back">‹ <i></i></span><span class="twx-nav-title"></span></div>' +
+      '<div class="twx-p-list"><div class="twx-loading">加载中…</div></div>';
+    document.body.appendChild(panelEl);
+    // 面板内委托点击: 选项选择 / 递进下钻 / 回退 / 清除绑定
+    panelEl.onclick = function (e) {
+      var t = e.target && e.target.closest ? e.target.closest('[data-act],[data-p]') : null;
+      if (!t) return;
+      e.stopPropagation();
+      handlePanelAction(t);
+    };
+    if (key === 'jira' || key === 'localproj') {
+      var sw = panelEl.querySelector('.twx-p-search');
+      sw.style.display = 'flex';
+      var inp = sw.querySelector('input');
+      inp.placeholder = key === 'localproj' ? '全局搜索 (如 K82NF, mt6878)...' : '搜索工单...';
+      inp.oninput = function () { panelQuery = inp.value.trim().toLowerCase(); renderPanelList(); };
+      inp.onclick = function (e) { e.stopPropagation(); };
+      setTimeout(function () { try { inp.focus(); } catch (_) {} }, 30);
+    }
+    askHost();
+    renderPanelList();
+  }
+
+  function closePanel() {
+    if (panelEl) { try { panelEl.remove(); } catch (_) {} }
+    panelEl = null;
+    openKey = null;
+    panelQuery = '';
+  }
+
+  function postSet(key, value) {
+    try {
+      if (window.parent && window.parent !== window) {
+        window.parent.postMessage({ type: 'tabonkb-dsh-ctx-set', key: key, value: value }, '*');
+      }
+    } catch (_) {}
+  }
+
+  // 面板动作分发: data-p=最终选择项(JSON) / data-act=导航或清除动作
+  function handlePanelAction(t) {
+    var act = t.getAttribute('data-act');
+    if (act === 'back') { lpBack(); renderPanelList(); return; }
+    if (act === 'srv') { lpNav = { step: 'workspaces', serverId: t.getAttribute('data-v'), workspaceName: null, platform: null }; panelQuery = ''; clearSearch(); renderPanelList(); return; }
+    if (act === 'ws') { lpNav = { step: 'platforms', serverId: lpNav.serverId, workspaceName: t.getAttribute('data-v'), platform: null }; panelQuery = ''; clearSearch(); renderPanelList(); return; }
+    if (act === 'plat') { lpNav = { step: 'projects', serverId: lpNav.serverId, workspaceName: lpNav.workspaceName, platform: t.getAttribute('data-v') }; panelQuery = ''; clearSearch(); renderPanelList(); return; }
+    if (act === 'gsearch') { lpNav = { step: 'servers', serverId: null, workspaceName: null, platform: null }; renderPanelList(); return; }
+    if (act === 'clear-lp') { postSet('localproj', null); closePanel(); return; }
+    if (act === 'clear-jira') { postSet('jira', null); closePanel(); return; }
+    var raw = t.getAttribute('data-p');
+    if (!raw) return;
+    var payload = null;
+    try { payload = JSON.parse(decodeURIComponent(raw)); } catch (_) {}
+    if (!payload) return;
+    postSet(payload.k, payload.v);
+    closePanel();
+  }
+
+  function clearSearch() {
+    var inp = panelEl && panelEl.querySelector('.twx-p-search input');
+    if (inp) inp.value = '';
+  }
+
+  function lpBack() {
+    if (lpNav.step === 'projects') lpNav = { step: 'platforms', serverId: lpNav.serverId, workspaceName: lpNav.workspaceName, platform: null };
+    else if (lpNav.step === 'platforms') lpNav = { step: 'workspaces', serverId: lpNav.serverId, workspaceName: null, platform: null };
+    else lpNav = { step: 'servers', serverId: null, workspaceName: null, platform: null };
+    panelQuery = '';
+    clearSearch();
+  }
+
+  function setNavHeader(backText, title) {
+    var nav = panelEl && panelEl.querySelector('.twx-p-nav');
+    if (!nav) return;
+    if (!title) { nav.style.display = 'none'; return; }
+    nav.style.display = 'flex';
+    nav.querySelector('.twx-back i').textContent = backText;
+    nav.querySelector('.twx-nav-title').textContent = title;
+  }
+
+  function isSel(key, idOrObj) {
+    var v = ctxState.values || {};
+    if (key === 'opengrok') return (v.opengrok || 'auto') === idOrObj;
+    if (key === 'gerrit') return (v.gerrit || 'all') === idOrObj;
+    if (key === 'jira') return !!(v.jira && idOrObj && v.jira.key === idOrObj.key);
+    if (key === 'localproj') return !!(v.localproj && idOrObj && v.localproj.id === idOrObj.id);
+    return false;
+  }
+
+  function optRow(name, desc, on, payload) {
+    return '<div class="twx-opt' + (on ? ' on' : '') + '" data-p="' + encodeURIComponent(JSON.stringify(payload)) + '">' +
+      '<span class="t-main"><span class="t-name">' + esc(name) + '</span>' +
+      (desc ? '<span class="t-desc">' + esc(desc) + '</span>' : '') +
+      '</span>' + (on ? '<span class="t-check">✓</span>' : '') + '</div>';
+  }
+
+  function drillRow(act, val, name, tag, desc) {
+    return '<div class="twx-opt" data-act="' + act + '" data-v="' + esc(val) + '">' +
+      '<span class="t-main"><span class="t-name">' + esc(name) +
+      (tag ? '<span class="twx-tag">' + esc(tag) + '</span>' : '') + '</span>' +
+      (desc ? '<span class="t-desc">' + esc(desc) + '</span>' : '') +
+      '</span><span class="twx-arr">›</span></div>';
+  }
+
+  function curCard(name, desc, clearAct) {
+    return '<div class="twx-cur"><span class="twx-cur-ic">✓</span>' +
+      '<span class="t-main"><span class="t-name">已选: ' + esc(name) + '</span>' +
+      (desc ? '<span class="t-desc">' + esc(desc) + '</span>' : '') + '</span>' +
+      '<button type="button" class="twx-cur-x" data-act="' + clearAct + '">清除</button></div>';
+  }
+
+  function emptyWithGlobal(msg) {
+    return '<div class="twx-empty">' + msg + '<button type="button" class="twx-gbtn" data-act="gsearch">切换至全局搜索</button></div>';
+  }
+
+  function renderPanelList() {
+    if (!panelEl) return;
+    var listEl = panelEl.querySelector('.twx-p-list');
+    var html = '';
+    var q = panelQuery;
+    if (openKey === 'opengrok') {
+      setNavHeader('', '');
+      for (var i = 0; i < OG_PROJECTS.length; i++) {
+        var p = OG_PROJECTS[i];
+        html += optRow(p.name, p.desc, isSel('opengrok', p.id), { k: 'opengrok', v: p.id });
+      }
+    } else if (openKey === 'gerrit') {
+      setNavHeader('', '');
+      for (var j = 0; j < GERRIT_FILTERS.length; j++) {
+        var f = GERRIT_FILTERS[j];
+        html += optRow(f.name, f.desc, isSel('gerrit', f.id), { k: 'gerrit', v: f.id });
+      }
+    } else if (openKey === 'jira') {
+      setNavHeader('', '');
+      var issues = (ctxState.lists && ctxState.lists.jira) || [];
+      var bound = ctxState.values && ctxState.values.jira;
+      if (bound && bound.key) {
+        html += curCard(bound.key, (bound.summary || '') + (bound.status ? ' · ' + bound.status : ''), 'clear-jira');
+      }
+      var shown = 0;
+      for (var m = 0; m < issues.length; m++) {
+        var it = issues[m];
+        var hay = ((it.key || '') + ' ' + (it.summary || '') + ' ' + (it.status || '') + ' ' + (it.assignee || '')).toLowerCase();
+        if (q && hay.indexOf(q) === -1) continue;
+        html += optRow(it.key + '  ' + (it.summary || ''), (it.status || '') + (it.priority ? ' · ' + it.priority : ''), isSel('jira', it), { k: 'jira', v: it });
+        if (++shown >= 60) break;
+      }
+      if (!shown && !html) html = '<div class="twx-empty">无工单数据</div>';
+    } else if (openKey === 'localproj') {
+      html = renderLocalproj(q);
+    }
+    listEl.innerHTML = html || '<div class="twx-empty">无可用选项</div>';
+  }
+
+  // 本地工程: 「服务器 > 总代码路径 > CPU平台 > 机型」四级递进 (与抽屉 localProjNavState 同构)
+  function renderLocalproj(q) {
+    var projs = (ctxState.lists && ctxState.lists.localproj) || [];
+    var cur = ctxState.values && ctxState.values.localproj;
+    if (!projs.length) {
+      setNavHeader('', '');
+      return '<div class="twx-empty">无工程缓存</div>';
+    }
+
+    // 聚合层级树
+    var smap = {}, sorder = [];
+    for (var i = 0; i < projs.length; i++) {
+      var p = projs[i];
+      if (!smap[p.serverId]) { smap[p.serverId] = { id: p.serverId, name: p.serverName, ip: p.serverIp, wmap: {}, worder: [] }; sorder.push(p.serverId); }
+      var srv = smap[p.serverId];
+      if (!srv.wmap[p.workspaceName]) { srv.wmap[p.workspaceName] = { name: p.workspaceName, pmap: {}, porder: [] }; srv.worder.push(p.workspaceName); }
+      var ws = srv.wmap[p.workspaceName];
+      var pk = p.platform || '通用';
+      if (!ws.pmap[pk]) { ws.pmap[pk] = { name: pk, projects: [] }; ws.porder.push(pk); }
+      ws.pmap[pk].projects.push(p);
+    }
+
+    // 顶层输入搜索词 → 全局打平过滤直达机型
+    if (q && lpNav.step === 'servers') {
+      setNavHeader('', '');
+      var ghtml = '';
+      var gcount = 0;
+      for (var g = 0; g < projs.length && gcount < 50; g++) {
+        var gp = projs[g];
+        var hay = ((gp.project || '') + ' ' + (gp.platform || '') + ' ' + (gp.workspaceName || '') + ' ' + (gp.label || '') + ' ' + (gp.serverId || '')).toLowerCase();
+        if (hay.indexOf(q) === -1) continue;
+        ghtml += '<div class="twx-opt' + (isSel('localproj', gp) ? ' on' : '') + '" data-p="' + encodeURIComponent(JSON.stringify({ k: 'localproj', v: gp })) + '">' +
+          '<span class="t-main"><span class="t-name">' + esc(gp.project) + '<span class="twx-tag">' + esc(gp.platform || '') + '</span><span class="twx-tag">' + esc(gp.serverId) + '服</span></span>' +
+          '<span class="t-desc">' + esc(gp.serverId) + '服 › ' + esc(gp.workspaceName) + '</span></span>' +
+          (isSel('localproj', gp) ? '<span class="t-check">✓</span>' : '') + '</div>';
+        gcount++;
+      }
+      return ghtml || '<div class="twx-empty">未匹配到包含 "' + esc(q) + '" 的本地工程</div>';
+    }
+
+    // Level 1: 服务器
+    if (lpNav.step === 'servers') {
+      setNavHeader('', '');
+      var html = '';
+      if (cur && cur.id) {
+        html += curCard(cur.label || cur.project, (cur.workspaceName || '') + ' · ' + (cur.platform || '') + ' · ' + (cur.serverId || '') + '服', 'clear-lp');
+      } else {
+        html += '<div class="twx-opt" data-act="clear-lp" style="opacity:.9;">' +
+          '<span class="t-main"><span class="t-name">未指定 (默认)</span><span class="t-desc">不绑定特定工程与机型</span></span><span class="t-check">✓</span></div>';
+      }
+      for (var s = 0; s < sorder.length; s++) {
+        var sv = smap[sorder[s]];
+        var totPlat = 0, totProj = 0;
+        for (var w = 0; w < sv.worder.length; w++) {
+          var wsv = sv.wmap[sv.worder[w]];
+          totPlat += wsv.porder.length;
+          for (var pp = 0; pp < wsv.porder.length; pp++) totProj += wsv.pmap[wsv.porder[pp]].projects.length;
+        }
+        html += drillRow('srv', sv.id, sv.name || (sv.id + ' 服务器'), sv.ip, sv.worder.length + ' 套代码 · ' + totPlat + ' 个平台 · ' + totProj + ' 款机型');
+      }
+      return html;
+    }
+
+    var srv2 = smap[lpNav.serverId];
+    if (!srv2) { lpNav = { step: 'servers', serverId: null, workspaceName: null, platform: null }; return renderLocalproj(q); }
+
+    // Level 2: 总代码路径
+    if (lpNav.step === 'workspaces') {
+      setNavHeader('服务器', (srv2.name || srv2.id) + ' (' + srv2.worder.length + '套代码)');
+      var html2 = '';
+      for (var w2 = 0; w2 < srv2.worder.length; w2++) {
+        var wsName = srv2.worder[w2];
+        var ws2 = srv2.wmap[wsName];
+        if (q) {
+          var wmatch = wsName.toLowerCase().indexOf(q) !== -1;
+          if (!wmatch) {
+            for (var pk2 = 0; pk2 < ws2.porder.length; pk2++) {
+              var pl2 = ws2.pmap[ws2.porder[pk2]];
+              if (pl2.name.toLowerCase().indexOf(q) !== -1 || pl2.projects.some(function (x) { return (x.project || '').toLowerCase().indexOf(q) !== -1; })) { wmatch = true; break; }
+            }
+          }
+          if (!wmatch) continue;
+        }
+        var wProjCount = 0;
+        for (var pk3 = 0; pk3 < ws2.porder.length; pk3++) wProjCount += ws2.pmap[ws2.porder[pk3]].projects.length;
+        var isCurWs = cur && cur.serverId === lpNav.serverId && cur.workspaceName === wsName;
+        html2 += drillRow('ws', wsName, wsName, isCurWs ? '当前' : '', ws2.porder.length + ' 个平台 · ' + wProjCount + ' 款机型');
+      }
+      return html2 || emptyWithGlobal('当前服务器未匹配到包含 "' + esc(q) + '" 的代码路径');
+    }
+
+    var ws3 = srv2.wmap[lpNav.workspaceName];
+    if (!ws3) { lpNav = { step: 'workspaces', serverId: lpNav.serverId, workspaceName: null, platform: null }; return renderLocalproj(q); }
+
+    // Level 3: CPU 平台
+    if (lpNav.step === 'platforms') {
+      var wsShort = (lpNav.workspaceName || '').split('/').pop();
+      setNavHeader('代码路径', wsShort + ' (' + ws3.porder.length + '个平台)');
+      var html3 = '';
+      for (var p3 = 0; p3 < ws3.porder.length; p3++) {
+        var platKey = ws3.porder[p3];
+        var pl3 = ws3.pmap[platKey];
+        if (q) {
+          var pmatch = platKey.toLowerCase().indexOf(q) !== -1 || pl3.projects.some(function (x) { return (x.project || '').toLowerCase().indexOf(q) !== -1; });
+          if (!pmatch) continue;
+        }
+        var isCurPlat = cur && cur.serverId === lpNav.serverId && cur.workspaceName === lpNav.workspaceName && cur.platform === platKey;
+        html3 += drillRow('plat', platKey, platKey, pl3.projects.length + '款机型', lpNav.serverId + '服 › ' + lpNav.workspaceName + (isCurPlat ? ' · 当前' : ''));
+      }
+      return html3 || emptyWithGlobal('当前代码路径未匹配到包含 "' + esc(q) + '" 的平台');
+    }
+
+    var pl4 = ws3.pmap[lpNav.platform];
+    if (!pl4) { lpNav = { step: 'platforms', serverId: lpNav.serverId, workspaceName: lpNav.workspaceName, platform: null }; return renderLocalproj(q); }
+
+    // Level 4: 机型 SKU
+    setNavHeader(lpNav.platform + '平台', lpNav.platform + ' (' + pl4.projects.length + '款机型)');
+    var html4 = '';
+    for (var p4 = 0; p4 < pl4.projects.length; p4++) {
+      var pj = pl4.projects[p4];
+      if (q) {
+        var pjm = (pj.project || '').toLowerCase().indexOf(q) !== -1 || (pj.label || '').toLowerCase().indexOf(q) !== -1;
+        if (!pjm) continue;
+      }
+      html4 += '<div class="twx-opt' + (isSel('localproj', pj) ? ' on' : '') + '" data-p="' + encodeURIComponent(JSON.stringify({ k: 'localproj', v: pj })) + '">' +
+        '<span class="t-main"><span class="t-name">' + esc(pj.project) + '<span class="twx-tag">' + esc(pj.platform || '') + '</span></span>' +
+        '<span class="t-desc">' + esc(pj.priDriverRel || '') + '</span></span>' +
+        (isSel('localproj', pj) ? '<span class="t-check">✓</span>' : '') + '</div>';
+    }
+    return html4 || emptyWithGlobal('当前平台未匹配到包含 "' + esc(q) + '" 的机型');
+  }
+
+  // ---- 输入区上下文胶囊: 克隆「完全权限」胶囊样式, 紧跟其后插入同一工具栏行 ----
+  function findPermPill() {
+    // 底部区域含「权限/permission」短文本的最内层元素, 向上爬到胶囊容器 (宽<220px 高<48px)
+    var all = document.querySelectorAll('body *');
+    var cand = null;
+    for (var i = 0; i < all.length; i++) {
+      var el = all[i];
+      if (el.closest && (el.closest('.twx-chips') || el.closest('.twx-panel'))) continue;
+      var t = el.innerText;
+      if (!t) continue;
+      t = t.trim();
+      if (t.length > 12 || !/(权限|permission)/i.test(t)) continue;
+      var r = el.getBoundingClientRect();
+      if (r.width < 30 || r.top < window.innerHeight * 0.5 || r.top > window.innerHeight) continue;
+      cand = el;
+    }
+    if (!cand) return null;
+    var pill = cand;
+    while (pill.parentElement) {
+      var pr = pill.parentElement.getBoundingClientRect();
+      var pt = (pill.parentElement.innerText || '').trim();
+      if (pt.length <= 12 && /(权限|permission)/i.test(pt) && pr.width < 220 && pr.height < 48) {
+        pill = pill.parentElement;
+      } else break;
+    }
+    return pill;
+  }
+
+  function updateCtxChips() {
+    var v = ctxState.values || {};
+    var defs = [];
+    if (v.localproj && v.localproj.id) defs.push({ k: 'localproj', label: v.localproj.label || v.localproj.project, color: '#F59E0B' });
+    if (v.jira && v.jira.key) defs.push({ k: 'jira', label: v.jira.key, color: '#0EA5E9' });
+    if (v.opengrok && v.opengrok !== 'auto') defs.push({ k: 'opengrok', label: v.opengrok, color: '#10B981' });
+    if (v.gerrit && v.gerrit !== 'all') defs.push({ k: 'gerrit', label: (GERRIT_LABELS[v.gerrit] || v.gerrit), color: '#6366F1' });
+
+    var pill = defs.length ? findPermPill() : null;
+    if (!defs.length || !pill) {
+      if (chipsEl) { try { chipsEl.remove(); } catch (_) {} chipsEl = null; }
+      return;
+    }
+    if (!chipsEl) {
+      chipsEl = document.createElement('span');
+      chipsEl.className = 'twx-chips';
+      chipsEl.onclick = function (e) {
+        var x = e.target && e.target.closest ? e.target.closest('.t-x') : null;
+        if (!x) return;
+        e.stopPropagation();
+        var k = x.getAttribute('data-k');
+        var def = { opengrok: 'auto', gerrit: 'all', jira: null, localproj: null };
+        postSet(k, def[k] === undefined ? null : def[k]);
+      };
+    }
+    // 紧跟权限胶囊插入 (React 重渲染位移时自动纠正)
+    if (!chipsEl.isConnected || chipsEl.previousElementSibling !== pill) {
+      try { pill.insertAdjacentElement('afterend', chipsEl); } catch (_) { return; }
+    }
+    // 逐像素克隆权限胶囊外观: 字体/颜色/背景/圆角/内边距/行高/高度
+    var cs = getComputedStyle(pill);
+    var chipCss = 'display:inline-flex;align-items:center;gap:4px;white-space:nowrap;cursor:default;box-sizing:border-box;' +
+      'font-size:' + cs.fontSize + ';font-family:' + cs.fontFamily + ';font-weight:' + cs.fontWeight + ';' +
+      'color:' + cs.color + ';background:' + cs.backgroundColor + ';border:' + cs.border + ';' +
+      'border-radius:' + cs.borderRadius + ';line-height:' + cs.lineHeight + ';' +
+      'padding:' + cs.paddingTop + ' ' + cs.paddingRight + ';' +
+      'max-width:140px;overflow:hidden;';
+    var html = '';
+    for (var i = 0; i < defs.length; i++) {
+      var d = defs[i];
+      html += '<span class="twx-chip" style="' + chipCss + '">' +
+        '<span class="t-dot" style="background:' + d.color + ';width:6px;height:6px;border-radius:50%;flex:0 0 auto;"></span>' +
+        '<span style="overflow:hidden;text-overflow:ellipsis;">' + esc(d.label) + '</span>' +
+        '<span class="t-x" data-k="' + d.k + '" style="cursor:pointer;opacity:.55;margin-left:1px;">✕</span></span>';
+    }
+    chipsEl.innerHTML = html;
+  }
+
+  window.addEventListener('resize', updateCtxChips);
+
+  // ---- 新对话侦测: 点击「新对话/新建对话/New Chat」类按钮 或 路由回到应用根路径 ----
+  var NEWCHAT_RE = /^\s*(新对话|新建对话|新会话|new\s+chat|new\s+conversation)\s*$/i;
+  var lastHref = '';
+  function notifyNewChat() {
+    try {
+      if (window.parent && window.parent !== window) {
+        window.parent.postMessage({ type: 'tabonkb-dsh-new-chat' }, '*');
+      }
+    } catch (_) {}
+  }
+  document.addEventListener('click', function (e) {
+    var el = e.target;
+    for (var d = 0; el && d < 5; el = el.parentElement, d++) {
+      var tx = (el.getAttribute && (el.getAttribute('aria-label') || el.getAttribute('title'))) ||
+        (el.nodeType === 1 && el.children.length <= 3 ? (el.innerText || '').trim() : '');
+      if (tx && NEWCHAT_RE.test(tx)) { notifyNewChat(); return; }
+    }
+  }, true);
+
+  function checkRoute() {
+    var cur = location.href;
+    if (cur === lastHref) return;
+    var prev = lastHref; lastHref = cur;
+    if (!prev) return;
+    // 新会话判定: 回到无会话段的应用根路径 (path 或 hash 路由)
+    var path = location.pathname || '/';
+    var hash = location.hash || '';
+    var bare = (path === '/' || path === '/index.html') && (hash === '' || hash === '#/' || hash === '#');
+    if (bare) notifyNewChat();
+  }
+  try {
+    var _ps = history.pushState, _rs = history.replaceState;
+    history.pushState = function () { var r = _ps.apply(this, arguments); setTimeout(checkRoute, 0); return r; };
+    history.replaceState = function () { var r = _rs.apply(this, arguments); setTimeout(checkRoute, 0); return r; };
+    window.addEventListener('popstate', function () { setTimeout(checkRoute, 0); });
+    setInterval(checkRoute, 1200);
+    lastHref = location.href;
+  } catch (_) {}
+
+  // 面板外点击自然退出
+  document.addEventListener('click', function (e) {
+    if (!panelEl) return;
+    if (panelEl.contains(e.target)) return;
+    var t = e.target;
+    if (t && t.closest && t.closest('.twx-item')) return;
+    closePanel();
+  }, true);
+
+  // 委托绑定注入行的点击 (React 重渲染后仍有效)
+  document.addEventListener('click', function (e) {
+    var it = e.target && e.target.closest ? e.target.closest('.twx-item') : null;
+    if (!it) return;
+    e.stopPropagation();
+    openPanel(it.getAttribute('data-k'), it);
+  }, true);
+
+  var scanQueued = false;
+  var pendingRoots = [];
+  function scheduleScan(root) {
+    if (root) pendingRoots.push(root);
+    if (scanQueued) return;
+    scanQueued = true;
+    setTimeout(function () {
+      scanQueued = false;
+      var roots = pendingRoots; pendingRoots = [];
+      try {
+        for (var i = 0; i < roots.length; i++) {
+          var menu = pickMenu(roots[i]);
+          if (menu) { onMenuFound(menu); break; }
+        }
+        // 菜单被 React 卸载/重渲染时仅释放锚点：级联面板驻留至用户选择或外点，
+        // 避免点击面板选项触发 DSH 菜单外点关闭时连带销毁面板
+        if (menuEl && !menuEl.isConnected) { menuEl = null; }
+        else if (menuEl && !menuEl.querySelector('.twx-ctx-block')) injectGroup(menuEl);
+        updateCtxChips();
+      } catch (_) {}
+    }, 40);
+  }
+
+  var mo = new MutationObserver(function (muts) {
+    try {
+      for (var i = 0; i < muts.length; i++) {
+        var m = muts[i];
+        if (m.type === 'attributes') { scheduleScan(m.target); continue; }
+        var adds = m.addedNodes;
+        for (var j = 0; j < adds.length; j++) {
+          if (adds[j] && adds[j].nodeType === 1) scheduleScan(adds[j]);
+        }
+        // 子树内结构变化时, 复查已注入块是否被 React 覆盖
+        if (menuEl && m.target && menuEl.contains && menuEl.contains(m.target)) scheduleScan(null);
+      }
+    } catch (_) {}
+  });
+  mo.observe(document.documentElement || document.body, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ['class', 'style', 'hidden']
+  });
+
+  askHost();
+  setTimeout(askHost, 800);
+  setTimeout(updateCtxChips, 400);
 })();
 `.trim();
 }
@@ -4865,6 +6465,8 @@ class DshDaemonManager {
         const isHtmlReq = reqPath === '/' || reqPath.startsWith('/?') || reqPath.startsWith('/index.html');
         if (isHtmlReq) {
           forwardHeaders['accept-encoding'] = 'identity';
+          delete forwardHeaders['if-none-match'];
+          delete forwardHeaders['if-modified-since'];
         }
 
         const proxyReq = httpLib.request({
@@ -4902,10 +6504,26 @@ class DshDaemonManager {
               const bridgeJs = typeof getDshFileBridgeScript === 'function' ? getDshFileBridgeScript() : '';
               const hideCss = typeof getDshSidebarHideStyles === 'function' ? getDshSidebarHideStyles() : '';
               // 方案A: 定制关闭时不再注入空 style 标签, 避免残留 #tabonkb-dsh-overrides 覆盖原生布局
+              let themeTag = '';
+              try {
+                const te = (typeof TabonKBThemeEngine !== 'undefined') ? TabonKBThemeEngine : (typeof window !== 'undefined' ? window.TabonKBThemeEngine : null);
+                if (te && typeof te.buildDshThemePayload === 'function') {
+                  const payload = te.buildDshThemePayload(this.plugin, null);
+                  if (payload && payload.css) {
+                    const initJs = `try{document.documentElement.dataset.akSkin=${JSON.stringify(payload.skinId)};document.documentElement.dataset.akWall=${JSON.stringify(payload.wallId)};document.documentElement.style.colorScheme=${JSON.stringify(payload.mode)};localStorage.setItem("dt.skin",${JSON.stringify(payload.skinId)});localStorage.setItem("dt.wall",${JSON.stringify(payload.wallId)});localStorage.removeItem("dsh.antutu.off");}catch(_){}`;
+                    themeTag = `\n<script id="tabonkb-dsh-theme-init">${initJs}</script>\n<style id="tabonkb-dsh-theme-style">\n${payload.css}\n</style>\n`;
+                  }
+                }
+              } catch (_) {}
               const styleTag = customCss ? `\n<style id="tabonkb-dsh-overrides">\n${customCss}\n</style>\n` : '';
               const hideStyleTag = hideCss ? `\n<style id="tabonkb-dsh-sidebar-hide">\n${hideCss}\n</style>\n` : '';
               const scriptTag = bridgeJs ? `\n<script id="tabonkb-dsh-file-bridge">\n${bridgeJs}\n</script>\n` : '';
-              const injectTags = `${styleTag}${hideStyleTag}${scriptTag}`;
+              const ctxJs = typeof getDshContextBridgeScript === 'function' ? getDshContextBridgeScript() : '';
+              const ctxTag = ctxJs ? `\n<script id="tabonkb-dsh-ctx-bridge">\n${ctxJs}\n</script>\n` : '';
+              const injectTags = `${styleTag}${hideStyleTag}${themeTag}${scriptTag}${ctxTag}`;
+              delete resHeaders['etag'];
+              delete resHeaders['last-modified'];
+              resHeaders['cache-control'] = 'no-store, no-cache, must-revalidate';
               let modifiedHtml = rawHtml;
               if (modifiedHtml.includes('</head>')) {
                 modifiedHtml = modifiedHtml.replace('</head>', `${injectTags}</head>`);
@@ -9237,7 +10855,8 @@ class AntigravityAdapter extends AgentAdapter {
 
     const effort = this.getReasoningEffort();
     const supportsReasoning = this.supportsReasoningEffort(this.activeModelId);
-    if (supportsReasoning && effort !== 'off') {
+    const modelHasBuiltinEffort = /-(?:high|medium|low)$/i.test(this.activeModelId || '');
+    if (supportsReasoning && effort !== 'off' && !modelHasBuiltinEffort) {
       args.push('--effort', effort);
     }
 
@@ -9299,14 +10918,20 @@ class AntigravityAdapter extends AgentAdapter {
         this.process.stdout.setEncoding('utf-8');
         this.process.stderr.setEncoding('utf-8');
 
+        this.capturedStderr = '';
+        this.hasEmittedError = false;
+
         this.process.stdout.on('data', (chunk) => {
           this.handleStdoutChunk(chunk);
         });
 
         this.process.stderr.on('data', (chunk) => {
           const errStr = chunk.toString();
-          if (errStr.includes('[ERROR]') || errStr.includes('FATAL')) {
-            this.emit('error', { error: errStr });
+          this.capturedStderr += errStr;
+          if (errStr.includes('[ERROR]') || errStr.includes('FATAL') || /^[EW]\d{4}\s/m.test(errStr) || errStr.includes('failed:') || errStr.includes('EOF')) {
+            const cleanErr = errStr.split('\n').filter(l => l.includes('failed:') || l.includes('Error') || l.includes('EOF') || l.includes('FATAL')).join('; ') || errStr;
+            this.hasEmittedError = true;
+            this.emit('error', { error: cleanErr.trim() });
           }
         });
 
@@ -9322,6 +10947,11 @@ class AntigravityAdapter extends AgentAdapter {
           }
           this.isStreaming = false;
           this.process = null;
+          if (code !== 0 && !this.hasEmittedError) {
+            const fallbackErr = this.capturedStderr.split('\n').find(l => l.includes('failed') || l.includes('EOF') || l.includes('Error')) || this.capturedStderr.slice(-300) || `CLI 异常退出 (code: ${code})`;
+            this.hasEmittedError = true;
+            this.emit('error', { error: fallbackErr.trim() });
+          }
           if (!this.hasSettledTurn) {
             this.hasSettledTurn = true;
             this.emit('turn_end');
@@ -9522,7 +11152,9 @@ class AntigravityAdapter extends AgentAdapter {
         this.isThinkingActive = false;
       }
       if (res.status === 'ERROR') {
-        this.emit('error', { error: res.response || '执行失败' });
+        const errMsg = res.error_message || res.error || res.message || res.response || (this.capturedStderr && this.capturedStderr.trim()) || '执行失败';
+        this.hasEmittedError = true;
+        this.emit('error', { error: errMsg });
       }
       if (!this.hasSettledTurn) {
         this.hasSettledTurn = true;
@@ -13400,10 +15032,262 @@ function safeReaddirSync(dirPath) {
   }
 }
 
+function windowsPathToLinux(winPath) {
+  if (!winPath) return '';
+  let norm = String(winPath).trim().replace(/\\/g, '/');
+  // 62: Y:/ -> /dfb/tankaikun/share/
+  if (/^[Yy]:/i.test(norm)) {
+    return norm.replace(/^[Yy]:\/?/i, '/dfb/tankaikun/share/');
+  }
+  // 31: Z:/work/ -> /home/tankaikun/share/work/
+  if (/^[Zz]:\/work/i.test(norm)) {
+    return norm.replace(/^[Zz]:\/work\/?/i, '/home/tankaikun/share/work/');
+  }
+  if (/^[Zz]:/i.test(norm)) {
+    return norm.replace(/^[Zz]:\/?/i, '/home/tankaikun/share/');
+  }
+  // UNC paths
+  if (norm.startsWith('//192.168.1.62/tankaikun/')) {
+    return norm.replace('//192.168.1.62/tankaikun/', '/dfb/tankaikun/share/');
+  }
+  if (norm.startsWith('//192.168.1.31/tankaikun/work/')) {
+    return norm.replace('//192.168.1.31/tankaikun/work/', '/home/tankaikun/share/work/');
+  }
+  return norm;
+}
+
+function linuxPathToWindows(linuxPath) {
+  if (!linuxPath) return '';
+  let norm = String(linuxPath).trim().replace(/\\/g, '/');
+  if (norm.startsWith('/dfb/tankaikun/share/')) {
+    return norm.replace('/dfb/tankaikun/share/', 'Y:\\').replace(/\//g, '\\');
+  }
+  if (norm.startsWith('/home/tankaikun/share/work/')) {
+    return norm.replace('/home/tankaikun/share/work/', 'Z:\\work\\').replace(/\//g, '\\');
+  }
+  if (norm.startsWith('/home/tankaikun/share/')) {
+    return norm.replace('/home/tankaikun/share/', 'Z:\\').replace(/\//g, '\\');
+  }
+  return norm.replace(/\//g, '\\');
+}
+
+/**
+ * 通过 SSH 直接读取远端 Linux 服务器文件 (极速且杜绝 SMB 超时卡死)
+ */
+function readRemoteFileViaSsh(sshHost, user, linuxPath, timeoutMs = 4000) {
+  if (!linuxPath) return null;
+  const sshBin = getWinSshBin();
+  const host = sshHost || '192.168.1.62';
+  const u = user || 'tankaikun';
+  const target = `${u}@${host}`;
+
+  try {
+    const escaped = linuxPath.replace(/(["`$\\])/g, '\\$1');
+    const out = child_process.execFileSync(sshBin, [
+      '-o', 'BatchMode=yes',
+      '-o', `ConnectTimeout=${Math.max(1, Math.floor(timeoutMs / 1000))}`,
+      '-q',
+      target,
+      `cat "${escaped}"`
+    ], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+      maxBuffer: 50 * 1024 * 1024,
+      timeout: timeoutMs
+    });
+    return out;
+  } catch (err) {
+    return null;
+  }
+}
+
+/**
+ * 通过 SSH 直接写入远端 Linux 服务器文件
+ */
+function writeRemoteFileViaSsh(sshHost, user, linuxPath, content, timeoutMs = 8000) {
+  if (!linuxPath) throw new Error('无效的 Linux 目标路径');
+  const sshBin = getWinSshBin();
+  const host = sshHost || '192.168.1.62';
+  const u = user || 'tankaikun';
+  const target = `${u}@${host}`;
+
+  const escaped = linuxPath.replace(/(["`$\\])/g, '\\$1');
+  const dirPath = path.posix.dirname(linuxPath.replace(/\\/g, '/'));
+  const escapedDir = dirPath.replace(/(["`$\\])/g, '\\$1');
+
+  try {
+    child_process.execFileSync(sshBin, [
+      '-o', 'BatchMode=yes',
+      '-o', 'ConnectTimeout=3',
+      '-q',
+      target,
+      `mkdir -p "${escapedDir}" && cat > "${escaped}"`
+    ], {
+      input: content,
+      encoding: 'utf8',
+      stdio: ['pipe', 'pipe', 'ignore'],
+      maxBuffer: 10 * 1024 * 1024,
+      timeout: timeoutMs
+    });
+    return true;
+  } catch (err) {
+    throw new Error(`SSH 写入失败: ${err.message}`);
+  }
+}
+
+/**
+ * 通过 SSH 在指定 Linux 目录下快速定位文件 (基于 Linux find, 比 Windows SMB 遍历快 100 倍)
+ */
+function findRemoteFileViaSsh(sshHost, user, searchRoots, fileName, timeoutMs = 5000) {
+  if (!fileName || !searchRoots) return null;
+  const sshBin = getWinSshBin();
+  const host = sshHost || '192.168.1.62';
+  const u = user || 'tankaikun';
+  const target = `${u}@${host}`;
+
+  const roots = (Array.isArray(searchRoots) ? searchRoots : [searchRoots]).filter(Boolean);
+  if (roots.length === 0) return null;
+
+  try {
+    const escapedFileName = fileName.replace(/(["`$\\*?])/g, '\\$1');
+    const rootStr = roots.map(r => `"${r.replace(/(["`$\\])/g, '\\$1')}"`).join(' ');
+    const cmd = `find ${rootStr} -maxdepth 13 -type f -name "${escapedFileName}" 2>/dev/null`;
+    const out = child_process.execFileSync(sshBin, [
+      '-o', 'BatchMode=yes',
+      '-o', `ConnectTimeout=${Math.max(1, Math.floor(timeoutMs / 1000))}`,
+      '-q',
+      target,
+      cmd
+    ], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+      maxBuffer: 5 * 1024 * 1024,
+      timeout: timeoutMs
+    });
+
+    const lines = out.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+    if (lines.length === 0) return null;
+
+    // 优先返回包含 /base/ 的路径（Tier 2 定制最高优先级）
+    const baseMatch = lines.find(l => l.includes('/base/'));
+    if (baseMatch) return baseMatch;
+
+    // 其次返回包含 /public/ 的路径（Tier 1 公共差分）
+    const pubMatch = lines.find(l => l.includes('/public/'));
+    if (pubMatch) return pubMatch;
+
+    return lines[0];
+  } catch (err) {
+    return null;
+  }
+}
+
+/**
+ * 异步 SSH 直读远端文件 (不阻塞 UI 主线程)
+ * @returns {Promise<string|null>}
+ */
+function readRemoteFileViaSshAsync(sshHost, user, linuxPath, timeoutMs = 4000) {
+  return new Promise((resolve) => {
+    if (!linuxPath) return resolve(null);
+    const sshBin = getWinSshBin();
+    const host = sshHost || '192.168.1.62';
+    const u = user || 'tankaikun';
+    const escaped = String(linuxPath).replace(/(["`$\\])/g, '\\$1');
+    child_process.execFile(sshBin, [
+      '-o', 'BatchMode=yes',
+      '-o', `ConnectTimeout=${Math.max(1, Math.floor(timeoutMs / 1000))}`,
+      '-q',
+      `${u}@${host}`,
+      `cat "${escaped}"`
+    ], {
+      encoding: 'utf8',
+      maxBuffer: 50 * 1024 * 1024,
+      timeout: timeoutMs
+    }, (err, stdout) => {
+      if (err && !stdout) return resolve(null);
+      resolve(typeof stdout === 'string' && stdout.length > 0 ? stdout : null);
+    });
+  });
+}
+
+/**
+ * 单次 SSH 会话完成「多级候选路径直读 + find 兜底定位」
+ * 相比逐次 spawn（每次 300ms+ 连接握手），全部探测收敛到一条 SSH 连接，
+ * 通常 300~800ms 内返回；命中的 Linux 路径经 stderr 通道回传。
+ * @param {string} sshHost
+ * @param {string} user
+ * @param {{candidates?: string[], searchRoots?: string[], fileName?: string}} opts
+ * @param {number} [timeoutMs]
+ * @returns {Promise<{content: string, linuxPath: string}|null>}
+ */
+function readRemoteFileSmartAsync(sshHost, user, opts = {}, timeoutMs = 8000) {
+  return new Promise((resolve) => {
+    const candidates = [];
+    (opts.candidates || []).forEach(c => { if (c && !candidates.includes(c)) candidates.push(c); });
+    const roots = (Array.isArray(opts.searchRoots) ? opts.searchRoots : []).filter(Boolean);
+    const fileName = opts.fileName;
+    if (candidates.length === 0 && !fileName) return resolve(null);
+
+    const esc = s => String(s).replace(/(["`$\\])/g, '\\$1');
+    const parts = [];
+    if (candidates.length > 0) {
+      const list = candidates.map(p => `"${esc(p)}"`).join(' ');
+      parts.push(`for __p in ${list}; do if [ -f "$__p" ]; then echo "$__p" >&2; cat "$__p"; exit 0; fi; done`);
+    }
+    if (fileName && roots.length > 0) {
+      const rootStr = roots.map(r => `"${esc(r)}"`).join(' ');
+      const escName = String(fileName).replace(/(["`$\\*?])/g, '\\$1');
+      // 与 findRemoteFileViaSsh 同优先级：/base/ (Tier2) > /public/ (Tier1) > 首个命中
+      parts.push(`__f=$(find ${rootStr} -maxdepth 13 -type f -name "${escName}" 2>/dev/null | grep '/base/' | head -n1); [ -z "$__f" ] && __f=$(find ${rootStr} -maxdepth 13 -type f -name "${escName}" 2>/dev/null | grep '/public/' | head -n1); [ -z "$__f" ] && __f=$(find ${rootStr} -maxdepth 13 -type f -name "${escName}" 2>/dev/null | head -n1); if [ -n "$__f" ]; then echo "$__f" >&2; cat "$__f"; fi`);
+    }
+    const cmd = parts.join('; ');
+
+    const host = sshHost || '192.168.1.62';
+    const u = user || 'tankaikun';
+    child_process.execFile(getWinSshBin(), [
+      '-o', 'BatchMode=yes',
+      '-o', 'ConnectTimeout=4',
+      '-q',
+      `${u}@${host}`,
+      cmd
+    ], {
+      encoding: 'utf8',
+      maxBuffer: 50 * 1024 * 1024,
+      timeout: timeoutMs
+    }, (err, stdout, stderr) => {
+      const content = (typeof stdout === 'string' && stdout.length > 0) ? stdout : null;
+      if (!content) return resolve(null);
+      // stderr 最后一行以 '/' 开头者即命中路径 (ssh 警告信息不会造成干扰)
+      let linuxPath = '';
+      try {
+        const errLines = String(stderr || '').split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+        linuxPath = errLines.filter(l => l.startsWith('/')).pop() || '';
+      } catch (_) {}
+      resolve({ content, linuxPath });
+    });
+  });
+}
+
 function safeReadFileSync(filePath, encoding = 'utf8') {
   try {
     return fs.readFileSync(filePath, encoding);
   } catch (err) {
+    // 若路径在 Linux 远端服务器挂载盘 (Y: 或 Z: 或 Linux 原生路径)，透明回退到 SSH 秒级直读
+    const isServerShare = /^[YyZz]:/i.test(filePath) || filePath.startsWith('/dfb/') || filePath.startsWith('/home/');
+    if (isServerShare) {
+      const isHost31 = /^[Zz]:/i.test(filePath) || filePath.startsWith('/home/');
+      const sshHost = isHost31 ? '192.168.1.31' : '192.168.1.62';
+      const linuxPath = windowsPathToLinux(filePath);
+      const sshContent = readRemoteFileViaSsh(sshHost, 'tankaikun', linuxPath, 3000);
+      if (typeof sshContent === 'string') {
+        return sshContent;
+      }
+    }
+
+    if (!fs.existsSync(filePath)) {
+      throw new Error(`文件不存在: ${filePath}`);
+    }
+
     if (err.code === 'EPERM' || err.code === 'EACCES') {
       try {
         return child_process.execSync(`cmd.exe /c type "${filePath}"`, { encoding, maxBuffer: 50 * 1024 * 1024 });
@@ -13419,6 +15303,18 @@ function safeWriteFileSync(filePath, content, encoding = 'utf8') {
   try {
     fs.writeFileSync(filePath, content, encoding);
   } catch (err) {
+    // 若路径在 Linux 远端服务器挂载盘 (Y: 或 Z:)，透明回退到 SSH 秒级直写
+    const isServerShare = /^[YyZz]:/i.test(filePath) || filePath.startsWith('/dfb/') || filePath.startsWith('/home/');
+    if (isServerShare) {
+      try {
+        const isHost31 = /^[Zz]:/i.test(filePath) || filePath.startsWith('/home/');
+        const sshHost = isHost31 ? '192.168.1.31' : '192.168.1.62';
+        const linuxPath = windowsPathToLinux(filePath);
+        writeRemoteFileViaSsh(sshHost, 'tankaikun', linuxPath, content, 6000);
+        return;
+      } catch (_) {}
+    }
+
     if (err.code === 'EPERM' || err.code === 'EACCES') {
       
       const tmpPath = path.join(os.tmpdir(), `wb_tmp_${Date.now()}_${Math.random().toString(36).slice(2)}.tmp`);
@@ -13668,9 +15564,14 @@ function resolveEffectiveFile(projectConfig, relativePath) {
     };
   }
 
-  // Tier 0: 原厂官方基线 (在 vendor_w, alps, 或仓库根目录查找)
+  // Tier 0: 原厂官方基线 (在 vendor_t, vendor_w, alps, idh, kernel 或仓库根目录查找)
   const candidateBaselines = [
     path.join(projectConfig.fullPathWin, cleanRel),
+    path.join(projectConfig.fullPathWin, 'vendor_t', cleanRel),
+    path.join(projectConfig.fullPathWin, 'vendor_t', 'bsp', cleanRel),
+    path.join(projectConfig.fullPathWin, 'pri_project', 'driver', 'public', cleanRel),
+    path.join(projectConfig.fullPathWin, 'pri_project', 'driver', cleanRel),
+    path.join(projectConfig.fullPathWin, 'idh', cleanRel),
     path.join(projectConfig.fullPathWin, 'vendor_w', cleanRel),
     path.join(projectConfig.fullPathWin, 'alps', cleanRel),
     path.join(projectConfig.fullPathWin, 'kernel', cleanRel),
@@ -13836,6 +15737,1419 @@ function extractCompilerErrors(output) {
   return errorLines.join('\n');
 }
 
+/* ==========================================================================
+   CodeViewerPanel — Agent 对话框右侧内嵌代码检视与编辑器组件 (双模引擎 + Notepad++ 查找)
+   特性:
+   1. 双模引擎架构：原生高性能内核 (零延迟即时呈现) + 本地 Monaco Editor 增强
+   2. 彻底根除空白黑屏：点击文件 0 延迟秒级上屏，自动计算行号并居中聚焦目标行
+   3. 完美适配工作台主题：深度集成莫兰迪/标准工程皮肤，支持亮色/深色自适应
+   4. Notepad++ 风格全局查找：精准区分大小写/全词/正则，具备"在当前文件中查找"与底部结果底座
+   5. 远端代码智能回退：支持本地磁盘读取及企业 OpenGrok 远端只读镜像秒级拉取
+   6. 极简防御设计：默认只读模式防误触，支持一键切换编辑并 Ctrl+S 安全写回磁盘
+   7. 外部双轨联动：一键调起本地 Notepad++ 或 VS Code 直达目标行
+   ========================================================================== */
+
+
+
+
+
+
+class CodeViewerPanel {
+  /**
+   * @param {object} options
+   * @param {any} [options.app]
+   * @param {string} [options.vaultBasePath]
+   * @param {function} [options.onClose]
+   * @param {function} [options.onFileSaved]
+   */
+  constructor(options = {}) {
+    this.app = options.app || (typeof window !== 'undefined' ? window.app : null);
+    this.vaultBasePath = options.vaultBasePath || (this.app?.vault?.adapter?.basePath) || 'd:\\work\\Mgmt\\TabonKB';
+    this.onClose = options.onClose || null;
+    this.onFileSaved = options.onFileSaved || null;
+
+    this.containerEl = null;
+    this.headerEl = null;
+    this.searchBarEl = null;
+    this.bodyEl = null;
+    this.searchDockEl = null;
+    this.nativeViewerEl = null;
+    this.editWrapEl = null;
+    this.textareaEl = null;
+    this.iframeEl = null;
+
+    this.currentFilePath = '';
+    this.currentLine = 1;
+    this.currentContent = '';
+    this.isReadOnly = true;
+    this.isModified = false;
+    this.isRemote = false;
+    this.remoteSource = '';
+    this.remoteLinuxPath = '';
+    this.remoteServer = null;
+    this.isMonacoActive = false;
+
+    // Notepad++ 查找功能状态
+    this.isSearchOpen = false;
+    this.isSearchDockOpen = false;
+    this.searchQuery = '';
+    this.searchMode = 'normal'; // 'normal' | 'extended' | 'regex'
+    this.searchOptions = {
+      matchCase: false,
+      wholeWord: false
+    };
+    this.searchMatches = []; // [{ line, col, length }]
+    this.currentMatchIdx = -1;
+    this.dockSearchResults = []; // [{ line, text }]
+    this.dockFilterQuery = ''; // 结果二次过滤 (支持正则表达式)
+
+    this._messageHandler = null;
+    this._themeObserver = null;
+    this._keyHandler = null;
+
+    this.initMessageListener();
+    this.initThemeObserver();
+  }
+
+  getTheme() {
+    if (typeof document === 'undefined') return 'vs-dark';
+    const isLight = document.body.classList.contains('theme-light') ||
+                    document.documentElement.getAttribute('data-theme') === 'light';
+    return isLight ? 'vs' : 'vs-dark';
+  }
+
+  initThemeObserver() {
+    if (typeof MutationObserver === 'undefined' || typeof document === 'undefined') return;
+    this._themeObserver = new MutationObserver(() => {
+      this.syncTheme();
+    });
+    this._themeObserver.observe(document.body, { attributes: true, attributeFilter: ['class'] });
+  }
+
+  syncTheme() {
+    const theme = this.getTheme();
+    if (this.nativeViewerEl) {
+      if (theme === 'vs') {
+        this.nativeViewerEl.classList.add('is-light-theme');
+        this.nativeViewerEl.classList.remove('is-dark-theme');
+      } else {
+        this.nativeViewerEl.classList.add('is-dark-theme');
+        this.nativeViewerEl.classList.remove('is-light-theme');
+      }
+    }
+    if (this.editWrapEl) {
+      if (theme === 'vs') {
+        this.editWrapEl.classList.add('is-light-theme');
+        this.editWrapEl.classList.remove('is-dark-theme');
+      } else {
+        this.editWrapEl.classList.add('is-dark-theme');
+        this.editWrapEl.classList.remove('is-light-theme');
+      }
+    }
+    if (this.iframeEl?.contentWindow && this.isMonacoActive) {
+      try {
+        this.iframeEl.contentWindow.postMessage({ type: 'set-theme', theme: theme }, '*');
+      } catch (_) {}
+    }
+  }
+
+  initMessageListener() {
+    if (typeof window === 'undefined') return;
+
+    this._messageHandler = (event) => {
+      const data = event.data;
+      if (!data || typeof data !== 'object') return;
+
+      if (data.type === 'monaco-host-ready') {
+        this.isMonacoActive = true;
+        this.syncToMonaco();
+      } else if (data.type === 'monaco-save-request') {
+        this.saveContent(data.code);
+      } else if (data.type === 'monaco-content-change') {
+        if (!this.isReadOnly && !this.isModified) {
+          this.isModified = true;
+          this.currentContent = data.code || this.currentContent;
+          this.updateHeaderUI();
+        }
+      } else if (data.type === 'monaco-toggle-find') {
+        this.toggleSearchBar();
+      }
+    };
+
+    window.addEventListener('message', this._messageHandler);
+  }
+
+  mount(parentEl) {
+    this.containerEl = parentEl;
+    this.containerEl.empty ? this.containerEl.empty() : (this.containerEl.innerHTML = '');
+    this.containerEl.classList.add('tw-code-viewer-panel');
+
+    // 1. Header Toolbar
+    this.headerEl = document.createElement('div');
+    this.headerEl.className = 'tw-code-viewer-header';
+    this.containerEl.appendChild(this.headerEl);
+
+    // 2. Notepad++ Style Search Bar
+    this.searchBarEl = document.createElement('div');
+    this.searchBarEl.className = 'tw-code-search-bar';
+    this.searchBarEl.style.display = 'none';
+    this.containerEl.appendChild(this.searchBarEl);
+
+    // 3. Body Container
+    this.bodyEl = document.createElement('div');
+    this.bodyEl.className = 'tw-code-viewer-body';
+    this.containerEl.appendChild(this.bodyEl);
+
+    // 3.1 Native Code Viewer Element (零延迟即时显示)
+    this.nativeViewerEl = document.createElement('div');
+    this.nativeViewerEl.className = 'tw-code-editor-native';
+    this.bodyEl.appendChild(this.nativeViewerEl);
+
+    // 3.2 Native Edit Textarea Wrap (编辑模式备用)
+    this.editWrapEl = document.createElement('div');
+    this.editWrapEl.className = 'tw-code-edit-wrap';
+    this.editWrapEl.style.display = 'none';
+    this.editWrapEl.innerHTML = `
+      <textarea class="tw-code-textarea" spellcheck="false"></textarea>
+    `;
+    this.textareaEl = this.editWrapEl.querySelector('textarea');
+    this.textareaEl.addEventListener('input', () => {
+      if (!this.isModified) {
+        this.isModified = true;
+        this.updateHeaderUI();
+      }
+      this.currentContent = this.textareaEl.value;
+    });
+    this.textareaEl.addEventListener('keydown', (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+        e.preventDefault();
+        this.triggerSave();
+      }
+    });
+    this.bodyEl.appendChild(this.editWrapEl);
+
+    // 3.3 Background Monaco Iframe (通过本地 Companion 服务加载)
+    this.initMonacoIframe();
+
+    // 4. Notepad++ Style Bottom Search Dock
+    this.searchDockEl = document.createElement('div');
+    this.searchDockEl.className = 'tw-code-search-dock';
+    this.searchDockEl.style.display = 'none';
+    this.containerEl.appendChild(this.searchDockEl);
+
+    // 5. Global Keyboard Shortcuts (Ctrl+F)
+    this._keyHandler = (e) => {
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'f' || e.key === 'F')) {
+        if (this.containerEl && this.containerEl.contains(e.target)) {
+          e.preventDefault();
+          this.toggleSearchBar();
+        }
+      } else if (e.key === 'Escape' && this.isSearchOpen) {
+        this.closeSearchBar();
+      }
+    };
+    window.addEventListener('keydown', this._keyHandler);
+
+    this.renderHeader();
+    this.renderSearchBar();
+    this.syncTheme();
+  }
+
+  initMonacoIframe() {
+    this.iframeEl = document.createElement('iframe');
+    this.iframeEl.className = 'tw-code-monaco-iframe';
+    this.iframeEl.setAttribute('frameborder', '0');
+    this.iframeEl.setAttribute('allow', 'clipboard-read; clipboard-write');
+    this.iframeEl.style.display = 'none'; // 握手就绪前隐藏
+
+    const hostUrl = 'http://127.0.0.1:28123/monaco/editor.html';
+    this.iframeEl.src = hostUrl;
+    this.bodyEl.appendChild(this.iframeEl);
+  }
+
+  renderHeader() {
+    if (!this.headerEl) return;
+    const baseName = this.currentFilePath ? path.basename(this.currentFilePath) : '未打开代码';
+    const relDir = this.currentFilePath ? path.dirname(this.currentFilePath) : '';
+    const lineLabel = this.currentLine && this.currentLine > 0 ? `L${this.currentLine}` : '';
+
+    this.headerEl.innerHTML = `
+      <div class="tw-code-header-left" title="${escapeAttr(this.currentFilePath || '')}">
+        <span class="tw-code-file-icon">${getIconPark('file-code', 14)}</span>
+        <span class="tw-code-file-name">${escapeHtml(baseName)}</span>
+        ${lineLabel ? `<span class="tw-code-line-badge">${escapeHtml(lineLabel)}</span>` : ''}
+        ${this.isRemote ? `<span class="tw-code-remote-badge" title="${escapeAttr(this.remoteSource)}">${this.remoteSource && this.remoteSource.includes('SSH') ? 'SSH' : '远端'}</span>` : ''}
+        ${this.isModified ? `<span class="tw-code-dirty-dot" title="有未保存修改">●</span>` : ''}
+        <span class="tw-code-file-dir">${escapeHtml(relDir)}</span>
+      </div>
+      <div class="tw-code-header-actions">
+        <button class="tw-code-ghost-btn ${this.isSearchOpen ? 'is-active' : ''}" id="twBtnCodeSearch" title="查找 (Ctrl+F)">
+          ${getIconPark('search', 13)}
+          <span>查找</span>
+        </button>
+        <button class="tw-code-ghost-btn ${this.isReadOnly ? 'is-readonly' : 'is-editable'}" id="twBtnToggleMode" title="${this.isReadOnly ? '当前只读，点击解锁编辑' : '当前编辑中，点击切换只读'}">
+          ${getIconPark(this.isReadOnly ? 'lock' : 'edit', 13)}
+          <span>${this.isReadOnly ? '只读' : '编辑'}</span>
+        </button>
+        ${!this.isReadOnly ? `
+          <button class="tw-code-ghost-btn is-save" id="twBtnSaveFile" title="保存修改 (Ctrl+S)">
+            ${getIconPark('check', 13)}
+            <span>保存</span>
+          </button>
+        ` : ''}
+        <button class="tw-code-ghost-btn" id="twBtnExternalEditor" title="在外部编辑器 (Notepad++ / VS Code) 中定位打开">
+          ${getIconPark('export', 13)}
+          <span>外部</span>
+        </button>
+        <button class="tw-code-ghost-btn is-close" id="twBtnCloseCode" title="关闭 (Esc)">
+          ${getIconPark('close', 13)}
+        </button>
+      </div>
+    `;
+
+    this.bindHeaderEvents();
+  }
+
+  bindHeaderEvents() {
+    const btnSearch = this.headerEl.querySelector('#twBtnCodeSearch');
+    if (btnSearch) {
+      btnSearch.onclick = (e) => {
+        e.stopPropagation();
+        this.toggleSearchBar();
+      };
+    }
+
+    const btnToggle = this.headerEl.querySelector('#twBtnToggleMode');
+    if (btnToggle) {
+      btnToggle.onclick = (e) => {
+        e.stopPropagation();
+        this.setReadOnly(!this.isReadOnly);
+      };
+    }
+
+    const btnSave = this.headerEl.querySelector('#twBtnSaveFile');
+    if (btnSave) {
+      btnSave.onclick = (e) => {
+        e.stopPropagation();
+        this.triggerSave();
+      };
+    }
+
+    const btnExt = this.headerEl.querySelector('#twBtnExternalEditor');
+    if (btnExt) {
+      btnExt.onclick = (e) => {
+        e.stopPropagation();
+        this.openInExternalEditor();
+      };
+    }
+
+    const btnClose = this.headerEl.querySelector('#twBtnCloseCode');
+    if (btnClose) {
+      btnClose.onclick = (e) => {
+        e.stopPropagation();
+        if (typeof this.onClose === 'function') {
+          this.onClose();
+        }
+      };
+    }
+  }
+
+  updateHeaderUI() {
+    this.renderHeader();
+  }
+
+  /* ==========================================================================
+     Notepad++ 风格查找功能实现 (双行极简架构 + 三模检索 + 正则结果底座)
+     ========================================================================== */
+
+  renderSearchBar() {
+    if (!this.searchBarEl) return;
+    this.searchBarEl.innerHTML = `
+      <div class="tw-search-bar-inner">
+        <!-- 第 1 行：查找目标输入框 + 清除 + 匹配计数 + 上一个/下一个 + 关闭 -->
+        <div class="tw-search-row tw-search-row-primary">
+          <div class="tw-search-input-wrap">
+            <span class="tw-cs-icon">${getIconPark('search', 13)}</span>
+            <input type="text" class="tw-cs-input" placeholder="查找目标 (Enter 下一个，Shift+Enter 上一个)..." value="${escapeAttr(this.searchQuery)}">
+            <button class="tw-search-clear-btn" id="twBtnClearSearch" title="清空" style="${this.searchQuery ? '' : 'display:none;'}">✕</button>
+            <span class="tw-search-count-badge" id="twSearchCountBadge">${this.searchMatches.length > 0 ? `${this.currentMatchIdx + 1} / ${this.searchMatches.length}` : (this.searchQuery ? '0 处' : '')}</span>
+          </div>
+          <div class="tw-search-row-actions">
+            <button class="tw-search-act-btn" id="twBtnFindPrev" title="查找上一个 (Shift+Enter)">${getIconPark('arrow-up', 12)}</button>
+            <button class="tw-search-act-btn" id="twBtnFindNext" title="查找下一个 (Enter)">${getIconPark('arrow-down', 12)}</button>
+            <button class="tw-search-act-btn is-close" id="twBtnCloseSearch" title="关闭查找栏 (Esc)">${getIconPark('close', 12)}</button>
+          </div>
+        </div>
+
+        <!-- 第 2 行：Notepad++ 模式分段 (普通/扩展/正则) + 匹配条件 (大小写/全词) + 在当前文件中查找 -->
+        <div class="tw-search-row tw-search-row-secondary">
+          <div class="tw-search-mode-segmented">
+            <button class="tw-mode-pill ${this.searchMode === 'normal' ? 'is-active' : ''}" data-mode="normal" title="普通文本精准匹配">普通</button>
+            <button class="tw-mode-pill ${this.searchMode === 'extended' ? 'is-active' : ''}" data-mode="extended" title="扩展转义字符 (\\n, \\r, \\t, \\0, \\\\...)">扩展</button>
+            <button class="tw-mode-pill ${this.searchMode === 'regex' ? 'is-active' : ''}" data-mode="regex" title="正则表达式匹配 (Regular Expression)">正则</button>
+          </div>
+          <div class="tw-search-opts-segmented">
+            <button class="tw-opt-pill ${this.searchOptions.matchCase ? 'is-active' : ''}" data-opt="matchCase" title="区分大小写 (Match Case)">Aa</button>
+            <button class="tw-opt-pill ${this.searchOptions.wholeWord ? 'is-active' : ''}" data-opt="wholeWord" title="全词匹配 (Whole Word)">\\b</button>
+          </div>
+          <button class="tw-find-all-btn" id="twBtnFindAll" title="在当前文件中查找全部匹配，展开底部结果底座">
+            ${getIconPark('list-two', 12)}
+            <span>在当前文件中查找</span>
+          </button>
+        </div>
+      </div>
+    `;
+
+    this.bindSearchBarEvents();
+  }
+
+  bindSearchBarEvents() {
+    const input = this.searchBarEl.querySelector('.tw-cs-input');
+    const clearBtn = this.searchBarEl.querySelector('#twBtnClearSearch');
+
+    if (input) {
+      input.oninput = () => {
+        this.searchQuery = input.value;
+        if (clearBtn) clearBtn.style.display = this.searchQuery ? 'inline-flex' : 'none';
+        // 大文件全量扫描代价高，做 160ms 防抖避免逐键卡顿
+        if (this._searchDeb) clearTimeout(this._searchDeb);
+        if ((this.currentContent || '').length > 1024 * 1024) {
+          this._searchDeb = setTimeout(() => this.executeQuickSearch(), 160);
+        } else {
+          this.executeQuickSearch();
+        }
+      };
+      input.onkeydown = (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          if (e.shiftKey) {
+            this.navigateMatch(-1);
+          } else {
+            this.navigateMatch(1);
+          }
+        } else if (e.key === 'Escape') {
+          e.preventDefault();
+          this.closeSearchBar();
+        }
+      };
+    }
+
+    if (clearBtn) {
+      clearBtn.onclick = (e) => {
+        e.stopPropagation();
+        this.searchQuery = '';
+        if (input) {
+          input.value = '';
+          input.focus();
+        }
+        clearBtn.style.display = 'none';
+        this.executeQuickSearch();
+      };
+    }
+
+    // 模式切换 (普通 / 扩展 / 正则)
+    const modeBtns = this.searchBarEl.querySelectorAll('.tw-mode-pill');
+    modeBtns.forEach(btn => {
+      btn.onclick = (e) => {
+        e.stopPropagation();
+        const mode = btn.getAttribute('data-mode');
+        if (mode && this.searchMode !== mode) {
+          this.searchMode = mode;
+          modeBtns.forEach(b => b.classList.remove('is-active'));
+          btn.classList.add('is-active');
+          this.executeQuickSearch();
+        }
+      };
+    });
+
+    // 选项切换 (大小写 / 全词)
+    const optBtns = this.searchBarEl.querySelectorAll('.tw-opt-pill');
+    optBtns.forEach(btn => {
+      btn.onclick = (e) => {
+        e.stopPropagation();
+        const opt = btn.getAttribute('data-opt');
+        if (opt && typeof this.searchOptions[opt] !== 'undefined') {
+          this.searchOptions[opt] = !this.searchOptions[opt];
+          btn.classList.toggle('is-active', this.searchOptions[opt]);
+          this.executeQuickSearch();
+        }
+      };
+    });
+
+    const btnPrev = this.searchBarEl.querySelector('#twBtnFindPrev');
+    if (btnPrev) btnPrev.onclick = () => this.navigateMatch(-1);
+
+    const btnNext = this.searchBarEl.querySelector('#twBtnFindNext');
+    if (btnNext) btnNext.onclick = () => this.navigateMatch(1);
+
+    const btnFindAll = this.searchBarEl.querySelector('#twBtnFindAll');
+    if (btnFindAll) btnFindAll.onclick = () => this.executeFindAll();
+
+    const btnClose = this.searchBarEl.querySelector('#twBtnCloseSearch');
+    if (btnClose) btnClose.onclick = () => this.closeSearchBar();
+  }
+
+  toggleSearchBar() {
+    if (this.isSearchOpen) {
+      this.closeSearchBar();
+    } else {
+      this.openSearchBar();
+    }
+  }
+
+  openSearchBar() {
+    this.isSearchOpen = true;
+    if (this.searchBarEl) {
+      this.searchBarEl.style.display = 'block';
+      const input = this.searchBarEl.querySelector('.tw-cs-input');
+      if (input) {
+        setTimeout(() => {
+          input.focus();
+          input.select();
+        }, 50);
+      }
+    }
+    this.updateHeaderUI();
+    if (this.searchQuery) {
+      this.executeQuickSearch();
+    }
+  }
+
+  closeSearchBar() {
+    this.isSearchOpen = false;
+    if (this.searchBarEl) this.searchBarEl.style.display = 'none';
+    this.updateHeaderUI();
+  }
+
+  /**
+   * 构建检索正则表达式 (支持 普通 / Notepad++ 扩展 / 正则表达式 模式)
+   */
+  buildSearchRegex() {
+    if (!this.searchQuery) return null;
+    let flags = this.searchOptions.matchCase ? 'g' : 'gi';
+    try {
+      let pattern = this.searchQuery;
+      if (this.searchMode === 'normal') {
+        pattern = pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      } else if (this.searchMode === 'extended') {
+        // Notepad++ 扩展模式：解析 \n, \r, \t, \0, \\ 等
+        pattern = pattern
+          .replace(/\\\\/g, '\u0000')
+          .replace(/\\n/g, '\n')
+          .replace(/\\r/g, '\r')
+          .replace(/\\t/g, '\t')
+          .replace(/\\0/g, '\0')
+          .replace(/[.*+?^${}()|[\]]/g, '\\$&')
+          .replace(/\u0000/g, '\\\\');
+      }
+      if (this.searchOptions.wholeWord) {
+        pattern = `\\b(?:${pattern})\\b`;
+      }
+      return new RegExp(pattern, flags);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  executeQuickSearch() {
+    const countBadge = this.searchBarEl?.querySelector('#twSearchCountBadge');
+    const regex = this.buildSearchRegex();
+    this.searchMatches = [];
+    this.currentMatchIdx = -1;
+
+    if (!regex || !this.currentContent) {
+      if (countBadge) countBadge.textContent = this.searchQuery ? '0 处匹配' : '';
+      return;
+    }
+
+    const lines = this.currentContent.split('\n');
+    const r = new RegExp(regex.source, regex.flags);
+    for (let l = 0; l < lines.length; l++) {
+      const lineText = lines[l];
+      let match;
+      r.lastIndex = 0;
+      while ((match = r.exec(lineText)) !== null) {
+        this.searchMatches.push({
+          line: l + 1,
+          col: match.index + 1,
+          length: match[0].length
+        });
+        if (!r.global) break;
+        if (match[0].length === 0) r.lastIndex++; // 零宽匹配防死循环
+      }
+    }
+
+    if (countBadge) {
+      if (this.searchMatches.length === 0) {
+        countBadge.textContent = '0 处匹配';
+      } else {
+        this.currentMatchIdx = 0;
+        countBadge.textContent = `1 / ${this.searchMatches.length}`;
+        this.jumpToMatch(this.searchMatches[0]);
+      }
+    }
+  }
+
+  navigateMatch(delta) {
+    if (this.searchMatches.length === 0) return;
+    this.currentMatchIdx = (this.currentMatchIdx + delta + this.searchMatches.length) % this.searchMatches.length;
+    const countBadge = this.searchBarEl?.querySelector('#twSearchCountBadge');
+    if (countBadge) {
+      countBadge.textContent = `${this.currentMatchIdx + 1} / ${this.searchMatches.length}`;
+    }
+    this.jumpToMatch(this.searchMatches[this.currentMatchIdx]);
+  }
+
+  jumpToMatch(match) {
+    if (!match) return;
+    this.jumpToLine(match.line, match.col);
+  }
+
+  // Notepad++ 核心："在当前文件中查找"并呈现底部 dock
+  executeFindAll() {
+    const regex = this.buildSearchRegex();
+    if (!regex || !this.currentContent) {
+      if (typeof Notice !== 'undefined') new Notice('请输入有效的查找内容');
+      return;
+    }
+
+    const lines = this.currentContent.split('\n');
+    const results = [];
+    for (let i = 0; i < lines.length; i++) {
+      const lineText = lines[i];
+      const r = new RegExp(regex.source, regex.flags);
+      if (r.test(lineText)) {
+        results.push({
+          line: i + 1,
+          text: lineText
+        });
+      }
+    }
+
+    this.dockSearchResults = results;
+    this.dockFilterQuery = ''; // 重置二次过滤
+    this.openSearchDock();
+  }
+
+  openSearchDock() {
+    this.isSearchDockOpen = true;
+    if (!this.searchDockEl) return;
+    this.searchDockEl.style.display = 'flex';
+    this.renderSearchDock();
+  }
+
+  closeSearchDock() {
+    this.isSearchDockOpen = false;
+    if (this.searchDockEl) this.searchDockEl.style.display = 'none';
+  }
+
+  renderSearchDock() {
+    if (!this.searchDockEl) return;
+    const baseName = this.currentFilePath ? path.basename(this.currentFilePath) : '文件';
+    const total = this.dockSearchResults.length;
+
+    // 二次过滤处理 (支持正则表达式)
+    let filteredList = this.dockSearchResults;
+    let filterRegex = null;
+    if (this.dockFilterQuery) {
+      try {
+        filterRegex = new RegExp(this.dockFilterQuery, 'gi');
+        filteredList = this.dockSearchResults.filter(item => {
+          const r = new RegExp(filterRegex.source, filterRegex.flags);
+          return r.test(item.text);
+        });
+      } catch (_) {
+        const lower = this.dockFilterQuery.toLowerCase();
+        filteredList = this.dockSearchResults.filter(item => item.text.toLowerCase().includes(lower));
+      }
+    }
+
+    let rowsHtml = '';
+    const mainRegex = this.buildSearchRegex();
+
+    for (const item of filteredList) {
+      let lineTextHtml = escapeHtml(item.text);
+      if (mainRegex) {
+        try {
+          const r = new RegExp(mainRegex.source, mainRegex.flags);
+          lineTextHtml = lineTextHtml.replace(r, match => `<span class="tw-code-search-kw">${match}</span>`);
+        } catch (_) {}
+      }
+      if (filterRegex) {
+        try {
+          const fr = new RegExp(filterRegex.source, filterRegex.flags);
+          lineTextHtml = lineTextHtml.replace(fr, match => `<span class="tw-code-filter-kw">${match}</span>`);
+        } catch (_) {}
+      }
+
+      rowsHtml += `
+        <div class="tw-search-res-row" data-line="${item.line}">
+          <span class="tw-search-res-num">Line ${item.line}:</span>
+          <span class="tw-search-res-code">${lineTextHtml}</span>
+        </div>
+      `;
+    }
+
+    this.searchDockEl.innerHTML = `
+      <div class="tw-search-dock-header">
+        <div class="tw-dock-header-left">
+          <span class="tw-dock-icon">${getIconPark('search', 13)}</span>
+          <span class="tw-dock-title">查找结果: "<strong>${escapeHtml(this.searchQuery)}</strong>" (${total} 处)</span>
+        </div>
+        <!-- 正则表达式二次过滤器 (解决用户：别人是带正则表达式过滤功能的) -->
+        <div class="tw-dock-filter-wrap">
+          <span class="tw-dock-filter-icon">${getIconPark('filter', 11)}</span>
+          <input type="text" class="tw-dock-filter-input" placeholder="过滤结果 (支持正则，如 probe|init)..." value="${escapeAttr(this.dockFilterQuery || '')}">
+          <button class="tw-dock-filter-clear" id="twBtnClearDockFilter" title="清空过滤" style="${this.dockFilterQuery ? '' : 'display:none;'}">✕</button>
+        </div>
+        <div class="tw-dock-header-actions">
+          <button class="tw-dock-btn" id="twBtnClearDock" title="清空搜索结果">清空</button>
+          <button class="tw-dock-btn is-close" id="twBtnCloseDock" title="关闭面板 (Esc)">✕</button>
+        </div>
+      </div>
+      <div class="tw-search-dock-body">
+        <div class="tw-search-dock-group-head">
+          <span>📄 ${escapeHtml(baseName)} (${filteredList.length} / ${total} 匹配行${this.dockFilterQuery ? ' · 已正则过滤' : ''})</span>
+        </div>
+        <div class="tw-search-dock-list">
+          ${rowsHtml || '<div class="tw-search-empty-hint">未找到匹配内容</div>'}
+        </div>
+      </div>
+    `;
+
+    // 绑定二次过滤事件
+    const filterInput = this.searchDockEl.querySelector('.tw-dock-filter-input');
+    if (filterInput) {
+      filterInput.oninput = () => {
+        this.dockFilterQuery = filterInput.value;
+        this.renderSearchDock();
+        const nextInput = this.searchDockEl.querySelector('.tw-dock-filter-input');
+        if (nextInput) {
+          nextInput.focus();
+          nextInput.selectionStart = nextInput.selectionEnd = nextInput.value.length;
+        }
+      };
+    }
+
+    const btnClearFilter = this.searchDockEl.querySelector('#twBtnClearDockFilter');
+    if (btnClearFilter) {
+      btnClearFilter.onclick = (e) => {
+        e.stopPropagation();
+        this.dockFilterQuery = '';
+        this.renderSearchDock();
+      };
+    }
+
+    const btnClear = this.searchDockEl.querySelector('#twBtnClearDock');
+    if (btnClear) {
+      btnClear.onclick = () => {
+        this.dockSearchResults = [];
+        this.dockFilterQuery = '';
+        this.renderSearchDock();
+      };
+    }
+
+    const btnClose = this.searchDockEl.querySelector('#twBtnCloseDock');
+    if (btnClose) {
+      btnClose.onclick = () => this.closeSearchDock();
+    }
+
+    const rows = this.searchDockEl.querySelectorAll('.tw-search-res-row');
+    rows.forEach(row => {
+      row.onclick = () => {
+        rows.forEach(r => r.classList.remove('is-active'));
+        row.classList.add('is-active');
+        const line = parseInt(row.getAttribute('data-line'), 10);
+        this.jumpToLine(line);
+      };
+    });
+  }
+
+  /**
+   * 跳转并聚焦高亮指定代码行
+   */
+  jumpToLine(line, col = 1) {
+    this.currentLine = line;
+    this.updateHeaderUI();
+
+    // 1. 同步 Monaco (仅在 Monaco 实际接管显示时)
+    if (this.isMonacoActive && this.iframeEl?.contentWindow && this.iframeEl.style.display !== 'none') {
+      try {
+        this.iframeEl.contentWindow.postMessage({
+          type: 'reveal-line',
+          line: line,
+          col: col
+        }, '*');
+      } catch (_) {}
+    }
+
+    // 2. 同步原生视图 (虚拟化：瞬时滚动 + 重绘窗口 + 标记目标行)
+    if (this.nativeViewerEl && this.nativeViewerEl.style.display !== 'none' && this._nv) {
+      const nv = this._nv;
+      nv.targetLine = line;
+      const lineH = nv.lineH;
+      const maxST = Math.max(0, nv.lines.length * lineH - this.nativeViewerEl.clientHeight);
+      const st = (line - 1) * lineH - this.nativeViewerEl.clientHeight / 2 + lineH / 2;
+      this.nativeViewerEl.scrollTop = Math.min(Math.max(0, st), maxST);
+      this._renderNvWindow(true);
+    }
+  }
+
+  /* ==========================================================================
+     文件加载与远端智能回退
+     ========================================================================== */
+
+  /**
+   * 打开指定文件并定位到指定行
+   * @param {string} filePath 文件绝对路径
+   * @param {number} [targetLine=1] 目标行号
+   * @param {object} [extraOptions={}] 附加信息 (rawTarget, activeProject)
+   */
+  async openFile(filePath, targetLine = 1, extraOptions = {}) {
+    if (!filePath) return;
+    this.currentFilePath = filePath;
+    this.currentLine = parseInt(targetLine, 10) || 1;
+    this.isModified = false;
+    this.isRemote = false;
+    this.remoteSource = '';
+    this.remoteLinuxPath = '';
+    this.remoteServer = null;
+
+    // 打开瞬间即反馈：头部文件名 + 原生视图加载态，消除"点击后等待数秒才打开"的观感
+    this.updateHeaderUI();
+    this._renderLoadingState();
+
+    // 1. 本地/挂载盘异步读取 (大文件不阻塞主线程)
+    //    服务器共享盘 (Y:/Z:/Linux 路径) 用 Promise.race 竞速读：SMB 离线时
+    //    Windows 同步 stat 会阻塞数秒等待重连，此处 1500ms 封顶后转 SSH 直读
+    let content = null;
+    let localReadError = null;
+
+    try {
+      const isServerShare = /^[YyZz]:/i.test(filePath) || filePath.startsWith('/dfb/') || filePath.startsWith('/home/');
+      if (isServerShare) {
+        const raw = await Promise.race([
+          fs.promises.readFile(filePath, 'utf8').catch(() => null),
+          new Promise(r => setTimeout(() => r(null), 1500))
+        ]);
+        content = (typeof raw === 'string') ? raw : null;
+      } else if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
+        content = await fs.promises.readFile(filePath, 'utf8');
+      }
+    } catch (err) {
+      localReadError = err;
+    }
+
+    // 2. 若本地未命中，智能通过 SSH 直接秒级连接 Linux 服务器读取 (不依赖 Windows SMB 网络共享)
+    if (content === null) {
+      const sshResult = await this.tryFetchViaSsh(filePath, extraOptions);
+      if (sshResult && typeof sshResult.content === 'string') {
+        content = sshResult.content;
+        this.isRemote = true;
+        this.remoteSource = `${sshResult.serverName || '服务器'} · SSH直连`;
+        this.remoteLinuxPath = sshResult.linuxPath;
+        this.remoteServer = { host: sshResult.host, user: sshResult.user };
+        if (sshResult.winPath) {
+          this.currentFilePath = sshResult.winPath;
+        }
+      }
+    }
+
+    // 3. 若 SSH 亦未命中，智能尝试远端 OpenGrok HTTP 镜像拉取
+    if (content === null) {
+      const opengrokContent = await this.tryFetchFromOpenGrok(filePath, extraOptions);
+      if (opengrokContent) {
+        content = opengrokContent;
+        this.isRemote = true;
+        this.remoteSource = 'OpenGrok 远端只读';
+      }
+    }
+
+    // 4. 兜底友善排查建议
+    if (content === null) {
+      content = `// 无法读取文件: ${filePath}
+// 原因: ${localReadError ? localReadError.message : '文件不存在或网络共享已断开'}
+// 
+// 💡 排查建议:
+// 1. 若为 Linux 服务器工程，请确认顶部工程下拉框选中了正确的工程目录。
+// 2. 当前系统已开启 SSH 秒级直连 (无需依赖 Windows SMB 网络共享挂载)。
+// 3. 点击右上角 [外部] 按钮，可直接调起本地 Notepad++ 或 VS Code 穿透打开。`;
+    }
+
+    this.currentContent = content;
+    this.updateHeaderUI();
+
+    // 5. 原生极速呈现 (虚拟化窗口渲染，大文件也瞬时上屏)
+    this.renderNativeCodeView(content, this.currentLine);
+
+    // 6. 同步至 Monaco 增强引擎 (小文件接管显示；大文件保留原生视图避免双重渲染闪屏)
+    this.syncToMonaco();
+  }
+
+  /**
+   * 尝试通过 SSH 直接从远端 Linux 服务器秒级读取 (完全不依赖 Windows SMB 共享挂载)
+   * 单条 SSH 连接内完成全部候选路径探测与 find 兜底，杜绝多次 spawn 的握手叠加延迟。
+   */
+  async tryFetchViaSsh(filePath, extraOptions = {}) {
+    try {
+      const smartFn = (typeof readRemoteFileSmartAsync === 'function') ? readRemoteFileSmartAsync : null;
+      if (!smartFn) return null;
+
+      const activeProj = extraOptions.activeProject;
+      const fileName = path.basename(filePath);
+
+      let host = activeProj?.sshHost || activeProj?.serverIp;
+      let user = activeProj?.user || 'tankaikun';
+      let serverName = activeProj?.serverName || (activeProj?.serverId ? `${activeProj.serverId} 服务器` : '');
+
+      const normLower = filePath.toLowerCase().replace(/\\/g, '/');
+      if (!host) {
+        if (normLower.startsWith('y:') || normLower.startsWith('/dfb/')) {
+          host = '192.168.1.62';
+          serverName = '62 服务器';
+        } else if (normLower.startsWith('z:') || normLower.startsWith('/home/')) {
+          host = '192.168.1.31';
+          serverName = '31 服务器';
+        } else {
+          host = '192.168.1.62';
+          serverName = '62 服务器';
+        }
+      }
+
+      const w2lFn = (typeof windowsPathToLinux === 'function') ? windowsPathToLinux : (p => p.replace(/^[Yy]:/i, '/dfb/tankaikun/share/').replace(/^[Zz]:\/work/i, '/home/tankaikun/share/work/').replace(/\\/g, '/'));
+      const l2wFn = (typeof linuxPathToWindows === 'function') ? linuxPathToWindows : (p => p.replace('/dfb/tankaikun/share/', 'Y:\\').replace('/home/tankaikun/share/work/', 'Z:\\work\\').replace(/\//g, '\\'));
+
+      // 候选 Linux 路径：直达映射 -> Tier 2 项目定制 -> Tier 1 公共差分
+      const candidates = [];
+      const directLinuxPath = w2lFn(filePath);
+      if (directLinuxPath && directLinuxPath.startsWith('/')) {
+        candidates.push(directLinuxPath);
+      }
+      if (activeProj?.linuxPath) {
+        const cleanBase = filePath.replace(/^[A-Za-z]:[\\\/]/, '').replace(/^[\\\/]+/, '').replace(/^base[\\\/]/i, '').replace(/\\/g, '/');
+        if (activeProj.priDriverRel) {
+          candidates.push(`${activeProj.linuxPath}/${activeProj.priDriverRel}/${cleanBase}`);
+          candidates.push(`${activeProj.linuxPath}/${activeProj.priDriverRel}/bsp/kernel5.15/kernel5.15/drivers/misc/prize/hardware_info/${fileName}`);
+          candidates.push(`${activeProj.linuxPath}/${activeProj.priDriverRel}/bsp/kernel5.15/kernel5.15/drivers/misc/prize/${fileName}`);
+        }
+        if (activeProj.publicDriverRel) {
+          candidates.push(`${activeProj.linuxPath}/${activeProj.publicDriverRel}/${cleanBase}`);
+          candidates.push(`${activeProj.linuxPath}/${activeProj.publicDriverRel}/bsp/kernel5.15/kernel5.15/drivers/misc/prize/hardware_info/${fileName}`);
+        }
+      }
+
+      // find 兜底搜索根
+      const searchRoots = [];
+      if (activeProj?.linuxPath) {
+        if (activeProj.platform && activeProj.project) {
+          searchRoots.push(`${activeProj.linuxPath}/pri_project/driver/${activeProj.platform}/${activeProj.project}`);
+        }
+        searchRoots.push(`${activeProj.linuxPath}/pri_project/driver/public`);
+        searchRoots.push(activeProj.linuxPath);
+      } else {
+        searchRoots.push('/dfb/tankaikun/share/W/01-sprd/pri_project/driver/public');
+        searchRoots.push('/dfb/tankaikun/share/W/03-mtk-ww/pri_project/driver/public');
+        searchRoots.push('/home/tankaikun/share/work/AndroidW/05-UW/pri_project/driver/public');
+      }
+
+      const res = await smartFn(host, user, {
+        candidates,
+        searchRoots,
+        fileName
+      }, 8000);
+
+      if (res && typeof res.content === 'string' && res.content.length > 0) {
+        const linuxPath = res.linuxPath || candidates[0] || '';
+        return {
+          content: res.content,
+          linuxPath,
+          winPath: linuxPath ? l2wFn(linuxPath) : filePath,
+          serverName,
+          host,
+          user
+        };
+      }
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /**
+   * 尝试从企业 OpenGrok 服务端读取原始文件内容
+   */
+  async tryFetchFromOpenGrok(filePath, extraOptions = {}) {
+    try {
+      const cleanTarget = extraOptions.rawTarget || path.basename(filePath);
+      const activeProj = extraOptions.activeProject;
+      let targetProj = 'W_sprd_os_dev';
+
+      if (activeProj?.workspaceId?.includes('sprd') || filePath.includes('sprd')) {
+        targetProj = 'W_sprd_os_dev';
+      } else if (activeProj?.workspaceId?.includes('mtk') || filePath.includes('mtk')) {
+        targetProj = 'W_mp1_os_dev';
+      }
+
+      // 计算相对于仓库的相对路径
+      let relPath = filePath.replace(/^[A-Za-z]:[\\\/]/, '').replace(/^[\\\/]+/, '');
+      if (relPath.startsWith('W\\01-sprd\\') || relPath.startsWith('W/01-sprd/')) {
+        relPath = relPath.replace(/^W[\\\/]01-sprd[\\\/]/, '');
+      } else if (relPath.startsWith('01\\') || relPath.startsWith('01/')) {
+        relPath = relPath.replace(/^01[\\\/]/, '');
+      }
+
+      const candidates = [
+        relPath,
+        relPath.replace(/^pri_project\/driver\/[^\/]+\/[^\/]+\/base\//, 'pri_project/driver/public/'),
+        relPath.replace(/^pri_project\/driver\/[^\/]+\/[^\/]+\/base\//, '')
+      ];
+
+      const baseName = path.basename(relPath);
+      const stem = baseName.replace(/\.[^.]+$/, '');
+      candidates.push(
+        `pri_project/driver/public/bsp/kernel5.15/kernel5.15/drivers/misc/prize/hardware_info/${baseName}`,
+        `pri_project/driver/public/bsp/kernel5.15/kernel5.15/drivers/misc/prize/${stem}/${baseName}`,
+        `pri_project/driver/public/bsp/kernel5.15/kernel5.15/drivers/power/supply/${baseName}`,
+        `pri_project/driver/public/bsp/kernel5.15/kernel5.15/drivers/misc/prize/${baseName}`
+      );
+
+      const uniqueCands = Array.from(new Set(candidates.filter(Boolean)));
+
+      for (const cand of uniqueCands) {
+        const url = `http://192.168.1.12:7080/source/raw/${targetProj}/${cand}`;
+        const content = await new Promise((resolve) => {
+          const req = http.get(url, { timeout: 2500 }, (res) => {
+            if (res.statusCode !== 200) {
+              resolve(null);
+              return;
+            }
+            let data = '';
+            res.on('data', chunk => data += chunk);
+            res.on('end', () => resolve(data));
+          });
+          req.on('error', () => resolve(null));
+          req.on('timeout', () => { req.destroy(); resolve(null); });
+        });
+        if (content) return content;
+      }
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  _renderLoadingState() {
+    if (!this.nativeViewerEl) return;
+    if (this.editWrapEl) this.editWrapEl.style.display = 'none';
+    if (this.iframeEl) this.iframeEl.style.display = 'none';
+    this.nativeViewerEl.style.display = 'block';
+    this._nv = null;
+    this.nativeViewerEl.innerHTML = `
+      <div class="tw-code-loading">
+        <span class="tw-code-loading-dot"></span>
+        <span>正在读取 ${escapeHtml(path.basename(this.currentFilePath || ''))} …</span>
+      </div>
+    `;
+  }
+
+  renderNativeCodeView(code, targetLine = 1) {
+    if (!this.nativeViewerEl) return;
+
+    if (!this.isReadOnly) {
+      this.nativeViewerEl.style.display = 'none';
+      if (this.editWrapEl) {
+        this.editWrapEl.style.display = 'flex';
+        this.textareaEl.value = code;
+      }
+      return;
+    }
+
+    if (this.editWrapEl) this.editWrapEl.style.display = 'none';
+    this.nativeViewerEl.style.display = 'block';
+
+    // 虚拟化窗口渲染：仅渲染视口附近行，上下用占位空白撑开滚动高度。
+    // 大文件 (如 5.9MB/十几万行) 由 O(全量DOM) 降为 O(数百行)，杜绝打开卡顿与首屏闪白。
+    const lines = (code || '').split('\n');
+    this._nv = {
+      lines: lines,
+      lineH: 20,          // 与 .tw-code-line 的固定行高一致
+      overscan: 120,      // 视口上下多渲染的行数，减少滚动重排频次
+      winStart: -1,
+      winEnd: -1,
+      targetLine: targetLine || 0
+    };
+
+    this.nativeViewerEl.innerHTML = `
+      <div class="tw-code-vport">
+        <div class="tw-code-vspace-top"></div>
+        <div class="tw-code-vwin"></div>
+        <div class="tw-code-vspace-bot"></div>
+      </div>
+    `;
+
+    // 滚动监听只绑定一次
+    if (!this._nvScrollBound) {
+      this._nvScrollBound = true;
+      this.nativeViewerEl.addEventListener('scroll', () => {
+        if (this._nvRafId) return;
+        this._nvRafId = requestAnimationFrame(() => {
+          this._nvRafId = null;
+          this._renderNvWindow();
+        });
+      }, { passive: true });
+    }
+
+    // 立即定位到目标行（瞬时滚动，大文件下 smooth 会造成长距离动画漂移）
+    if (targetLine && targetLine > 0) {
+      const st = (targetLine - 1) * this._nv.lineH - this.nativeViewerEl.clientHeight / 2 + this._nv.lineH / 2;
+      const maxST = Math.max(0, lines.length * this._nv.lineH - this.nativeViewerEl.clientHeight);
+      this.nativeViewerEl.scrollTop = Math.min(Math.max(0, st), maxST);
+    } else {
+      this.nativeViewerEl.scrollTop = 0;
+    }
+    this._renderNvWindow(true);
+
+    // 面板可能在 display:none 状态下渲染（抽屉开启动画/初始化期），待可见后补偿定位
+    if (targetLine && targetLine > 0) {
+      const retry = () => {
+        const nv = this._nv;
+        if (!nv || nv.targetLine !== targetLine || !this.nativeViewerEl) return;
+        if (this.nativeViewerEl.clientHeight <= 0) return;
+        const want = Math.min(Math.max(0, (targetLine - 1) * nv.lineH - this.nativeViewerEl.clientHeight / 2 + nv.lineH / 2),
+                              Math.max(0, nv.lines.length * nv.lineH - this.nativeViewerEl.clientHeight));
+        if (Math.abs(this.nativeViewerEl.scrollTop - want) > 4) {
+          this.nativeViewerEl.scrollTop = want;
+          this._renderNvWindow(true);
+        }
+      };
+      requestAnimationFrame(retry);
+      setTimeout(retry, 160);
+    }
+  }
+
+  _renderNvWindow(force = false) {
+    const nv = this._nv;
+    const el = this.nativeViewerEl;
+    if (!nv || !el) return;
+    const vwin = el.querySelector('.tw-code-vwin');
+    const spaceTop = el.querySelector('.tw-code-vspace-top');
+    const spaceBot = el.querySelector('.tw-code-vspace-bot');
+    if (!vwin || !spaceTop || !spaceBot) return;
+
+    const lineH = nv.lineH;
+    const total = nv.lines.length;
+    const clientH = el.clientHeight || 400;
+    const firstVis = Math.max(0, Math.floor(el.scrollTop / lineH));
+    const lastVis = Math.min(total - 1, Math.ceil((el.scrollTop + clientH) / lineH));
+    const start = Math.max(0, firstVis - nv.overscan);
+    const end = Math.min(total - 1, lastVis + nv.overscan);
+
+    if (!force && start === nv.winStart && end === nv.winEnd) return;
+    nv.winStart = start;
+    nv.winEnd = end;
+
+    let html = '';
+    for (let i = start; i <= end; i++) {
+      const lineNum = i + 1;
+      const isTarget = lineNum === nv.targetLine;
+      html += `
+        <div class="tw-code-line ${isTarget ? 'is-target-line' : ''}" data-line="${lineNum}">
+          <span class="tw-line-num">${lineNum}</span>
+          <span class="tw-line-text">${this.highlightLineCode(nv.lines[i])}</span>
+        </div>
+      `;
+    }
+    spaceTop.style.height = `${start * lineH}px`;
+    spaceBot.style.height = `${Math.max(0, total - 1 - end) * lineH}px`;
+    vwin.innerHTML = html;
+  }
+
+  highlightLineCode(text) {
+    let esc = escapeHtml(text);
+    // Comments
+    if (/^\s*(?:\/\/|#)/.test(text)) {
+      return `<span style="color:var(--code-comment, #6a9955);">${esc}</span>`;
+    }
+    // Strings
+    esc = esc.replace(/(&quot;.*?&quot;|&#039;.*?&#039;|".*?"|'.*?')/g, '<span style="color:var(--code-string, #ce9178);">$1</span>');
+    // Preprocessor (#include, #define)
+    esc = esc.replace(/(#(?:include|define|ifdef|ifndef|endif|pragma|if|elif|else)\b.*?)(?=$|\/\/|\/\*)/g, '<span style="color:var(--code-macro, #c586c0);">$1</span>');
+    // Keywords
+    esc = esc.replace(/\b(static|int|return|void|if|else|char|const|struct|typedef|unsigned|long|bool|true|false|null|NULL|for|while|switch|case|break|continue|default|goto|sizeof|enum|union|extern|inline|compatible|reg|status|okay|disabled)\b/g, '<span style="color:var(--code-kw, #569cd6); font-weight:600;">$1</span>');
+    // Numbers
+    esc = esc.replace(/\b(0x[0-9a-fA-F]+|\d+)\b/g, '<span style="color:var(--code-num, #b5cea8);">$1</span>');
+    return esc;
+  }
+
+  syncToMonaco() {
+    if (!this.iframeEl?.contentWindow || !this.currentFilePath) return;
+
+    // 大文件门控：超过阈值不推送 Monaco（避免 5MB+ postMessage、模型重建卡顿
+    // 与原生视图→Monaco 的显示切换闪屏），保留虚拟化原生视图
+    const MONACO_MAX_BYTES = 2 * 1024 * 1024;
+    if ((this.currentContent || '').length > MONACO_MAX_BYTES) {
+      if (this.iframeEl) this.iframeEl.style.display = 'none';
+      if (this.nativeViewerEl && this.nativeViewerEl.innerHTML) {
+        this.nativeViewerEl.style.display = 'block';
+      }
+      return;
+    }
+
+    const lang = this.detectLanguage(this.currentFilePath);
+    const theme = this.getTheme();
+
+    try {
+      this.iframeEl.contentWindow.postMessage({
+        type: 'open-file',
+        code: this.currentContent,
+        lang: lang,
+        targetLine: this.currentLine,
+        readOnly: this.isReadOnly,
+        theme: theme
+      }, '*');
+
+      if (this.isMonacoActive) {
+        this.iframeEl.style.display = 'block';
+        if (this.nativeViewerEl) this.nativeViewerEl.style.display = 'none';
+        if (this.editWrapEl) this.editWrapEl.style.display = 'none';
+      }
+    } catch (_) {}
+  }
+
+  setReadOnly(readOnly) {
+    this.isReadOnly = !!readOnly;
+    this.updateHeaderUI();
+
+    // 以 Monaco 实际接管显示为准（大文件门控下 isMonacoActive 可能为 true 但 iframe 隐藏）
+    const monacoShown = this.isMonacoActive && this.iframeEl && this.iframeEl.style.display !== 'none';
+    if (monacoShown) {
+      try {
+        this.iframeEl?.contentWindow?.postMessage({
+          type: 'set-readonly',
+          readOnly: this.isReadOnly
+        }, '*');
+      } catch (_) {}
+    } else {
+      this.renderNativeCodeView(this.currentContent, this.currentLine);
+    }
+  }
+
+  triggerSave() {
+    if (this.isReadOnly || !this.currentFilePath) return;
+
+    // 大文件走原生编辑时取 textarea 值；仅当 Monaco 真实接管显示时才向其取码
+    const monacoShown = this.isMonacoActive && this.iframeEl && this.iframeEl.style.display !== 'none';
+    if (!monacoShown && this.textareaEl) {
+      this.saveContent(this.textareaEl.value);
+      return;
+    }
+
+    try {
+      if (this.iframeEl?.contentWindow) {
+        this.iframeEl.contentWindow.postMessage({ type: 'request-code', reqId: Date.now() }, '*');
+      }
+    } catch (e) {
+      console.error('[CodeViewerPanel] triggerSave failed:', e);
+    }
+  }
+
+  saveContent(newContent) {
+    if (!this.currentFilePath && !this.remoteLinuxPath) return;
+
+    // 1. 若当前文件通过 SSH 远端直连打开，优先通过 SSH 写回服务器
+    if (this.remoteLinuxPath && this.remoteServer) {
+      try {
+        let writeFn = (typeof writeRemoteFileViaSsh === 'function') ? writeRemoteFileViaSsh : null;
+        if (typeof writeFn === 'function') {
+          writeFn(this.remoteServer.host, this.remoteServer.user, this.remoteLinuxPath, newContent);
+          this.currentContent = newContent;
+          this.isModified = false;
+          this.updateHeaderUI();
+          if (typeof Notice !== 'undefined') {
+            new Notice(`✓ 已通过 SSH 保存至服务器: ${path.basename(this.remoteLinuxPath)}`);
+          }
+          if (typeof this.onFileSaved === 'function') {
+            this.onFileSaved(this.currentFilePath || this.remoteLinuxPath);
+          }
+          return;
+        }
+      } catch (sshErr) {
+        if (typeof Notice !== 'undefined') {
+          new Notice(`SSH 保存失败: ${sshErr.message}`);
+        }
+        return;
+      }
+    }
+
+    // 2. 本地文件写回
+    try {
+      if (typeof safeWriteFileSync === 'function') {
+        safeWriteFileSync(this.currentFilePath, newContent, 'utf8');
+      } else {
+        fs.writeFileSync(this.currentFilePath, newContent, 'utf8');
+      }
+      this.currentContent = newContent;
+      this.isModified = false;
+      this.updateHeaderUI();
+      if (typeof Notice !== 'undefined') {
+        new Notice(`已保存: ${path.basename(this.currentFilePath)}`);
+      }
+      if (typeof this.onFileSaved === 'function') {
+        this.onFileSaved(this.currentFilePath);
+      }
+    } catch (err) {
+      if (typeof Notice !== 'undefined') {
+        new Notice(`保存失败: ${err.message}`);
+      }
+    }
+  }
+
+  openInExternalEditor() {
+    if (!this.currentFilePath && !this.remoteLinuxPath) return;
+    let filePath = this.currentFilePath;
+    const line = this.currentLine || 1;
+
+    // 若本地文件在 Windows 上不可访问，但有 SSH 远端内容，镜像至本地临时文件供外部编辑器打开
+    try {
+      if ((!filePath || !fs.existsSync(filePath)) && this.currentContent) {
+        
+        const bName = path.basename(this.remoteLinuxPath || filePath || 'source.c');
+        const tmpFile = path.join(os.tmpdir(), `wb_${bName}`);
+        fs.writeFileSync(tmpFile, this.currentContent, 'utf8');
+        filePath = tmpFile;
+      }
+    } catch (_) {}
+
+    // 1. 优先探测本地 Notepad++ 安装路径
+    const nppCandidates = [
+      'D:\\Program Files\\Notepad++\\notepad++.exe',
+      'C:\\Program Files (x86)\\Notepad++\\notepad++.exe',
+      'C:\\Program Files\\Notepad++\\notepad++.exe',
+      'notepad++.exe'
+    ];
+
+    let foundNpp = '';
+    for (const cand of nppCandidates) {
+      try {
+        if (cand === 'notepad++.exe' || fs.existsSync(cand)) {
+          foundNpp = cand;
+          break;
+        }
+      } catch (_) {}
+    }
+
+    if (foundNpp) {
+      try {
+        const args = [`-n${line}`, filePath];
+        child_process.spawn(foundNpp, args, { detached: true, stdio: 'ignore' }).unref();
+        if (typeof Notice !== 'undefined') {
+          new Notice(`已在 Notepad++ 打开第 ${line} 行`);
+        }
+        return;
+      } catch (e) {
+        console.warn('[CodeViewerPanel] spawn Notepad++ failed:', e);
+      }
+    }
+
+    // 2. 次选探测 VS Code
+    try {
+      const args = ['-g', `${filePath}:${line}`];
+      child_process.spawn('code.cmd', args, { detached: true, stdio: 'ignore', shell: true }).unref();
+      if (typeof Notice !== 'undefined') {
+        new Notice(`已在 VS Code 打开第 ${line} 行`);
+      }
+      return;
+    } catch (_) {}
+
+    // 3. 兜底系统默认打开
+    try {
+      let elShell = typeof shell !== 'undefined' ? shell : (typeof electronModule !== 'undefined' ? electronModule.shell : null);
+      if (!elShell && typeof require !== 'undefined') {
+        try { elShell = require('electron')?.shell; } catch (_) {}
+      }
+      if (elShell?.openPath) {
+        elShell.openPath(filePath);
+        return;
+      }
+    } catch (_) {}
+  }
+
+  detectLanguage(filePath) {
+    if (!filePath) return 'plaintext';
+    const ext = path.extname(filePath).toLowerCase();
+    const map = {
+      '.c': 'c',
+      '.h': 'c',
+      '.cpp': 'cpp',
+      '.hpp': 'cpp',
+      '.cc': 'cpp',
+      '.cxx': 'cpp',
+      '.py': 'python',
+      '.sh': 'shell',
+      '.bash': 'shell',
+      '.dts': 'dts',
+      '.dtsi': 'dts',
+      '.mk': 'makefile',
+      '.makefile': 'makefile',
+      '.json': 'json',
+      '.js': 'javascript',
+      '.mjs': 'javascript',
+      '.cjs': 'javascript',
+      '.ts': 'typescript',
+      '.md': 'markdown',
+      '.markdown': 'markdown',
+      '.xml': 'xml',
+      '.rc': 'c',
+      '.ini': 'ini',
+      '.conf': 'ini',
+      '.diff': 'diff',
+      '.patch': 'diff',
+      '.yaml': 'yaml',
+      '.yml': 'yaml',
+      '.java': 'java',
+      '.rs': 'rust',
+      '.go': 'go'
+    };
+    const base = path.basename(filePath).toLowerCase();
+    if (base === 'makefile' || base === 'kbuild' || base.endsWith('.mk')) return 'makefile';
+    return map[ext] || 'plaintext';
+  }
+
+  destroy() {
+    if (this._nvRafId) {
+      cancelAnimationFrame(this._nvRafId);
+      this._nvRafId = null;
+    }
+    if (this._searchDeb) {
+      clearTimeout(this._searchDeb);
+      this._searchDeb = null;
+    }
+    if (this._messageHandler && typeof window !== 'undefined') {
+      window.removeEventListener('message', this._messageHandler);
+      this._messageHandler = null;
+    }
+    if (this._keyHandler && typeof window !== 'undefined') {
+      window.removeEventListener('keydown', this._keyHandler);
+      this._keyHandler = null;
+    }
+    if (this._themeObserver) {
+      this._themeObserver.disconnect();
+      this._themeObserver = null;
+    }
+    if (this.iframeEl) {
+      try { this.iframeEl.remove(); } catch (_) {}
+      this.iframeEl = null;
+    }
+    if (this.containerEl) {
+      this.containerEl.innerHTML = '';
+    }
+  }
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+  
+}
+
 const DSH_ICONS = {
   copy: `<svg width="13.5" height="13.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" style="display:block; shape-rendering:geometricPrecision;"><rect x="5.25" y="4.75" width="7.5" height="8.5" rx="1.5"/><path d="M3.25 10.75V3.5a1.5 1.5 0 0 1 1.5-1.5h5.5a1.5 1.5 0 0 1 1.5 1.5v1.25"/></svg>`,
   check: `<svg width="13.5" height="13.5" viewBox="0 0 16 16" fill="none" stroke="#10B981" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="display:block; shape-rendering:geometricPrecision;"><path d="M13.25 4.75 6 12 2.75 8.75"/></svg>`,
@@ -13953,6 +17267,15 @@ class PiDrawerView {
     // 粘底跟随：true=视口贴底（流式自动滚动生效）；用户上滑后置 false 锁定阅读位置
     this._stickToBottom = true;
     this._contentBelowPending = false;
+
+    // Code Viewer Split-Pane (Monaco Editor Integration)
+    this.codeViewerPanel = null;
+    this.splitResizerEl = null;
+    this.codePanelWrap = null;
+    this.drawerContentWrap = null;
+    this.isSplitPaneOpen = false;
+    this.savedSplitRatio = 55;
+    this._prevDrawerWidth = null;
 
     // Bottom-Left Model Selector elements
     this.modelWrapEl = null;
@@ -14142,6 +17465,7 @@ class PiDrawerView {
     const contentWrap = document.createElement('div');
     contentWrap.className = 'tw-drawer-content';
     this.drawerEl.appendChild(contentWrap);
+    this.drawerContentWrap = contentWrap;
 
     // Header with Agent Selector Dropdown
     const activeAdapter = this.hub.getActiveAdapter();
@@ -15140,8 +18464,7 @@ class PiDrawerView {
     new NoticeCls(`✓ 已切换至模型: ${modelName}${levelSuffix}`, 2500);
 
     if (this.inputEl) {
-      const fullLabel = `${modelName}${levelSuffix}`;
-      this.inputEl.placeholder = `向 ${adapter.displayName || adapter.name} (${fullLabel}) 提问... (Enter 发送)`;
+      this.updateInputPlaceholder();
       this.inputEl.focus();
     }
   }
@@ -15279,7 +18602,13 @@ class PiDrawerView {
         const p = localStorage.getItem('tabonkb-local-selected-project');
         if (p) {
           const parsed = JSON.parse(p);
-          if (parsed && parsed.id) return parsed;
+          if (parsed && parsed.id) {
+            if (!parsed.priDriverRel && parsed.platform && parsed.project) {
+              parsed.priDriverRel = `pri_project/driver/${parsed.platform}/${parsed.project}/base`;
+              parsed.publicDriverRel = 'pri_project/driver/public';
+            }
+            return parsed;
+          }
         }
       }
     } catch (_) {}
@@ -16494,13 +19823,7 @@ class PiDrawerView {
     }
 
     // 5. 动态联动输入框 placeholder 提示当前最高优先级工程
-    if (this.inputEl) {
-      const adapter = this.hub.getActiveAdapter();
-      const agentName = adapter.displayName || adapter.name || 'Agent';
-      if (isCustomLocalProj) {
-        this.inputEl.placeholder = `向 ${agentName} [${localProjShort}] 提问... (Enter 发送)`;
-      }
-    }
+    this.updateInputPlaceholder();
   }
 
   // 会话上下文提示条: 输入卡上方迷你胶囊, 标注当前会话绑定的 Jira/本地工程/OpenGrok/Gerrit; 点胶囊打开选项浮窗, × 即解除绑定
@@ -16636,21 +19959,49 @@ class PiDrawerView {
 
     this.updateModelSelectorPill();
     this.updateProjectSelectorPill();
+    this.updateInputPlaceholder();
+  }
 
-    const currentModel = typeof adapter.getModel === 'function' ? adapter.getModel() : null;
+  updateInputPlaceholder() {
+    if (!this.inputEl || !this.hub) return;
+    const adapter = this.hub.getActiveAdapter();
+    const agents = typeof this.hub.getAgentList === 'function' ? this.hub.getAgentList() : [];
+    const meta = agents.find(a => a.id === this.hub.activeAgentId) || {
+      name: adapter?.name || 'Agent',
+      displayName: adapter?.displayName || adapter?.name || 'Agent'
+    };
+    const agentName = meta.displayName || meta.name || 'Agent';
+
     let modelSuffix = '';
-    if (currentModel?.name) {
+    const currentModel = typeof adapter?.getModel === 'function' ? adapter.getModel() : null;
+    if (currentModel?.name && currentModel.name !== agentName) {
       let mName = currentModel.name;
-      if (typeof adapter.supportsReasoningEffort === 'function' && adapter.supportsReasoningEffort(currentModel.id)) {
-        const effortConfig = typeof adapter.getReasoningEffortConfig === 'function' ? adapter.getReasoningEffortConfig() : null;
+      if (typeof adapter?.supportsReasoningEffort === 'function' && adapter.supportsReasoningEffort(currentModel.id)) {
+        const effortConfig = typeof adapter?.getReasoningEffortConfig === 'function' ? adapter.getReasoningEffortConfig() : null;
         if (effortConfig && effortConfig.label) mName += ` · ${effortConfig.label}`;
       }
       modelSuffix = ` (${mName})`;
     }
 
-    if (this.inputEl) {
-      this.inputEl.placeholder = `向 ${meta.displayName || meta.name}${modelSuffix} 提问，输入需求或问题... (Enter 发送)`;
+    const isCustomLocalProj = Boolean(this.selectedLocalProject && this.selectedLocalProject.id && this.selectedLocalProject.id !== 'none');
+    const localProjShort = isCustomLocalProj ? (this.selectedLocalProject.label || this.selectedLocalProject.project) : '';
+    const isCustomJira = Boolean(this.selectedJiraIssue && this.selectedJiraIssue.key);
+    const jiraKey = isCustomJira ? this.selectedJiraIssue.key : '';
+
+    let ctxTag = '';
+    if (localProjShort && jiraKey) {
+      ctxTag = ` [${localProjShort} · ${jiraKey}]`;
+    } else if (localProjShort) {
+      ctxTag = ` [${localProjShort}]`;
+    } else if (jiraKey) {
+      ctxTag = ` [${jiraKey}]`;
     }
+
+    const basePlaceholder = `向 ${agentName}${modelSuffix}${ctxTag} 提问... (Enter 发送)`;
+    this._inputPlaceholder = basePlaceholder;
+
+    const hasChips = !!(this.inputChips && this.inputChips.length);
+    this.inputEl.placeholder = hasChips ? '输入消息内容...' : basePlaceholder;
   }
 
   checkAdapterInstalledState(adapter) {
@@ -16689,9 +20040,18 @@ class PiDrawerView {
     this.activeToolCards.clear();
     this.currentAssistantMessage = null;
 
+    if (this.stickyHeaderEl) {
+      this.stickyHeaderEl.classList.remove('visible');
+      const qText = this.stickyHeaderEl.querySelector('.tw-sticky-q-text');
+      if (qText) qText.textContent = '';
+    }
+    this._minimapBubbles = [];
+
     const messages = this.hub.sessionManager.getMessages(agentId);
     if (!messages || messages.length === 0) {
       // Empty state: do not render bulky welcome card (per user request)
+      if (typeof this.buildChatMinimap === 'function') this.buildChatMinimap();
+      if (typeof this.updateStickyQuestion === 'function') this.updateStickyQuestion();
       return;
     }
 
@@ -16703,6 +20063,8 @@ class PiDrawerView {
       }
     }
     this.scrollToBottom(true);
+    if (typeof this.buildChatMinimap === 'function') this.buildChatMinimap();
+    if (typeof this.updateStickyQuestion === 'function') this.updateStickyQuestion();
   }
 
   resolveImageSrc(img) {
@@ -17113,6 +20475,11 @@ class PiDrawerView {
         e.preventDefault();
         this.handleSend();
       } else if (e.key === 'Escape') {
+        if (this.isSplitPaneOpen) {
+          e.preventDefault();
+          this.closeCodeSplitPane();
+          return;
+        }
         if (this.hub.isStreaming()) {
           e.preventDefault();
           this.handleAbort();
@@ -17176,6 +20543,365 @@ class PiDrawerView {
     // Drag and Drop & Paste handling for files & images
     this.bindDragAndDropEvents();
     this.bindPasteEvents();
+
+    // 3. Middle Split Resizer Handle (Between Chat and Code Viewer)
+    this.splitResizerEl = document.createElement('div');
+    this.splitResizerEl.className = 'tw-split-resizer';
+    this.splitResizerEl.title = '拖拽调整对话区与代码区比例 (双击重置 55:45)';
+    this.splitResizerEl.style.display = 'none';
+    this.drawerEl.appendChild(this.splitResizerEl);
+
+    // 4. Right Code Viewer Panel Wrap
+    this.codePanelWrap = document.createElement('div');
+    this.codePanelWrap.className = 'tw-code-panel-wrap';
+    this.codePanelWrap.style.display = 'none';
+    this.drawerEl.appendChild(this.codePanelWrap);
+
+    // Initialize CodeViewerPanel instance (先销毁旧实例：避免抽屉重建时 Monaco iframe
+    // 与 window 级 message/keydown/MutationObserver 监听器逐次泄漏堆叠)
+    if (typeof CodeViewerPanel !== 'undefined') {
+      if (this.codeViewerPanel) {
+        try { this.codeViewerPanel.destroy(); } catch (_) {}
+      }
+      this.codeViewerPanel = new CodeViewerPanel({
+        app: this.app,
+        vaultBasePath: this.vaultBasePath,
+        onClose: () => this.closeCodeSplitPane()
+      });
+      this.codeViewerPanel.mount(this.codePanelWrap);
+    }
+
+    this.bindSplitResizer();
+  }
+
+  bindSplitResizer() {
+    if (!this.splitResizerEl) return;
+    let isDragging = false;
+    let startX = 0;
+    let startContentWidth = 0;
+
+    this.splitResizerEl.onmousedown = (e) => {
+      e.preventDefault();
+      if (!this.drawerContentWrap || !this.drawerEl) return;
+      isDragging = true;
+      startX = e.clientX;
+      startContentWidth = this.drawerContentWrap.getBoundingClientRect().width;
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+
+      // Drag overlay to prevent iframe stealing mouse events
+      const overlay = document.createElement('div');
+      overlay.className = 'tw-resize-drag-overlay';
+      overlay.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;z-index:99999;cursor:col-resize;';
+      document.body.appendChild(overlay);
+
+      const onMouseMove = (ev) => {
+        if (!isDragging) return;
+        const dx = ev.clientX - startX;
+        const totalWidth = this.drawerEl.getBoundingClientRect().width;
+        let newWidth = startContentWidth + dx;
+        const minW = 340;
+        const maxW = totalWidth - 300;
+        if (newWidth < minW) newWidth = minW;
+        if (newWidth > maxW) newWidth = maxW;
+        const pct = Math.round((newWidth / totalWidth) * 100);
+        this.savedSplitRatio = pct;
+        this.drawerContentWrap.style.flex = `0 0 ${pct}%`;
+        this.drawerContentWrap.style.width = `${pct}%`;
+      };
+
+      const onMouseUp = () => {
+        isDragging = false;
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+        if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+        window.removeEventListener('mousemove', onMouseMove);
+        window.removeEventListener('mouseup', onMouseUp);
+      };
+
+      window.addEventListener('mousemove', onMouseMove);
+      window.addEventListener('mouseup', onMouseUp);
+    };
+
+    // Double click resets to 55:45
+    this.splitResizerEl.ondblclick = () => {
+      this.savedSplitRatio = 55;
+      if (this.drawerContentWrap) {
+        this.drawerContentWrap.style.flex = '0 0 55%';
+        this.drawerContentWrap.style.width = '55%';
+      }
+    };
+  }
+
+  /**
+   * 在对话框右侧分屏打开代码/文件
+   * @param {string} rawTarget
+   * @param {number} [targetLine=1]
+   */
+  openCodeInSplitPane(rawTarget, targetLine = 1) {
+    if (!rawTarget) return;
+
+    this.isSplitPaneOpen = true;
+
+    if (this.drawerEl) {
+      this.drawerEl.classList.add('has-code-split');
+      // 如果不是 studio 模式且抽屉过窄，临时拓宽抽屉
+      if (!this.drawerEl.classList.contains('tw-studio-mode')) {
+        const curW = parseInt(this.drawerEl.style.width, 10) || 520;
+        if (curW < 960) {
+          this._prevDrawerWidth = this.drawerEl.style.width;
+          this.drawerEl.style.width = '980px';
+        }
+      }
+    }
+
+    if (this.drawerContentWrap) {
+      const ratio = this.savedSplitRatio || 55;
+      this.drawerContentWrap.style.flex = `0 0 ${ratio}%`;
+      this.drawerContentWrap.style.width = `${ratio}%`;
+    }
+
+    if (this.splitResizerEl) {
+      this.splitResizerEl.style.display = 'flex';
+    }
+
+    if (this.codePanelWrap) {
+      this.codePanelWrap.style.display = 'flex';
+    }
+
+    // 1. 决议目标文件的路径与行号 (零阻塞秒级决议)
+    const resolved = this.resolveCodeFilePath(rawTarget, targetLine);
+    const activeProj = this.selectedLocalProject || (typeof this.getSavedLocalProject === 'function' ? this.getSavedLocalProject() : null);
+
+    if (this.codeViewerPanel) {
+      const finalPath = resolved?.filePath || String(rawTarget).trim();
+      const finalLine = resolved?.line || targetLine || 1;
+      this.codeViewerPanel.openFile(finalPath, finalLine, {
+        rawTarget,
+        activeProject: activeProj
+      });
+    }
+  }
+
+  closeCodeSplitPane() {
+    this.isSplitPaneOpen = false;
+
+    if (this.drawerEl) {
+      this.drawerEl.classList.remove('has-code-split');
+      if (this._prevDrawerWidth) {
+        this.drawerEl.style.width = this._prevDrawerWidth;
+        this._prevDrawerWidth = null;
+      }
+    }
+
+    if (this.drawerContentWrap) {
+      this.drawerContentWrap.style.flex = '1 1 100%';
+      this.drawerContentWrap.style.width = '100%';
+    }
+
+    if (this.splitResizerEl) {
+      this.splitResizerEl.style.display = 'none';
+    }
+
+    if (this.codePanelWrap) {
+      this.codePanelWrap.style.display = 'none';
+    }
+  }
+
+  /**
+   * 跨服务器/工程/知识库智能决议文件路径与行号 (零阻塞即时决议)
+   * @param {string} rawTarget
+   * @param {number} [fallbackLine=1]
+   * @returns {{ filePath: string, line: number, isRemoteCandidate?: boolean } | null}
+   */
+  resolveCodeFilePath(rawTarget, fallbackLine = 1) {
+    if (!rawTarget) return null;
+    let clean = String(rawTarget).trim();
+    let line = fallbackLine || 1;
+
+    // 1. 去除两端包裹字符
+    clean = clean.replace(/^[`"']|[`"']$/g, '');
+    clean = clean.replace(/^\[\[(.*?)\]\]$/, '$1'); // Wikilink
+    clean = clean.replace(/^file:\/\/\/?/i, '');
+
+    // 2. 提取行号锚点 (#L85 或 :85 或 :85:12)
+    const hashMatch = clean.match(/#L(\d+)/i);
+    if (hashMatch) {
+      line = parseInt(hashMatch[1], 10);
+      clean = clean.replace(/#L\d+(-L\d+)?/i, '');
+    } else {
+      const colonMatch = clean.match(/:(\d+)(?::\d+)?$/);
+      if (colonMatch) {
+        line = parseInt(colonMatch[1], 10);
+        clean = clean.replace(/:(\d+)(?::\d+)?$/, '');
+      }
+    }
+    // 清理尾部可能的冒号、句点或中文字符
+    clean = clean.replace(/[:：\s，,。.]+$/, '');
+
+    // 3. Linux 远程服务器路径映射 (62 服务器与 31 服务器)
+    if (clean.startsWith('/dfb/tankaikun/share/')) {
+      clean = clean.replace('/dfb/tankaikun/share/', 'Y:\\').replace(/\//g, '\\');
+    } else if (clean.startsWith('/home/tankaikun/share/work/')) {
+      clean = clean.replace('/home/tankaikun/share/work/', 'Z:\\work\\').replace(/\//g, '\\');
+    } else if (clean.startsWith('/home/tankaikun/')) {
+      clean = clean.replace('/home/tankaikun/', 'Z:\\').replace(/\//g, '\\');
+    }
+
+    // 4. 标准化 Windows 路径分隔符
+    let norm = clean.replace(/\//g, '\\');
+
+    // 5. 已知远程服务器绝对路径 (Y:\ / Z:\ / UNC)：直接返回，交由 openFile 异步竞速读 + SSH 兜底。
+    //    绝不对 SMB 挂载点做同步 existsSync/statSync——盘符离线时 Windows 会挂起主线程数秒尝试重连。
+    if (/^[YyZz]:[\\\/]/i.test(norm) || norm.startsWith('\\\\192.168.1.')) {
+      return { filePath: norm, line };
+    }
+
+    // 6. 若已是绝对路径且在磁盘物理存在，直接返回 (仅本地盘符)
+    try {
+      if (path.isAbsolute(norm) && fs.existsSync(norm) && fs.statSync(norm).isFile()) {
+        return { filePath: norm, line };
+      }
+    } catch (_) {}
+
+    // 6. 结合当前激活的本地工程 (selectedLocalProject) 与候选子目录前缀
+    const activeProj = this.selectedLocalProject || (typeof this.getSavedLocalProject === 'function' ? this.getSavedLocalProject() : null);
+
+    // 挂载盘离线快检 (30s TTL)：盘符不在线时直接走远端候选，跳过 ~40 次同步 SMB 探测
+    const projDriveOnline = this._isDriveLikelyOnline(activeProj?.fullPathWin);
+
+    // 剥离已知的多余前缀 (例如用户传了带有工程名字的路径)
+    let strippedNorm = norm;
+    if (activeProj && activeProj.fullPathWin && norm.toLowerCase().startsWith(activeProj.fullPathWin.toLowerCase())) {
+      strippedNorm = norm.slice(activeProj.fullPathWin.length).replace(/^[\\\/]+/, '');
+    } else {
+      strippedNorm = norm.replace(/^[A-Za-z]:[\\\/]/, '').replace(/^(?:W[\\\/]01-sprd[\\\/]|W[\\\/]03-mtk-ww[\\\/]|AndroidW[\\\/]05-UW[\\\/]|work[\\\/]|dfb[\\\/]|share[\\\/])+/i, '');
+    }
+
+    const baseName = path.basename(strippedNorm);
+    const stem = baseName.replace(/\.[^.]+$/, '');
+    const cleanNormWithoutBase = strippedNorm.replace(/^base[\\\/]/i, '');
+
+    const subBranches = [
+      path.join('bsp', 'kernel5.15', 'kernel5.15', 'drivers', 'misc', 'prize', stem, baseName),
+      path.join('bsp', 'kernel5.15', 'kernel5.15', 'drivers', 'misc', 'prize', 'hardware_info', baseName),
+      path.join('bsp', 'kernel5.15', 'kernel5.15', 'drivers', 'power', 'supply', baseName),
+      path.join('bsp', 'kernel5.15', 'kernel5.15', 'drivers', 'misc', 'prize', baseName),
+      path.join('bsp', 'modules', 'kernel5.15', 'touchscreen', stem, baseName),
+      path.join('bsp', 'kernel5.15', 'kernel5.15', stem, baseName),
+      path.join('bsp', 'kernel5.15', 'kernel5.15', baseName),
+      path.join('bsp', baseName),
+      baseName
+    ];
+
+    if (activeProj && activeProj.fullPathWin && projDriveOnline) {
+      // 单次决议探测总耗时封顶 800ms：SMB 延迟叠加的连环 stat 不再拖慢打开
+      const probeStart = Date.now();
+      const probeExpired = () => (Date.now() - probeStart) > 800;
+      let probeAborted = false;
+
+      // 6.1 前缀探测 (Tier 2 项目定制、Tier 1 公共差分)
+      const candidatePrefixes = [];
+      if (activeProj.priDriverRel) {
+        candidatePrefixes.push(activeProj.priDriverRel.replace(/\//g, '\\'));
+      }
+      if (activeProj.publicDriverRel) {
+        candidatePrefixes.push(activeProj.publicDriverRel.replace(/\//g, '\\'));
+      }
+      candidatePrefixes.push('', 'vendor_t', 'pri_project', 'idh');
+
+      for (const prefix of candidatePrefixes) {
+        for (const targetCand of [strippedNorm, cleanNormWithoutBase]) {
+          if (probeExpired()) { probeAborted = true; break; }
+          const cand = prefix ? path.join(activeProj.fullPathWin, prefix, targetCand) : path.join(activeProj.fullPathWin, targetCand);
+          try {
+            if (fs.existsSync(cand) && fs.statSync(cand).isFile()) {
+              return { filePath: cand, line };
+            }
+          } catch (_) {}
+        }
+        if (probeAborted) break;
+      }
+
+      // 6.2 探测 Tier 2: 项目私有定制目录 subBranches
+      if (!probeAborted && activeProj.priDriverRel) {
+        const priDir = path.join(activeProj.fullPathWin, activeProj.priDriverRel.replace(/\//g, '\\'));
+        for (const sub of subBranches) {
+          if (probeExpired()) { probeAborted = true; break; }
+          const cand = path.join(priDir, sub);
+          try {
+            if (fs.existsSync(cand) && fs.statSync(cand).isFile()) {
+              return { filePath: cand, line };
+            }
+          } catch (_) {}
+        }
+      }
+
+      // 6.3 探测 Tier 1: 公司公共定制目录 subBranches
+      if (!probeAborted && activeProj.publicDriverRel) {
+        const pubDir = path.join(activeProj.fullPathWin, activeProj.publicDriverRel.replace(/\//g, '\\'));
+        for (const sub of subBranches) {
+          if (probeExpired()) { probeAborted = true; break; }
+          const cand = path.join(pubDir, sub);
+          try {
+            if (fs.existsSync(cand) && fs.statSync(cand).isFile()) {
+              return { filePath: cand, line };
+            }
+          } catch (_) {}
+        }
+      }
+
+      // 6.4 若本地 SMB 未命中，构造优先路径直接返回，交给后续 SSH 秒级查找
+      const defaultPri = activeProj.priDriverRel ? path.join(activeProj.fullPathWin, activeProj.priDriverRel.replace(/\//g, '\\'), cleanNormWithoutBase) : path.join(activeProj.fullPathWin, strippedNorm);
+      return { filePath: defaultPri, line, isRemoteCandidate: true };
+    }
+
+    // 7. 检查 TabonKB 知识库内部 (vaultBasePath)
+    if (this.vaultBasePath) {
+      const candVault = path.join(this.vaultBasePath, norm);
+      try {
+        if (fs.existsSync(candVault) && fs.statSync(candVault).isFile()) return { filePath: candVault, line };
+      } catch (_) {}
+
+      // 如果未带 .md 后缀，尝试补齐
+      if (!norm.toLowerCase().endsWith('.md')) {
+        const candMd = path.join(this.vaultBasePath, `${norm}.md`);
+        try {
+          if (fs.existsSync(candMd) && fs.statSync(candMd).isFile()) return { filePath: candMd, line };
+        } catch (_) {}
+      }
+
+      // 在 vault 中匹配文件名
+      try {
+        const bName = path.basename(norm).toLowerCase();
+        const bNameMd = bName.endsWith('.md') ? bName : `${bName}.md`;
+        const vFiles = this.app?.vault?.getFiles?.() || [];
+        for (const vf of vFiles) {
+          if (vf.name?.toLowerCase() === bName || vf.name?.toLowerCase() === bNameMd) {
+            return { filePath: path.join(this.vaultBasePath, vf.path), line };
+          }
+        }
+      } catch (_) {}
+    }
+
+    return { filePath: norm, line };
+  }
+
+  /**
+   * 挂载盘在线快检：对 Y:\ / Z:\ 盘符根做一次 existsSync 并缓存 30s，
+   * 避免每次点击文件都对离线盘符发起数秒的 SMB 重连探测。
+   */
+  _isDriveLikelyOnline(rootPath) {
+    const letter = String(rootPath || '')[0] || '';
+    if (!/^[YyZz]$/.test(letter)) return true;
+    this._driveOnlineCache = this._driveOnlineCache || {};
+    const key = letter.toUpperCase();
+    const cached = this._driveOnlineCache[key];
+    if (cached && (Date.now() - cached.ts) < 30000) return cached.online;
+    let online = false;
+    try { online = !!fs.existsSync(`${key}:\\`); } catch (_) { online = false; }
+    this._driveOnlineCache[key] = { online, ts: Date.now() };
+    return online;
   }
 
   bindDragAndDropEvents() {
@@ -18308,12 +22034,7 @@ class PiDrawerView {
   }
 
   _syncInputPlaceholder() {
-    if (!this.inputEl) return;
-    if (this._inputPlaceholder === null) {
-      this._inputPlaceholder = this.inputEl.placeholder || '';
-    }
-    const hasChips = !!(this.inputChips && this.inputChips.length);
-    this.inputEl.placeholder = hasChips ? '输入你的任务。' : this._inputPlaceholder;
+    this.updateInputPlaceholder();
   }
 
   _serializeChips(text) {
@@ -19514,13 +23235,62 @@ class PiDrawerView {
     this.postProcessRenderedMarkdown(el);
   }
 
+  isLikelyCodeFile(str) {
+    if (!str || typeof str !== 'string') return false;
+    let clean = str.trim().replace(/^[`"']|[`"']$/g, '');
+    if (clean.length < 3 || clean.length > 300) return false;
+    if (clean.startsWith('http://') || clean.startsWith('https://')) return false;
+    if (/^(?:cd|git|ls|rm|mkdir|chmod|chown|cat|grep|sed|awk|echo|export|source)\s+/i.test(clean)) return false;
+
+    const validExts = new Set([
+      '.c', '.h', '.cpp', '.hpp', '.cc', '.cxx',
+      '.py', '.sh', '.bash', '.dts', '.dtsi',
+      '.mk', '.json', '.js', '.mjs', '.ts',
+      '.md', '.xml', '.rc', '.ini', '.conf',
+      '.diff', '.patch', '.yaml', '.yml', '.java', '.rs', '.go', '.txt'
+    ]);
+
+    const noAnchor = clean.replace(/#L\d+(-L\d+)?/i, '').replace(/:\d+(?::\d+)?$/, '');
+    const ext = path.extname(noAnchor).toLowerCase();
+    const base = path.basename(noAnchor).toLowerCase();
+
+    if (base === 'makefile' || base === 'kbuild' || base === 'kconfig') return true;
+    if (validExts.has(ext)) return true;
+    if (clean.startsWith('file://')) return true;
+
+    if ((clean.includes('/') || clean.includes('\\')) && (clean.includes('driver') || clean.includes('pri_project') || clean.includes('kernel') || clean.includes('hardware'))) {
+      return true;
+    }
+
+    return false;
+  }
+
   postProcessRenderedMarkdown(containerEl) {
     if (!containerEl) return;
 
-    // 1. Add rel, target, and direct click handler to external links
+    // 1. Intercept file/code links and external links in <a>
     containerEl.querySelectorAll('a').forEach(a => {
       const href = a.getAttribute('href') || a.href || '';
-      const text = a.textContent || '';
+      const text = (a.textContent || '').trim();
+
+      // Check if it's a code/file link (file:// URI, code file path, or wikilink to note)
+      const isFileUri = href.startsWith('file:') || href.startsWith('file:///');
+      const isCodeHref = this.isLikelyCodeFile(href);
+      const isCodeText = this.isLikelyCodeFile(text);
+      const isInternalNote = a.classList.contains('internal-link') || a.getAttribute('data-href');
+
+      if (isFileUri || isCodeHref || isCodeText || isInternalNote) {
+        const targetCandidate = isFileUri ? href : (isCodeHref ? href : (isCodeText ? text : (a.getAttribute('data-href') || href || text)));
+        a.classList.add('tw-clickable-file-link');
+        a.title = `点击在右侧分屏查看: ${targetCandidate}`;
+        a.onclick = (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          this.openCodeInSplitPane(targetCandidate);
+        };
+        return;
+      }
+
       const targetUrl = resolveLinkToUrl(href, text, a, this.vaultBasePath);
       if (targetUrl) {
         a.setAttribute('href', targetUrl);
@@ -19531,6 +23301,21 @@ class PiDrawerView {
           e.preventDefault();
           e.stopPropagation();
           openExternalUrl(targetUrl);
+        };
+      }
+    });
+
+    // 1.1 Turn inline <code> that look like file paths into clickable links
+    containerEl.querySelectorAll('code').forEach(codeEl => {
+      if (codeEl.closest('pre')) return; // skip multi-line blocks
+      const codeText = (codeEl.textContent || '').trim();
+      if (this.isLikelyCodeFile(codeText)) {
+        codeEl.classList.add('tw-clickable-file-link');
+        codeEl.title = `点击在右侧分屏打开: ${codeText}`;
+        codeEl.onclick = (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          this.openCodeInSplitPane(codeText);
         };
       }
     });
@@ -20686,7 +24471,12 @@ class PiDrawerView {
     }
     if (this.stickyHeaderEl) {
       this.stickyHeaderEl.classList.remove('visible');
+      const qText = this.stickyHeaderEl.querySelector('.tw-sticky-q-text');
+      if (qText) qText.textContent = '';
     }
+    this._minimapBubbles = [];
+    if (typeof this.buildChatMinimap === 'function') this.buildChatMinimap();
+    if (typeof this.updateStickyQuestion === 'function') this.updateStickyQuestion();
     if (this.inputEl) {
       this.inputEl.value = '';
       this.inputEl.style.height = `${this.inputHeight}px`;
@@ -29877,6 +33667,41 @@ class CompanionSyncServer {
         return;
       }
 
+      // 2.055 Monaco Editor static routes: /monaco/*
+      if (req.method === 'GET' && pathname.startsWith('/monaco/')) {
+        try {
+          
+          
+          const basePath = this.app?.vault?.adapter?.basePath || 'd:\\work\\Mgmt\\TabonKB';
+          const subPath = pathname.replace(/^\/monaco\//, '');
+          const safeSub = subPath.replace(/\.\./g, '');
+          const targetFile = path.join(basePath, '.obsidian', 'plugins', 'tabonkb-workbench', 'vendor', 'monaco', safeSub);
+
+          if (fs.existsSync(targetFile) && fs.statSync(targetFile).isFile()) {
+            const ext = path.extname(targetFile).toLowerCase();
+            const mimeMap = {
+              '.html': 'text/html; charset=utf-8',
+              '.js': 'application/javascript; charset=utf-8',
+              '.css': 'text/css; charset=utf-8',
+              '.ttf': 'font/ttf',
+              '.woff': 'font/woff',
+              '.woff2': 'font/woff2',
+              '.json': 'application/json; charset=utf-8'
+            };
+            res.setHeader('Content-Type', mimeMap[ext] || 'application/octet-stream');
+            res.setHeader('Access-Control-Allow-Origin', '*');
+            res.writeHead(200);
+            fs.createReadStream(targetFile).pipe(res);
+            return;
+          }
+        } catch (e) {
+          console.error('[TabonKB Companion] Serve monaco file failed:', e);
+        }
+        res.writeHead(404);
+        res.end(JSON.stringify({ ok: false, msg: 'File not found' }));
+        return;
+      }
+
       // 2.06 Power-Z Hardware & Protocol Routes: /api/powerz/*
       if (pathname.startsWith('/api/powerz/')) {
         try {
@@ -31309,7 +35134,7 @@ class WeKnoraGraphEngine {
     this.onRenderCallback = null;
 
     // 主题体系 (默认: 科技星云 immersive, 兼具 cosmic / graphite)
-    this.currentTheme = 'immersive';
+    this.currentTheme = 'workbench';
 
     // 专注模式与视口右侧避让边距
     this.isEgoMode = false;
@@ -31766,8 +35591,8 @@ class WeKnoraGraphEngine {
   }
 
   setTheme(themeKey) {
-    if (themeKey !== 'cosmic' && themeKey !== 'graphite' && themeKey !== 'immersive') {
-      themeKey = 'cosmic';
+    if (themeKey !== 'workbench' && themeKey !== 'cosmic' && themeKey !== 'graphite' && themeKey !== 'immersive') {
+      themeKey = 'workbench';
     }
     this.currentTheme = themeKey;
     this.hasFitted = false;
@@ -32119,7 +35944,36 @@ class WeKnoraGraphEngine {
     const th = this.currentTheme;
 
     // 2. 主题背景绘制
-    if (th === 'cosmic') {
+    if (th === 'workbench') {
+      const host = (this.containerEl && this.containerEl.closest && this.containerEl.closest('.tabonkb-workbench-container')) || document.body;
+      const curSig = host && host.dataset ? `${host.dataset.twSkin || ''}|${host.dataset.twMode || ''}` : '';
+      if (!this._cachedWbBg || this._cachedWbSig !== curSig) {
+        let wbBg = '#FFFFFF', wbGrid = 'rgba(226, 232, 240, 0.45)';
+        try {
+          if (host && typeof getComputedStyle === 'function') {
+            const cs = getComputedStyle(host);
+            wbBg = (cs.getPropertyValue('--g-m2') || '').trim() || wbBg;
+            wbGrid = (cs.getPropertyValue('--g-sep') || '').trim() || wbGrid;
+          }
+        } catch (_) {}
+        this._cachedWbSig = curSig;
+        this._cachedWbBg = wbBg;
+        this._cachedWbGrid = wbGrid;
+      }
+      const wbBg = this._cachedWbBg;
+      const wbGrid = this._cachedWbGrid;
+      ctx.fillStyle = wbBg;
+      ctx.fillRect(0, 0, this.width, this.height);
+      ctx.save();
+      ctx.strokeStyle = wbGrid;
+      ctx.lineWidth = 0.5;
+      ctx.beginPath();
+      const gStep = 44;
+      for (let x = 0; x < this.width; x += gStep) { ctx.moveTo(x, 0); ctx.lineTo(x, this.height); }
+      for (let y = 0; y < this.height; y += gStep) { ctx.moveTo(0, y); ctx.lineTo(this.width, y); }
+      ctx.stroke();
+      ctx.restore();
+    } else if (th === 'cosmic') {
       // 深空星系经典暗夜渐变 (Galaxy Deep Space)
       const bgGrad = ctx.createRadialGradient(this.width / 2, this.height / 2, 40, this.width / 2, this.height / 2, Math.max(this.width, this.height) * 0.9);
       bgGrad.addColorStop(0, '#0E1424');
@@ -34010,6 +37864,7 @@ class WeKnoraWikiGraphView {
       <div class="tw-popover-row">
         <span class="tw-popover-label">样式方案</span>
         <select class="tw-popover-select" id="spThemeSelect">
+          <option value="workbench" ${curTheme==='workbench'?'selected':''}>跟随工作台主题 (动态映射)</option>
           <option value="immersive" ${curTheme==='immersive'?'selected':''}>科技星云 (清新蓝调)</option>
           <option value="cosmic" ${curTheme==='cosmic'?'selected':''}>深空星系 (沉浸瑰丽)</option>
           <option value="graphite" ${curTheme==='graphite'?'selected':''}>石墨银河 (疏朗纸墨)</option>
@@ -39962,6 +43817,17 @@ class DshStudioView extends ItemView {
         const src = this.iframeEl.getAttribute('src') || this.iframeEl.src;
         if (src && src.startsWith('http')) {
           this.setLoading(false);
+          const syncFn = () => {
+            try {
+              const p = this.plugin || (this.app?.plugins?.plugins?.['tabonkb-workbench']);
+              if (typeof TabonKBThemeEngine !== 'undefined' && p && p.settings) {
+                TabonKBThemeEngine.syncDshSkinStorage(p.settings.workbenchTheme || 'fresh', p.settings.workbenchWallpaper || 'aurora', p);
+              }
+            } catch (_) {}
+          };
+          syncFn();
+          setTimeout(syncFn, 200);
+          setTimeout(syncFn, 650);
         }
       };
     }
@@ -40234,6 +44100,23 @@ class DshWorkbenchView {
 
     this._boundOnWindowMessage = (evt) => {
       if (!evt || !evt.data) return;
+      if (evt.data.type === 'tabonkb-dsh-ready') {
+        this.syncThemeToIframe();
+        this.sendDshCtxState();
+        return;
+      }
+      if (evt.data.type === 'tabonkb-dsh-ctx-state-req') {
+        this.sendDshCtxState();
+        return;
+      }
+      if (evt.data.type === 'tabonkb-dsh-ctx-set') {
+        this.applyDshCtxSelection(evt.data.key, evt.data.value);
+        return;
+      }
+      if (evt.data.type === 'tabonkb-dsh-new-chat') {
+        this.resetDshCtxSelections();
+        return;
+      }
       if (evt.data.type === 'tabonkb-dsh-open-file' && evt.data.path) {
         this.handleOpenFile(evt.data.path, evt.data.line);
       }
@@ -40654,7 +44537,23 @@ class DshWorkbenchView {
     };
   }
 
+  syncThemeToIframe() {
+    try {
+      const p = this.plugin || (this.app?.plugins?.plugins?.['tabonkb-workbench']);
+      if (typeof TabonKBThemeEngine !== 'undefined' && p && p.settings) {
+        TabonKBThemeEngine.syncDshSkinStorage(
+          p.settings.workbenchTheme || 'fresh',
+          p.settings.workbenchWallpaper || 'aurora',
+          p
+        );
+      }
+    } catch (_) {}
+  }
+
   injectCustomStyles() {
+    this.syncThemeToIframe();
+    setTimeout(() => this.syncThemeToIframe(), 200);
+    setTimeout(() => this.syncThemeToIframe(), 650);
     try {
       const doc = this.iframeEl?.contentDocument || this.iframeEl?.contentWindow?.document;
       if (!doc || !doc.head) return;
@@ -40742,7 +44641,229 @@ div[data-sidebar-collapsed] div[class*="_root"][class*="_collapsed"] {
           (doc.head || doc.body).appendChild(script);
         }
       }
+
+      // 「+」菜单工程上下文桥 (与代理层注入互为冗余, 覆盖 iframe 直达加载场景)
+      let ctxScript = doc.getElementById('tabonkb-dsh-ctx-bridge');
+      if (!ctxScript) {
+        let ctxJs = '';
+        if (typeof getDshContextBridgeScript === 'function') {
+          ctxJs = getDshContextBridgeScript();
+        } else {
+          try {
+            
+            ctxJs = dshMgr.getDshContextBridgeScript ? dshMgr.getDshContextBridgeScript() : '';
+          } catch (_) {}
+        }
+        if (ctxJs) {
+          ctxScript = doc.createElement('script');
+          ctxScript.id = 'tabonkb-dsh-ctx-bridge';
+          ctxScript.textContent = ctxJs;
+          (doc.head || doc.body).appendChild(ctxScript);
+        }
+      }
     } catch (_) {}
+  }
+
+  /**
+   * 定位自研 Agent 抽屉实例 (若工作台视图存活)。
+   * 两侧共用同一组 localStorage/process.env 键, 抽屉存活时优先委托其 save* 方法,
+   * 保证胶囊条/浮窗标注即时刷新且语义完全一致。
+   */
+  getAgentDrawer() {
+    try {
+      const leaves = this.app?.workspace?.getLeavesOfType?.('tabonkb-workbench-view') || [];
+      for (const leaf of leaves) {
+        const drawer = leaf?.view?.agentDrawer;
+        if (drawer) return drawer;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  /** 读取四项工程上下文的当前值 (与 PiDrawerView 持久化键同源) */
+  getDshCtxState() {
+    const ls = (k) => { try { return localStorage.getItem(k); } catch (_) { return null; } };
+    let jira = null, lp = null;
+    try { jira = JSON.parse(ls('tabonkb-jira-selected-issue') || 'null'); } catch (_) {}
+    try { lp = JSON.parse(ls('tabonkb-local-selected-project') || 'null'); } catch (_) {}
+    if (lp && lp.id && !lp.priDriverRel && lp.platform && lp.project) {
+      lp.priDriverRel = `pri_project/driver/${lp.platform}/${lp.project}/base`;
+      lp.publicDriverRel = 'pri_project/driver/public';
+    }
+    return {
+      opengrok: ls('tabonkb-opengrok-selected-project') || 'auto',
+      gerrit: ls('tabonkb-gerrit-selected-filter') || 'all',
+      jira: (jira && jira.key) ? jira : null,
+      localproj: (lp && lp.id) ? lp : null
+    };
+  }
+
+  /**
+   * 构造 Jira 工单与本地工程的可选清单 (与抽屉面板同源):
+   * - Jira: jiraService 内存缓存 → tabonkb-jira-cache-v1 → 趋势缓存
+   * - 本地工程: local-project-service 扁平缓存 (磁盘 local-projects-cache.json 兜底)
+   */
+  getDshCtxLists() {
+    let jira = [];
+    try {
+      const js = this.plugin?.jiraService;
+      let issues = js?._cache?.issues;
+      if (!issues || !issues.length) {
+        const raw = localStorage.getItem('tabonkb-jira-cache-v1');
+        const parsed = raw ? JSON.parse(raw) : null;
+        if (Array.isArray(parsed) && parsed.length) issues = parsed;
+      }
+      if ((!issues || !issues.length) && js?._trendCache?.issues) issues = js._trendCache.issues;
+      if ((!issues || !issues.length) && typeof js?.getTrendCacheKeys === 'function') {
+        const ks = js.getTrendCacheKeys();
+        const rawTrend = localStorage.getItem(ks.data);
+        const parsedTrend = rawTrend ? JSON.parse(rawTrend) : null;
+        if (Array.isArray(parsedTrend)) issues = parsedTrend;
+      }
+      jira = (issues || []).slice(0, 120).map(i => ({
+        key: i.key || '',
+        summary: i.summary || '',
+        status: i.status || '',
+        priority: i.priority || '',
+        assignee: i.assignee || i.assigneeName || '',
+        url: i.url || ''
+      })).filter(i => i.key);
+    } catch (_) {}
+
+    let localproj = [];
+    try {
+      if (typeof getAllAvailableLocalProjects === 'function') {
+        localproj = getAllAvailableLocalProjects(false) || [];
+      }
+      if (!localproj.length) {
+        const basePath = this.app?.vault?.adapter?.basePath || 'd:\\work\\Mgmt\\TabonKB';
+        const cachePath = path.join(basePath, '.obsidian', 'plugins', 'tabonkb-workbench', 'local-projects-cache.json');
+        if (fs.existsSync(cachePath)) {
+          const parsed = JSON.parse(fs.readFileSync(cachePath, 'utf8'));
+          if (Array.isArray(parsed)) localproj = parsed;
+        }
+      }
+    } catch (_) {}
+    return { jira, localproj };
+  }
+
+  /**
+   * 向 DSH iframe 推送上下文状态。
+   * @param {boolean} withLists 是否附带 Jira/本地工程候选清单 (913 项 ~600KB)，
+   *   仅菜单打开/iframe ready 时全量推送；选择落盘回执只推 values。
+   */
+  sendDshCtxState(withLists = true) {
+    try {
+      const win = this.iframeEl && this.iframeEl.contentWindow;
+      if (!win) return;
+      const msg = { type: 'tabonkb-dsh-ctx-state', values: this.getDshCtxState() };
+      if (withLists) msg.lists = this.getDshCtxLists();
+      win.postMessage(msg, '*');
+    } catch (_) {}
+  }
+
+  /**
+   * 应用来自 Harness「+」菜单的上下文选择。
+   * 抽屉存活时委托其 save* 系列方法 (内部完成 localStorage/env/胶囊刷新),
+   * 否则直接写入同一组键, 保证两侧一致。
+   */
+  applyDshCtxSelection(key, value) {
+    const drawer = this.getAgentDrawer();
+    let label = '';
+    try {
+      if (key === 'opengrok') {
+        const v = (value && value !== 'auto') ? String(value) : 'auto';
+        if (drawer && typeof drawer.saveProject === 'function') {
+          drawer.saveProject(v);
+        } else {
+          try { localStorage.setItem('tabonkb-opengrok-selected-project', v); } catch (_) {}
+        }
+        try {
+          if (v !== 'auto') process.env.OPENGROK_DEFAULT_PROJECT = v;
+          else delete process.env.OPENGROK_DEFAULT_PROJECT;
+        } catch (_) {}
+        label = `✓ OpenGrok: ${v === 'auto' ? 'Auto' : v}`;
+      } else if (key === 'gerrit') {
+        const v = value || 'all';
+        if (drawer && typeof drawer.saveGerritFilter === 'function') {
+          drawer.saveGerritFilter(v);
+        } else {
+          try { localStorage.setItem('tabonkb-gerrit-selected-filter', v); } catch (_) {}
+        }
+        try {
+          if (v !== 'all') process.env.TABONKB_GERRIT_FILTER = v;
+          else delete process.env.TABONKB_GERRIT_FILTER;
+        } catch (_) {}
+        label = '✓ Gerrit 已更新';
+      } else if (key === 'jira') {
+        const issue = (value && value.key) ? {
+          key: value.key, summary: value.summary || '', status: value.status || '',
+          priority: value.priority || '', assignee: value.assignee || '', url: value.url || ''
+        } : null;
+        if (drawer && typeof drawer.saveJiraIssue === 'function') {
+          drawer.saveJiraIssue(issue);
+        } else {
+          try {
+            if (issue) localStorage.setItem('tabonkb-jira-selected-issue', JSON.stringify(issue));
+            else localStorage.removeItem('tabonkb-jira-selected-issue');
+          } catch (_) {}
+        }
+        try {
+          if (issue) process.env.TABONKB_JIRA_ISSUE_JSON = JSON.stringify(issue);
+          else delete process.env.TABONKB_JIRA_ISSUE_JSON;
+        } catch (_) {}
+        label = issue ? `✓ Jira: ${issue.key}` : '✓ 已清除 Jira 绑定';
+      } else if (key === 'localproj') {
+        const proj = (value && value.id) ? value : null;
+        if (drawer && typeof drawer.saveLocalProject === 'function') {
+          drawer.saveLocalProject(proj);
+        } else {
+          try {
+            if (proj) localStorage.setItem('tabonkb-local-selected-project', JSON.stringify(proj));
+            else localStorage.removeItem('tabonkb-local-selected-project');
+            if (typeof process !== 'undefined' && process.env) {
+              if (proj) process.env.TABONKB_LOCAL_PROJECT_JSON = JSON.stringify(proj);
+              else delete process.env.TABONKB_LOCAL_PROJECT_JSON;
+            }
+          } catch (_) {}
+        }
+        label = proj ? `✓ 本地工程: ${proj.label || proj.project}` : '✓ 已清除本地工程';
+      }
+    } catch (_) {}
+    this.sendDshCtxState(false);
+    if (label) { try { new NoticeCls(label, 1800); } catch (_) {} }
+  }
+
+  /**
+   * 新对话开始: 四项工程上下文恢复未选择默认态
+   * (OpenGrok→auto, Gerrit→all, Jira→解绑, 本地工程→解绑),
+   * 抽屉存活时委托其 save* 保持胶囊条同步。
+   */
+  resetDshCtxSelections() {
+    try {
+      const drawer = this.getAgentDrawer();
+      if (drawer) {
+        if (typeof drawer.saveProject === 'function') drawer.saveProject('auto');
+        if (typeof drawer.saveGerritFilter === 'function') drawer.saveGerritFilter('all');
+        if (typeof drawer.saveJiraIssue === 'function') drawer.saveJiraIssue(null);
+        if (typeof drawer.saveLocalProject === 'function') drawer.saveLocalProject(null);
+      } else {
+        try {
+          localStorage.setItem('tabonkb-opengrok-selected-project', 'auto');
+          localStorage.setItem('tabonkb-gerrit-selected-filter', 'all');
+          localStorage.removeItem('tabonkb-jira-selected-issue');
+          localStorage.removeItem('tabonkb-local-selected-project');
+        } catch (_) {}
+      }
+      try {
+        delete process.env.OPENGROK_DEFAULT_PROJECT;
+        delete process.env.TABONKB_LOCAL_PROJECT_JSON;
+        delete process.env.TABONKB_JIRA_ISSUE_JSON;
+        delete process.env.TABONKB_GERRIT_FILTER;
+      } catch (_) {}
+      try { new NoticeCls('✓ 新对话: 上下文已重置', 1600); } catch (_) {}
+    } catch (_) {}
+    this.sendDshCtxState(false);
   }
 
   /**
@@ -44829,258 +48950,471 @@ class PowerzPanel {
     this.container.innerHTML = `
       <style id="pz-console-styles">
         #twChargerPane_powerz {
-          background:#0a0c10 !important;
-          padding:4px 6px 6px !important;
-          border-radius:4px !important;
-          color:#e2e8f0;
-          font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
-          height:100% !important;
-          max-height:100% !important;
-          min-height:0 !important;
-          display:flex !important;
-          flex-direction:column !important;
-          flex:1 1 0 !important;
-          overflow:hidden !important;
-          box-sizing:border-box !important;
+          background: var(--g-canvas, var(--background-secondary, #f8fafc)) !important;
+          padding: 8px 10px 10px !important;
+          border-radius: 0 !important;
+          color: var(--g-label, var(--text-normal, #0f172a));
+          font-family: var(--g-font, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif);
+          height: 100% !important;
+          max-height: 100% !important;
+          min-height: 0 !important;
+          display: flex !important;
+          flex-direction: column !important;
+          flex: 1 1 0 !important;
+          overflow: hidden !important;
+          box-sizing: border-box !important;
         }
         .pz-wrap {
-          width:100% !important;
-          height:100% !important;
-          max-height:100% !important;
-          min-height:0 !important;
-          display:flex !important;
-          flex-direction:column !important;
-          flex:1 1 0 !important;
-          overflow:hidden !important;
-          box-sizing:border-box !important;
-          user-select:none !important;
+          width: 100% !important;
+          height: 100% !important;
+          max-height: 100% !important;
+          min-height: 0 !important;
+          display: flex !important;
+          flex-direction: column !important;
+          flex: 1 1 0 !important;
+          overflow: hidden !important;
+          box-sizing: border-box !important;
+          user-select: none !important;
         }
-        .pz-wrap * { box-sizing:border-box; }
+        .pz-wrap * { box-sizing: border-box; }
 
         /* 三大视图共享尺寸规范 (主控制台、数据记录仪、PD协议分析仪) */
         #pzMainView.pz-con,
         #pzCurveView,
         #pzPdView {
-          width:100% !important;
-          height:100% !important;
-          max-height:100% !important;
-          min-height:0 !important;
-          flex:1 1 0 !important;
-          flex-direction:column !important;
-          overflow:hidden !important;
-          position:relative !important;
-          box-sizing:border-box !important;
+          width: 100% !important;
+          height: 100% !important;
+          max-height: 100% !important;
+          min-height: 0 !important;
+          flex: 1 1 0 !important;
+          flex-direction: column !important;
+          overflow: hidden !important;
+          position: relative !important;
+          box-sizing: border-box !important;
         }
 
         /* 视图严格单例互斥：未激活严格隐藏，激活独占 flex 容器 */
         #pzMainView:not(.is-active),
         #pzCurveView:not(.is-active),
         #pzPdView:not(.is-active) {
-          display:none !important;
+          display: none !important;
         }
         #pzMainView.is-active,
         #pzCurveView.is-active,
         #pzPdView.is-active {
-          display:flex !important;
+          display: flex !important;
         }
 
-        /* 主控制台特定外观 */
+        /* 主控制台特定外观 (跟随工作台主题动态令牌) */
         #pzMainView.pz-con {
-          background:#12151d;
-          border:1px solid #232838;
-          border-radius:6px;
-          padding:12px;
+          background: var(--g-m2, var(--background-primary, #ffffff));
+          backdrop-filter: var(--g-b2, none);
+          -webkit-backdrop-filter: var(--g-b2, none);
+          border: 1px solid var(--g-edge2, var(--background-modifier-border, #e2e8f0));
+          border-radius: var(--g-r4, 14px);
+          box-shadow: var(--g-spec, 0 0 0 0 transparent), var(--g-sh1, none);
+          padding: 14px 16px;
+          color: var(--g-label, #0f172a);
         }
-        .pz-con-title { display:flex; align-items:center; justify-content:space-between; font-size:13px; font-weight:800; color:#cbd5e1; margin-bottom:12px; }
-        .pz-title-left { display:flex; align-items:center; gap:8px; }
-        .pz-con-badge { background:#2563eb; color:#fff; border-radius:3px; padding:2px 6px; font-size:10px; font-weight:900; }
-        .pz-con-row { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:12px; }
-        .pz-btn { background:#181c26 !important; border:1px solid #283144 !important; color:#cbd5e1 !important; font-size:12px !important; font-weight:600 !important;
-                  border-radius:4px !important; padding:5px 12px !important; cursor:pointer !important; transition:all .15s !important; display:inline-flex !important; align-items:center !important; gap:6px !important; line-height:1.2 !important; }
-        .pz-btn:hover { background:#222838 !important; color:#fff !important; border-color:#3b82f6 !important; }
-        .pz-btn.primary { background:#2563eb !important; border-color:#2563eb !important; color:#fff !important; }
-        .pz-btn.primary:hover { background:#3b82f6 !important; }
-        .pz-btn.sm { font-size:11px !important; padding:3px 8px !important; border-radius:3px !important; gap:4px !important; }
-        .pz-con-sub { font-size:11px; color:#94a3b8; margin:10px 0 6px; font-weight:700; display:flex; justify-content:space-between; align-items:center; }
-        .pz-con-dir { font-family:Consolas,monospace; font-size:10px; color:#64748b; margin-bottom:8px; word-break:break-all; }
-        .pz-list { background:#0e1017; border:1px solid #1e2230; border-radius:4px; flex:1 1 0; min-height:160px; max-height:none; overflow-y:auto; padding:6px; }
-        .pz-item { font-family:Consolas,monospace; font-size:11px; color:#cbd5e1; padding:6px 8px; border-radius:4px;
-                   display:flex; align-items:center; justify-content:space-between; margin-bottom:3px; background:#141722; border:1px solid transparent; transition:all .15s; }
-        .pz-item:hover { background:#1d2232; border-color:#3b82f6; color:#fff; }
-        .pz-item-info { display:flex; align-items:center; gap:8px; }
-        .pz-item-tag { font-size:9px; font-weight:800; border-radius:2px; padding:1px 5px; }
-        .pz-tag-db { background:#065f46; color:#6ee7b7; border:1px solid #059669; }
-        .pz-tag-pd { background:#075985; color:#7dd3fc; border:1px solid #0284c7; }
-        .pz-tag-other { background:#334155; color:#94a3b8; }
-        .pz-item-name { font-weight:600; color:#93c5fd; }
-        .pz-item-meta { display:flex; align-items:center; gap:10px; }
-        .pz-item .sz { color:#64748b; font-size:10px; }
-        .pz-empty { color:#64748b; font-size:11px; padding:14px; text-align:center; }
-        .pz-sum { display:none; margin-top:10px; background:#0e1e28; border:1px solid #1a3344; border-radius:4px;
-                  padding:8px 10px; font-family:Consolas,monospace; font-size:11px; color:#cbd5e1; white-space:pre-wrap; line-height:1.5; }
-        .pz-log { margin-top:10px; font-family:Consolas,monospace; font-size:10px; color:#64748b; max-height:60px; overflow-y:auto; }
+        .pz-con-title { display: flex; align-items: center; justify-content: space-between; font-size: 13px; font-weight: 800; color: var(--g-label, #0f172a); margin-bottom: 12px; }
+        .pz-title-left { display: flex; align-items: center; gap: 8px; }
+        .pz-con-badge { background: var(--bp-bg, var(--g-blue, #2563eb)); color: var(--bp-fg, #fff); border-radius: var(--g-r1, 5px); padding: 2px 7px; font-size: 10px; font-weight: 900; box-shadow: var(--bp-sh, none); }
+        .pz-con-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+        .pz-btn {
+          background: var(--bt-bg, var(--g-m3, #f8fafc)) !important;
+          border: var(--bt-bd, 1px solid var(--g-edge2, #cbd5e1)) !important;
+          color: var(--bt-fg, var(--g-label, #1e293b)) !important;
+          font-size: 12px !important;
+          font-weight: 600 !important;
+          border-radius: var(--bt-r, var(--g-r2, 7px)) !important;
+          padding: 5px 12px !important;
+          cursor: pointer !important;
+          transition: all .15s !important;
+          display: inline-flex !important;
+          align-items: center !important;
+          gap: 6px !important;
+          line-height: 1.2 !important;
+          box-shadow: var(--bt-sh, none) !important;
+        }
+        .pz-btn:hover {
+          background: var(--bt-hv-bg, var(--g-fill-2, rgba(148,163,184,0.16))) !important;
+          color: var(--g-label, #0f172a) !important;
+          border-color: var(--g-blue, #3b82f6) !important;
+        }
+        .pz-btn.primary {
+          background: var(--bp-bg, var(--g-accent-fill, #2563eb)) !important;
+          border-color: transparent !important;
+          color: var(--bp-fg, var(--sk-on-accent, #fff)) !important;
+          box-shadow: var(--bp-sh, none) !important;
+        }
+        .pz-btn.primary:hover { filter: brightness(1.06); }
+        .pz-btn.sm { font-size: 11px !important; padding: 3px 9px !important; border-radius: var(--g-r1, 5px) !important; gap: 4px !important; }
+        .pz-con-sub { font-size: 11px; color: var(--g-label-2, #475569); margin: 10px 0 6px; font-weight: 700; display: flex; justify-content: space-between; align-items: center; }
+        .pz-con-dir { font-family: var(--g-mono, Consolas, monospace); font-size: 10.5px; color: var(--g-label-3, #64748b); margin-bottom: 8px; word-break: break-all; }
+        .pz-list {
+          background: var(--g-m1, rgba(148,163,184,0.06));
+          border: 1px solid var(--g-edge, #e2e8f0);
+          border-radius: var(--g-r3, 10px);
+          flex: 1 1 0;
+          min-height: 160px;
+          max-height: none;
+          overflow-y: auto;
+          padding: 8px;
+        }
+        .pz-item {
+          font-family: var(--g-mono, Consolas, monospace);
+          font-size: 11.5px;
+          color: var(--g-label, #1e293b);
+          padding: 7px 10px;
+          border-radius: var(--g-r2, 8px);
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          margin-bottom: 5px;
+          background: var(--g-m2, #ffffff);
+          border: 1px solid var(--g-edge, rgba(148,163,184,0.18));
+          box-shadow: var(--g-sh1, none);
+          transition: all .15s;
+        }
+        .pz-item:hover {
+          background: var(--g-m3, #f8fafc);
+          border-color: var(--g-blue, #3b82f6);
+          color: var(--g-label, #0f172a);
+          transform: translateY(-1px);
+        }
+        .pz-item-info { display: flex; align-items: center; gap: 8px; }
+        .pz-item-tag { font-size: 9.5px; font-weight: 800; border-radius: 4px; padding: 1.5px 6px; }
+        .pz-tag-db {
+          background: color-mix(in srgb, var(--g-green, #10b981) 15%, transparent);
+          color: var(--g-green, #059669);
+          border: 1px solid color-mix(in srgb, var(--g-green, #10b981) 38%, transparent);
+        }
+        .pz-tag-pd {
+          background: color-mix(in srgb, var(--g-blue, #0284c7) 15%, transparent);
+          color: var(--g-blue, #0284c7);
+          border: 1px solid color-mix(in srgb, var(--g-blue, #0284c7) 38%, transparent);
+        }
+        .pz-tag-other {
+          background: var(--g-fill, rgba(148,163,184,0.15));
+          color: var(--g-label-2, #64748b);
+        }
+        .pz-item-name { font-weight: 600; color: var(--g-blue, #2563eb); }
+        .pz-item-meta { display: flex; align-items: center; gap: 10px; }
+        .pz-item .sz { color: var(--g-label-3, #64748b); font-size: 10.5px; }
+        .pz-empty { color: var(--g-label-3, #64748b); font-size: 11.5px; padding: 18px; text-align: center; }
+        .pz-sum {
+          display: none;
+          margin-top: 10px;
+          background: var(--sk-tint, rgba(37,99,235,0.08));
+          border: 1px solid var(--g-edge2, #cbd5e1);
+          border-radius: var(--g-r2, 8px);
+          padding: 8px 10px;
+          font-family: var(--g-mono, Consolas, monospace);
+          font-size: 11px;
+          color: var(--g-label, #1e293b);
+          white-space: pre-wrap;
+          line-height: 1.5;
+        }
+        .pz-log { margin-top: 10px; font-family: var(--g-mono, Consolas, monospace); font-size: 10px; color: var(--g-label-3, #64748b); max-height: 60px; overflow-y: auto; }
 
         /* 顶部导航与通用徽章 (图2 图3 顶部条) */
-        .pz-view-header { flex-shrink:0 !important; display:flex !important; align-items:center !important; justify-content:space-between !important; margin-bottom:5px !important; background:#11141c !important; border:1px solid #202636 !important; border-radius:4px !important; padding:4px 8px !important; }
-        .pz-header-left { display:flex !important; align-items:center !important; gap:8px !important; }
-        .pz-badge-device { background:#161a24 !important; color:#cbd5e1 !important; font-family:Consolas,monospace !important; font-weight:700 !important; font-size:11px !important; padding:2px 7px !important; border-radius:3px !important; border:1px solid #283144 !important; display:flex !important; align-items:center !important; gap:6px !important; }
-        .pz-badge-device .num { background:#2563eb !important; color:#fff !important; padding:0 4px !important; border-radius:2px !important; font-size:10px !important; font-weight:800 !important; }
-        .pz-tabs-switch { display:flex !important; gap:2px !important; background:#090c12 !important; border:1px solid #1a202c !important; border-radius:4px !important; padding:2px !important; }
-        .pz-tab-btn { display:inline-flex !important; align-items:center !important; background:transparent !important; border:1px solid transparent !important; color:#8592a6 !important; font-size:11px !important; font-weight:600 !important; padding:3px 8px !important; border-radius:3px !important; cursor:pointer !important; transition:all .15s !important; gap:5px !important; }
-        .pz-tab-btn .tw-ip-icon { flex-shrink:0 !important; }
-        .pz-tab-btn .pz-tab-arrow { display:inline-flex !important; align-items:center !important; margin-left:2px !important; opacity:0.8 !important; }
-        .pz-tab-btn.active { background:#1a2130 !important; border-color:#2b3952 !important; color:#38bdf8 !important; font-weight:700 !important; box-shadow:0 1px 3px rgba(0,0,0,0.3) !important; }
-        .pz-tab-btn:hover:not(.active) { color:#cbd5e1 !important; background:#141822 !important; }
-
-        /* 1:1 复刻官方紧凑 HUD 看板 (Segoe UI / Bahnschrift 比例字体，彻底根治图5粗笨丑化问题) */
-        .pz-hud-grid { flex-shrink:0 !important; display:flex !important; flex-wrap:nowrap !important; gap:4px !important; margin-bottom:4px !important; max-width:780px !important; transition:max-height 0.25s ease, opacity 0.2s; overflow:hidden !important; }
-        .pz-hud-grid.collapsed { max-height:0 !important; margin-bottom:0 !important; opacity:0 !important; pointer-events:none !important; }
-        .pz-hud-card { height:42px !important; min-height:42px !important; max-height:42px !important; padding:3px 8px 3px !important; border-radius:4px !important; position:relative !important; overflow:hidden !important; font-family:"Segoe UI", "Bahnschrift", -apple-system, BlinkMacSystemFont, Arial, sans-serif !important; display:flex !important; flex-direction:column !important; justify-content:flex-start !important; gap:0 !important; box-sizing:border-box !important; }
-        .pz-hud-vbus { flex:0 0 205px !important; background:#3dae8c !important; border:1px solid rgba(255,255,255,0.18) !important; color:#ffffff !important; }
-        .pz-hud-ibus { flex:0 0 174px !important; background:#dc7989 !important; border:1px solid rgba(255,255,255,0.18) !important; color:#ffffff !important; }
-        .pz-hud-pwr  { flex:0 0 174px !important; background:#2b97e4 !important; border:1px solid rgba(255,255,255,0.18) !important; color:#ffffff !important; }
-        .pz-hud-sub  { flex:0 0 180px !important; background:#2b2d35 !important; border:1px solid rgba(255,255,255,0.12) !important; color:#e2e8f0 !important; }
-        .pz-hud-title { font-size:9.5px !important; font-weight:700 !important; opacity:0.95 !important; height:12px !important; min-height:12px !important; max-height:12px !important; line-height:12px !important; margin:0 !important; padding:0 !important; display:flex !important; align-items:center !important; letter-spacing:0.4px !important; box-sizing:border-box !important; }
-        .pz-hud-dir-btn { position:absolute !important; top:3px !important; right:8px !important; background:#ffffff !important; color:#dc7989 !important; width:13px !important; height:13px !important; border-radius:50% !important; display:inline-flex !important; align-items:center !important; justify-content:center !important; font-size:8.5px !important; font-weight:900 !important; cursor:pointer !important; line-height:1 !important; z-index:2 !important; user-select:none !important; }
-        .pz-hud-val { height:24px !important; min-height:24px !important; max-height:24px !important; line-height:24px !important; margin:0 !important; padding:0 !important; font-size:22px !important; font-weight:700 !important; letter-spacing:0.2px !important; white-space:nowrap !important; font-variant-numeric:tabular-nums !important; -webkit-font-smoothing:antialiased !important; box-sizing:border-box !important; }
-
-        .pz-hud-sub-grid { display:grid !important; grid-template-columns:1fr 1fr !important; gap:1px 6px !important; font-size:9.5px !important; line-height:1.25 !important; margin-top:0 !important; }
-        .pz-hud-sub-item { display:flex !important; justify-content:space-between !important; gap:3px !important; }
-        .pz-hud-sub-item .k { color:#94a3b8 !important; font-weight:600 !important; font-size:9px !important; }
-        .pz-hud-sub-item .v { font-weight:700 !important; color:#ffffff !important; font-size:9.5px !important; font-variant-numeric:tabular-nums !important; }
-
-        /* 图2: 曲线副工具栏 (带左上角曲线内容设置图标) */
-        .pz-sub-bar { flex-shrink:0 !important; position:relative !important; display:flex !important; align-items:center !important; justify-content:space-between !important; background:#11141c !important; border:1px solid #202636 !important; border-radius:4px !important; padding:2px 8px !important; margin-bottom:4px !important; font-size:11px !important; font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif !important; }
-        .pz-sub-left { display:flex !important; align-items:center !important; gap:6px !important; }
-        .pz-menu-icon-btn { background:#181c26 !important; border:1px solid #283144 !important; color:#94a3b8 !important; width:22px !important; height:22px !important; border-radius:3px !important; display:inline-flex !important; align-items:center !important; justify-content:center !important; cursor:pointer !important; transition:all .15s !important; padding:0 !important; }
-        .pz-menu-icon-btn:hover, .pz-menu-icon-btn.active { background:#2563eb !important; border-color:#3b82f6 !important; color:#ffffff !important; }
-        .pz-collapse-btn { background:#181c26 !important; border:1px solid #283144 !important; color:#94a3b8 !important; width:22px !important; height:22px !important; border-radius:3px !important; display:inline-flex !important; align-items:center !important; justify-content:center !important; cursor:pointer !important; padding:0 !important; transition:transform 0.2s, background 0.15s, color 0.15s !important; }
-        .pz-collapse-btn:hover { background:#2563eb !important; border-color:#3b82f6 !important; color:#ffffff !important; }
-        .pz-collapse-btn.collapsed { transform:rotate(180deg) !important; }
-        .pz-ch-tag { background:#141722 !important; border:1px solid #232a3b !important; color:#8592a6 !important; font-size:10px !important; font-weight:700 !important; border-radius:3px !important; padding:2px 7px !important; cursor:pointer !important; user-select:none !important; transition:all .15s !important; }
-        .pz-ch-tag:hover:not(.active) { background:#1c2230 !important; color:#cbd5e1 !important; border-color:#323d54 !important; }
-        .pz-ch-tag.active { background:#1e3a8a !important; color:#93c5fd !important; border-color:#3b82f6 !important; }
-        .pz-sub-center-title { font-weight:700 !important; font-size:12.5px !important; color:#e2e8f0 !important; letter-spacing:0.3px !important; }
-        .pz-sub-right { display:flex !important; align-items:center !important; gap:6px !important; }
-        .pz-action-tag { background:#141722 !important; border:1px solid #232a3b !important; color:#8592a6 !important; font-size:10px !important; font-weight:700 !important; border-radius:3px !important; padding:2px 6px !important; cursor:pointer !important; display:inline-flex !important; align-items:center !important; gap:3px !important; transition:all .15s !important; }
-        .pz-action-tag:hover { color:#ffffff !important; border-color:#3b82f6 !important; background:#1c2230 !important; }
-
-        /* 左上角曲线内容设置展开浮窗菜单 (10 项功能) */
-        .pz-content-menu { position:absolute !important; left:6px !important; top:30px !important; z-index:100 !important; background:rgba(18, 22, 32, 0.95) !important; border:1px solid #2d3748 !important; border-radius:5px !important; box-shadow:0 12px 28px rgba(0, 0, 0, 0.65) !important; backdrop-filter:blur(12px) !important; -webkit-backdrop-filter:blur(12px) !important; width:195px !important; padding:4px 0 !important; font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif !important; font-size:11px !important; user-select:none !important; }
-        .pz-menu-item { display:flex !important; align-items:center !important; gap:8px !important; padding:5px 10px !important; color:#94a3b8 !important; cursor:pointer !important; transition:all 0.12s !important; }
-        .pz-menu-item:hover { background:#2563eb !important; color:#ffffff !important; }
-        .pz-menu-item .tw-ip-icon { flex-shrink:0 !important; opacity:0.9 !important; }
-        .pz-menu-item:hover .tw-ip-icon { opacity:1 !important; stroke:#ffffff !important; }
-        .pz-menu-divider { height:1px !important; background:#242c3d !important; margin:3px 0 !important; }
-        .pz-menu-check { width:13px !important; height:13px !important; border:1px solid #3c485e !important; border-radius:2px !important; display:inline-flex !important; align-items:center !important; justify-content:center !important; font-size:9px !important; color:#ffffff !important; background:#0d1017 !important; flex-shrink:0 !important; }
-        .pz-menu-check-placeholder { width:13px !important; height:13px !important; flex-shrink:0 !important; display:inline-block !important; }
-        .pz-menu-item.checked .pz-menu-check { background:#2563eb !important; border-color:#3b82f6 !important; color:#ffffff !important; }
-
-        /* 图2: 主画布容器 (1:1 坐标系、双游标、右上T1-T2差值表、左下统计表、POWER-Z水印) */
-        .pz-chart-wrap {
-          position:relative !important;
-          background:#05070a !important;
-          border:1px solid #1c202a !important;
-          border-radius:4px !important;
-          flex:1 1 0 !important;
-          min-height:100px !important;
-          margin-bottom:4px !important;
-          overflow:hidden !important;
-          box-sizing:border-box !important;
+        .pz-view-header {
+          flex-shrink: 0 !important;
+          display: flex !important;
+          align-items: center !important;
+          justify-content: space-between !important;
+          margin-bottom: 5px !important;
+          background: var(--g-m2, #ffffff) !important;
+          border: 1px solid var(--g-edge2, #e2e8f0) !important;
+          border-radius: var(--g-r2, 8px) !important;
+          padding: 4px 8px !important;
         }
-        .pz-canvas { width:100%; height:100%; display:block; cursor:crosshair; }
+        .pz-header-left { display: flex !important; align-items: center !important; gap: 8px !important; }
+        .pz-badge-device {
+          background: var(--g-m3, #f8fafc) !important;
+          color: var(--g-label, #1e293b) !important;
+          font-family: var(--g-mono, Consolas, monospace) !important;
+          font-weight: 700 !important;
+          font-size: 11px !important;
+          padding: 2px 7px !important;
+          border-radius: var(--g-r1, 5px) !important;
+          border: 1px solid var(--g-edge2, #cbd5e1) !important;
+          display: flex !important;
+          align-items: center !important;
+          gap: 6px !important;
+        }
+        .pz-badge-device .num { background: var(--bp-bg, var(--g-blue, #2563eb)) !important; color: var(--bp-fg, #fff) !important; padding: 0 4px !important; border-radius: 3px !important; font-size: 10px !important; font-weight: 800 !important; }
+        .pz-tabs-switch {
+          display: flex !important;
+          gap: 2px !important;
+          background: var(--seg-bg, var(--g-fill, #f1f5f9)) !important;
+          border: 1px solid var(--g-edge, #e2e8f0) !important;
+          border-radius: var(--seg-r, var(--g-r2, 7px)) !important;
+          padding: 2px !important;
+        }
+        .pz-tab-btn {
+          display: inline-flex !important;
+          align-items: center !important;
+          background: transparent !important;
+          border: 1px solid transparent !important;
+          color: var(--g-label-2, #64748b) !important;
+          font-size: 11px !important;
+          font-weight: 600 !important;
+          padding: 3px 8px !important;
+          border-radius: var(--seg-bt-r, 5px) !important;
+          cursor: pointer !important;
+          transition: all .15s !important;
+          gap: 5px !important;
+        }
+        .pz-tab-btn .tw-ip-icon { flex-shrink: 0 !important; }
+        .pz-tab-btn .pz-tab-arrow { display: inline-flex !important; align-items: center !important; margin-left: 2px !important; opacity: 0.8 !important; }
+        .pz-tab-btn.active {
+          background: var(--seg-on-bg, var(--g-m3, #ffffff)) !important;
+          border-color: var(--g-edge2, #cbd5e1) !important;
+          color: var(--seg-on-fg, var(--g-blue, #2563eb)) !important;
+          font-weight: 700 !important;
+          box-shadow: var(--seg-on-sh, var(--g-sh1, none)) !important;
+        }
+        .pz-tab-btn:hover:not(.active) { color: var(--g-label, #0f172a) !important; background: var(--g-fill, rgba(148,163,184,0.1)) !important; }
 
-        /* 右上角 T1-T2 差值计算框 (官方毛玻璃虚化透光风格) */
-        .pz-diff-overlay { position:absolute; right:55px; top:12px; background:rgba(18, 24, 38, 0.55); border:1px solid rgba(255, 255, 255, 0.16); border-radius:6px; padding:6px 12px; font-family:"Segoe UI", -apple-system, BlinkMacSystemFont, Arial, sans-serif; font-size:10.5px; color:#e2e8f0; pointer-events:none; line-height:1.4; min-width:155px; box-shadow:0 8px 24px rgba(0, 0, 0, 0.45); backdrop-filter:blur(12px) saturate(180%); -webkit-backdrop-filter:blur(12px) saturate(180%); }
-        .pz-diff-header { color:#f1f5f9; font-weight:800; border-bottom:1px solid rgba(255, 255, 255, 0.16); padding-bottom:2px; margin-bottom:4px; font-size:11px; }
-        .pz-diff-row { display:flex; justify-content:space-between; gap:12px; }
-        .pz-diff-row .k { color:#94a3b8; }
-        .pz-diff-row .v { color:#f1f5f9; font-weight:700; text-align:right; font-variant-numeric:tabular-nums; }
+        /* 1:1 复刻官方紧凑 HUD 看板 */
+        .pz-hud-grid { flex-shrink: 0 !important; display: flex !important; flex-wrap: nowrap !important; gap: 4px !important; margin-bottom: 4px !important; max-width: 780px !important; transition: max-height 0.25s ease, opacity 0.2s; overflow: hidden !important; }
+        .pz-hud-grid.collapsed { max-height: 0 !important; margin-bottom: 0 !important; opacity: 0 !important; pointer-events: none !important; }
+        .pz-hud-card { height: 42px !important; min-height: 42px !important; max-height: 42px !important; padding: 3px 8px 3px !important; border-radius: var(--g-r1, 6px) !important; position: relative !important; overflow: hidden !important; font-family: "Segoe UI", "Bahnschrift", -apple-system, BlinkMacSystemFont, Arial, sans-serif !important; display: flex !important; flex-direction: column !important; justify-content: flex-start !important; gap: 0 !important; box-sizing: border-box !important; }
+        .pz-hud-vbus { flex: 0 0 205px !important; background: #3dae8c !important; border: 1px solid rgba(255,255,255,0.22) !important; color: #ffffff !important; }
+        .pz-hud-ibus { flex: 0 0 174px !important; background: #dc7989 !important; border: 1px solid rgba(255,255,255,0.22) !important; color: #ffffff !important; }
+        .pz-hud-pwr  { flex: 0 0 174px !important; background: #2b97e4 !important; border: 1px solid rgba(255,255,255,0.22) !important; color: #ffffff !important; }
+        .pz-hud-sub  { flex: 0 0 180px !important; background: var(--g-m2, #f1f5f9) !important; border: 1px solid var(--g-edge2, #cbd5e1) !important; color: var(--g-label, #0f172a) !important; }
+        .pz-hud-title { font-size: 9.5px !important; font-weight: 700 !important; opacity: 0.95 !important; height: 12px !important; min-height: 12px !important; max-height: 12px !important; line-height: 12px !important; margin: 0 !important; padding: 0 !important; display: flex !important; align-items: center !important; letter-spacing: 0.4px !important; box-sizing: border-box !important; }
+        .pz-hud-dir-btn { position: absolute !important; top: 3px !important; right: 8px !important; background: #ffffff !important; color: #dc7989 !important; width: 13px !important; height: 13px !important; border-radius: 50% !important; display: inline-flex !important; align-items: center !important; justify-content: center !important; font-size: 8.5px !important; font-weight: 900 !important; cursor: pointer !important; line-height: 1 !important; z-index: 2 !important; user-select: none !important; }
+        .pz-hud-val { height: 24px !important; min-height: 24px !important; max-height: 24px !important; line-height: 24px !important; margin: 0 !important; padding: 0 !important; font-size: 22px !important; font-weight: 700 !important; letter-spacing: 0.2px !important; white-space: nowrap !important; font-variant-numeric: tabular-nums !important; -webkit-font-smoothing: antialiased !important; box-sizing: border-box !important; }
 
-        /* 左下角 全部/窗口 统计覆盖表 (完全通透风格，消除死黑遮挡) */
-        .pz-stats-overlay { position:absolute; left:60px; bottom:28px; background:transparent !important; border:1px solid rgba(255, 255, 255, 0.14); border-radius:4px; padding:4px 8px; font-family:"Segoe UI", Consolas, monospace; font-size:10px; color:#e2e8f0; pointer-events:none; line-height:1.35; box-shadow:none; backdrop-filter:none; }
-        .pz-stats-table { border-collapse:collapse; text-align:right; }
-        .pz-stats-table th { color:#94a3b8; font-weight:600; padding:0 6px 3px; border-bottom:1px solid rgba(255, 255, 255, 0.12); font-size:9.5px; }
-        .pz-stats-table td { padding:2px 6px; font-size:10px; font-variant-numeric:tabular-nums; color:#e2e8f0; }
-        .pz-stats-badge { color:#fff; padding:1px 5px; border-radius:2px; font-weight:800; font-size:9.5px; opacity:0.9; }
+        .pz-hud-sub-grid { display: grid !important; grid-template-columns: 1fr 1fr !important; gap: 1px 6px !important; font-size: 9.5px !important; line-height: 1.25 !important; margin-top: 0 !important; }
+        .pz-hud-sub-item { display: flex !important; justify-content: space-between !important; gap: 3px !important; }
+        .pz-hud-sub-item .k { color: var(--g-label-3, #64748b) !important; font-weight: 600 !important; font-size: 9px !important; }
+        .pz-hud-sub-item .v { font-weight: 700 !important; color: var(--g-label, #0f172a) !important; font-size: 9.5px !important; font-variant-numeric: tabular-nums !important; }
+
+        /* 图2: 曲线副工具栏 */
+        .pz-sub-bar {
+          flex-shrink: 0 !important;
+          position: relative !important;
+          display: flex !important;
+          align-items: center !important;
+          justify-content: space-between !important;
+          background: var(--g-m2, #ffffff) !important;
+          border: 1px solid var(--g-edge2, #e2e8f0) !important;
+          border-radius: var(--g-r2, 7px) !important;
+          padding: 3px 8px !important;
+          margin-bottom: 4px !important;
+          font-size: 11px !important;
+        }
+        .pz-sub-left { display: flex !important; align-items: center !important; gap: 6px !important; }
+        .pz-menu-icon-btn, .pz-collapse-btn {
+          background: var(--bt-bg, var(--g-m3, #f8fafc)) !important;
+          border: 1px solid var(--g-edge2, #cbd5e1) !important;
+          color: var(--g-label-2, #475569) !important;
+          width: 22px !important;
+          height: 22px !important;
+          border-radius: 4px !important;
+          display: inline-flex !important;
+          align-items: center !important;
+          justify-content: center !important;
+          cursor: pointer !important;
+          transition: all .15s !important;
+          padding: 0 !important;
+        }
+        .pz-menu-icon-btn:hover, .pz-menu-icon-btn.active, .pz-collapse-btn:hover {
+          background: var(--bp-bg, var(--g-blue, #2563eb)) !important;
+          border-color: transparent !important;
+          color: var(--bp-fg, #ffffff) !important;
+        }
+        .pz-collapse-btn.collapsed { transform: rotate(180deg) !important; }
+        .pz-ch-tag, .pz-action-tag {
+          background: var(--bt-bg, var(--g-m3, #f8fafc)) !important;
+          border: 1px solid var(--g-edge, #e2e8f0) !important;
+          color: var(--g-label-2, #64748b) !important;
+          font-size: 10px !important;
+          font-weight: 700 !important;
+          border-radius: 4px !important;
+          padding: 2px 7px !important;
+          cursor: pointer !important;
+          user-select: none !important;
+          display: inline-flex !important;
+          align-items: center !important;
+          gap: 3px !important;
+          transition: all .15s !important;
+        }
+        .pz-ch-tag:hover:not(.active), .pz-action-tag:hover {
+          background: var(--g-fill-2, rgba(148,163,184,0.16)) !important;
+          color: var(--g-label, #0f172a) !important;
+          border-color: var(--g-blue, #3b82f6) !important;
+        }
+        .pz-ch-tag.active {
+          background: var(--sk-tint, rgba(37,99,235,0.15)) !important;
+          color: var(--g-blue, #2563eb) !important;
+          border-color: var(--g-blue, #3b82f6) !important;
+        }
+        .pz-sub-center-title { font-weight: 700 !important; font-size: 12.5px !important; color: var(--g-label, #0f172a) !important; letter-spacing: 0.3px !important; }
+        .pz-sub-right { display: flex !important; align-items: center !important; gap: 6px !important; }
+
+        /* 左上角曲线内容设置展开浮窗菜单 */
+        .pz-content-menu {
+          position: absolute !important;
+          left: 6px !important;
+          top: 30px !important;
+          z-index: 100 !important;
+          background: var(--pop-bg, var(--g-m4, #ffffff)) !important;
+          border: var(--pop-bd, 1px solid var(--g-edge2, #cbd5e1)) !important;
+          border-radius: var(--pop-r, 8px) !important;
+          box-shadow: var(--pop-sh, var(--g-sh3)) !important;
+          backdrop-filter: blur(16px) !important;
+          -webkit-backdrop-filter: blur(16px) !important;
+          width: 195px !important;
+          padding: 4px 0 !important;
+          font-size: 11px !important;
+          user-select: none !important;
+        }
+        .pz-menu-item { display: flex !important; align-items: center !important; gap: 8px !important; padding: 5px 10px !important; color: var(--g-label, #1e293b) !important; cursor: pointer !important; transition: all 0.12s !important; }
+        .pz-menu-item:hover { background: var(--pop-hv-bg, var(--g-fill-2)) !important; color: var(--pop-hv-fg, var(--g-blue)) !important; }
+        .pz-menu-item .tw-ip-icon { flex-shrink: 0 !important; opacity: 0.9 !important; }
+        .pz-menu-divider { height: 1px !important; background: var(--g-sep, #e2e8f0) !important; margin: 3px 0 !important; }
+        .pz-menu-check { width: 13px !important; height: 13px !important; border: 1px solid var(--g-edge2, #94a3b8) !important; border-radius: 3px !important; display: inline-flex !important; align-items: center !important; justify-content: center !important; font-size: 9px !important; color: #ffffff !important; background: var(--g-m1, transparent) !important; flex-shrink: 0 !important; }
+        .pz-menu-check-placeholder { width: 13px !important; height: 13px !important; flex-shrink: 0 !important; display: inline-block !important; }
+        .pz-menu-item.checked .pz-menu-check { background: var(--g-blue, #2563eb) !important; border-color: var(--g-blue, #2563eb) !important; color: #ffffff !important; }
+
+        /* 图2: 主画布容器 */
+        .pz-chart-wrap {
+          position: relative !important;
+          background: var(--g-m2, #ffffff) !important;
+          border: 1px solid var(--g-edge2, #e2e8f0) !important;
+          border-radius: var(--g-r2, 8px) !important;
+          flex: 1 1 0 !important;
+          min-height: 100px !important;
+          margin-bottom: 4px !important;
+          overflow: hidden !important;
+          box-sizing: border-box !important;
+        }
+        .pz-canvas { width: 100%; height: 100%; display: block; cursor: crosshair; }
+
+        /* 右上角 T1-T2 差值计算框 */
+        .pz-diff-overlay {
+          position: absolute;
+          right: 55px;
+          top: 12px;
+          background: var(--pop-bg, var(--g-m4, rgba(255,255,255,0.9))) !important;
+          border: var(--pop-bd, 1px solid var(--g-edge2, #cbd5e1)) !important;
+          border-radius: var(--g-r2, 8px);
+          padding: 6px 12px;
+          font-size: 10.5px;
+          color: var(--g-label, #0f172a);
+          pointer-events: none;
+          line-height: 1.4;
+          min-width: 155px;
+          box-shadow: var(--g-sh2, 0 8px 24px rgba(0,0,0,0.12));
+          backdrop-filter: blur(12px) saturate(160%);
+          -webkit-backdrop-filter: blur(12px) saturate(160%);
+        }
+        .pz-diff-header { color: var(--g-label, #0f172a); font-weight: 800; border-bottom: 1px solid var(--g-sep, #e2e8f0); padding-bottom: 2px; margin-bottom: 4px; font-size: 11px; }
+        .pz-diff-row { display: flex; justify-content: space-between; gap: 12px; }
+        .pz-diff-row .k { color: var(--g-label-3, #64748b); }
+        .pz-diff-row .v { color: var(--g-label, #0f172a); font-weight: 700; text-align: right; font-variant-numeric: tabular-nums; }
+
+        /* 左下角 全部/窗口 统计覆盖表 */
+        .pz-stats-overlay {
+          position: absolute;
+          left: 60px;
+          bottom: 28px;
+          background: var(--pop-bg, rgba(255,255,255,0.82)) !important;
+          border: 1px solid var(--g-edge2, rgba(148,163,184,0.3));
+          border-radius: 6px;
+          padding: 4px 8px;
+          font-family: "Segoe UI", Consolas, monospace;
+          font-size: 10px;
+          color: var(--g-label, #0f172a);
+          pointer-events: none;
+          line-height: 1.35;
+          backdrop-filter: blur(8px);
+        }
+        .pz-stats-table { border-collapse: collapse; text-align: right; }
+        .pz-stats-table th { color: var(--g-label-3, #64748b); font-weight: 600; padding: 0 6px 3px; border-bottom: 1px solid var(--g-sep, #e2e8f0); font-size: 9.5px; }
+        .pz-stats-table td { padding: 2px 6px; font-size: 10px; font-variant-numeric: tabular-nums; color: var(--g-label, #0f172a); }
+        .pz-stats-badge { color: #fff; padding: 1px 5px; border-radius: 3px; font-weight: 800; font-size: 9.5px; opacity: 0.92; }
 
         /* 右下角 POWER-Z 官方水印 */
-        .pz-watermark { position:absolute; right:62px; bottom:30px; font-family:"Impact", "Arial Black", sans-serif; font-size:15px; letter-spacing:2px; color:#232836; pointer-events:none; }
+        .pz-watermark { position: absolute; right: 62px; bottom: 30px; font-family: "Impact", "Arial Black", sans-serif; font-size: 15px; letter-spacing: 2px; color: var(--g-label-3, #94a3b8); opacity: 0.22; pointer-events: none; }
 
         /* 图2: 底部缩略图时间轴与滑块 */
         .pz-overview-wrap {
-          position:relative !important;
-          background:#0f1118 !important;
-          border:1px solid #1e2230 !important;
-          border-radius:4px !important;
-          height:34px !important;
-          min-height:34px !important;
-          max-height:34px !important;
-          flex-shrink:0 !important;
-          overflow:hidden !important;
-          margin-bottom:2px !important;
-          box-sizing:border-box !important;
+          position: relative !important;
+          background: var(--g-m1, #f8fafc) !important;
+          border: 1px solid var(--g-edge2, #e2e8f0) !important;
+          border-radius: var(--g-r1, 6px) !important;
+          height: 34px !important;
+          min-height: 34px !important;
+          max-height: 34px !important;
+          flex-shrink: 0 !important;
+          overflow: hidden !important;
+          margin-bottom: 2px !important;
+          box-sizing: border-box !important;
         }
-        .pz-overview-canvas { width:100%; height:100%; display:block; cursor:pointer; }
-        .pz-slider-window { position:absolute; top:0; bottom:0; background:rgba(37, 99, 235, 0.20); border:1px solid #3b82f6; cursor:grab; }
+        .pz-overview-canvas { width: 100%; height: 100%; display: block; cursor: pointer; }
+        .pz-slider-window { position: absolute; top: 0; bottom: 0; background: var(--sk-tint, rgba(37, 99, 235, 0.20)); border: 1px solid var(--g-blue, #3b82f6); cursor: grab; }
 
-        /* 图1: 坐标轴与颜色设置弹窗 (浮动模态框) */
-        .pz-modal-mask { position:absolute; inset:0; background:rgba(0,0,0,0.45); z-index:10; display:flex; align-items:center; justify-content:center; }
-        .pz-settings-modal { background:#1e222e; border:1px solid #363e52; border-radius:6px; width:340px; padding:12px; font-family:Consolas,monospace; font-size:11px; box-shadow:0 12px 28px rgba(0,0,0,0.7); }
-        .pz-modal-header { display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #2f3647; padding-bottom:6px; margin-bottom:8px; font-weight:800; color:#cbd5e1; }
-        .pz-modal-row { display:flex; align-items:center; justify-content:space-between; margin-bottom:6px; font-size:11px; }
-        .pz-modal-row select { background:#12151d; border:1px solid #2d3448; color:#cbd5e1; border-radius:3px; padding:2px 4px; font-size:10px; }
-        .pz-color-table { width:100%; border-collapse:collapse; margin-top:6px; }
-        .pz-color-table th { color:#94a3b8; font-size:10px; text-align:left; padding:3px 2px; border-bottom:1px solid #2d3448; }
-        .pz-color-table td { padding:4px 2px; font-size:10px; }
-        .pz-color-swatch { width:14px; height:14px; border-radius:2px; display:inline-block; vertical-align:middle; margin-right:4px; }
-        .pz-slider-input { width:65px; height:4px; vertical-align:middle; }
+        /* 图1: 坐标轴与颜色设置弹窗 */
+        .pz-modal-mask { position: absolute; inset: 0; background: rgba(0,0,0,0.45); z-index: 10; display: flex; align-items: center; justify-content: center; }
+        .pz-settings-modal { background: var(--pop-bg, var(--g-m4, #ffffff)); border: var(--pop-bd, 1px solid var(--g-edge2, #cbd5e1)); border-radius: var(--pop-r, 10px); width: 340px; padding: 12px; font-family: var(--g-mono, Consolas, monospace); font-size: 11px; color: var(--g-label, #0f172a); box-shadow: var(--pop-sh, var(--g-sh3)); }
+        .pz-modal-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--g-sep, #e2e8f0); padding-bottom: 6px; margin-bottom: 8px; font-weight: 800; color: var(--g-label, #0f172a); }
+        .pz-modal-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; font-size: 11px; }
+        .pz-modal-row select { background: var(--in-bg, var(--g-m3, #f8fafc)); border: 1px solid var(--g-edge2, #cbd5e1); color: var(--g-label, #0f172a); border-radius: 4px; padding: 2px 4px; font-size: 10px; }
+        .pz-color-table { width: 100%; border-collapse: collapse; margin-top: 6px; }
+        .pz-color-table th { color: var(--g-label-3, #64748b); font-size: 10px; text-align: left; padding: 3px 2px; border-bottom: 1px solid var(--g-sep, #e2e8f0); }
+        .pz-color-table td { padding: 4px 2px; font-size: 10px; }
+        .pz-color-swatch { width: 14px; height: 14px; border-radius: 3px; display: inline-block; vertical-align: middle; margin-right: 4px; }
+        .pz-slider-input { width: 65px; height: 4px; vertical-align: middle; }
 
-        /* 图3: PD 协议分析仪布局 (上下分栏) */
-        .pz-pd-table-wrap { background:#0e1017; border:1px solid #1e2230; border-radius:4px; flex:1 1 0 !important; min-height:80px !important; overflow-y:auto; margin-bottom:2px; }
-        .pz-pd-table { width:100%; border-collapse:collapse; font-family:Consolas,monospace; font-size:11px; text-align:left; }
-        .pz-pd-table thead { position:sticky; top:0; background:#181b24; z-index:2; border-bottom:1px solid #2d3448; }
-        .pz-pd-table th { padding:5px 8px; color:#94a3b8; font-weight:700; white-space:nowrap; }
-        .pz-pd-table td { padding:3.5px 8px; border-bottom:1px solid #161924; white-space:nowrap; }
-        .pz-pd-row { cursor:pointer; }
-        .pz-pd-row:hover { background:#181e2b; }
-        .pz-pd-row.selected { background:#0f2b48 !important; color:#fff !important; }
-        .pz-pd-row.selected td:not(.pz-pd-msg-cell) { background:#0f2b48 !important; }
+        /* 图3: PD 协议分析仪布局 */
+        .pz-pd-table-wrap { background: var(--g-m2, #ffffff); border: 1px solid var(--g-edge2, #e2e8f0); border-radius: var(--g-r2, 8px); flex: 1 1 0 !important; min-height: 80px !important; overflow-y: auto; margin-bottom: 2px; }
+        .pz-pd-table { width: 100%; border-collapse: collapse; font-family: var(--g-mono, Consolas, monospace); font-size: 11px; text-align: left; }
+        .pz-pd-table thead { position: sticky; top: 0; background: var(--g-m3, #f8fafc); z-index: 2; border-bottom: 1px solid var(--g-sep, #e2e8f0); }
+        .pz-pd-table th { padding: 5px 8px; color: var(--g-label-2, #475569); font-weight: 700; white-space: nowrap; }
+        .pz-pd-table td { padding: 3.5px 8px; border-bottom: 1px solid var(--g-sep, #f1f5f9); color: var(--g-label, #1e293b); white-space: nowrap; }
+        .pz-pd-row { cursor: pointer; }
+        .pz-pd-row:hover { background: var(--g-fill, rgba(148,163,184,0.1)); }
+        .pz-pd-row.selected { background: var(--sk-tint, rgba(37,99,235,0.16)) !important; color: var(--g-label, #0f172a) !important; }
+        .pz-pd-row.selected td:not(.pz-pd-msg-cell) { background: var(--sk-tint, rgba(37,99,235,0.16)) !important; color: var(--g-label, #0f172a) !important; }
         @keyframes pzRowFlash {
           0% { box-shadow: inset 0 0 0 2px #38bdf8; }
           100% { box-shadow: inset 0 0 0 2px transparent; }
         }
-        .pz-pd-row.pz-flash {
-          animation: pzRowFlash 1.2s ease-out;
-        }
+        .pz-pd-row.pz-flash { animation: pzRowFlash 1.2s ease-out; }
 
-        /* Msg 列背景完全覆盖整个单元格 (复刻官方 KM003C 规范) */
+        /* Msg 列背景 */
         .pz-pd-table td.pz-pd-msg-cell {
           padding: 3px 6px !important;
           text-align: center !important;
           font-weight: 700 !important;
           font-size: 10.5px !important;
           color: #ffffff !important;
-          border-bottom: 1px solid #161924 !important;
-          border-left: 1px solid rgba(255,255,255,0.08) !important;
-          border-right: 1px solid rgba(255,255,255,0.08) !important;
+          border-bottom: 1px solid var(--g-sep, rgba(148,163,184,0.18)) !important;
+          border-left: 1px solid rgba(255,255,255,0.12) !important;
+          border-right: 1px solid rgba(255,255,255,0.12) !important;
           line-height: 1.25 !important;
         }
-        .pz-pd-table td.pz-pd-msg-cell.pz-badge-goodcrc { background:#0284c7 !important; }
-        .pz-pd-table td.pz-pd-msg-cell.pz-badge-accept  { background:#0d9488 !important; }
-        .pz-pd-table td.pz-pd-msg-cell.pz-badge-ps_rdy  { background:#c2410c !important; }
-        .pz-pd-table td.pz-pd-msg-cell.pz-badge-request { background:#e11d48 !important; }
-        .pz-pd-table td.pz-pd-msg-cell.pz-badge-source_caps { background:#7c3aed !important; }
-        .pz-pd-table td.pz-pd-msg-cell.pz-badge-sink_caps   { background:#059669 !important; }
-        .pz-pd-table td.pz-pd-msg-cell.pz-badge-other       { background:#475569 !important; }
+        .pz-pd-table td.pz-pd-msg-cell.pz-badge-goodcrc { background: #0284c7 !important; }
+        .pz-pd-table td.pz-pd-msg-cell.pz-badge-accept  { background: #0d9488 !important; }
+        .pz-pd-table td.pz-pd-msg-cell.pz-badge-ps_rdy  { background: #c2410c !important; }
+        .pz-pd-table td.pz-pd-msg-cell.pz-badge-request { background: #e11d48 !important; }
+        .pz-pd-table td.pz-pd-msg-cell.pz-badge-source_caps { background: #7c3aed !important; }
+        .pz-pd-table td.pz-pd-msg-cell.pz-badge-sink_caps   { background: #059669 !important; }
+        .pz-pd-table td.pz-pd-msg-cell.pz-badge-other       { background: #475569 !important; }
 
-        /* 官方点状调节器 (上下分栏: 6个水平点) */
+        /* 官方点状调节器 (上下分栏) */
         .pz-pd-h-splitter {
           flex-shrink: 0 !important;
           height: 12px !important;
-          background: #10131b !important;
-          border-top: 1px solid #1c212f !important;
-          border-bottom: 1px solid #1c212f !important;
+          background: var(--g-m1, #f1f5f9) !important;
+          border-top: 1px solid var(--g-sep, #e2e8f0) !important;
+          border-bottom: 1px solid var(--g-sep, #e2e8f0) !important;
           display: flex !important;
           align-items: center !important;
           justify-content: center !important;
@@ -45091,33 +49425,18 @@ class PowerzPanel {
           transition: background .15s, border-color .15s !important;
         }
         .pz-pd-h-splitter:hover, .pz-pd-h-splitter.is-dragging {
-          background: #171d2b !important;
-          border-color: #2b3548 !important;
+          background: var(--g-fill-2, #e2e8f0) !important;
         }
-        .pz-pd-dots-h {
-          display: inline-flex !important;
-          align-items: center !important;
-          justify-content: center !important;
-          gap: 3.5px !important;
-          height: 100% !important;
-          padding: 0 32px !important;
-          cursor: row-resize !important;
-          pointer-events: none !important;
-        }
-        .pz-pd-dots-h span {
-          width: 3px !important;
-          height: 3px !important;
-          border-radius: 50% !important;
-          background: #505a72 !important;
-          pointer-events: none !important;
-          transition: background .15s !important;
-        }
+        .pz-pd-dots-h { display: inline-flex !important; align-items: center !important; justify-content: center !important; gap: 3.5px !important; height: 100% !important; padding: 0 32px !important; pointer-events: none !important; }
+        .pz-pd-dots-h span, .pz-pd-dots-v span { width: 3px !important; height: 3px !important; border-radius: 50% !important; background: var(--g-label-3, #64748b) !important; pointer-events: none !important; transition: background .15s !important; }
         .pz-pd-h-splitter:hover .pz-pd-dots-h span,
-        .pz-pd-h-splitter.is-dragging .pz-pd-dots-h span {
-          background: #38bdf8 !important;
+        .pz-pd-h-splitter.is-dragging .pz-pd-dots-h span,
+        .pz-pd-v-splitter:hover .pz-pd-dots-v span,
+        .pz-pd-v-splitter.is-dragging .pz-pd-dots-v span {
+          background: var(--g-blue, #38bdf8) !important;
         }
 
-        /* 下部分割容器 (Flex 水平布局 - 允许动态拖拽高度) */
+        /* 下部分割容器 */
         .pz-pd-lower-split {
           display: flex !important;
           flex-direction: row !important;
@@ -45133,31 +49452,32 @@ class PowerzPanel {
           flex: 0 0 50%;
           min-width: 160px;
           max-width: calc(100% - 160px);
-          background: #12151d;
-          border: 1px solid #1e2230;
-          border-radius: 4px;
+          background: var(--g-m2, #ffffff);
+          border: 1px solid var(--g-edge2, #e2e8f0);
+          border-radius: var(--g-r2, 8px);
           padding: 8px 10px;
           overflow-y: auto;
-          font-family: Consolas, monospace;
+          font-family: var(--g-mono, Consolas, monospace);
           font-size: 11px;
+          color: var(--g-label, #0f172a);
           box-sizing: border-box;
         }
-        .pz-pd-detail-title { font-size:11px; font-weight:800; color:#93c5fd; margin-bottom:5px; display:flex; justify-content:space-between; }
-        .pz-pd-detail-meta { display:flex; gap:8px; margin-bottom:6px; font-size:10px; color:#94a3b8; background:#0e1017; padding:4px 6px; border-radius:3px; }
-        .pz-pd-detail-meta b { color:#38bdf8; }
-        .pz-field-table { width:100%; border-collapse:collapse; margin-bottom:6px; font-size:9.5px; }
-        .pz-field-table th { background:#1a1e2b; color:#94a3b8; padding:3px; border:1px solid #2d3448; font-weight:600; text-align:center; }
-        .pz-field-table td { padding:3px; border:1px solid #2d3448; text-align:center; color:#e2e8f0; font-weight:700; }
-        .pz-rdo-box { background:#0a0c10; border:1px solid #1e2230; border-radius:3px; padding:5px 7px; font-size:10px; line-height:1.4; color:#cbd5e1; }
-        .pz-rdo-box b { color:#f43f5e; }
+        .pz-pd-detail-title { font-size: 11px; font-weight: 800; color: var(--g-blue, #2563eb); margin-bottom: 5px; display: flex; justify-content: space-between; }
+        .pz-pd-detail-meta { display: flex; gap: 8px; margin-bottom: 6px; font-size: 10px; color: var(--g-label-2, #64748b); background: var(--g-m1, #f8fafc); padding: 4px 6px; border-radius: 4px; }
+        .pz-pd-detail-meta b { color: var(--g-blue, #0284c7); }
+        .pz-field-table { width: 100%; border-collapse: collapse; margin-bottom: 6px; font-size: 9.5px; }
+        .pz-field-table th { background: var(--g-m3, #f1f5f9); color: var(--g-label-2, #475569); padding: 3px; border: 1px solid var(--g-sep, #cbd5e1); font-weight: 600; text-align: center; }
+        .pz-field-table td { padding: 3px; border: 1px solid var(--g-sep, #cbd5e1); text-align: center; color: var(--g-label, #0f172a); font-weight: 700; }
+        .pz-rdo-box { background: var(--g-m1, #f8fafc); border: 1px solid var(--g-edge, #e2e8f0); border-radius: 4px; padding: 5px 7px; font-size: 10px; line-height: 1.4; color: var(--g-label, #1e293b); }
+        .pz-rdo-box b { color: var(--g-red, #f43f5e); }
 
-        /* 官方点状调节器 (左右分栏: 6个垂直点) */
+        /* 官方点状调节器 (左右分栏) */
         .pz-pd-v-splitter {
           flex-shrink: 0 !important;
           width: 12px !important;
-          background: #10131b !important;
-          border-left: 1px solid #1c212f !important;
-          border-right: 1px solid #1c212f !important;
+          background: var(--g-m1, #f1f5f9) !important;
+          border-left: 1px solid var(--g-sep, #e2e8f0) !important;
+          border-right: 1px solid var(--g-sep, #e2e8f0) !important;
           display: flex !important;
           flex-direction: column !important;
           align-items: center !important;
@@ -45169,49 +49489,26 @@ class PowerzPanel {
           transition: background .15s, border-color .15s !important;
         }
         .pz-pd-v-splitter:hover, .pz-pd-v-splitter.is-dragging {
-          background: #171d2b !important;
-          border-color: #2b3548 !important;
+          background: var(--g-fill-2, #e2e8f0) !important;
         }
-        .pz-pd-dots-v {
-          display: inline-flex !important;
-          flex-direction: column !important;
-          align-items: center !important;
-          justify-content: center !important;
-          gap: 3.5px !important;
-          width: 100% !important;
-          padding: 32px 0 !important;
-          cursor: col-resize !important;
-          pointer-events: none !important;
-        }
-        .pz-pd-dots-v span {
-          width: 3px !important;
-          height: 3px !important;
-          border-radius: 50% !important;
-          background: #505a72 !important;
-          pointer-events: none !important;
-          transition: background .15s !important;
-        }
-        .pz-pd-v-splitter:hover .pz-pd-dots-v span,
-        .pz-pd-v-splitter.is-dragging .pz-pd-dots-v span {
-          background: #38bdf8 !important;
-        }
+        .pz-pd-dots-v { display: inline-flex !important; flex-direction: column !important; align-items: center !important; justify-content: center !important; gap: 3.5px !important; width: 100% !important; padding: 32px 0 !important; pointer-events: none !important; }
 
         /* 图3: 右下同步波形 */
         .pz-pd-chart-pane {
           flex: 1 1 0 !important;
           min-width: 180px !important;
           position: relative;
-          background: #0d0f14;
-          border: 1px solid #1e2230;
-          border-radius: 4px;
+          background: var(--g-m2, #ffffff);
+          border: 1px solid var(--g-edge2, #e2e8f0);
+          border-radius: var(--g-r2, 8px);
           overflow: hidden;
           display: flex;
           flex-direction: column;
           box-sizing: border-box;
         }
-        .pz-pd-chart-bar { display:flex; align-items:center; justify-content:space-between; padding:3px 8px; background:#12151d; border-bottom:1px solid #1e2230; font-size:10px; font-family:Consolas,monospace; }
-        .pz-pd-chart-legends { display:flex; gap:8px; }
-        .pz-pd-chart-canvas { flex:1; width:100%; height:100%; display:block; cursor:crosshair; }
+        .pz-pd-chart-bar { display: flex; align-items: center; justify-content: space-between; padding: 3px 8px; background: var(--g-m3, #f8fafc); border-bottom: 1px solid var(--g-sep, #e2e8f0); font-size: 10px; font-family: var(--g-mono, Consolas, monospace); color: var(--g-label-2, #475569); }
+        .pz-pd-chart-legends { display: flex; gap: 8px; }
+        .pz-pd-chart-canvas { flex: 1; width: 100%; height: 100%; display: block; cursor: crosshair; }
       </style>
 
       <div class="pz-wrap">
@@ -45221,7 +49518,7 @@ class PowerzPanel {
             <div class="pz-title-left">
               <span class="pz-con-badge">Z</span> POWER-Z 官方控制台
             </div>
-            <div id="pzArchiveState" style="color:#94a3b8;font-size:11px;font-weight:400;">监测中</div>
+            <div id="pzArchiveState" style="color:var(--g-label-3, #64748b);font-size:11px;font-weight:500;">监测中</div>
           </div>
 
           <div class="pz-con-row">
@@ -46374,6 +50671,55 @@ class PowerzPanel {
     return { start, end: ticks.at(-1) || end, step, ticks };
   }
 
+  syncThemePalette(force = false) {
+    if (this._themePal && !force) return this._themePal;
+    let isDark = false;
+    let canvasBg = "#ffffff";
+    let overviewBg = "#f8fafc";
+    let axisText = "#475569";
+    let mutedText = "#64748b";
+    let gridLine = "rgba(148, 163, 184, 0.22)";
+    let subSplitLine = "rgba(148, 163, 184, 0.38)";
+    let axisBorder = "rgba(148, 163, 184, 0.42)";
+    let popBg = "rgba(255, 255, 255, 0.94)";
+    let popBorder = "rgba(148, 163, 184, 0.35)";
+    let popText = "#0f172a";
+    let cursorLine = "#475569";
+    try {
+      const host = (this.container && this.container.closest && this.container.closest(".tabonkb-workbench-container")) || this.container || document.body;
+      if (host && typeof getComputedStyle === "function") {
+        const cs = getComputedStyle(host);
+        const getV = (k) => (cs.getPropertyValue(k) || "").trim();
+        const modeAttr = (host.dataset && host.dataset.twMode) || getV("--sk-scheme");
+        isDark = modeAttr === "dark" || (typeof document !== "undefined" && document.body && document.body.classList.contains("theme-dark") && modeAttr !== "light");
+        const firstCol = (val, fb) => {
+          const m = /#[0-9a-fA-F]{3,8}\b|(?:rgba?|hsla?)\([^)]*\)/.exec(val || "");
+          return m ? m[0] : fb;
+        };
+        canvasBg = firstCol(getV("--g-m2"), isDark ? "#0d1117" : "#ffffff");
+        overviewBg = firstCol(getV("--g-m1"), isDark ? "#090c12" : "#f8fafc");
+        axisText = firstCol(getV("--g-label-2"), isDark ? "#94a3b8" : "#475569");
+        mutedText = firstCol(getV("--g-label-3"), isDark ? "#64748b" : "#64748b");
+        gridLine = firstCol(getV("--g-sep"), isDark ? "rgba(255,255,255,0.08)" : "rgba(148,163,184,0.22)");
+        subSplitLine = firstCol(getV("--g-edge2"), isDark ? "rgba(255,255,255,0.16)" : "rgba(148,163,184,0.38)");
+        axisBorder = subSplitLine;
+        popBg = firstCol(getV("--pop-bg") || getV("--g-m4"), isDark ? "rgba(18, 24, 38, 0.94)" : "rgba(255, 255, 255, 0.95)");
+        popBorder = subSplitLine;
+        popText = firstCol(getV("--g-label"), isDark ? "#f1f5f9" : "#0f172a");
+        cursorLine = isDark ? "#cbd5e1" : "#475569";
+      }
+    } catch (_) {}
+    this._themePal = { isDark, canvasBg, overviewBg, axisText, mutedText, gridLine, subSplitLine, axisBorder, popBg, popBorder, popText, cursorLine };
+    return this._themePal;
+  }
+
+  refreshTheme() {
+    this.syncThemePalette(true);
+    try { this.drawMainChart(); } catch (_) {}
+    try { this.drawOverviewChart(); } catch (_) {}
+    try { this.drawPdWaveform(); } catch (_) {}
+  }
+
   drawMainChart() {
     const canvas = this.container.querySelector('#pzMainCanvas');
     if (!canvas || !this.curveData || !this.curveData.points) return;
@@ -46392,8 +50738,9 @@ class PowerzPanel {
     const W = rect.width;
     const H = rect.height;
 
-    // 1. 深色主背景 (与官方完全一致的深邃纯黑 #05070a)
-    ctx.fillStyle = '#05070a';
+    // 1. 跟随工作台主题的自适应画布背景
+    const pal = this.syncThemePalette();
+    ctx.fillStyle = pal.canvasBg;
     ctx.fillRect(0, 0, W, H);
 
     // 2. 截取视窗内数据
@@ -46439,7 +50786,7 @@ class PowerzPanel {
     const yCoordSub = isSub ? ((v) => subPadT + subPlotH - ((v - subAxis.start) / (subAxis.end - subAxis.start)) * subPlotH) : yCoordV;
 
     // 4. 绘制细微网格线 (清晰像素对齐，颜色 #1a1d26)
-    ctx.strokeStyle = '#1a1d26';
+    ctx.strokeStyle = pal.gridLine;
     ctx.lineWidth = 1;
     ctx.setLineDash([]);
 
@@ -46453,7 +50800,7 @@ class PowerzPanel {
         ctx.stroke();
 
         // 左 Y 轴刻度文字 (官方 Segoe UI 字体: 11.000V, 0.500V)
-        ctx.fillStyle = '#8f9bb3';
+        ctx.fillStyle = pal.axisText;
         ctx.font = '10px "Segoe UI", -apple-system, Arial, sans-serif';
         ctx.textAlign = 'right';
         ctx.fillText(`${tv.toFixed(tv < 0.05 && tv > 0 ? 4 : 3)}V`, padL - 6, y + 3.5);
@@ -46464,7 +50811,7 @@ class PowerzPanel {
     iAxis.ticks.forEach(ti => {
       const y = Math.round(yCoordI(ti)) + 0.5;
       if (y >= padT && y <= padT + mainPlotH) {
-        ctx.fillStyle = '#8f9bb3';
+        ctx.fillStyle = pal.axisText;
         ctx.font = '10px "Segoe UI", -apple-system, Arial, sans-serif';
         ctx.textAlign = 'left';
         ctx.fillText(`${ti.toFixed(ti < 0.05 && ti > 0 ? 4 : 3)}A`, W - padR + 6, y + 3.5);
@@ -46474,13 +50821,13 @@ class PowerzPanel {
     // 副图分屏网格线与刻度 (图2: 0..3.5V 步进 0.500V)
     if (isSub && subAxis) {
       // 主副图水平分割线
-      ctx.strokeStyle = '#222838';
+      ctx.strokeStyle = pal.subSplitLine;
       ctx.beginPath();
       ctx.moveTo(padL, padT + mainPlotH + 9);
       ctx.lineTo(W - padR, padT + mainPlotH + 9);
       ctx.stroke();
 
-      ctx.strokeStyle = '#1a1d26';
+      ctx.strokeStyle = pal.gridLine;
       subAxis.ticks.forEach(tsv => {
         const y = Math.round(yCoordSub(tsv)) + 0.5;
         if (y >= subPadT && y <= subPadT + subPlotH) {
@@ -46489,7 +50836,7 @@ class PowerzPanel {
           ctx.lineTo(W - padR, y);
           ctx.stroke();
 
-          ctx.fillStyle = '#8f9bb3';
+          ctx.fillStyle = pal.axisText;
           ctx.font = '10px "Segoe UI", -apple-system, Arial, sans-serif';
           ctx.textAlign = 'right';
           ctx.fillText(`${tsv.toFixed(3)}V`, padL - 6, y + 3.5);
@@ -46516,14 +50863,14 @@ class PowerzPanel {
       const mm = String(Math.floor((secInt % 3600) / 60)).padStart(2, '0');
       const ss = String(secInt % 60).padStart(2, '0');
 
-      ctx.fillStyle = '#8f9bb3';
+      ctx.fillStyle = pal.axisText;
       ctx.font = '9.5px "Segoe UI", -apple-system, Arial, sans-serif';
       ctx.textAlign = 'center';
       ctx.fillText(`${hh}:${mm}:${ss}.${msDec}`, x, padT + plotH + 14);
     }
 
     // X 轴中央底部标签 "Elapsed Time"
-    ctx.fillStyle = '#5a6578';
+    ctx.fillStyle = pal.mutedText;
     ctx.font = '10.5px "Segoe UI", -apple-system, Arial, sans-serif';
     ctx.textAlign = 'center';
     ctx.fillText('Elapsed Time', padL + plotW / 2, padT + plotH + 24);
@@ -46614,8 +50961,8 @@ class PowerzPanel {
       const extH = 68;
 
       ctx.save();
-      ctx.fillStyle = 'rgba(10, 14, 22, 0.88)';
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.16)';
+      ctx.fillStyle = pal.popBg;
+      ctx.strokeStyle = pal.popBorder;
       ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.roundRect(extX, extY, extW, extH, 4);
@@ -46694,8 +51041,8 @@ class PowerzPanel {
       if (tipX + tipW > W - padR) tipX = hx - tipW - 10;
       const tipY = Math.max(padT + 4, Math.min(hyV, hyI) - 15);
 
-      ctx.fillStyle = 'rgba(15, 20, 28, 0.94)';
-      ctx.strokeStyle = '#2f3647';
+      ctx.fillStyle = pal.popBg;
+      ctx.strokeStyle = pal.popBorder;
       ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.roundRect(tipX, tipY, tipW, tipH, 4);
@@ -46708,7 +51055,7 @@ class PowerzPanel {
       const timeStr = `${Math.floor(s/3600)}:${String(Math.floor((s%3600)/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}.${remMs}`;
 
       ctx.font = '10px "Segoe UI", Consolas, monospace';
-      ctx.fillStyle = '#cbd5e1';
+      ctx.fillStyle = pal.popText;
       ctx.fillText(timeStr, tipX + 8, tipY + 14);
       ctx.fillStyle = '#3cb371';
       ctx.fillText(`VBUS  ${this.hoverPoint.v.toFixed(6)}V`, tipX + 8, tipY + 28);
@@ -46746,7 +51093,7 @@ class PowerzPanel {
       // 1. 垂直测量线 (悬停/拖拽时高亮为天蓝色)
       ctx.save();
       ctx.setLineDash(isHovered ? [] : [3, 3]);
-      ctx.strokeStyle = isHovered ? '#38bdf8' : '#cbd5e1';
+      ctx.strokeStyle = isHovered ? '#38bdf8' : pal.cursorLine;
       ctx.lineWidth = isHovered ? 1.5 : 1.0;
       ctx.beginPath();
       ctx.moveTo(cx, padT);
@@ -46851,7 +51198,8 @@ class PowerzPanel {
     const W = rect.width;
     const H = rect.height;
 
-    ctx.fillStyle = '#0d0f14';
+    const pal = this.syncThemePalette();
+    ctx.fillStyle = pal.overviewBg;
     ctx.fillRect(0, 0, W, H);
 
     let maxV = 0.001;
@@ -47349,8 +51697,9 @@ class PowerzPanel {
     const W = rect.width;
     const H = rect.height;
 
-    // 1. 深色主背景 (与官方保持一致的 #080a0f)
-    ctx.fillStyle = '#080a0f';
+    // 1. 跟随工作台主题的自适应画布背景
+    const pal = this.syncThemePalette();
+    ctx.fillStyle = pal.canvasBg;
     ctx.fillRect(0, 0, W, H);
 
     // 边距: 左侧放电压刻度(52px), 右侧放电流刻度(50px), 顶部裕量(16px), 底部时间轴(24px)
@@ -47390,7 +51739,7 @@ class PowerzPanel {
       const y = Math.round(yCoordV(tv)) + 0.5;
       if (y >= padT - 1 && y <= padT + plotH + 1) {
         // 水平贯穿细网格线
-        ctx.strokeStyle = '#151922';
+        ctx.strokeStyle = pal.gridLine;
         ctx.lineWidth = 1;
         ctx.beginPath();
         ctx.moveTo(padL, y);
@@ -47398,14 +51747,14 @@ class PowerzPanel {
         ctx.stroke();
 
         // 左侧 Tick 小短线
-        ctx.strokeStyle = '#2b3346';
+        ctx.strokeStyle = pal.axisBorder;
         ctx.beginPath();
         ctx.moveTo(padL - 3, y);
         ctx.lineTo(padL, y);
         ctx.stroke();
 
         // 左侧刻度数值文本 (如 9.000V, 8.000V, 0.000V)
-        ctx.fillStyle = '#8f9bb3';
+        ctx.fillStyle = pal.axisText;
         ctx.textAlign = 'right';
         ctx.fillText(`${tv.toFixed(3)}V`, padL - 5, y + 3.5);
       }
@@ -47416,21 +51765,21 @@ class PowerzPanel {
       const y = Math.round(yCoordI(ti)) + 0.5;
       if (y >= padT - 1 && y <= padT + plotH + 1) {
         // 右侧 Tick 小短线
-        ctx.strokeStyle = '#2b3346';
+        ctx.strokeStyle = pal.axisBorder;
         ctx.beginPath();
         ctx.moveTo(W - padR, y);
         ctx.lineTo(W - padR + 3, y);
         ctx.stroke();
 
         // 右侧刻度数值文本 (如 1.800A, 1.600A, 0.000A)
-        ctx.fillStyle = '#94a3b8';
+        ctx.fillStyle = pal.axisText;
         ctx.textAlign = 'left';
         ctx.fillText(`${ti.toFixed(3)}A`, W - padR + 5, y + 3.5);
       }
     });
 
     // 5. 绘制外边界轴线 (左侧、右侧、底部基准线)
-    ctx.strokeStyle = '#232938';
+    ctx.strokeStyle = pal.axisBorder;
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(padL, padT);
@@ -47449,14 +51798,14 @@ class PowerzPanel {
       const x = Math.round(xCoord(curT)) + 0.5;
       if (x >= padL && x <= W - padR) {
         // 垂直细微虚线网格
-        ctx.strokeStyle = '#12151e';
+        ctx.strokeStyle = pal.gridLine;
         ctx.beginPath();
         ctx.moveTo(x, padT);
         ctx.lineTo(x, padT + plotH);
         ctx.stroke();
 
         // 底部 Tick 短线
-        ctx.strokeStyle = '#2b3346';
+        ctx.strokeStyle = pal.axisBorder;
         ctx.beginPath();
         ctx.moveTo(x, padT + plotH);
         ctx.lineTo(x, padT + plotH + 3);
@@ -48597,6 +52946,37 @@ class LogicWaveView {
     return ctx;
   }
 
+  syncThemeColors(force = false) {
+    const root = (this.rootEl && this.rootEl.closest && this.rootEl.closest('.tw-la-root')) || this.rootEl;
+    const sig = root && root.dataset ? (root.dataset.laTheme || 'native') : 'native';
+    if (!force && this._cachedLaPal && this._cachedLaSig === sig) {
+      return this._cachedLaPal;
+    }
+    let cs = null;
+    try {
+      if (root && typeof getComputedStyle === 'function') cs = getComputedStyle(root);
+    } catch (_) {}
+    const g = (k, fb) => {
+      if (!cs) return fb;
+      const v = cs.getPropertyValue(k);
+      return (v && v.trim()) ? v.trim() : fb;
+    };
+    this._cachedLaSig = sig;
+    this._cachedLaPal = {
+      back: g('--la-back', LA_BACK),
+      fore: g('--la-fore', LA_FORE),
+      foreDim: g('--la-fore-dim', LA_FORE_DIM),
+      sel: g('--la-sel', LA_SEL),
+      measAct: g('--la-meas-act', LA_MEAS_ACT),
+      measBox: g('--la-meas-box', LA_MEAS_BOX)
+    };
+    return this._cachedLaPal;
+  }
+
+  _pal() {
+    return this.syncThemeColors(false);
+  }
+
   _draw() {
     if (this._destroyed || !this._w) return;
     this._drawRuler();
@@ -48607,12 +52987,13 @@ class LogicWaveView {
   // ---------- 标尺 (DSView draw_logic_tick_mark) ----------
 
   _drawRuler() {
+    const pal = this._pal();
     const ctx = this._ctx2d(this.rulerCanvas);
     const { start, end } = this.viewport;
     const w = this._w;
     ctx.clearRect(0, 0, w, LA_RULER_H);
     ctx.font = '10px "Segoe UI", sans-serif';
-    ctx.fillStyle = LA_BACK;
+    ctx.fillStyle = pal.back;
     ctx.fillRect(0, 0, w, LA_RULER_H);
     const textH = 10;
     const majorY1 = textH + 15, tickY2 = LA_RULER_H - 14;
@@ -48620,8 +53001,8 @@ class LogicWaveView {
     if (this.total && this.rate) {
       const t = laDsvTicks(start, end, this.rate, w, null,
         (s) => this._measure(ctx, s));
-      ctx.strokeStyle = LA_FORE;
-      ctx.fillStyle = LA_FORE;
+      ctx.strokeStyle = pal.fore;
+      ctx.fillStyle = pal.fore;
       ctx.lineWidth = 1;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'top';
@@ -48688,6 +53069,7 @@ class LogicWaveView {
   // ---------- 主区 ----------
 
   _drawMain() {
+    const pal = this._pal();
     const ctx = this._ctx2d(this.mainCanvas);
     const dpr = (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
     const w = this._w, h = Math.max(40, this.mainCanvas.height / dpr);
@@ -48695,14 +53077,14 @@ class LogicWaveView {
     const span = Math.max(1e-9, end - start);
     const s2x = (s) => (s - start) / span * w;
     ctx.clearRect(0, 0, w, h);
-    ctx.fillStyle = LA_BACK;
+    ctx.fillStyle = pal.back;
     ctx.fillRect(0, 0, w, h);
     ctx.font = '10px "Segoe UI", sans-serif';
 
     // 选中高亮带 (View::Blue 半透明)
     if (this.highlight) {
       const x0 = s2x(this.highlight.ss), x1 = s2x(Math.max(this.highlight.es, this.highlight.ss + 1));
-      ctx.fillStyle = LA_SEL;
+      ctx.fillStyle = pal.sel;
       ctx.fillRect(x0, 0, Math.max(2, x1 - x0), h);
     }
 
@@ -48719,12 +53101,12 @@ class LogicWaveView {
       const yHi = mid - sigH / 2 + 0.5;
       const yLo = mid + sigH / 2 + 0.5;
       // 点状轴线 (paint_back: 波形高电平高度的点线)
-      ctx.strokeStyle = LA_FORE_DIM;
+      ctx.strokeStyle = pal.foreDim;
       ctx.setLineDash([1, 3]);
       ctx.beginPath(); ctx.moveTo(0, yHi); ctx.lineTo(w, yHi); ctx.stroke();
       ctx.setLineDash([]);
-      ctx.strokeStyle = LA_FORE;
-      ctx.fillStyle = LA_FORE;
+      ctx.strokeStyle = pal.fore;
+      ctx.fillStyle = pal.fore;
       ctx.lineWidth = 1;
       if (!c) continue;
       if (c.mode === 'dense' && c.buckets) {
@@ -48776,7 +53158,7 @@ class LogicWaveView {
         || (maxW === 0 && samplesPerPx < 10);
       if (!show) { this._drawNodetail(ctx, cy, ah, w); continue; }
       // 行首标题: ▶ + title (paint_back headings)
-      ctx.fillStyle = LA_FORE;
+      ctx.fillStyle = pal.fore;
       ctx.beginPath();
       ctx.moveTo(2, cy - LA_ARROW);
       ctx.lineTo(2 + LA_ARROW, cy);
@@ -48785,7 +53167,7 @@ class LogicWaveView {
       ctx.fill();
       ctx.textAlign = 'left';
       ctx.textBaseline = 'middle';
-      ctx.fillStyle = LA_FORE;
+      ctx.fillStyle = pal.fore;
       ctx.fillText(String(ar.title || ar.label || ''), 2 + LA_ARROW * 2, cy - 2);
 
       let lastX = -1;
@@ -48824,7 +53206,7 @@ class LogicWaveView {
         const cap = Math.min(bw / 4, LA_ENDCAP_W);
         const top = cy + 0.5 - ah / 2, bot = cy + 0.5 + ah / 2;
         ctx.fillStyle = fill;
-        ctx.strokeStyle = LA_BACK;
+        ctx.strokeStyle = pal.back;
         ctx.beginPath();
         ctx.moveTo(ax0, cy + 0.5);
         ctx.lineTo(ax0 + cap, top);
@@ -48869,7 +53251,7 @@ class LogicWaveView {
     // ---------- 悬停测量 (Viewport::paintMeasure: 基准帽线 + 蓝色详情框) ----------
     const hm = this._hoverPt && this._hoverMeasure(this._hoverPt.x, this._hoverPt.y);
     if (hm) {
-      ctx.strokeStyle = LA_MEAS_ACT;
+      ctx.strokeStyle = pal.measAct;
       ctx.lineWidth = 1;
       const y = hm.midY;
       ctx.beginPath();
@@ -48895,9 +53277,9 @@ class LogicWaveView {
         let bx = this._hoverPt.x, by = this._hoverPt.y;
         if (bx + tw > w) bx -= tw;
         if (by + 80 > h) by -= 80;
-        ctx.fillStyle = LA_MEAS_BOX;
+        ctx.fillStyle = pal.measBox;
         ctx.fillRect(bx, by, tw, 80);
-        ctx.fillStyle = LA_MEAS_ACT;
+        ctx.fillStyle = pal.measAct;
         ctx.textAlign = 'right';
         ctx.textBaseline = 'middle';
         for (let i = 0; i < vals.length; i++) ctx.fillText(vals[i], bx + tw - 6, by + 10 + i * 20);
@@ -48944,8 +53326,8 @@ class LogicWaveView {
     const info = 'Zoom in for details';
     const tw = this._measure(ctx, info);
     const th = 10;
-    ctx.strokeStyle = LA_FORE;
-    ctx.fillStyle = LA_FORE;
+    ctx.strokeStyle = pal.fore;
+    ctx.fillStyle = pal.fore;
     ctx.lineWidth = 1;
     const l = (w - tw) / 2 - 8, rr = (w + tw) / 2 + 8;
     ctx.beginPath();
@@ -48968,6 +53350,7 @@ class LogicWaveView {
   }
 
   _drawMini() {
+    const pal = this._pal();
     const ctx = this._ctx2d(this.miniCanvas);
     const w = this._w;
     ctx.clearRect(0, 0, w, LA_MINI_H);
@@ -49490,6 +53873,12 @@ class LogicToolView {
     document.addEventListener('pointerdown', this._docPointerDown, true);
     document.addEventListener('keydown', this._docKeyDown);
 
+    try {
+      if (typeof TabonKBThemeEngine !== 'undefined') {
+        const p = this.plugin || (this.app?.plugins?.plugins?.['tabonkb-workbench']);
+        TabonKBThemeEngine.applyGlobalTheme(p, null);
+      }
+    } catch (_) {}
     this._init();
   }
 
@@ -49525,6 +53914,28 @@ class LogicToolView {
     this.saveBtn.innerHTML = `${laIconPark('file-text', 12)}<span>存卡</span>`;
     this.saveBtn.disabled = true;
     this.saveBtn.onclick = () => this._onSaveCard();
+
+    const followInit = !(this.plugin && this.plugin.settings && this.plugin.settings.dsviewFollowTheme === false);
+    this.themeBtn = this.barEl.createEl('button', {
+      cls: `tw-la-btn ${followInit ? 'on' : ''}`,
+      title: '切换 DSView 色板策略：开启时跟随当前深色/VS Code 主题色板，关闭时锁定 DSView 原生暗黑 (#1f1f1f)'
+    });
+    this.themeBtn.innerHTML = `${laIconPark('palette', 12)}<span>${followInit ? '主题色板' : '原生暗黑'}</span>`;
+    this.themeBtn.onclick = async () => {
+      const p = this.plugin || (this.app?.plugins?.plugins?.['tabonkb-workbench']);
+      const cur = !(p && p.settings && p.settings.dsviewFollowTheme === false);
+      const next = !cur;
+      if (p && p.settings) {
+        p.settings.dsviewFollowTheme = next;
+        if (typeof p.saveSettings === 'function') await p.saveSettings();
+      }
+      this.themeBtn.classList.toggle('on', next);
+      this.themeBtn.innerHTML = `${laIconPark('palette', 12)}<span>${next ? '主题色板' : '原生暗黑'}</span>`;
+      if (typeof TabonKBThemeEngine !== 'undefined') {
+        TabonKBThemeEngine.applyGlobalTheme(p, null);
+      }
+      if (this.waveView) this.waveView.requestRedraw();
+    };
 
     this.statusEl = this.barEl.createDiv({ cls: 'tw-la-status' });
   }
@@ -51068,7 +55479,10 @@ if (typeof module !== 'undefined' && module.exports) {
 }
 
 const DEFAULT_SETTINGS = {
-  workbenchTheme: 'fresh', // 'standard' | 'fresh'
+  workbenchTheme: 'fresh', // 44 skins ('fresh' | 'standard' | 'glass' | 'obsidian' | 'mdn-*' | 'vsc-*' ...)
+  workbenchThemeMode: 'auto', // 'auto' | 'light' | 'dark'
+  workbenchWallpaper: 'aurora', // 'aurora' | 'bay' | 'sunset' | 'graphite'
+  dsviewFollowTheme: true, // true: follow active dark / VS Code theme palette; false: lock DSView #1f1f1f
   jira: {
     type: 'datacenter', // 'cloud' | 'datacenter'
     authType: 'basic', // 'basic' | 'cookie' | 'pat'
@@ -51162,19 +55576,11 @@ class TabonKBSettingTab extends PluginSettingTab {
     this.plugin = plugin;
   }
 
-  async getCredential(secretName) {
-    if (typeof this.plugin.getSecret === 'function') {
-      const s = await this.plugin.getSecret(secretName);
-      if (s) return s;
+  _readSecretsFileCached() {
+    const now = Date.now();
+    if (this._secretsFileCache && (now - (this._secretsFileCacheTime || 0) < 3000)) {
+      return this._secretsFileCache;
     }
-    // Try localStorage
-    try {
-      if (typeof localStorage !== 'undefined') {
-        const s = localStorage.getItem('tabonkb-secret-' + secretName);
-        if (s) return s;
-      }
-    } catch (e) {}
-    // Try .secrets.json
     try {
       
       
@@ -51182,23 +55588,38 @@ class TabonKBSettingTab extends PluginSettingTab {
       if (vaultPath) {
         const secFile = path.join(vaultPath, '.obsidian', 'plugins', 'tabonkb-workbench', '.secrets.json');
         if (fs.existsSync(secFile)) {
-          const data = JSON.parse(fs.readFileSync(secFile, 'utf8'));
-          if (data && data[secretName]) return data[secretName];
+          this._secretsFileCache = JSON.parse(fs.readFileSync(secFile, 'utf8')) || {};
+          this._secretsFileCacheTime = now;
+          return this._secretsFileCache;
         }
       }
     } catch (e) {}
-    const adapter = this.plugin.agentHub?.getAdapter?.('niceaigc');
-    if (adapter && typeof adapter.getCredential === 'function') {
-      const s = await adapter.getCredential(secretName);
-      if (s) return s;
-    }
-    if (this.plugin._fallbackSecrets) {
-      return this.plugin._fallbackSecrets[secretName] || null;
+    this._secretsFileCache = {};
+    this._secretsFileCacheTime = now;
+    return this._secretsFileCache;
+  }
+
+  async getCredential(secretName) {
+    // 1. Fast in-memory & localStorage check
+    try {
+      if (typeof localStorage !== 'undefined') {
+        const s = localStorage.getItem('tabonkb-secret-' + secretName);
+        if (s) return s;
+      }
+    } catch (e) {}
+    // 2. Cached .secrets.json check (1 disk read max per 3s across all 6 fields)
+    try {
+      const data = this._readSecretsFileCached();
+      if (data && data[secretName]) return data[secretName];
+    } catch (e) {}
+    if (this.plugin._fallbackSecrets && this.plugin._fallbackSecrets[secretName]) {
+      return this.plugin._fallbackSecrets[secretName];
     }
     return null;
   }
 
   async setCredential(secretName, value) {
+    this._secretsFileCache = null;
     if (!this.plugin._fallbackSecrets) this.plugin._fallbackSecrets = {};
     this.plugin._fallbackSecrets[secretName] = value;
 
@@ -51240,23 +55661,101 @@ class TabonKBSettingTab extends PluginSettingTab {
     containerEl.createEl('h2', { text: 'TabonKB 研发工作台设置' });
 
     // =========================================================================
-    // SECTION 0: 工作台主题外观 (Theme Appearance)
+    // SECTION 0: 工作台主题外观 (44 套主题引擎 + 悬停预览主题库 + DSView 色板策略)
     // =========================================================================
-    containerEl.createEl('h3', { text: '🎨 界面外观与工作台主题' });
-    new Setting(containerEl)
-      .setName('工作台视觉主题')
-      .setDesc('选择工作台的色彩与质感主题：标准（工程极简深浅适配）或 清新（通透毛玻璃与柔和天空渐变）')
-      .addDropdown(drop => {
-        drop.addOption('standard', '标准 (Standard - 经典极简)');
-        drop.addOption('fresh', '清新 (Fresh - 毛玻璃极简)');
-        drop.setValue(this.plugin.settings.workbenchTheme || 'standard');
-        drop.onChange(async (val) => {
-          this.plugin.settings.workbenchTheme = val;
-          await this.plugin.saveSettings();
-          if (typeof this.plugin.applyWorkbenchTheme === 'function') {
-            this.plugin.applyWorkbenchTheme(val);
+    containerEl.createEl('h3', { text: '🎨 界面外观与工作台主题 (44 套全量主题引擎)' });
+
+    const themeSetting = new Setting(containerEl)
+      .setName('工作台视觉主题 (44 套)')
+      .setDesc('涵盖 2 套工作台原生基准 + 42 套 dsh-antutu-skins 风格（Modern 现代 6 / Classic 经典 6 / Studio 工作室 5 / Dash 仪表盘 9 / VS Code 16）。也可在工作台顶栏或左导航栏底部直接点击「🎨」悬停实时预览。');
+
+    let themeDropdownRef = null;
+    themeSetting.addDropdown(drop => {
+      themeDropdownRef = drop;
+      const skins = (typeof TabonKBThemeEngine !== 'undefined' && TabonKBThemeEngine.getAllSkins)
+        ? TabonKBThemeEngine.getAllSkins()
+        : [
+            { id: 'fresh', group: 'workbench', name: '清新莫兰迪 (Fresh)', en: 'Morandi Fresh' },
+            { id: 'standard', group: 'workbench', name: '标准极简 (Standard)', en: 'Standard Minimal' }
+          ];
+      const grpLabels = {
+        workbench: '原工作台',
+        modern: 'Modern',
+        classic: 'Classic',
+        studio: 'Studio',
+        dash: 'Dash',
+        vscode: 'VS Code'
+      };
+      for (const sk of skins) {
+        const gName = grpLabels[sk.group] || sk.group;
+        drop.addOption(sk.id, `[${gName}] ${sk.name} (${sk.en})`);
+      }
+      const curVal = (typeof TabonKBThemeEngine !== 'undefined')
+        ? TabonKBThemeEngine.normalizeSkinId(this.plugin.settings.workbenchTheme || 'fresh')
+        : (this.plugin.settings.workbenchTheme || 'fresh');
+      drop.setValue(curVal);
+      drop.onChange(async (val) => {
+        this.plugin.settings.workbenchTheme = val;
+        await this.plugin.saveSettings({ themeOnly: true });
+        if (typeof this.plugin.applyWorkbenchTheme === 'function') {
+          this.plugin.applyWorkbenchTheme(val);
+        }
+      });
+    });
+
+    themeSetting.addButton(btn => {
+      btn.setButtonText('🎨 打开悬停预览主题库')
+        .setCta()
+        .onClick(() => {
+          if (typeof TabonKBThemeEngine !== 'undefined') {
+            TabonKBThemeEngine.openThemeLibraryPopover(btn.buttonEl, {
+              plugin: this.plugin,
+              onPick: (pickedId) => {
+                if (themeDropdownRef) themeDropdownRef.setValue(pickedId);
+              }
+            });
           }
         });
+    });
+
+    new Setting(containerEl)
+      .setName('主题明暗模式偏好')
+      .setDesc('选择工作台主题的明暗外观（单明暗主题如 Neon HUD、Noir 及各款 VS Code 主题会自动匹配其专属明暗）')
+      .addDropdown(drop => {
+        drop.addOption('auto', '跟随系统 / Obsidian 主题 (Auto)');
+        drop.addOption('light', '强制浅色外观 (Light)');
+        drop.addOption('dark', '强制深色外观 (Dark)');
+        drop.setValue(this.plugin.settings.workbenchThemeMode || 'auto');
+        drop.onChange(async (val) => {
+          this.plugin.settings.workbenchThemeMode = val;
+          await this.plugin.saveSettings({ themeOnly: true });
+        });
+      });
+
+    new Setting(containerEl)
+      .setName('液态玻璃与莫兰迪壁纸')
+      .setDesc('当选用「液态玻璃 (glass)」或「清新莫兰迪 (fresh)」时生效的背景氛围壁纸，并自动同步至内嵌 Harness (dt.wall)')
+      .addDropdown(drop => {
+        drop.addOption('aurora', '极光紫绸 (Aurora - 默认)');
+        drop.addOption('bay', '海湾碧波 (Bay)');
+        drop.addOption('sunset', '落日暮色 (Sunset)');
+        drop.addOption('graphite', '石墨暗影 (Graphite)');
+        drop.setValue(this.plugin.settings.workbenchWallpaper || 'aurora');
+        drop.onChange(async (val) => {
+          this.plugin.settings.workbenchWallpaper = val;
+          await this.plugin.saveSettings({ themeOnly: true });
+        });
+      });
+
+    new Setting(containerEl)
+      .setName('DSView 逻辑分析仪跟随深色/VS Code 主题色板')
+      .setDesc('开启后，逻辑分析工具 (.tw-la-root) 自动继承当前主题的深色/VS Code 色板；关闭则锁定为 DSView 经典 #1f1f1f 暗色硬件面板')
+      .addToggle(tog => {
+        tog.setValue(this.plugin.settings.dsviewFollowTheme !== false)
+          .onChange(async (val) => {
+            this.plugin.settings.dsviewFollowTheme = val;
+            await this.plugin.saveSettings({ themeOnly: true });
+          });
       });
 
     // =========================================================================
@@ -51375,7 +55874,7 @@ class TabonKBSettingTab extends PluginSettingTab {
         text.setPlaceholder(tokenPlaceholder);
         
         // Asynchronously check if token is already present
-        this.plugin.jiraService?.getCredential(jiraConfig.secretName).then(existing => {
+        this.getCredential(jiraConfig.secretName).then(existing => {
           if (existing) {
             text.setPlaceholder('（已安全保存在 SecretStorage 中，输入新内容以覆盖）');
           }
@@ -52743,7 +57242,7 @@ class ForceGraphCanvas {
     this.selectedNode = null;
     this.draggedNode = null;
     this.activeFilter = 'all';
-    this.currentTheme = 'immersive';
+    this.currentTheme = 'workbench';
     this.partitionCards = {
       Display:   { x: -180, y: -130, w: 140, h: 105, icon: '📱', label: 'Display · 6' },
       Camera:    { x: -20,  y: -145, w: 140, h: 100, icon: '📷', label: 'Camera · 4' },
@@ -52883,6 +57382,7 @@ class ForceGraphCanvas {
 
   renderSettingsPopover() {
     const themeNames = {
+      workbench: '跟随工作台主题',
       classic: '经典科技拓扑',
       partition: '分区卡片架构',
       radial: '环形聚类图谱',
@@ -52893,6 +57393,7 @@ class ForceGraphCanvas {
       graphite: '石墨疏朗'
     };
     const themeDescs = {
+      workbench: '动态映射当前工作台主题语义色板',
       classic: '清爽极简 · 平衡耐看',
       partition: '独立虚线分区 · 架构分明',
       radial: '同心轨道 · 规范居中',
@@ -52916,6 +57417,7 @@ class ForceGraphCanvas {
           <span style="font-size:10px; color:var(--interactive-accent, #2563EB); font-weight:normal;" id="spActiveThemeDesc">${themeDescs[this.currentTheme] || ''}</span>
         </div>
         <select class="tw-settings-theme-select" id="spThemeSelect">
+          <option value="workbench" ${this.currentTheme==='workbench'?'selected':''}>0 跟随工作台主题 (动态映射工作台色板)</option>
           <option value="classic" ${this.currentTheme==='classic'?'selected':''}>1 经典科技拓扑 (清爽极简 · 平衡耐看)</option>
           <option value="partition" ${this.currentTheme==='partition'?'selected':''}>2 分区卡片架构 (独立虚线分区 · 架构分明)</option>
           <option value="radial" ${this.currentTheme==='radial'?'selected':''}>3 环形聚类图谱 (同心轨道 · 规范居中)</option>
@@ -53425,6 +57927,7 @@ class ForceGraphCanvas {
     this.applyThemeLayout(themeKey);
 
     const themeNames = {
+      workbench: '跟随工作台主题',
       classic: '经典科技拓扑',
       partition: '分区卡片架构',
       radial: '环形聚类图谱',
@@ -53435,6 +57938,7 @@ class ForceGraphCanvas {
       graphite: '石墨疏朗'
     };
     const themeDescs = {
+      workbench: '动态映射当前工作台主题语义色板',
       classic: '清爽极简 · 平衡耐看',
       partition: '独立虚线分区 · 架构分明',
       radial: '同心轨道 · 规范居中',
@@ -53648,6 +58152,67 @@ class ForceGraphCanvas {
     this.fitBounds(0.78);
   }
 
+  syncWorkbenchThemeColors(force = false) {
+    const host = (this.containerEl && this.containerEl.closest && this.containerEl.closest('.tabonkb-workbench-container')) || this.containerEl || document.body;
+    const curSig = host && host.dataset ? `${host.dataset.twSkin || ''}|${host.dataset.twMode || ''}` : '';
+    if (!force && this._cachedWbPal && this._cachedWbSig === curSig) {
+      return this._cachedWbPal;
+    }
+    let cs = null;
+    try {
+      if (host && typeof getComputedStyle === 'function') cs = getComputedStyle(host);
+    } catch (_) {}
+    const getVar = (name, fb) => {
+      if (!cs) return fb;
+      const v = cs.getPropertyValue(name);
+      return (v && v.trim()) ? v.trim() : fb;
+    };
+    const scheme = getVar('--sk-scheme', '');
+    const isDark = scheme === 'dark' || (typeof document !== 'undefined' && document.body && document.body.classList.contains('theme-dark') && scheme !== 'light');
+    const cBlue = getVar('--g-blue', '#0EA5E9');
+    const cTeal = getVar('--g-teal', '#14B8A6');
+    const cPurple = getVar('--g-purple', '#8B5CF6');
+    const cIndigo = getVar('--g-indigo', '#3B82F6');
+    const cGreen = getVar('--g-green', '#10B981');
+    const cAmber = getVar('--g-amber', '#F97316');
+    const cRed = getVar('--g-red', '#EC4899');
+    const cGray = getVar('--g-gray', '#94A3B8');
+    const modColors = {
+      Charger: cBlue,
+      Spec: cTeal,
+      Display: cPurple,
+      Power: cIndigo,
+      Camera: cGreen,
+      Crash: cAmber,
+      Toolchain: cRed,
+      Audio: cTeal,
+      Touch: cBlue,
+      'WK-Entity': cRed,
+      'WK-Concept': cAmber,
+      'WK-Summary': cGreen,
+      'WK-Other': cGray,
+      General: cGray
+    };
+    if (this.currentTheme === 'workbench' && this.filterPillsMap) {
+      this.filterPillsMap.forEach((pill, modId) => {
+        if (modId === 'all') return;
+        const dot = pill.querySelector('.tw-pill-dot');
+        if (dot && modColors[modId]) dot.style.background = modColors[modId];
+      });
+    }
+    this._cachedWbSig = curSig;
+    this._cachedWbPal = {
+      isDark,
+      canvasBg: getVar('--g-m2', isDark ? '#0F172A' : '#FFFFFF'),
+      gridLine: getVar('--g-sep', isDark ? 'rgba(255,255,255,0.06)' : 'rgba(226,232,240,0.5)'),
+      edgeColor: getVar('--g-gray', isDark ? '#475569' : '#CBD5E1'),
+      labelColor: getVar('--g-label', isDark ? '#F1F5F9' : '#0F172A'),
+      accent: cBlue,
+      modColors
+    };
+    return this._cachedWbPal;
+  }
+
   draw() {
     if (!this.ctx) return;
     const ctx = this.ctx;
@@ -53660,8 +58225,23 @@ class ForceGraphCanvas {
     ctx.save();
     ctx.scale(dpr, dpr);
 
+    // Sync dynamic theme palette if following workbench theme
+    const wbPal = this.syncWorkbenchThemeColors();
+
     // Theme-specific Background
-    if (this.currentTheme === 'classic') {
+    if (this.currentTheme === 'workbench') {
+      ctx.fillStyle = wbPal.canvasBg;
+      ctx.fillRect(0, 0, this.width, this.height);
+      ctx.save();
+      ctx.strokeStyle = wbPal.gridLine;
+      ctx.lineWidth = 0.5;
+      ctx.beginPath();
+      const gStep = 44;
+      for (let x = 0; x < this.width; x += gStep) { ctx.moveTo(x, 0); ctx.lineTo(x, this.height); }
+      for (let y = 0; y < this.height; y += gStep) { ctx.moveTo(0, y); ctx.lineTo(this.width, y); }
+      ctx.stroke();
+      ctx.restore();
+    } else if (this.currentTheme === 'classic') {
       const bgGrad = ctx.createLinearGradient(0, 0, 0, this.height);
       bgGrad.addColorStop(0, '#FFFFFF');
       bgGrad.addColorStop(1, '#F8FBFF');
@@ -53861,7 +58441,7 @@ class ForceGraphCanvas {
       const isCross = source.module !== target.module;
       const isConnected = activeNode && (e.source === activeNode.id || e.target === activeNode.id);
 
-      let strokeColor = (this.currentTheme === 'dark') ? '#475569' : '#CBD5E1';
+      let strokeColor = (this.currentTheme === 'workbench') ? wbPal.edgeColor : ((this.currentTheme === 'dark') ? '#475569' : '#CBD5E1');
       let alpha = (this.currentTheme === 'dark' ? (isCross ? 0.18 : 0.38) : (isCross ? 0.20 : 0.40)) * edgeScale;
       // Normal edge: delicate hairline (normalized by zoom scale)
       let lineWidth = 0.55 / curScale;
@@ -53929,7 +58509,7 @@ class ForceGraphCanvas {
       let r = (n.radius || 4.0) * nScale;
       if (isSelected) r = 7.5 * nScale;
 
-      const baseColor = n.color || '#0EA5E9';
+      const baseColor = (this.currentTheme === 'workbench' && wbPal.modColors[n.module]) ? wbPal.modColors[n.module] : (n.color || '#0EA5E9');
 
       // 新三主题: 极简圆点渲染 (nebula 灰晕枢纽 / starburst 银白扇点 / graphite 灰阶度节点)
       const th = this.currentTheme;
@@ -54056,15 +58636,15 @@ class ForceGraphCanvas {
         const labelX = n.x + r + Math.max(3, Math.min(6, fSize * 0.5));
         const labelY = n.y;
 
-        // Proportional white halo stroke (avoids drowning 3px micro-fonts)
-        ctx.strokeStyle = (this.currentTheme === 'dark' || this.currentTheme === 'nebula' || this.currentTheme === 'starburst') ? 'rgba(15, 23, 42, 0.92)' : 'rgba(255, 255, 255, 0.95)';
+        const isDarkGraph = (this.currentTheme === 'workbench' && wbPal.isDark) || this.currentTheme === 'dark' || this.currentTheme === 'nebula' || this.currentTheme === 'starburst';
+        ctx.strokeStyle = isDarkGraph ? 'rgba(15, 23, 42, 0.92)' : 'rgba(255, 255, 255, 0.95)';
         ctx.lineWidth = Math.max(0.8, Math.min(2.8, fSize * 0.26)) / curScale;
         ctx.lineJoin = 'round';
         ctx.strokeText(text, labelX, labelY);
 
-        ctx.fillStyle = (this.currentTheme === 'dark' || this.currentTheme === 'nebula' || this.currentTheme === 'starburst') 
-          ? (isSelected ? '#38BDF8' : '#F1F5F9')
-          : (this.currentTheme === 'graphite' ? (isSelected ? '#1D4ED8' : '#5A5A5A') : (isSelected ? '#1D4ED8' : '#0F172A'));
+        ctx.fillStyle = (this.currentTheme === 'workbench')
+          ? (isSelected ? wbPal.accent : wbPal.labelColor)
+          : (isDarkGraph ? (isSelected ? '#38BDF8' : '#F1F5F9') : (this.currentTheme === 'graphite' ? (isSelected ? '#1D4ED8' : '#5A5A5A') : (isSelected ? '#1D4ED8' : '#0F172A')));
         ctx.textAlign = 'left';
         ctx.textBaseline = 'middle';
         ctx.fillText(text, labelX, labelY);
@@ -54321,6 +58901,11 @@ class TabonKBWorkbenchView extends ItemView {
     this.heatmapDimension = this.getSavedHeatmapDimension();
     this._selectedHeatCell = null;
     this._heatDocClickBound = null;
+
+    // Home Tab Agent Usage Analytics
+    this.agentUsageCardEl = null;
+    this.agentUsageRange = this.getAgentUsageRange();
+    this._agentUsageExpanded = new Set();
 
     // Multi-Agent Hub Integration (Pi, Hermes, Gemini)
     const vaultPath = this.app?.vault?.adapter?.basePath || 'd:\\work\\Mgmt\\TabonKB';
@@ -54602,7 +59187,7 @@ class TabonKBWorkbenchView extends ItemView {
       if (i === 0) anchor = 'start';
       else if (i === N - 1) anchor = 'end';
       const isEnd = i === N - 1;
-      const fill = isEnd ? '#10B981' : 'var(--text-muted, #8b949e)';
+      const fill = isEnd ? 'var(--g-green, #10B981)' : 'var(--g-label-3, var(--text-muted, #8b949e))';
       return `<text x="${x}" y="${H - 4}" font-size="9" fill="${fill}" font-family="monospace" text-anchor="${anchor}">${lbl}${isEnd ? '(本期)' : ''}</text>`;
     }).join('');
 
@@ -54621,20 +59206,20 @@ class TabonKBWorkbenchView extends ItemView {
       <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" style="width: 100%; height: 100%; overflow: visible; display: block;">
         <defs>
           <linearGradient id="twTrendGreenGrad" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stop-color="#10B981" stop-opacity="0.25"/>
-            <stop offset="100%" stop-color="#10B981" stop-opacity="0.02"/>
+            <stop offset="0%" stop-color="var(--g-green, #10B981)" stop-opacity="0.28"/>
+            <stop offset="100%" stop-color="var(--g-green, #10B981)" stop-opacity="0.02"/>
           </linearGradient>
         </defs>
-        <line x1="0" y1="${topY + 7}" x2="${W}" y2="${topY + 7}" stroke="var(--background-modifier-border, #E2E8F0)" stroke-dasharray="3 3"/>
-        <line x1="0" y1="${Math.round((topY + baseY) / 2)}" x2="${W}" y2="${Math.round((topY + baseY) / 2)}" stroke="var(--background-modifier-border, #E2E8F0)" stroke-dasharray="3 3"/>
-        <line x1="0" y1="${baseY}" x2="${W}" y2="${baseY}" stroke="var(--background-modifier-border, #E2E8F0)" stroke-dasharray="3 3"/>
+        <line x1="0" y1="${topY + 7}" x2="${W}" y2="${topY + 7}" stroke="var(--g-sep, var(--background-modifier-border, #E2E8F0))" stroke-dasharray="3 3"/>
+        <line x1="0" y1="${Math.round((topY + baseY) / 2)}" x2="${W}" y2="${Math.round((topY + baseY) / 2)}" stroke="var(--g-sep, var(--background-modifier-border, #E2E8F0))" stroke-dasharray="3 3"/>
+        <line x1="0" y1="${baseY}" x2="${W}" y2="${baseY}" stroke="var(--g-sep, var(--background-modifier-border, #E2E8F0))" stroke-dasharray="3 3"/>
         <path d="${doneAreaPath}" fill="url(#twTrendGreenGrad)"/>
-        <path d="${doneLinePath}" fill="none" stroke="#10B981" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
-        <path d="${createdLinePath}" fill="none" stroke="#EF4444" stroke-width="2" stroke-dasharray="4 2" stroke-linecap="round" stroke-linejoin="round"/>
-        <line id="twTrendGuideline" x1="0" y1="${topY - 4}" x2="0" y2="${baseY}" stroke="var(--interactive-accent, #2563EB)" stroke-width="1.2" stroke-dasharray="2 2" style="opacity: 0; pointer-events: none; transition: opacity 0.1s ease;"/>
+        <path d="${doneLinePath}" fill="none" stroke="var(--g-green, #10B981)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="${createdLinePath}" fill="none" stroke="var(--g-red, #EF4444)" stroke-width="2" stroke-dasharray="4 2" stroke-linecap="round" stroke-linejoin="round"/>
+        <line id="twTrendGuideline" x1="0" y1="${topY - 4}" x2="0" y2="${baseY}" stroke="var(--g-blue, var(--interactive-accent, #2563EB))" stroke-width="1.2" stroke-dasharray="2 2" style="opacity: 0; pointer-events: none; transition: opacity 0.1s ease;"/>
         ${dotsHtml}
-        <circle cx="${lastX}" cy="${lastDoneY}" r="3.2" fill="#10B981" class="tw-trend-latest-dot"/>
-        <circle cx="${lastX}" cy="${lastCreatedY}" r="3.2" fill="#EF4444" class="tw-trend-latest-dot"/>
+        <circle cx="${lastX}" cy="${lastDoneY}" r="3.2" fill="var(--g-green, #10B981)" class="tw-trend-latest-dot"/>
+        <circle cx="${lastX}" cy="${lastCreatedY}" r="3.2" fill="var(--g-red, #EF4444)" class="tw-trend-latest-dot"/>
         ${labelTexts}
       </svg>
     `;
@@ -54695,8 +59280,8 @@ class TabonKBWorkbenchView extends ItemView {
       </div>
       <div class="tw-trend-footer">
         <div class="tw-trend-legend">
-          <span><span style="color: #EF4444; font-weight:bold;">--</span> 新增Bug</span>
-          <span><span style="color: #10B981; font-weight:bold;">—</span> 闭环解决</span>
+          <span><span style="color: var(--g-red, #EF4444); font-weight:bold;">--</span> 新增Bug</span>
+          <span><span style="color: var(--g-green, #10B981); font-weight:bold;">—</span> 闭环解决</span>
         </div>
       </div>
     `;
@@ -55466,6 +60051,228 @@ class TabonKBWorkbenchView extends ItemView {
     }, 20);
   }
 
+  // ==========================================================================
+  // Home Tab Agent Usage Analytics (多 Agent Token 用量额度细分统计)
+  // ==========================================================================
+
+  getAgentUsageRange() {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        const r = localStorage.getItem('tabonkb-agent-usage-range');
+        if (r === 'today' || r === 'week' || r === 'all') return r;
+      }
+    } catch (e) {}
+    return 'week';
+  }
+
+  saveAgentUsageRange(range) {
+    this.agentUsageRange = range;
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('tabonkb-agent-usage-range', range);
+      }
+    } catch (e) {}
+  }
+
+  fmtUsageTok(n) {
+    const v = Number(n) || 0;
+    const trim = (num, div) => {
+      const s = (num / div).toFixed(1);
+      return s.endsWith('.0') ? s.slice(0, -2) : s;
+    };
+    if (v >= 1000000) return trim(v, 1000000) + 'M';
+    if (v >= 1000) return trim(v, 1000) + 'k';
+    return String(v);
+  }
+
+  collectAgentUsageStats() {
+    const AGENT_NAMES = {
+      pi: 'Pi Agent', antigravity: 'Antigravity', niceaigc: 'NiceAIGC',
+      codex: 'Codex', gemini: 'Gemini', hermes: 'Hermes', dsh: 'DSH'
+    };
+    const range = this.agentUsageRange || 'week';
+    const now = Date.now();
+    let startTs = 0;
+    if (range === 'today') {
+      const d0 = new Date();
+      d0.setHours(0, 0, 0, 0);
+      startTs = d0.getTime();
+    } else if (range === 'week') {
+      startTs = now - 7 * 86400000;
+    }
+
+    const sm = this.agentHub && this.agentHub.sessionManager;
+    const agentsMap = (sm && sm.agents instanceof Map) ? sm.agents : null;
+    const rows = [];
+    const totals = { tokens: 0, input: 0, output: 0, cache: 0, turns: 0, sessions: 0, tools: 0 };
+
+    if (agentsMap) {
+      for (const [agentId, agent] of agentsMap.entries()) {
+        const row = {
+          id: agentId,
+          name: AGENT_NAMES[agentId] || agentId,
+          tokens: 0, input: 0, output: 0, cache: 0,
+          turns: 0, sessions: 0, tools: 0,
+          models: new Map()
+        };
+        for (const sess of (agent.sessions || [])) {
+          let hit = false;
+          for (const m of (sess.messages || [])) {
+            if (!m || m.role !== 'assistant') continue;
+            const ts = m.timestamp || 0;
+            if (ts < startTs) continue;
+            hit = true;
+            row.turns++;
+            row.tools += Array.isArray(m.toolCalls) ? m.toolCalls.length : (m.toolCount || 0);
+            const u = m.usage;
+            if (u && (u.totalTokens > 0 || u.inputTokens > 0 || u.outputTokens > 0)) {
+              const inp = Math.max(0, u.inputTokens || 0);
+              const out = Math.max(0, u.outputTokens || 0);
+              const cache = Math.max(0, u.cacheReadTokens || 0);
+              const tot = Math.max(0, u.totalTokens || (inp + out + cache));
+              row.input += inp;
+              row.output += out;
+              row.cache += cache;
+              row.tokens += tot;
+              const mName = m.model || u.providerAndModel || '未标注模型';
+              const cur = row.models.get(mName) || { tokens: 0, turns: 0 };
+              cur.tokens += tot;
+              cur.turns += 1;
+              row.models.set(mName, cur);
+            }
+          }
+          if (hit) row.sessions++;
+        }
+        if (row.turns > 0) {
+          rows.push(row);
+          totals.tokens += row.tokens;
+          totals.input += row.input;
+          totals.output += row.output;
+          totals.cache += row.cache;
+          totals.turns += row.turns;
+          totals.sessions += row.sessions;
+          totals.tools += row.tools;
+        }
+      }
+    }
+
+    rows.sort((a, b) => b.tokens - a.tokens);
+    for (const r of rows) {
+      r.modelList = Array.from(r.models.entries())
+        .map(([name, v]) => ({ name, tokens: v.tokens, turns: v.turns }))
+        .sort((a, b) => b.tokens - a.tokens);
+      r.segSum = Math.max(1, r.input + r.output + r.cache);
+    }
+    const maxTokens = rows.length ? Math.max(1, rows[0].tokens) : 1;
+    return { rows, totals, maxTokens, range };
+  }
+
+  renderAgentUsageCard(parentEl) {
+    this.agentUsageCardEl = parentEl.createDiv({ cls: 'tw-card tw-agent-usage-card' });
+    this.updateAgentUsageCard();
+    // Agent 回合结束后自动重算（仅在首页卡片仍挂载时），无需手动刷新
+    if (!this._agentUsageBound && this.agentHub && typeof this.agentHub.on === 'function') {
+      this._agentUsageBound = true;
+      const schedule = () => {
+        if (this.agentUsageCardEl && this.agentUsageCardEl.isConnected) {
+          setTimeout(() => this.updateAgentUsageCard(), 400);
+        }
+      };
+      this.agentHub.on('turn_end', schedule);
+      this.agentHub.on('agent_settled', schedule);
+    }
+  }
+
+  updateAgentUsageCard() {
+    if (!this.agentUsageCardEl) return;
+    const stats = this.collectAgentUsageStats();
+    const range = stats.range;
+    const fmt = (n) => this.fmtUsageTok(n);
+    const full = (n) => (Number(n) || 0).toLocaleString();
+
+    let bodyHtml = '';
+    if (stats.rows.length === 0) {
+      bodyHtml = '<div class="tw-au-empty">该周期暂无用量记录</div>';
+    } else {
+      const rowsHtml = stats.rows.map((r) => {
+        const wIn = (r.input / r.segSum) * 100;
+        const wOut = (r.output / r.segSum) * 100;
+        const wCache = Math.max(0, 100 - wIn - wOut);
+        const barW = r.tokens > 0 ? Math.max(2, (r.tokens / stats.maxTokens) * 100) : 0;
+        const segsHtml = r.tokens > 0 ? `<span class="tw-au-seg tw-au-seg-in" style="width:${wIn.toFixed(1)}%"></span><span class="tw-au-seg tw-au-seg-out" style="width:${wOut.toFixed(1)}%"></span><span class="tw-au-seg tw-au-seg-cache" style="width:${wCache.toFixed(1)}%"></span>` : '';
+        const expanded = this._agentUsageExpanded.has(r.id);
+        const tip = `输入 ${full(r.input)} · 输出 ${full(r.output)} · 缓存 ${full(r.cache)}`;
+        const modelsHtml = expanded ? (r.modelList.length ? r.modelList.map(m =>
+          `<div class="tw-au-model-line"><span class="tw-au-model-name">${escapeHtml(m.name)}</span><span>${fmt(m.tokens)} tok · ${m.turns}轮</span></div>`
+        ).join('') : '<div class="tw-au-model-line"><span class="tw-au-model-name">无模型用量记录</span><span>—</span></div>') : '';
+        let icon = '';
+        try { icon = getAgentBrandSvg(r.id, 12); } catch (e) {}
+        return `
+          <div class="tw-au-row${expanded ? ' expanded' : ''}" data-agent="${r.id}" title="${escapeHtml(tip)}">
+            <span class="tw-au-name">${icon}<span>${escapeHtml(r.name)}</span></span>
+            <div class="tw-au-bar-wrap"><div class="tw-au-bar" style="width:${barW.toFixed(1)}%">${segsHtml}</div></div>
+            <span class="tw-au-meta"><b>${fmt(r.tokens)}</b> tok · ${r.turns}轮 · ${r.sessions}会话<span class="tw-au-caret">›</span></span>
+            <div class="tw-au-models">${modelsHtml}</div>
+          </div>`;
+      }).join('');
+      bodyHtml = `<div class="tw-au-rows">${rowsHtml}</div>`;
+    }
+
+    const t = stats.totals;
+    const footerHtml = `
+      <div class="tw-au-footer">
+        <span class="tw-au-total">合计 <b>${fmt(t.tokens)}</b> tok · ${t.turns}轮 · ${t.sessions}会话${t.tools ? ` · ${t.tools}工具` : ''}</span>
+        <span class="tw-au-legend">
+          <span><i class="tw-au-dot" style="background:var(--g-blue,#2563EB)"></i>输入 ${fmt(t.input)}</span>
+          <span><i class="tw-au-dot" style="background:var(--g-green,#10B981)"></i>输出 ${fmt(t.output)}</span>
+          <span><i class="tw-au-dot" style="background:#8B5CF6"></i>缓存 ${fmt(t.cache)}</span>
+        </span>
+      </div>`;
+
+    this.agentUsageCardEl.innerHTML = `
+      <div class="tw-card-header tw-au-header">
+        <span>Agent 用量</span>
+        <div class="tw-trend-controls-right">
+          <select class="tw-trend-range-select tw-au-range-select" title="切换统计周期">
+            <option value="today" ${range === 'today' ? 'selected' : ''}>今日</option>
+            <option value="week" ${range === 'week' ? 'selected' : ''}>近7天</option>
+            <option value="all" ${range === 'all' ? 'selected' : ''}>全部</option>
+          </select>
+          <button class="tw-trend-refresh-btn" id="btnRefreshAgentUsage" title="刷新用量统计">${getIconPark('refresh', 12)}</button>
+        </div>
+      </div>
+      ${bodyHtml}
+      ${stats.rows.length ? footerHtml : ''}
+    `;
+
+    const rangeSelect = this.agentUsageCardEl.querySelector('.tw-au-range-select');
+    if (rangeSelect) {
+      rangeSelect.onchange = () => {
+        this.saveAgentUsageRange(rangeSelect.value);
+        this.updateAgentUsageCard();
+      };
+    }
+
+    const refreshBtn = this.agentUsageCardEl.querySelector('#btnRefreshAgentUsage');
+    if (refreshBtn) {
+      refreshBtn.onclick = () => {
+        refreshBtn.classList.add('spinning');
+        this.updateAgentUsageCard();
+        setTimeout(() => refreshBtn.classList.remove('spinning'), 500);
+      };
+    }
+
+    this.agentUsageCardEl.querySelectorAll('.tw-au-row').forEach(el => {
+      el.onclick = () => {
+        const id = el.dataset.agent;
+        if (!id) return;
+        if (this._agentUsageExpanded.has(id)) this._agentUsageExpanded.delete(id);
+        else this._agentUsageExpanded.add(id);
+        this.updateAgentUsageCard();
+      };
+    });
+  }
+
   getViewType() {
     return VIEW_TYPE_WORKBENCH;
   }
@@ -55765,10 +60572,14 @@ class TabonKBWorkbenchView extends ItemView {
         const live = this.getContainer();
         if (live) {
           this.ensureStylesheet(live.ownerDocument);
-          const t = (this.plugin && this.plugin.settings && this.plugin.settings.workbenchTheme) ||
-                    (this.app?.plugins?.plugins?.['tabonkb-workbench']?.settings?.workbenchTheme) || 'standard';
-          live.removeClass('tw-theme-standard', 'tw-theme-fresh');
-          live.addClass(`tw-theme-${t}`);
+          const activePlugin = this.plugin || (this.app?.plugins?.plugins?.['tabonkb-workbench']);
+          const t = (activePlugin && activePlugin.settings && activePlugin.settings.workbenchTheme) || 'fresh';
+          if (typeof TabonKBThemeEngine !== 'undefined' && activePlugin) {
+            TabonKBThemeEngine.applyTokensToElement(live, t, activePlugin.settings?.workbenchThemeMode || 'auto', activePlugin.settings?.workbenchWallpaper || 'aurora');
+          } else {
+            live.removeClass('tw-theme-standard', 'tw-theme-fresh');
+            live.addClass(`tw-theme-${t}`);
+          }
         }
         return;
       }
@@ -55779,11 +60590,14 @@ class TabonKBWorkbenchView extends ItemView {
       container.empty();
       this._harnessMounted = false; // 整体重建后旧挂载标记必然失效
       container.addClass('tabonkb-workbench-container', 'with-drawer');
-      const curTheme = (this.plugin && this.plugin.settings && this.plugin.settings.workbenchTheme) || 
-                       (this.app?.plugins?.plugins?.['tabonkb-workbench']?.settings?.workbenchTheme) || 
-                       'standard';
-      container.removeClass('tw-theme-standard', 'tw-theme-fresh');
-      container.addClass(`tw-theme-${curTheme}`);
+      const activePlugin = this.plugin || (this.app?.plugins?.plugins?.['tabonkb-workbench']);
+      const curTheme = (activePlugin && activePlugin.settings && activePlugin.settings.workbenchTheme) || 'fresh';
+      if (typeof TabonKBThemeEngine !== 'undefined' && activePlugin) {
+        TabonKBThemeEngine.applyTokensToElement(container, curTheme, activePlugin.settings?.workbenchThemeMode || 'auto', activePlugin.settings?.workbenchWallpaper || 'aurora');
+      } else {
+        container.removeClass('tw-theme-standard', 'tw-theme-fresh');
+        container.addClass(`tw-theme-${curTheme}`);
+      }
 
       // Global right-click copy menu for any selected text
       container.oncontextmenu = (e) => {
@@ -55837,14 +60651,20 @@ class TabonKBWorkbenchView extends ItemView {
       } else if (this.activeTab === 'news') {
         this.renderNewsTab(stage);
       } else if (this.activeTab === 'explore') {
+        stage.addClass('tw-stage-explore', 'tw-stage-fullbleed');
+        mainPanel.addClass('tw-main-explore', 'tw-main-fullbleed');
         this.renderExploreTab(stage);
       } else if (this.activeTab === 'tools') {
-        stage.addClass('tw-stage-tools');
-        mainPanel.addClass('tw-main-tools');
+        stage.addClass('tw-stage-tools', 'tw-stage-fullbleed');
+        mainPanel.addClass('tw-main-tools', 'tw-main-fullbleed');
         this.renderToolsTab(stage);
       } else if (this.activeTab === 'harness') {
+        stage.addClass('tw-stage-harness', 'tw-stage-fullbleed');
+        mainPanel.addClass('tw-main-harness', 'tw-main-fullbleed');
         this.renderHarnessTab(stage);
       } else if (this.activeTab === 'manage') {
+        stage.addClass('tw-stage-manage', 'tw-stage-fullbleed');
+        mainPanel.addClass('tw-main-manage', 'tw-main-fullbleed');
         this.renderManageTab(stage);
       } else {
         this.renderHomeTab(stage);
@@ -56095,8 +60915,7 @@ class TabonKBWorkbenchView extends ItemView {
 
     for (const t of tabs) {
       const btn = itemsGroup.createEl('button', {
-        cls: `tw-nav-btn ${this.activeTab === t.id ? 'active' : ''}`,
-        title: t.title
+        cls: `tw-nav-btn ${this.activeTab === t.id ? 'active' : ''}`
       });
       btn.innerHTML = `
         <span class="tw-nav-icon">${getIconPark(t.icon, 22)}</span>
@@ -56152,18 +60971,40 @@ class TabonKBWorkbenchView extends ItemView {
       }
     }
 
-    // Bottom Section: Divider + Settings Shortcut
+    // Bottom Section: Divider + Theme Quick Switch + Settings Shortcut
     const btmSec = rail.createDiv({ cls: 'tw-nav-rail-bottom' });
     btmSec.createDiv({ cls: 'tw-nav-divider' });
+    const btnTheme = btmSec.createEl('button', {
+      cls: 'tw-nav-btn tw-nav-theme-btn'
+    });
+    btnTheme.innerHTML = `
+      <span class="tw-nav-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.95" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 0 0 18c1.1 0 2-.9 2-2 0-.5-.2-1-.5-1.3-.3-.4-.5-.8-.5-1.3 0-1.1.9-2 2-2h2.3A3.7 3.7 0 0 0 21 10.7"/></svg></span>
+      <span class="tw-nav-label">主题</span>
+    `;
+    btnTheme.onclick = (e) => {
+      e.stopPropagation();
+      const p = this.plugin || (this.app?.plugins?.plugins?.['tabonkb-workbench']);
+      if (typeof TabonKBThemeEngine !== 'undefined' && p) {
+        TabonKBThemeEngine.openThemeLibraryPopover(btnTheme, p);
+      }
+    };
     const btnSettings = btmSec.createEl('button', {
-      cls: 'tw-nav-btn tw-nav-settings-btn',
-      title: '打开工作台设置'
+      cls: 'tw-nav-btn tw-nav-settings-btn'
     });
     btnSettings.innerHTML = `
       <span class="tw-nav-icon">${getIconPark('setting-config', 22)}</span>
       <span class="tw-nav-label">设置</span>
     `;
-    btnSettings.onclick = () => {
+    btnSettings.onclick = (e) => {
+      e.stopPropagation();
+      try {
+        this.closeExploreSubmenu();
+        this.closeManageSubmenu();
+        this.closeToolsSubmenu();
+        if (typeof TabonKBThemeEngine !== 'undefined') {
+          TabonKBThemeEngine.closeThemeLibraryPopover(false);
+        }
+      } catch (_) {}
       this.app.setting?.open?.();
       this.app.setting?.openTabById?.('tabonkb-workbench');
     };
@@ -56335,6 +61176,9 @@ class TabonKBWorkbenchView extends ItemView {
 
     // Heatmap Card (dynamically bound to multi-source engineering data)
     this.renderHomeHeatmapCard(chartsGrid);
+
+    // Agent Usage Quota Strip (multi-agent token consumption breakdown)
+    this.renderAgentUsageCard(wrap);
 
     // Layer 3: Knowledge Workspace (Graph + Dynamic Context Panel)
     const workspaceWrap = wrap.createDiv({ cls: 'tw-knowledge-workspace dashboard-knowledge-workspace', id: 'twKnowledgeWorkspace' });
@@ -57659,6 +62503,30 @@ module.exports = class TabonKBWorkbenchPlugin extends Plugin {
       },
     });
 
+    this.addCommand({
+      id: 'open-tabonkb-theme-library',
+      name: '打开工作台主题库 (44套主题悬停实时预览)',
+      callback: () => {
+        this.activateView().then(() => {
+          const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_WORKBENCH);
+          const view = leaves[0]?.view;
+          const container = view?.getContainer?.();
+          const anchor = container?.querySelector('.tw-nav-theme-btn') || container;
+          if (anchor && typeof TabonKBThemeEngine !== 'undefined') {
+            TabonKBThemeEngine.openThemeLibraryPopover(anchor, this);
+          }
+        });
+      },
+    });
+
+    this._lastObsidianDark = typeof TabonKBThemeEngine !== 'undefined' ? TabonKBThemeEngine.isObsidianDark() : false;
+    this.registerEvent(this.app.workspace.on('css-change', () => {
+      const curDark = typeof TabonKBThemeEngine !== 'undefined' ? TabonKBThemeEngine.isObsidianDark() : false;
+      if (this._lastObsidianDark === curDark) return;
+      this._lastObsidianDark = curDark;
+      this.applyWorkbenchTheme(this.settings?.workbenchTheme);
+    }));
+
 
   }
 
@@ -57731,7 +62599,7 @@ module.exports = class TabonKBWorkbenchPlugin extends Plugin {
     }
   }
 
-  async saveSettings() {
+  async saveSettings(opts = {}) {
     if (this.settings.jira) {
       delete this.settings.jira.token;
       delete this.settings.jira.apiToken;
@@ -57743,6 +62611,7 @@ module.exports = class TabonKBWorkbenchPlugin extends Plugin {
     }
     await this.saveData(this.settings);
     this.applyWorkbenchTheme(this.settings.workbenchTheme);
+    if (opts && opts.themeOnly) return;
 
     // Notify active workbench views to refresh if config changed
     const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_WORKBENCH);
@@ -57765,6 +62634,13 @@ module.exports = class TabonKBWorkbenchPlugin extends Plugin {
   }
 
   applyWorkbenchTheme(theme) {
+    if (theme && this.settings) {
+      this.settings.workbenchTheme = theme;
+    }
+    if (typeof TabonKBThemeEngine !== 'undefined') {
+      TabonKBThemeEngine.applyGlobalTheme(this, theme || null);
+      return;
+    }
     const targetTheme = theme || this.settings?.workbenchTheme || 'fresh';
     try {
       if (typeof document !== 'undefined' && document.body) {

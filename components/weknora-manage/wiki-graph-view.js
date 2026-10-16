@@ -685,6 +685,7 @@ class WeKnoraWikiGraphView {
       <div class="tw-popover-row">
         <span class="tw-popover-label">样式方案</span>
         <select class="tw-popover-select" id="spThemeSelect">
+          <option value="workbench" ${curTheme==='workbench'?'selected':''}>跟随工作台主题 (动态映射)</option>
           <option value="immersive" ${curTheme==='immersive'?'selected':''}>科技星云 (清新蓝调)</option>
           <option value="cosmic" ${curTheme==='cosmic'?'selected':''}>深空星系 (沉浸瑰丽)</option>
           <option value="graphite" ${curTheme==='graphite'?'selected':''}>石墨银河 (疏朗纸墨)</option>

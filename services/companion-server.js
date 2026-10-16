@@ -103,6 +103,41 @@ class CompanionSyncServer {
         return;
       }
 
+      // 2.055 Monaco Editor static routes: /monaco/*
+      if (req.method === 'GET' && pathname.startsWith('/monaco/')) {
+        try {
+          const fs = require('fs');
+          const path = require('path');
+          const basePath = this.app?.vault?.adapter?.basePath || 'd:\\work\\Mgmt\\TabonKB';
+          const subPath = pathname.replace(/^\/monaco\//, '');
+          const safeSub = subPath.replace(/\.\./g, '');
+          const targetFile = path.join(basePath, '.obsidian', 'plugins', 'tabonkb-workbench', 'vendor', 'monaco', safeSub);
+
+          if (fs.existsSync(targetFile) && fs.statSync(targetFile).isFile()) {
+            const ext = path.extname(targetFile).toLowerCase();
+            const mimeMap = {
+              '.html': 'text/html; charset=utf-8',
+              '.js': 'application/javascript; charset=utf-8',
+              '.css': 'text/css; charset=utf-8',
+              '.ttf': 'font/ttf',
+              '.woff': 'font/woff',
+              '.woff2': 'font/woff2',
+              '.json': 'application/json; charset=utf-8'
+            };
+            res.setHeader('Content-Type', mimeMap[ext] || 'application/octet-stream');
+            res.setHeader('Access-Control-Allow-Origin', '*');
+            res.writeHead(200);
+            fs.createReadStream(targetFile).pipe(res);
+            return;
+          }
+        } catch (e) {
+          console.error('[TabonKB Companion] Serve monaco file failed:', e);
+        }
+        res.writeHead(404);
+        res.end(JSON.stringify({ ok: false, msg: 'File not found' }));
+        return;
+      }
+
       // 2.06 Power-Z Hardware & Protocol Routes: /api/powerz/*
       if (pathname.startsWith('/api/powerz/')) {
         try {

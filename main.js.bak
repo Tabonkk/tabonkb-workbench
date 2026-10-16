@@ -3599,7 +3599,7 @@ class ForceGraphCanvas {
     this.selectedNode = null;
     this.draggedNode = null;
     this.activeFilter = 'all';
-    this.currentTheme = 'immersive';
+    this.currentTheme = 'workbench';
     this.partitionCards = {
       Display:   { x: -180, y: -130, w: 140, h: 105, icon: '📱', label: 'Display · 6' },
       Camera:    { x: -20,  y: -145, w: 140, h: 100, icon: '📷', label: 'Camera · 4' },
@@ -3739,6 +3739,7 @@ class ForceGraphCanvas {
 
   renderSettingsPopover() {
     const themeNames = {
+      workbench: '跟随工作台主题',
       classic: '经典科技拓扑',
       partition: '分区卡片架构',
       radial: '环形聚类图谱',
@@ -3749,6 +3750,7 @@ class ForceGraphCanvas {
       graphite: '石墨疏朗'
     };
     const themeDescs = {
+      workbench: '动态映射当前工作台主题语义色板',
       classic: '清爽极简 · 平衡耐看',
       partition: '独立虚线分区 · 架构分明',
       radial: '同心轨道 · 规范居中',
@@ -3772,6 +3774,7 @@ class ForceGraphCanvas {
           <span style="font-size:10px; color:var(--interactive-accent, #2563EB); font-weight:normal;" id="spActiveThemeDesc">${themeDescs[this.currentTheme] || ''}</span>
         </div>
         <select class="tw-settings-theme-select" id="spThemeSelect">
+          <option value="workbench" ${this.currentTheme==='workbench'?'selected':''}>0 跟随工作台主题 (动态映射工作台色板)</option>
           <option value="classic" ${this.currentTheme==='classic'?'selected':''}>1 经典科技拓扑 (清爽极简 · 平衡耐看)</option>
           <option value="partition" ${this.currentTheme==='partition'?'selected':''}>2 分区卡片架构 (独立虚线分区 · 架构分明)</option>
           <option value="radial" ${this.currentTheme==='radial'?'selected':''}>3 环形聚类图谱 (同心轨道 · 规范居中)</option>
@@ -4281,6 +4284,7 @@ class ForceGraphCanvas {
     this.applyThemeLayout(themeKey);
 
     const themeNames = {
+      workbench: '跟随工作台主题',
       classic: '经典科技拓扑',
       partition: '分区卡片架构',
       radial: '环形聚类图谱',
@@ -4291,6 +4295,7 @@ class ForceGraphCanvas {
       graphite: '石墨疏朗'
     };
     const themeDescs = {
+      workbench: '动态映射当前工作台主题语义色板',
       classic: '清爽极简 · 平衡耐看',
       partition: '独立虚线分区 · 架构分明',
       radial: '同心轨道 · 规范居中',
@@ -4504,6 +4509,67 @@ class ForceGraphCanvas {
     this.fitBounds(0.78);
   }
 
+  syncWorkbenchThemeColors(force = false) {
+    const host = (this.containerEl && this.containerEl.closest && this.containerEl.closest('.tabonkb-workbench-container')) || this.containerEl || document.body;
+    const curSig = host && host.dataset ? `${host.dataset.twSkin || ''}|${host.dataset.twMode || ''}` : '';
+    if (!force && this._cachedWbPal && this._cachedWbSig === curSig) {
+      return this._cachedWbPal;
+    }
+    let cs = null;
+    try {
+      if (host && typeof getComputedStyle === 'function') cs = getComputedStyle(host);
+    } catch (_) {}
+    const getVar = (name, fb) => {
+      if (!cs) return fb;
+      const v = cs.getPropertyValue(name);
+      return (v && v.trim()) ? v.trim() : fb;
+    };
+    const scheme = getVar('--sk-scheme', '');
+    const isDark = scheme === 'dark' || (typeof document !== 'undefined' && document.body && document.body.classList.contains('theme-dark') && scheme !== 'light');
+    const cBlue = getVar('--g-blue', '#0EA5E9');
+    const cTeal = getVar('--g-teal', '#14B8A6');
+    const cPurple = getVar('--g-purple', '#8B5CF6');
+    const cIndigo = getVar('--g-indigo', '#3B82F6');
+    const cGreen = getVar('--g-green', '#10B981');
+    const cAmber = getVar('--g-amber', '#F97316');
+    const cRed = getVar('--g-red', '#EC4899');
+    const cGray = getVar('--g-gray', '#94A3B8');
+    const modColors = {
+      Charger: cBlue,
+      Spec: cTeal,
+      Display: cPurple,
+      Power: cIndigo,
+      Camera: cGreen,
+      Crash: cAmber,
+      Toolchain: cRed,
+      Audio: cTeal,
+      Touch: cBlue,
+      'WK-Entity': cRed,
+      'WK-Concept': cAmber,
+      'WK-Summary': cGreen,
+      'WK-Other': cGray,
+      General: cGray
+    };
+    if (this.currentTheme === 'workbench' && this.filterPillsMap) {
+      this.filterPillsMap.forEach((pill, modId) => {
+        if (modId === 'all') return;
+        const dot = pill.querySelector('.tw-pill-dot');
+        if (dot && modColors[modId]) dot.style.background = modColors[modId];
+      });
+    }
+    this._cachedWbSig = curSig;
+    this._cachedWbPal = {
+      isDark,
+      canvasBg: getVar('--g-m2', isDark ? '#0F172A' : '#FFFFFF'),
+      gridLine: getVar('--g-sep', isDark ? 'rgba(255,255,255,0.06)' : 'rgba(226,232,240,0.5)'),
+      edgeColor: getVar('--g-gray', isDark ? '#475569' : '#CBD5E1'),
+      labelColor: getVar('--g-label', isDark ? '#F1F5F9' : '#0F172A'),
+      accent: cBlue,
+      modColors
+    };
+    return this._cachedWbPal;
+  }
+
   draw() {
     if (!this.ctx) return;
     const ctx = this.ctx;
@@ -4516,8 +4582,23 @@ class ForceGraphCanvas {
     ctx.save();
     ctx.scale(dpr, dpr);
 
+    // Sync dynamic theme palette if following workbench theme
+    const wbPal = this.syncWorkbenchThemeColors();
+
     // Theme-specific Background
-    if (this.currentTheme === 'classic') {
+    if (this.currentTheme === 'workbench') {
+      ctx.fillStyle = wbPal.canvasBg;
+      ctx.fillRect(0, 0, this.width, this.height);
+      ctx.save();
+      ctx.strokeStyle = wbPal.gridLine;
+      ctx.lineWidth = 0.5;
+      ctx.beginPath();
+      const gStep = 44;
+      for (let x = 0; x < this.width; x += gStep) { ctx.moveTo(x, 0); ctx.lineTo(x, this.height); }
+      for (let y = 0; y < this.height; y += gStep) { ctx.moveTo(0, y); ctx.lineTo(this.width, y); }
+      ctx.stroke();
+      ctx.restore();
+    } else if (this.currentTheme === 'classic') {
       const bgGrad = ctx.createLinearGradient(0, 0, 0, this.height);
       bgGrad.addColorStop(0, '#FFFFFF');
       bgGrad.addColorStop(1, '#F8FBFF');
@@ -4717,7 +4798,7 @@ class ForceGraphCanvas {
       const isCross = source.module !== target.module;
       const isConnected = activeNode && (e.source === activeNode.id || e.target === activeNode.id);
 
-      let strokeColor = (this.currentTheme === 'dark') ? '#475569' : '#CBD5E1';
+      let strokeColor = (this.currentTheme === 'workbench') ? wbPal.edgeColor : ((this.currentTheme === 'dark') ? '#475569' : '#CBD5E1');
       let alpha = (this.currentTheme === 'dark' ? (isCross ? 0.18 : 0.38) : (isCross ? 0.20 : 0.40)) * edgeScale;
       // Normal edge: delicate hairline (normalized by zoom scale)
       let lineWidth = 0.55 / curScale;
@@ -4785,7 +4866,7 @@ class ForceGraphCanvas {
       let r = (n.radius || 4.0) * nScale;
       if (isSelected) r = 7.5 * nScale;
 
-      const baseColor = n.color || '#0EA5E9';
+      const baseColor = (this.currentTheme === 'workbench' && wbPal.modColors[n.module]) ? wbPal.modColors[n.module] : (n.color || '#0EA5E9');
 
       // 新三主题: 极简圆点渲染 (nebula 灰晕枢纽 / starburst 银白扇点 / graphite 灰阶度节点)
       const th = this.currentTheme;
@@ -4912,15 +4993,15 @@ class ForceGraphCanvas {
         const labelX = n.x + r + Math.max(3, Math.min(6, fSize * 0.5));
         const labelY = n.y;
 
-        // Proportional white halo stroke (avoids drowning 3px micro-fonts)
-        ctx.strokeStyle = (this.currentTheme === 'dark' || this.currentTheme === 'nebula' || this.currentTheme === 'starburst') ? 'rgba(15, 23, 42, 0.92)' : 'rgba(255, 255, 255, 0.95)';
+        const isDarkGraph = (this.currentTheme === 'workbench' && wbPal.isDark) || this.currentTheme === 'dark' || this.currentTheme === 'nebula' || this.currentTheme === 'starburst';
+        ctx.strokeStyle = isDarkGraph ? 'rgba(15, 23, 42, 0.92)' : 'rgba(255, 255, 255, 0.95)';
         ctx.lineWidth = Math.max(0.8, Math.min(2.8, fSize * 0.26)) / curScale;
         ctx.lineJoin = 'round';
         ctx.strokeText(text, labelX, labelY);
 
-        ctx.fillStyle = (this.currentTheme === 'dark' || this.currentTheme === 'nebula' || this.currentTheme === 'starburst') 
-          ? (isSelected ? '#38BDF8' : '#F1F5F9')
-          : (this.currentTheme === 'graphite' ? (isSelected ? '#1D4ED8' : '#5A5A5A') : (isSelected ? '#1D4ED8' : '#0F172A'));
+        ctx.fillStyle = (this.currentTheme === 'workbench')
+          ? (isSelected ? wbPal.accent : wbPal.labelColor)
+          : (isDarkGraph ? (isSelected ? '#38BDF8' : '#F1F5F9') : (this.currentTheme === 'graphite' ? (isSelected ? '#1D4ED8' : '#5A5A5A') : (isSelected ? '#1D4ED8' : '#0F172A')));
         ctx.textAlign = 'left';
         ctx.textBaseline = 'middle';
         ctx.fillText(text, labelX, labelY);

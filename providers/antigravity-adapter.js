@@ -447,7 +447,8 @@ class AntigravityAdapter extends AgentAdapter {
 
     const effort = this.getReasoningEffort();
     const supportsReasoning = this.supportsReasoningEffort(this.activeModelId);
-    if (supportsReasoning && effort !== 'off') {
+    const modelHasBuiltinEffort = /-(?:high|medium|low)$/i.test(this.activeModelId || '');
+    if (supportsReasoning && effort !== 'off' && !modelHasBuiltinEffort) {
       args.push('--effort', effort);
     }
 
@@ -509,14 +510,20 @@ class AntigravityAdapter extends AgentAdapter {
         this.process.stdout.setEncoding('utf-8');
         this.process.stderr.setEncoding('utf-8');
 
+        this.capturedStderr = '';
+        this.hasEmittedError = false;
+
         this.process.stdout.on('data', (chunk) => {
           this.handleStdoutChunk(chunk);
         });
 
         this.process.stderr.on('data', (chunk) => {
           const errStr = chunk.toString();
-          if (errStr.includes('[ERROR]') || errStr.includes('FATAL')) {
-            this.emit('error', { error: errStr });
+          this.capturedStderr += errStr;
+          if (errStr.includes('[ERROR]') || errStr.includes('FATAL') || /^[EW]\d{4}\s/m.test(errStr) || errStr.includes('failed:') || errStr.includes('EOF')) {
+            const cleanErr = errStr.split('\n').filter(l => l.includes('failed:') || l.includes('Error') || l.includes('EOF') || l.includes('FATAL')).join('; ') || errStr;
+            this.hasEmittedError = true;
+            this.emit('error', { error: cleanErr.trim() });
           }
         });
 
@@ -532,6 +539,11 @@ class AntigravityAdapter extends AgentAdapter {
           }
           this.isStreaming = false;
           this.process = null;
+          if (code !== 0 && !this.hasEmittedError) {
+            const fallbackErr = this.capturedStderr.split('\n').find(l => l.includes('failed') || l.includes('EOF') || l.includes('Error')) || this.capturedStderr.slice(-300) || `CLI 异常退出 (code: ${code})`;
+            this.hasEmittedError = true;
+            this.emit('error', { error: fallbackErr.trim() });
+          }
           if (!this.hasSettledTurn) {
             this.hasSettledTurn = true;
             this.emit('turn_end');
@@ -732,7 +744,9 @@ class AntigravityAdapter extends AgentAdapter {
         this.isThinkingActive = false;
       }
       if (res.status === 'ERROR') {
-        this.emit('error', { error: res.response || '执行失败' });
+        const errMsg = res.error_message || res.error || res.message || res.response || (this.capturedStderr && this.capturedStderr.trim()) || '执行失败';
+        this.hasEmittedError = true;
+        this.emit('error', { error: errMsg });
       }
       if (!this.hasSettledTurn) {
         this.hasSettledTurn = true;

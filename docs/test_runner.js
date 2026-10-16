@@ -32,7 +32,7 @@ async function runAllSuites() {
   console.log('>>> Suite 1: Code Integrity & Manifest Verification');
   const manifest = JSON.parse(fs.readFileSync(path.join(pluginDir, 'manifest.json'), 'utf8'));
   assert(manifest.id === 'tabonkb-workbench', 'manifest.json has correct id');
-  assert(manifest.version === '1.3.0', 'manifest.json has version 1.3.0');
+  assert(manifest.version === '1.5.0', 'manifest.json has version 1.5.0');
   assert(fs.existsSync(path.join(pluginDir, 'main.js')), 'main.js exists');
   assert(fs.existsSync(path.join(pluginDir, 'styles.css')), 'styles.css exists');
 
@@ -880,6 +880,75 @@ async function runAllSuites() {
   assert(typeof PZ_OFFICIAL_ICONS.tab_ic === 'string' && PZ_OFFICIAL_ICONS.tab_ic.startsWith('data:image/png;base64,'), 'CHG-PZ-ICON-01: tab_ic is valid data URL');
   assert(typeof PZ_OFFICIAL_ICONS.menu_btn === 'string' && PZ_OFFICIAL_ICONS.menu_btn.startsWith('data:image/png;base64,'), 'CHG-PZ-ICON-01: menu_btn is valid data URL');
   assert(typeof PZ_OFFICIAL_ICONS.item_measure === 'string' && PZ_OFFICIAL_ICONS.item_measure.startsWith('data:image/png;base64,'), 'CHG-PZ-ICON-01: item_measure is valid data URL');
+
+  // --- Suite 22: Drawer View Placeholder & Sticky Header State Management (DRAWER-STATE-01) ---
+  console.log('\n>>> Suite 22: Drawer View Placeholder & Sticky Header State Management (DRAWER-STATE-01)');
+  const { PiDrawerView } = require(path.join(pluginDir, 'pi-drawer-view.js'));
+
+  const mockInputEl = { placeholder: '' };
+  const mockStickyHeaderEl = {
+    classList: {
+      _classes: new Set(['visible']),
+      contains(c) { return this._classes.has(c); },
+      add(c) { this._classes.add(c); },
+      remove(c) { this._classes.delete(c); }
+    },
+    _qText: { textContent: '修改方案有问题，只修改hardware_info的驱动代码就行...' },
+    querySelector(selector) {
+      if (selector === '.tw-sticky-q-text') return this._qText;
+      return null;
+    }
+  };
+  const mockMessagesEl = { innerHTML: '<div>old bubble</div>', querySelectorAll: () => [] };
+  const mockAdapter = {
+    name: 'pi',
+    displayName: 'Pi Agent',
+    getModel: () => ({ id: 'gpt-6.1-sol', name: 'gpt-6.1-sol' })
+  };
+  const mockHub = {
+    activeAgentId: 'pi',
+    getActiveAdapter: () => mockAdapter,
+    getAgentList: () => [{ id: 'pi', displayName: 'Pi Agent', name: 'Pi' }],
+    sessionManager: {
+      getMessages: () => []
+    }
+  };
+
+  const drawerViewProto = PiDrawerView.prototype;
+  const mockDrawer = Object.create(drawerViewProto);
+  mockDrawer.inputEl = mockInputEl;
+  mockDrawer.hub = mockHub;
+  mockDrawer.stickyHeaderEl = mockStickyHeaderEl;
+  mockDrawer.messagesEl = mockMessagesEl;
+  mockDrawer.activeToolCards = new Map();
+  mockDrawer.selectedLocalProject = { id: 'p1', project: 'GP801H', label: '05-UW/GP801H' };
+  mockDrawer.selectedJiraIssue = null;
+  mockDrawer.inputChips = [];
+
+  mockDrawer.updateInputPlaceholder();
+  assert(mockDrawer.inputEl.placeholder === '向 Pi Agent (gpt-6.1-sol) [05-UW/GP801H] 提问... (Enter 发送)',
+    'DRAWER-STATE-01: updateInputPlaceholder formats agent, model, and project correctly');
+  assert(mockDrawer._inputPlaceholder === '向 Pi Agent (gpt-6.1-sol) [05-UW/GP801H] 提问... (Enter 发送)',
+    'DRAWER-STATE-01: _inputPlaceholder cache is updated in sync');
+
+  // Test chips override
+  mockDrawer.inputChips = [{ type: 'command', name: 'compact', label: '/compact' }];
+  mockDrawer._syncInputPlaceholder();
+  assert(mockDrawer.inputEl.placeholder === '输入消息内容...',
+    'DRAWER-STATE-01: _syncInputPlaceholder switches to chip prompt when chips present');
+  mockDrawer.inputChips = [];
+  mockDrawer._syncInputPlaceholder();
+  assert(mockDrawer.inputEl.placeholder === '向 Pi Agent (gpt-6.1-sol) [05-UW/GP801H] 提问... (Enter 发送)',
+    'DRAWER-STATE-01: _syncInputPlaceholder restores dynamic placeholder when chips removed');
+
+  // Test restoreSessionMessages resets stickyHeaderEl and minimap
+  mockDrawer.restoreSessionMessages('pi');
+  assert(!mockStickyHeaderEl.classList.contains('visible'),
+    'DRAWER-STATE-01: restoreSessionMessages removes visible class from stickyHeaderEl');
+  assert(mockStickyHeaderEl._qText.textContent === '',
+    'DRAWER-STATE-01: restoreSessionMessages clears textContent of stickyHeaderEl');
+  assert(Array.isArray(mockDrawer._minimapBubbles) && mockDrawer._minimapBubbles.length === 0,
+    'DRAWER-STATE-01: restoreSessionMessages resets _minimapBubbles to empty array');
 
   // Summary
   console.log('\n===============================================================');

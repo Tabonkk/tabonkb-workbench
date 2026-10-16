@@ -3,7 +3,10 @@ const { DEFAULT_JIRA_JQL } = require('../services/jira-service');
 const { DEFAULT_FEEDS } = require('../services/rss-service');
 
 const DEFAULT_SETTINGS = {
-  workbenchTheme: 'fresh', // 'standard' | 'fresh'
+  workbenchTheme: 'fresh', // 44 skins ('fresh' | 'standard' | 'glass' | 'obsidian' | 'mdn-*' | 'vsc-*' ...)
+  workbenchThemeMode: 'auto', // 'auto' | 'light' | 'dark'
+  workbenchWallpaper: 'aurora', // 'aurora' | 'bay' | 'sunset' | 'graphite'
+  dsviewFollowTheme: true, // true: follow active dark / VS Code theme palette; false: lock DSView #1f1f1f
   jira: {
     type: 'datacenter', // 'cloud' | 'datacenter'
     authType: 'basic', // 'basic' | 'cookie' | 'pat'
@@ -97,19 +100,11 @@ class TabonKBSettingTab extends PluginSettingTab {
     this.plugin = plugin;
   }
 
-  async getCredential(secretName) {
-    if (typeof this.plugin.getSecret === 'function') {
-      const s = await this.plugin.getSecret(secretName);
-      if (s) return s;
+  _readSecretsFileCached() {
+    const now = Date.now();
+    if (this._secretsFileCache && (now - (this._secretsFileCacheTime || 0) < 3000)) {
+      return this._secretsFileCache;
     }
-    // Try localStorage
-    try {
-      if (typeof localStorage !== 'undefined') {
-        const s = localStorage.getItem('tabonkb-secret-' + secretName);
-        if (s) return s;
-      }
-    } catch (e) {}
-    // Try .secrets.json
     try {
       const fs = require('fs');
       const path = require('path');
@@ -117,23 +112,38 @@ class TabonKBSettingTab extends PluginSettingTab {
       if (vaultPath) {
         const secFile = path.join(vaultPath, '.obsidian', 'plugins', 'tabonkb-workbench', '.secrets.json');
         if (fs.existsSync(secFile)) {
-          const data = JSON.parse(fs.readFileSync(secFile, 'utf8'));
-          if (data && data[secretName]) return data[secretName];
+          this._secretsFileCache = JSON.parse(fs.readFileSync(secFile, 'utf8')) || {};
+          this._secretsFileCacheTime = now;
+          return this._secretsFileCache;
         }
       }
     } catch (e) {}
-    const adapter = this.plugin.agentHub?.getAdapter?.('niceaigc');
-    if (adapter && typeof adapter.getCredential === 'function') {
-      const s = await adapter.getCredential(secretName);
-      if (s) return s;
-    }
-    if (this.plugin._fallbackSecrets) {
-      return this.plugin._fallbackSecrets[secretName] || null;
+    this._secretsFileCache = {};
+    this._secretsFileCacheTime = now;
+    return this._secretsFileCache;
+  }
+
+  async getCredential(secretName) {
+    // 1. Fast in-memory & localStorage check
+    try {
+      if (typeof localStorage !== 'undefined') {
+        const s = localStorage.getItem('tabonkb-secret-' + secretName);
+        if (s) return s;
+      }
+    } catch (e) {}
+    // 2. Cached .secrets.json check (1 disk read max per 3s across all 6 fields)
+    try {
+      const data = this._readSecretsFileCached();
+      if (data && data[secretName]) return data[secretName];
+    } catch (e) {}
+    if (this.plugin._fallbackSecrets && this.plugin._fallbackSecrets[secretName]) {
+      return this.plugin._fallbackSecrets[secretName];
     }
     return null;
   }
 
   async setCredential(secretName, value) {
+    this._secretsFileCache = null;
     if (!this.plugin._fallbackSecrets) this.plugin._fallbackSecrets = {};
     this.plugin._fallbackSecrets[secretName] = value;
 
@@ -175,23 +185,101 @@ class TabonKBSettingTab extends PluginSettingTab {
     containerEl.createEl('h2', { text: 'TabonKB 研发工作台设置' });
 
     // =========================================================================
-    // SECTION 0: 工作台主题外观 (Theme Appearance)
+    // SECTION 0: 工作台主题外观 (44 套主题引擎 + 悬停预览主题库 + DSView 色板策略)
     // =========================================================================
-    containerEl.createEl('h3', { text: '🎨 界面外观与工作台主题' });
-    new Setting(containerEl)
-      .setName('工作台视觉主题')
-      .setDesc('选择工作台的色彩与质感主题：标准（工程极简深浅适配）或 清新（通透毛玻璃与柔和天空渐变）')
-      .addDropdown(drop => {
-        drop.addOption('standard', '标准 (Standard - 经典极简)');
-        drop.addOption('fresh', '清新 (Fresh - 毛玻璃极简)');
-        drop.setValue(this.plugin.settings.workbenchTheme || 'standard');
-        drop.onChange(async (val) => {
-          this.plugin.settings.workbenchTheme = val;
-          await this.plugin.saveSettings();
-          if (typeof this.plugin.applyWorkbenchTheme === 'function') {
-            this.plugin.applyWorkbenchTheme(val);
+    containerEl.createEl('h3', { text: '🎨 界面外观与工作台主题 (44 套全量主题引擎)' });
+
+    const themeSetting = new Setting(containerEl)
+      .setName('工作台视觉主题 (44 套)')
+      .setDesc('涵盖 2 套工作台原生基准 + 42 套 dsh-antutu-skins 风格（Modern 现代 6 / Classic 经典 6 / Studio 工作室 5 / Dash 仪表盘 9 / VS Code 16）。也可在工作台顶栏或左导航栏底部直接点击「🎨」悬停实时预览。');
+
+    let themeDropdownRef = null;
+    themeSetting.addDropdown(drop => {
+      themeDropdownRef = drop;
+      const skins = (typeof TabonKBThemeEngine !== 'undefined' && TabonKBThemeEngine.getAllSkins)
+        ? TabonKBThemeEngine.getAllSkins()
+        : [
+            { id: 'fresh', group: 'workbench', name: '清新莫兰迪 (Fresh)', en: 'Morandi Fresh' },
+            { id: 'standard', group: 'workbench', name: '标准极简 (Standard)', en: 'Standard Minimal' }
+          ];
+      const grpLabels = {
+        workbench: '原工作台',
+        modern: 'Modern',
+        classic: 'Classic',
+        studio: 'Studio',
+        dash: 'Dash',
+        vscode: 'VS Code'
+      };
+      for (const sk of skins) {
+        const gName = grpLabels[sk.group] || sk.group;
+        drop.addOption(sk.id, `[${gName}] ${sk.name} (${sk.en})`);
+      }
+      const curVal = (typeof TabonKBThemeEngine !== 'undefined')
+        ? TabonKBThemeEngine.normalizeSkinId(this.plugin.settings.workbenchTheme || 'fresh')
+        : (this.plugin.settings.workbenchTheme || 'fresh');
+      drop.setValue(curVal);
+      drop.onChange(async (val) => {
+        this.plugin.settings.workbenchTheme = val;
+        await this.plugin.saveSettings({ themeOnly: true });
+        if (typeof this.plugin.applyWorkbenchTheme === 'function') {
+          this.plugin.applyWorkbenchTheme(val);
+        }
+      });
+    });
+
+    themeSetting.addButton(btn => {
+      btn.setButtonText('🎨 打开悬停预览主题库')
+        .setCta()
+        .onClick(() => {
+          if (typeof TabonKBThemeEngine !== 'undefined') {
+            TabonKBThemeEngine.openThemeLibraryPopover(btn.buttonEl, {
+              plugin: this.plugin,
+              onPick: (pickedId) => {
+                if (themeDropdownRef) themeDropdownRef.setValue(pickedId);
+              }
+            });
           }
         });
+    });
+
+    new Setting(containerEl)
+      .setName('主题明暗模式偏好')
+      .setDesc('选择工作台主题的明暗外观（单明暗主题如 Neon HUD、Noir 及各款 VS Code 主题会自动匹配其专属明暗）')
+      .addDropdown(drop => {
+        drop.addOption('auto', '跟随系统 / Obsidian 主题 (Auto)');
+        drop.addOption('light', '强制浅色外观 (Light)');
+        drop.addOption('dark', '强制深色外观 (Dark)');
+        drop.setValue(this.plugin.settings.workbenchThemeMode || 'auto');
+        drop.onChange(async (val) => {
+          this.plugin.settings.workbenchThemeMode = val;
+          await this.plugin.saveSettings({ themeOnly: true });
+        });
+      });
+
+    new Setting(containerEl)
+      .setName('液态玻璃与莫兰迪壁纸')
+      .setDesc('当选用「液态玻璃 (glass)」或「清新莫兰迪 (fresh)」时生效的背景氛围壁纸，并自动同步至内嵌 Harness (dt.wall)')
+      .addDropdown(drop => {
+        drop.addOption('aurora', '极光紫绸 (Aurora - 默认)');
+        drop.addOption('bay', '海湾碧波 (Bay)');
+        drop.addOption('sunset', '落日暮色 (Sunset)');
+        drop.addOption('graphite', '石墨暗影 (Graphite)');
+        drop.setValue(this.plugin.settings.workbenchWallpaper || 'aurora');
+        drop.onChange(async (val) => {
+          this.plugin.settings.workbenchWallpaper = val;
+          await this.plugin.saveSettings({ themeOnly: true });
+        });
+      });
+
+    new Setting(containerEl)
+      .setName('DSView 逻辑分析仪跟随深色/VS Code 主题色板')
+      .setDesc('开启后，逻辑分析工具 (.tw-la-root) 自动继承当前主题的深色/VS Code 色板；关闭则锁定为 DSView 经典 #1f1f1f 暗色硬件面板')
+      .addToggle(tog => {
+        tog.setValue(this.plugin.settings.dsviewFollowTheme !== false)
+          .onChange(async (val) => {
+            this.plugin.settings.dsviewFollowTheme = val;
+            await this.plugin.saveSettings({ themeOnly: true });
+          });
       });
 
     // =========================================================================
@@ -310,7 +398,7 @@ class TabonKBSettingTab extends PluginSettingTab {
         text.setPlaceholder(tokenPlaceholder);
         
         // Asynchronously check if token is already present
-        this.plugin.jiraService?.getCredential(jiraConfig.secretName).then(existing => {
+        this.getCredential(jiraConfig.secretName).then(existing => {
           if (existing) {
             text.setPlaceholder('（已安全保存在 SecretStorage 中，输入新内容以覆盖）');
           }

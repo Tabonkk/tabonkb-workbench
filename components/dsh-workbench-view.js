@@ -67,6 +67,23 @@ class DshWorkbenchView {
 
     this._boundOnWindowMessage = (evt) => {
       if (!evt || !evt.data) return;
+      if (evt.data.type === 'tabonkb-dsh-ready') {
+        this.syncThemeToIframe();
+        this.sendDshCtxState();
+        return;
+      }
+      if (evt.data.type === 'tabonkb-dsh-ctx-state-req') {
+        this.sendDshCtxState();
+        return;
+      }
+      if (evt.data.type === 'tabonkb-dsh-ctx-set') {
+        this.applyDshCtxSelection(evt.data.key, evt.data.value);
+        return;
+      }
+      if (evt.data.type === 'tabonkb-dsh-new-chat') {
+        this.resetDshCtxSelections();
+        return;
+      }
       if (evt.data.type === 'tabonkb-dsh-open-file' && evt.data.path) {
         this.handleOpenFile(evt.data.path, evt.data.line);
       }
@@ -487,7 +504,23 @@ class DshWorkbenchView {
     };
   }
 
+  syncThemeToIframe() {
+    try {
+      const p = this.plugin || (this.app?.plugins?.plugins?.['tabonkb-workbench']);
+      if (typeof TabonKBThemeEngine !== 'undefined' && p && p.settings) {
+        TabonKBThemeEngine.syncDshSkinStorage(
+          p.settings.workbenchTheme || 'fresh',
+          p.settings.workbenchWallpaper || 'aurora',
+          p
+        );
+      }
+    } catch (_) {}
+  }
+
   injectCustomStyles() {
+    this.syncThemeToIframe();
+    setTimeout(() => this.syncThemeToIframe(), 200);
+    setTimeout(() => this.syncThemeToIframe(), 650);
     try {
       const doc = this.iframeEl?.contentDocument || this.iframeEl?.contentWindow?.document;
       if (!doc || !doc.head) return;
@@ -575,7 +608,229 @@ div[data-sidebar-collapsed] div[class*="_root"][class*="_collapsed"] {
           (doc.head || doc.body).appendChild(script);
         }
       }
+
+      // 「+」菜单工程上下文桥 (与代理层注入互为冗余, 覆盖 iframe 直达加载场景)
+      let ctxScript = doc.getElementById('tabonkb-dsh-ctx-bridge');
+      if (!ctxScript) {
+        let ctxJs = '';
+        if (typeof getDshContextBridgeScript === 'function') {
+          ctxJs = getDshContextBridgeScript();
+        } else {
+          try {
+            const dshMgr = require('../services/dsh-daemon-manager.js');
+            ctxJs = dshMgr.getDshContextBridgeScript ? dshMgr.getDshContextBridgeScript() : '';
+          } catch (_) {}
+        }
+        if (ctxJs) {
+          ctxScript = doc.createElement('script');
+          ctxScript.id = 'tabonkb-dsh-ctx-bridge';
+          ctxScript.textContent = ctxJs;
+          (doc.head || doc.body).appendChild(ctxScript);
+        }
+      }
     } catch (_) {}
+  }
+
+  /**
+   * 定位自研 Agent 抽屉实例 (若工作台视图存活)。
+   * 两侧共用同一组 localStorage/process.env 键, 抽屉存活时优先委托其 save* 方法,
+   * 保证胶囊条/浮窗标注即时刷新且语义完全一致。
+   */
+  getAgentDrawer() {
+    try {
+      const leaves = this.app?.workspace?.getLeavesOfType?.('tabonkb-workbench-view') || [];
+      for (const leaf of leaves) {
+        const drawer = leaf?.view?.agentDrawer;
+        if (drawer) return drawer;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  /** 读取四项工程上下文的当前值 (与 PiDrawerView 持久化键同源) */
+  getDshCtxState() {
+    const ls = (k) => { try { return localStorage.getItem(k); } catch (_) { return null; } };
+    let jira = null, lp = null;
+    try { jira = JSON.parse(ls('tabonkb-jira-selected-issue') || 'null'); } catch (_) {}
+    try { lp = JSON.parse(ls('tabonkb-local-selected-project') || 'null'); } catch (_) {}
+    if (lp && lp.id && !lp.priDriverRel && lp.platform && lp.project) {
+      lp.priDriverRel = `pri_project/driver/${lp.platform}/${lp.project}/base`;
+      lp.publicDriverRel = 'pri_project/driver/public';
+    }
+    return {
+      opengrok: ls('tabonkb-opengrok-selected-project') || 'auto',
+      gerrit: ls('tabonkb-gerrit-selected-filter') || 'all',
+      jira: (jira && jira.key) ? jira : null,
+      localproj: (lp && lp.id) ? lp : null
+    };
+  }
+
+  /**
+   * 构造 Jira 工单与本地工程的可选清单 (与抽屉面板同源):
+   * - Jira: jiraService 内存缓存 → tabonkb-jira-cache-v1 → 趋势缓存
+   * - 本地工程: local-project-service 扁平缓存 (磁盘 local-projects-cache.json 兜底)
+   */
+  getDshCtxLists() {
+    let jira = [];
+    try {
+      const js = this.plugin?.jiraService;
+      let issues = js?._cache?.issues;
+      if (!issues || !issues.length) {
+        const raw = localStorage.getItem('tabonkb-jira-cache-v1');
+        const parsed = raw ? JSON.parse(raw) : null;
+        if (Array.isArray(parsed) && parsed.length) issues = parsed;
+      }
+      if ((!issues || !issues.length) && js?._trendCache?.issues) issues = js._trendCache.issues;
+      if ((!issues || !issues.length) && typeof js?.getTrendCacheKeys === 'function') {
+        const ks = js.getTrendCacheKeys();
+        const rawTrend = localStorage.getItem(ks.data);
+        const parsedTrend = rawTrend ? JSON.parse(rawTrend) : null;
+        if (Array.isArray(parsedTrend)) issues = parsedTrend;
+      }
+      jira = (issues || []).slice(0, 120).map(i => ({
+        key: i.key || '',
+        summary: i.summary || '',
+        status: i.status || '',
+        priority: i.priority || '',
+        assignee: i.assignee || i.assigneeName || '',
+        url: i.url || ''
+      })).filter(i => i.key);
+    } catch (_) {}
+
+    let localproj = [];
+    try {
+      if (typeof getAllAvailableLocalProjects === 'function') {
+        localproj = getAllAvailableLocalProjects(false) || [];
+      }
+      if (!localproj.length) {
+        const basePath = this.app?.vault?.adapter?.basePath || 'd:\\work\\Mgmt\\TabonKB';
+        const cachePath = path.join(basePath, '.obsidian', 'plugins', 'tabonkb-workbench', 'local-projects-cache.json');
+        if (fs.existsSync(cachePath)) {
+          const parsed = JSON.parse(fs.readFileSync(cachePath, 'utf8'));
+          if (Array.isArray(parsed)) localproj = parsed;
+        }
+      }
+    } catch (_) {}
+    return { jira, localproj };
+  }
+
+  /**
+   * 向 DSH iframe 推送上下文状态。
+   * @param {boolean} withLists 是否附带 Jira/本地工程候选清单 (913 项 ~600KB)，
+   *   仅菜单打开/iframe ready 时全量推送；选择落盘回执只推 values。
+   */
+  sendDshCtxState(withLists = true) {
+    try {
+      const win = this.iframeEl && this.iframeEl.contentWindow;
+      if (!win) return;
+      const msg = { type: 'tabonkb-dsh-ctx-state', values: this.getDshCtxState() };
+      if (withLists) msg.lists = this.getDshCtxLists();
+      win.postMessage(msg, '*');
+    } catch (_) {}
+  }
+
+  /**
+   * 应用来自 Harness「+」菜单的上下文选择。
+   * 抽屉存活时委托其 save* 系列方法 (内部完成 localStorage/env/胶囊刷新),
+   * 否则直接写入同一组键, 保证两侧一致。
+   */
+  applyDshCtxSelection(key, value) {
+    const drawer = this.getAgentDrawer();
+    let label = '';
+    try {
+      if (key === 'opengrok') {
+        const v = (value && value !== 'auto') ? String(value) : 'auto';
+        if (drawer && typeof drawer.saveProject === 'function') {
+          drawer.saveProject(v);
+        } else {
+          try { localStorage.setItem('tabonkb-opengrok-selected-project', v); } catch (_) {}
+        }
+        try {
+          if (v !== 'auto') process.env.OPENGROK_DEFAULT_PROJECT = v;
+          else delete process.env.OPENGROK_DEFAULT_PROJECT;
+        } catch (_) {}
+        label = `✓ OpenGrok: ${v === 'auto' ? 'Auto' : v}`;
+      } else if (key === 'gerrit') {
+        const v = value || 'all';
+        if (drawer && typeof drawer.saveGerritFilter === 'function') {
+          drawer.saveGerritFilter(v);
+        } else {
+          try { localStorage.setItem('tabonkb-gerrit-selected-filter', v); } catch (_) {}
+        }
+        try {
+          if (v !== 'all') process.env.TABONKB_GERRIT_FILTER = v;
+          else delete process.env.TABONKB_GERRIT_FILTER;
+        } catch (_) {}
+        label = '✓ Gerrit 已更新';
+      } else if (key === 'jira') {
+        const issue = (value && value.key) ? {
+          key: value.key, summary: value.summary || '', status: value.status || '',
+          priority: value.priority || '', assignee: value.assignee || '', url: value.url || ''
+        } : null;
+        if (drawer && typeof drawer.saveJiraIssue === 'function') {
+          drawer.saveJiraIssue(issue);
+        } else {
+          try {
+            if (issue) localStorage.setItem('tabonkb-jira-selected-issue', JSON.stringify(issue));
+            else localStorage.removeItem('tabonkb-jira-selected-issue');
+          } catch (_) {}
+        }
+        try {
+          if (issue) process.env.TABONKB_JIRA_ISSUE_JSON = JSON.stringify(issue);
+          else delete process.env.TABONKB_JIRA_ISSUE_JSON;
+        } catch (_) {}
+        label = issue ? `✓ Jira: ${issue.key}` : '✓ 已清除 Jira 绑定';
+      } else if (key === 'localproj') {
+        const proj = (value && value.id) ? value : null;
+        if (drawer && typeof drawer.saveLocalProject === 'function') {
+          drawer.saveLocalProject(proj);
+        } else {
+          try {
+            if (proj) localStorage.setItem('tabonkb-local-selected-project', JSON.stringify(proj));
+            else localStorage.removeItem('tabonkb-local-selected-project');
+            if (typeof process !== 'undefined' && process.env) {
+              if (proj) process.env.TABONKB_LOCAL_PROJECT_JSON = JSON.stringify(proj);
+              else delete process.env.TABONKB_LOCAL_PROJECT_JSON;
+            }
+          } catch (_) {}
+        }
+        label = proj ? `✓ 本地工程: ${proj.label || proj.project}` : '✓ 已清除本地工程';
+      }
+    } catch (_) {}
+    this.sendDshCtxState(false);
+    if (label) { try { new NoticeCls(label, 1800); } catch (_) {} }
+  }
+
+  /**
+   * 新对话开始: 四项工程上下文恢复未选择默认态
+   * (OpenGrok→auto, Gerrit→all, Jira→解绑, 本地工程→解绑),
+   * 抽屉存活时委托其 save* 保持胶囊条同步。
+   */
+  resetDshCtxSelections() {
+    try {
+      const drawer = this.getAgentDrawer();
+      if (drawer) {
+        if (typeof drawer.saveProject === 'function') drawer.saveProject('auto');
+        if (typeof drawer.saveGerritFilter === 'function') drawer.saveGerritFilter('all');
+        if (typeof drawer.saveJiraIssue === 'function') drawer.saveJiraIssue(null);
+        if (typeof drawer.saveLocalProject === 'function') drawer.saveLocalProject(null);
+      } else {
+        try {
+          localStorage.setItem('tabonkb-opengrok-selected-project', 'auto');
+          localStorage.setItem('tabonkb-gerrit-selected-filter', 'all');
+          localStorage.removeItem('tabonkb-jira-selected-issue');
+          localStorage.removeItem('tabonkb-local-selected-project');
+        } catch (_) {}
+      }
+      try {
+        delete process.env.OPENGROK_DEFAULT_PROJECT;
+        delete process.env.TABONKB_LOCAL_PROJECT_JSON;
+        delete process.env.TABONKB_JIRA_ISSUE_JSON;
+        delete process.env.TABONKB_GERRIT_FILTER;
+      } catch (_) {}
+      try { new NoticeCls('✓ 新对话: 上下文已重置', 1600); } catch (_) {}
+    } catch (_) {}
+    this.sendDshCtxState(false);
   }
 
   /**

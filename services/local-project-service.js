@@ -99,10 +99,262 @@ function safeReaddirSync(dirPath) {
   }
 }
 
+function windowsPathToLinux(winPath) {
+  if (!winPath) return '';
+  let norm = String(winPath).trim().replace(/\\/g, '/');
+  // 62: Y:/ -> /dfb/tankaikun/share/
+  if (/^[Yy]:/i.test(norm)) {
+    return norm.replace(/^[Yy]:\/?/i, '/dfb/tankaikun/share/');
+  }
+  // 31: Z:/work/ -> /home/tankaikun/share/work/
+  if (/^[Zz]:\/work/i.test(norm)) {
+    return norm.replace(/^[Zz]:\/work\/?/i, '/home/tankaikun/share/work/');
+  }
+  if (/^[Zz]:/i.test(norm)) {
+    return norm.replace(/^[Zz]:\/?/i, '/home/tankaikun/share/');
+  }
+  // UNC paths
+  if (norm.startsWith('//192.168.1.62/tankaikun/')) {
+    return norm.replace('//192.168.1.62/tankaikun/', '/dfb/tankaikun/share/');
+  }
+  if (norm.startsWith('//192.168.1.31/tankaikun/work/')) {
+    return norm.replace('//192.168.1.31/tankaikun/work/', '/home/tankaikun/share/work/');
+  }
+  return norm;
+}
+
+function linuxPathToWindows(linuxPath) {
+  if (!linuxPath) return '';
+  let norm = String(linuxPath).trim().replace(/\\/g, '/');
+  if (norm.startsWith('/dfb/tankaikun/share/')) {
+    return norm.replace('/dfb/tankaikun/share/', 'Y:\\').replace(/\//g, '\\');
+  }
+  if (norm.startsWith('/home/tankaikun/share/work/')) {
+    return norm.replace('/home/tankaikun/share/work/', 'Z:\\work\\').replace(/\//g, '\\');
+  }
+  if (norm.startsWith('/home/tankaikun/share/')) {
+    return norm.replace('/home/tankaikun/share/', 'Z:\\').replace(/\//g, '\\');
+  }
+  return norm.replace(/\//g, '\\');
+}
+
+/**
+ * 通过 SSH 直接读取远端 Linux 服务器文件 (极速且杜绝 SMB 超时卡死)
+ */
+function readRemoteFileViaSsh(sshHost, user, linuxPath, timeoutMs = 4000) {
+  if (!linuxPath) return null;
+  const sshBin = getWinSshBin();
+  const host = sshHost || '192.168.1.62';
+  const u = user || 'tankaikun';
+  const target = `${u}@${host}`;
+
+  try {
+    const escaped = linuxPath.replace(/(["`$\\])/g, '\\$1');
+    const out = child_process.execFileSync(sshBin, [
+      '-o', 'BatchMode=yes',
+      '-o', `ConnectTimeout=${Math.max(1, Math.floor(timeoutMs / 1000))}`,
+      '-q',
+      target,
+      `cat "${escaped}"`
+    ], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+      maxBuffer: 50 * 1024 * 1024,
+      timeout: timeoutMs
+    });
+    return out;
+  } catch (err) {
+    return null;
+  }
+}
+
+/**
+ * 通过 SSH 直接写入远端 Linux 服务器文件
+ */
+function writeRemoteFileViaSsh(sshHost, user, linuxPath, content, timeoutMs = 8000) {
+  if (!linuxPath) throw new Error('无效的 Linux 目标路径');
+  const sshBin = getWinSshBin();
+  const host = sshHost || '192.168.1.62';
+  const u = user || 'tankaikun';
+  const target = `${u}@${host}`;
+
+  const escaped = linuxPath.replace(/(["`$\\])/g, '\\$1');
+  const dirPath = path.posix.dirname(linuxPath.replace(/\\/g, '/'));
+  const escapedDir = dirPath.replace(/(["`$\\])/g, '\\$1');
+
+  try {
+    child_process.execFileSync(sshBin, [
+      '-o', 'BatchMode=yes',
+      '-o', 'ConnectTimeout=3',
+      '-q',
+      target,
+      `mkdir -p "${escapedDir}" && cat > "${escaped}"`
+    ], {
+      input: content,
+      encoding: 'utf8',
+      stdio: ['pipe', 'pipe', 'ignore'],
+      maxBuffer: 10 * 1024 * 1024,
+      timeout: timeoutMs
+    });
+    return true;
+  } catch (err) {
+    throw new Error(`SSH 写入失败: ${err.message}`);
+  }
+}
+
+/**
+ * 通过 SSH 在指定 Linux 目录下快速定位文件 (基于 Linux find, 比 Windows SMB 遍历快 100 倍)
+ */
+function findRemoteFileViaSsh(sshHost, user, searchRoots, fileName, timeoutMs = 5000) {
+  if (!fileName || !searchRoots) return null;
+  const sshBin = getWinSshBin();
+  const host = sshHost || '192.168.1.62';
+  const u = user || 'tankaikun';
+  const target = `${u}@${host}`;
+
+  const roots = (Array.isArray(searchRoots) ? searchRoots : [searchRoots]).filter(Boolean);
+  if (roots.length === 0) return null;
+
+  try {
+    const escapedFileName = fileName.replace(/(["`$\\*?])/g, '\\$1');
+    const rootStr = roots.map(r => `"${r.replace(/(["`$\\])/g, '\\$1')}"`).join(' ');
+    const cmd = `find ${rootStr} -maxdepth 13 -type f -name "${escapedFileName}" 2>/dev/null`;
+    const out = child_process.execFileSync(sshBin, [
+      '-o', 'BatchMode=yes',
+      '-o', `ConnectTimeout=${Math.max(1, Math.floor(timeoutMs / 1000))}`,
+      '-q',
+      target,
+      cmd
+    ], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+      maxBuffer: 5 * 1024 * 1024,
+      timeout: timeoutMs
+    });
+
+    const lines = out.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+    if (lines.length === 0) return null;
+
+    // 优先返回包含 /base/ 的路径（Tier 2 定制最高优先级）
+    const baseMatch = lines.find(l => l.includes('/base/'));
+    if (baseMatch) return baseMatch;
+
+    // 其次返回包含 /public/ 的路径（Tier 1 公共差分）
+    const pubMatch = lines.find(l => l.includes('/public/'));
+    if (pubMatch) return pubMatch;
+
+    return lines[0];
+  } catch (err) {
+    return null;
+  }
+}
+
+/**
+ * 异步 SSH 直读远端文件 (不阻塞 UI 主线程)
+ * @returns {Promise<string|null>}
+ */
+function readRemoteFileViaSshAsync(sshHost, user, linuxPath, timeoutMs = 4000) {
+  return new Promise((resolve) => {
+    if (!linuxPath) return resolve(null);
+    const sshBin = getWinSshBin();
+    const host = sshHost || '192.168.1.62';
+    const u = user || 'tankaikun';
+    const escaped = String(linuxPath).replace(/(["`$\\])/g, '\\$1');
+    child_process.execFile(sshBin, [
+      '-o', 'BatchMode=yes',
+      '-o', `ConnectTimeout=${Math.max(1, Math.floor(timeoutMs / 1000))}`,
+      '-q',
+      `${u}@${host}`,
+      `cat "${escaped}"`
+    ], {
+      encoding: 'utf8',
+      maxBuffer: 50 * 1024 * 1024,
+      timeout: timeoutMs
+    }, (err, stdout) => {
+      if (err && !stdout) return resolve(null);
+      resolve(typeof stdout === 'string' && stdout.length > 0 ? stdout : null);
+    });
+  });
+}
+
+/**
+ * 单次 SSH 会话完成「多级候选路径直读 + find 兜底定位」
+ * 相比逐次 spawn（每次 300ms+ 连接握手），全部探测收敛到一条 SSH 连接，
+ * 通常 300~800ms 内返回；命中的 Linux 路径经 stderr 通道回传。
+ * @param {string} sshHost
+ * @param {string} user
+ * @param {{candidates?: string[], searchRoots?: string[], fileName?: string}} opts
+ * @param {number} [timeoutMs]
+ * @returns {Promise<{content: string, linuxPath: string}|null>}
+ */
+function readRemoteFileSmartAsync(sshHost, user, opts = {}, timeoutMs = 8000) {
+  return new Promise((resolve) => {
+    const candidates = [];
+    (opts.candidates || []).forEach(c => { if (c && !candidates.includes(c)) candidates.push(c); });
+    const roots = (Array.isArray(opts.searchRoots) ? opts.searchRoots : []).filter(Boolean);
+    const fileName = opts.fileName;
+    if (candidates.length === 0 && !fileName) return resolve(null);
+
+    const esc = s => String(s).replace(/(["`$\\])/g, '\\$1');
+    const parts = [];
+    if (candidates.length > 0) {
+      const list = candidates.map(p => `"${esc(p)}"`).join(' ');
+      parts.push(`for __p in ${list}; do if [ -f "$__p" ]; then echo "$__p" >&2; cat "$__p"; exit 0; fi; done`);
+    }
+    if (fileName && roots.length > 0) {
+      const rootStr = roots.map(r => `"${esc(r)}"`).join(' ');
+      const escName = String(fileName).replace(/(["`$\\*?])/g, '\\$1');
+      // 与 findRemoteFileViaSsh 同优先级：/base/ (Tier2) > /public/ (Tier1) > 首个命中
+      parts.push(`__f=$(find ${rootStr} -maxdepth 13 -type f -name "${escName}" 2>/dev/null | grep '/base/' | head -n1); [ -z "$__f" ] && __f=$(find ${rootStr} -maxdepth 13 -type f -name "${escName}" 2>/dev/null | grep '/public/' | head -n1); [ -z "$__f" ] && __f=$(find ${rootStr} -maxdepth 13 -type f -name "${escName}" 2>/dev/null | head -n1); if [ -n "$__f" ]; then echo "$__f" >&2; cat "$__f"; fi`);
+    }
+    const cmd = parts.join('; ');
+
+    const host = sshHost || '192.168.1.62';
+    const u = user || 'tankaikun';
+    child_process.execFile(getWinSshBin(), [
+      '-o', 'BatchMode=yes',
+      '-o', 'ConnectTimeout=4',
+      '-q',
+      `${u}@${host}`,
+      cmd
+    ], {
+      encoding: 'utf8',
+      maxBuffer: 50 * 1024 * 1024,
+      timeout: timeoutMs
+    }, (err, stdout, stderr) => {
+      const content = (typeof stdout === 'string' && stdout.length > 0) ? stdout : null;
+      if (!content) return resolve(null);
+      // stderr 最后一行以 '/' 开头者即命中路径 (ssh 警告信息不会造成干扰)
+      let linuxPath = '';
+      try {
+        const errLines = String(stderr || '').split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+        linuxPath = errLines.filter(l => l.startsWith('/')).pop() || '';
+      } catch (_) {}
+      resolve({ content, linuxPath });
+    });
+  });
+}
+
 function safeReadFileSync(filePath, encoding = 'utf8') {
   try {
     return fs.readFileSync(filePath, encoding);
   } catch (err) {
+    // 若路径在 Linux 远端服务器挂载盘 (Y: 或 Z: 或 Linux 原生路径)，透明回退到 SSH 秒级直读
+    const isServerShare = /^[YyZz]:/i.test(filePath) || filePath.startsWith('/dfb/') || filePath.startsWith('/home/');
+    if (isServerShare) {
+      const isHost31 = /^[Zz]:/i.test(filePath) || filePath.startsWith('/home/');
+      const sshHost = isHost31 ? '192.168.1.31' : '192.168.1.62';
+      const linuxPath = windowsPathToLinux(filePath);
+      const sshContent = readRemoteFileViaSsh(sshHost, 'tankaikun', linuxPath, 3000);
+      if (typeof sshContent === 'string') {
+        return sshContent;
+      }
+    }
+
+    if (!fs.existsSync(filePath)) {
+      throw new Error(`文件不存在: ${filePath}`);
+    }
+
     if (err.code === 'EPERM' || err.code === 'EACCES') {
       try {
         return child_process.execSync(`cmd.exe /c type "${filePath}"`, { encoding, maxBuffer: 50 * 1024 * 1024 });
@@ -118,6 +370,18 @@ function safeWriteFileSync(filePath, content, encoding = 'utf8') {
   try {
     fs.writeFileSync(filePath, content, encoding);
   } catch (err) {
+    // 若路径在 Linux 远端服务器挂载盘 (Y: 或 Z:)，透明回退到 SSH 秒级直写
+    const isServerShare = /^[YyZz]:/i.test(filePath) || filePath.startsWith('/dfb/') || filePath.startsWith('/home/');
+    if (isServerShare) {
+      try {
+        const isHost31 = /^[Zz]:/i.test(filePath) || filePath.startsWith('/home/');
+        const sshHost = isHost31 ? '192.168.1.31' : '192.168.1.62';
+        const linuxPath = windowsPathToLinux(filePath);
+        writeRemoteFileViaSsh(sshHost, 'tankaikun', linuxPath, content, 6000);
+        return;
+      } catch (_) {}
+    }
+
     if (err.code === 'EPERM' || err.code === 'EACCES') {
       const os = require('os');
       const tmpPath = path.join(os.tmpdir(), `wb_tmp_${Date.now()}_${Math.random().toString(36).slice(2)}.tmp`);
@@ -367,9 +631,14 @@ function resolveEffectiveFile(projectConfig, relativePath) {
     };
   }
 
-  // Tier 0: 原厂官方基线 (在 vendor_w, alps, 或仓库根目录查找)
+  // Tier 0: 原厂官方基线 (在 vendor_t, vendor_w, alps, idh, kernel 或仓库根目录查找)
   const candidateBaselines = [
     path.join(projectConfig.fullPathWin, cleanRel),
+    path.join(projectConfig.fullPathWin, 'vendor_t', cleanRel),
+    path.join(projectConfig.fullPathWin, 'vendor_t', 'bsp', cleanRel),
+    path.join(projectConfig.fullPathWin, 'pri_project', 'driver', 'public', cleanRel),
+    path.join(projectConfig.fullPathWin, 'pri_project', 'driver', cleanRel),
+    path.join(projectConfig.fullPathWin, 'idh', cleanRel),
     path.join(projectConfig.fullPathWin, 'vendor_w', cleanRel),
     path.join(projectConfig.fullPathWin, 'alps', cleanRel),
     path.join(projectConfig.fullPathWin, 'kernel', cleanRel),
@@ -541,6 +810,13 @@ module.exports = {
   safeReaddirSync,
   safeReadFileSync,
   safeWriteFileSync,
+  windowsPathToLinux,
+  linuxPathToWindows,
+  readRemoteFileViaSsh,
+  readRemoteFileViaSshAsync,
+  readRemoteFileSmartAsync,
+  writeRemoteFileViaSsh,
+  findRemoteFileViaSsh,
   getLocalProjectsCacheFile,
   scanWorkspaceProjects,
   getAllAvailableLocalProjects,
@@ -551,4 +827,5 @@ module.exports = {
   extractCompilerErrors,
   getWinSshBin
 };
+
 

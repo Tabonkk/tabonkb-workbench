@@ -582,9 +582,55 @@ function getDshFileBridgeScript() {
     setTimeout(function() { observer.disconnect(); }, 15000);
   }
 
-  // 监听来自宿主 (Obsidian) 的双击切换侧栏消息
+  // 3. 实时应用来自宿主工作台的主题消息 (跨源 postMessage + localStorage 同步)
+  function applyTabonKbDshTheme(payload) {
+    if (!payload || !payload.css) return;
+    try {
+      var skinId = payload.skinId || 'glass';
+      var wallId = payload.wallId || 'aurora';
+      var mode = payload.mode || 'light';
+      document.documentElement.dataset.akSkin = skinId;
+      document.documentElement.dataset.akWall = wallId;
+      document.documentElement.style.colorScheme = mode;
+      if (document.body) {
+        document.body.dataset.theme = mode;
+      }
+      var styleEl = document.getElementById('tabonkb-dsh-theme-style');
+      if (!styleEl) {
+        styleEl = document.createElement('style');
+        styleEl.id = 'tabonkb-dsh-theme-style';
+        (document.head || document.documentElement).appendChild(styleEl);
+      }
+      styleEl.textContent = payload.css;
+      try {
+        localStorage.setItem('dt.skin', skinId);
+        localStorage.setItem('dt.wall', wallId);
+        localStorage.removeItem('dsh.antutu.off');
+        window.dispatchEvent(new StorageEvent('storage', { key: 'dt.skin', newValue: skinId }));
+      } catch (_) {}
+    } catch (_) {}
+  }
+
+  // Keep #tabonkb-dsh-theme-style at the end of <head> so DSH dynamic style tags do not override it
+  try {
+    var headObserver = new MutationObserver(function() {
+      var st = document.getElementById('tabonkb-dsh-theme-style');
+      if (st && document.head && document.head.lastElementChild !== st) {
+        document.head.appendChild(st);
+      }
+    });
+    if (document.head) {
+      headObserver.observe(document.head, { childList: true });
+    }
+  } catch (_) {}
+
+  // 监听来自宿主 (Obsidian) 的双击切换侧栏与主题同步消息
   window.addEventListener('message', function(e) {
     if (!e || !e.data) return;
+    if (e.data.type === 'tabonkb-dsh-apply-theme') {
+      applyTabonKbDshTheme(e.data);
+      return;
+    }
     if (e.data.type === 'tabonkb-dsh-toggle-sidebar') {
       var btn = findDshToggleBtn();
       if (!btn) return;
@@ -598,6 +644,711 @@ function getDshFileBridgeScript() {
       }
     }
   });
+
+  // Notify parent Obsidian Workbench that DSH iframe bridge is ready for theme sync
+  function notifyReady() {
+    try {
+      if (window.parent && window.parent !== window) {
+        window.parent.postMessage({ type: 'tabonkb-dsh-ready' }, '*');
+      }
+    } catch (_) {}
+  }
+  notifyReady();
+  setTimeout(notifyReady, 150);
+  setTimeout(notifyReady, 500);
+})();
+`.trim();
+}
+
+/**
+ * TabonKB 定制化: DSH「+」菜单注入工程上下文配置项桥接脚本
+ * - MutationObserver 侦测原生「+」弹出菜单 (识别 文件/file/压缩/compact/权限/模型 等特征词)
+ * - 菜单尾部追加「上下文」分组: OpenGrok / Gerrit / Jira 工单 / 本地工程 (与自研 Agent 抽屉同源)
+ * - 点击项右侧级联出自研毛玻璃面板 (外置 DOM, 不受 React 重渲染影响), 选项即选即关
+ * - 选项数据与当前值全部经 postMessage 与宿主双向同步, 不落 iframe 侧 localStorage
+ */
+function getDshContextBridgeScript() {
+  return `
+(function () {
+  if (window._twxCtxBridgeInstalled) return;
+  window._twxCtxBridgeInstalled = true;
+
+  var CSS = [
+    '.twx-ctx-block{padding:2px 0;}',
+    '.twx-sep{height:1px;background:rgba(128,128,128,.18);margin:4px 10px;}',
+    '.twx-glabel{padding:3px 12px 2px;font-size:10px;font-weight:600;letter-spacing:.4px;color:#8b949e;}',
+    '.twx-item{display:flex;align-items:center;gap:8px;padding:6px 10px;margin:0 4px;border-radius:6px;font-size:12px;cursor:pointer;color:inherit;}',
+    '.twx-item:hover{background:rgba(128,128,128,.12);}',
+    '.twx-dot{width:7px;height:7px;border-radius:50%;flex:0 0 auto;}',
+    '.twx-name{font-weight:500;}',
+    '.twx-val{margin-left:auto;font-size:10.5px;color:#8b949e;max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}',
+    '.twx-arrow{color:#8b949e;font-size:11px;margin-left:2px;}',
+    '.twx-panel{position:fixed;z-index:2147483000;width:262px;max-height:min(340px,calc(100vh - 40px));display:flex;flex-direction:column;border-radius:10px;overflow:hidden;font-family:inherit;font-size:12px;color:inherit;',
+    'background:var(--ds-background-secondary,Canvas);border:1px solid rgba(128,128,128,.25);box-shadow:0 12px 32px -4px rgba(0,0,0,.28);backdrop-filter:blur(20px) saturate(180%);-webkit-backdrop-filter:blur(20px) saturate(180%);}',
+    '.twx-p-search{display:flex;align-items:center;gap:6px;padding:7px 10px;border-bottom:1px solid rgba(128,128,128,.16);}',
+    '.twx-p-search input{flex:1;min-width:0;border:0;outline:0;background:transparent;font-size:11.5px;color:inherit;}',
+    '.twx-p-nav{display:flex;align-items:center;gap:8px;padding:5px 10px;border-bottom:1px solid rgba(128,128,128,.14);font-size:11px;}',
+    '.twx-back{cursor:pointer;color:#8b949e;padding:1px 4px;border-radius:4px;white-space:nowrap;}',
+    '.twx-back:hover{background:rgba(128,128,128,.14);color:inherit;}',
+    '.twx-nav-title{flex:1;min-width:0;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}',
+    '.twx-p-list{overflow-y:auto;padding:4px;flex:1;}',
+    '.twx-opt{display:flex;align-items:center;gap:7px;padding:6px 8px;border-radius:6px;cursor:pointer;font-size:11.5px;}',
+    '.twx-opt:hover{background:rgba(128,128,128,.12);}',
+    '.twx-opt.on{background:rgba(37,99,235,.14);}',
+    '.twx-opt .t-main{min-width:0;flex:1;}',
+    '.twx-opt .t-name{display:block;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}',
+    '.twx-opt .t-desc{display:block;font-size:10px;color:#8b949e;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}',
+    '.twx-opt .t-check{color:#10B981;font-size:11px;flex:0 0 auto;}',
+    '.twx-tag{display:inline-block;margin-left:5px;padding:0 5px;border-radius:5px;font-size:9.5px;font-weight:500;background:rgba(128,128,128,.14);color:#8b949e;vertical-align:1px;}',
+    '.twx-arr{color:#8b949e;font-size:11px;flex:0 0 auto;}',
+    '.twx-cur{display:flex;align-items:center;gap:7px;margin:0 0 5px;padding:7px 9px;border-radius:7px;border-left:2px solid #10B981;background:rgba(16,185,129,.08);font-size:11.5px;}',
+    '.twx-cur-ic{color:#10B981;font-size:12px;flex:0 0 auto;}',
+    '.twx-cur .t-name{color:#10B981;font-weight:600;}',
+    '.twx-cur-x{flex:0 0 auto;margin-left:auto;background:transparent;border:0;cursor:pointer;color:#94A3B8;padding:2px 5px;font-size:10.5px;border-radius:4px;}',
+    '.twx-cur-x:hover{background:rgba(128,128,128,.14);color:inherit;}',
+    '.twx-srv{padding:5px 8px 2px;font-size:10px;font-weight:600;color:#8b949e;}',
+    '.twx-gbtn{display:block;margin:6px auto 2px;padding:3px 10px;font-size:10.5px;border-radius:6px;border:1px solid rgba(128,128,128,.3);background:transparent;color:inherit;cursor:pointer;}',
+    '.twx-gbtn:hover{background:rgba(128,128,128,.12);}',
+    '.twx-loading,.twx-empty{padding:16px;text-align:center;font-size:11px;color:#8b949e;}',
+    '.twx-chips{display:inline-flex;align-items:center;gap:4px;margin-left:4px;}',
+    '.twx-chip .t-x:hover{opacity:1 !important;}'
+  ].join('\\n');
+
+  var styleEl = document.createElement('style');
+  styleEl.id = 'twx-ctx-style';
+  styleEl.textContent = CSS;
+  (document.head || document.documentElement).appendChild(styleEl);
+
+  var OG_PROJECTS = [
+    { id: 'auto', name: 'Auto', desc: '按提问及平台智能推断' },
+    { id: 'W_sprd_os_dev', name: 'W_sprd_os_dev', desc: '展锐主线' },
+    { id: 'V_sprd_os_dev', name: 'V_sprd_os_dev', desc: '展锐分支' },
+    { id: 'W_mp1_os_dev', name: 'W_mp1_os_dev', desc: 'MTK 主线' },
+    { id: 'A17_mp1_os_dev', name: 'A17_mp1_os_dev', desc: 'MTK A17' },
+    { id: 'T_U_sprd_oversea_release', name: 'T_U_sprd_oversea', desc: '展锐海外' },
+    { id: 'T_U_mp1_oversea_release', name: 'T_U_mp1_oversea', desc: 'MTK 海外' },
+    { id: 'V_oversea_release', name: 'V_oversea_release', desc: '海外分支' },
+    { id: 'S_U_aiot_oversea_release', name: 'S_U_aiot_oversea', desc: 'AIoT 版' },
+    { id: 'Aselsan_release_A16_1.57', name: 'Aselsan_A16', desc: '专网定制' }
+  ];
+  var GERRIT_FILTERS = [
+    { id: 'all', name: '全部', desc: '检索全库代码评审' },
+    { id: 'open', name: '开放中', desc: '当前处于评审中' },
+    { id: 'merged', name: '已合入', desc: '已通过并合入主干' },
+    { id: 'mine', name: '我提交', desc: '本人创建的变更单' },
+    { id: 'reviewing', name: '待我审', desc: '指派给我的待评审单' }
+  ];
+  var ROWS = [
+    { key: 'opengrok', name: 'OpenGrok', color: '#10B981' },
+    { key: 'gerrit', name: 'Gerrit', color: '#6366F1' },
+    { key: 'jira', name: 'Jira 工单', color: '#0EA5E9' },
+    { key: 'localproj', name: '本地工程', color: '#F59E0B' }
+  ];
+  var GERRIT_LABELS = { all: '全部', open: '开放中', merged: '已合入', mine: '我提交', reviewing: '待我审' };
+
+  var ctxState = { values: {}, lists: { jira: [], localproj: [] } };
+  var menuEl = null;
+  var panelEl = null;
+  var openKey = null;
+  var panelQuery = '';
+  var chipsEl = null;
+  // 本地工程四级递进导航状态 (与自研抽屉 localProjNavState 同构):
+  // servers(服务器) > workspaces(总代码路径) > platforms(CPU平台) > projects(机型)
+  var lpNav = { step: 'servers', serverId: null, workspaceName: null, platform: null };
+
+  function esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+  }
+
+  function askHost() {
+    try {
+      if (window.parent && window.parent !== window) {
+        window.parent.postMessage({ type: 'tabonkb-dsh-ctx-state-req' }, '*');
+      }
+    } catch (_) {}
+  }
+
+  window.addEventListener('message', function (e) {
+    if (!e || !e.data) return;
+    if (e.data.type === 'tabonkb-dsh-ctx-state') {
+      ctxState.values = e.data.values || {};
+      if (e.data.lists) ctxState.lists = e.data.lists;
+      refreshVals();
+      updateCtxChips();
+      if (panelEl) renderPanelList();
+    }
+  });
+
+  function valLabel(key) {
+    var v = ctxState.values || {};
+    if (key === 'opengrok') return (!v.opengrok || v.opengrok === 'auto') ? 'Auto' : String(v.opengrok);
+    if (key === 'gerrit') return GERRIT_LABELS[v.gerrit] || '全部';
+    if (key === 'jira') return (v.jira && v.jira.key) ? v.jira.key : '未指定';
+    if (key === 'localproj') return (v.localproj && v.localproj.label) ? v.localproj.label : '未指定';
+    return '';
+  }
+
+  function refreshVals() {
+    if (!menuEl) return;
+    var nodes = menuEl.querySelectorAll('.twx-item');
+    for (var i = 0; i < nodes.length; i++) {
+      var k = nodes[i].getAttribute('data-k');
+      var ve = nodes[i].querySelector('.twx-val');
+      if (ve) ve.textContent = valLabel(k);
+    }
+  }
+
+  // ---- 「+」菜单识别与注入 ----
+  var MENU_KEYS = ['文件', 'file', '目标', 'goal', '压缩', 'compact', '权限', 'permission', '模型', 'model', '下载', 'export', '添加', '指令'];
+  function looksLikeAttachMenu(el) {
+    if (!el || el.nodeType !== 1) return false;
+    // 先做廉价的几何/定位过滤, 只有「底部浮层」才读取 innerText (避免高频 mutation 下的强制排版)
+    var r = el.getBoundingClientRect();
+    if (r.width < 150 || r.height < 110) return false;
+    if (r.top < window.innerHeight * 0.25) return false;
+    var cs = getComputedStyle(el);
+    if (cs.position !== 'fixed' && cs.position !== 'absolute') return false;
+    var t = (el.innerText || '').toLowerCase();
+    if (t.length < 20 || t.length > 3000) return false;
+    var hits = 0;
+    for (var i = 0; i < MENU_KEYS.length; i++) {
+      if (t.indexOf(MENU_KEYS[i]) !== -1) hits++;
+    }
+    return hits >= 4;
+  }
+
+  function pickMenu(root) {
+    // 只在「新增/属性变化的子树」内查找菜单, 避免全文档 innerText 扫描造成流式渲染卡顿
+    var best = null, bestArea = 1e12;
+    function consider(el) {
+      if (!el || el.nodeType !== 1) return;
+      if (el.closest && el.closest('.twx-panel')) return;
+      if (!looksLikeAttachMenu(el)) return;
+      var a = el.offsetWidth * el.offsetHeight;
+      if (a < bestArea) { bestArea = a; best = el; }
+    }
+    consider(root);
+    if (root && root.querySelectorAll) {
+      var inner = root.querySelectorAll('*');
+      for (var i = 0; i < inner.length; i++) consider(inner[i]);
+    }
+    return best;
+  }
+
+  function onMenuFound(menu) {
+    if (menu !== menuEl) { menuEl = menu; injectGroup(menu); }
+    else if (!menuEl.querySelector('.twx-ctx-block')) injectGroup(menuEl);
+    else refreshVals();
+    askHost();
+  }
+
+  function injectGroup(menu) {
+    if (menu.querySelector('.twx-ctx-block')) return;
+    var blk = document.createElement('div');
+    blk.className = 'twx-ctx-block';
+    var html = '<div class="twx-sep"></div><div class="twx-glabel">上下文</div>';
+    for (var i = 0; i < ROWS.length; i++) {
+      var r = ROWS[i];
+      html += '<div class="twx-item" data-k="' + r.key + '">' +
+        '<span class="twx-dot" style="background:' + r.color + '"></span>' +
+        '<span class="twx-name">' + r.name + '</span>' +
+        '<span class="twx-val">' + esc(valLabel(r.key)) + '</span>' +
+        '<span class="twx-arrow">›</span></div>';
+    }
+    blk.innerHTML = html;
+    menu.appendChild(blk);
+  }
+
+  // ---- 级联选项面板 (自有 DOM, 非 React 托管) ----
+  function openPanel(key, itemEl) {
+    if (openKey === key && panelEl) { closePanel(); return; }
+    closePanel();
+    openKey = key;
+    panelQuery = '';
+    lpNav = { step: 'servers', serverId: null, workspaceName: null, platform: null };
+    var itemR = itemEl.getBoundingClientRect();
+    var menuR = (menuEl && menuEl.isConnected) ? menuEl.getBoundingClientRect() : itemR;
+    var w = 262;
+    var left = itemR.right - 6; // 6px 微重叠, 消除父子浮窗裂隙
+    if (left + w > window.innerWidth - 8) {
+      left = menuR.left - w + 6; // 视口右侧不足时向左翻转
+    }
+    panelEl = document.createElement('div');
+    panelEl.className = 'twx-panel';
+    panelEl.style.left = Math.max(8, left) + 'px';
+    // 底端与「+」菜单底边对齐, 向上生长, 杜绝探出窗口下缘
+    var bottomPx = window.innerHeight - menuR.bottom;
+    panelEl.style.bottom = Math.max(8, bottomPx) + 'px';
+    panelEl.innerHTML =
+      '<div class="twx-p-search" style="display:none;"><input type="text" placeholder="搜索..." /></div>' +
+      '<div class="twx-p-nav" style="display:none;"><span class="twx-back" data-act="back">‹ <i></i></span><span class="twx-nav-title"></span></div>' +
+      '<div class="twx-p-list"><div class="twx-loading">加载中…</div></div>';
+    document.body.appendChild(panelEl);
+    // 面板内委托点击: 选项选择 / 递进下钻 / 回退 / 清除绑定
+    panelEl.onclick = function (e) {
+      var t = e.target && e.target.closest ? e.target.closest('[data-act],[data-p]') : null;
+      if (!t) return;
+      e.stopPropagation();
+      handlePanelAction(t);
+    };
+    if (key === 'jira' || key === 'localproj') {
+      var sw = panelEl.querySelector('.twx-p-search');
+      sw.style.display = 'flex';
+      var inp = sw.querySelector('input');
+      inp.placeholder = key === 'localproj' ? '全局搜索 (如 K82NF, mt6878)...' : '搜索工单...';
+      inp.oninput = function () { panelQuery = inp.value.trim().toLowerCase(); renderPanelList(); };
+      inp.onclick = function (e) { e.stopPropagation(); };
+      setTimeout(function () { try { inp.focus(); } catch (_) {} }, 30);
+    }
+    askHost();
+    renderPanelList();
+  }
+
+  function closePanel() {
+    if (panelEl) { try { panelEl.remove(); } catch (_) {} }
+    panelEl = null;
+    openKey = null;
+    panelQuery = '';
+  }
+
+  function postSet(key, value) {
+    try {
+      if (window.parent && window.parent !== window) {
+        window.parent.postMessage({ type: 'tabonkb-dsh-ctx-set', key: key, value: value }, '*');
+      }
+    } catch (_) {}
+  }
+
+  // 面板动作分发: data-p=最终选择项(JSON) / data-act=导航或清除动作
+  function handlePanelAction(t) {
+    var act = t.getAttribute('data-act');
+    if (act === 'back') { lpBack(); renderPanelList(); return; }
+    if (act === 'srv') { lpNav = { step: 'workspaces', serverId: t.getAttribute('data-v'), workspaceName: null, platform: null }; panelQuery = ''; clearSearch(); renderPanelList(); return; }
+    if (act === 'ws') { lpNav = { step: 'platforms', serverId: lpNav.serverId, workspaceName: t.getAttribute('data-v'), platform: null }; panelQuery = ''; clearSearch(); renderPanelList(); return; }
+    if (act === 'plat') { lpNav = { step: 'projects', serverId: lpNav.serverId, workspaceName: lpNav.workspaceName, platform: t.getAttribute('data-v') }; panelQuery = ''; clearSearch(); renderPanelList(); return; }
+    if (act === 'gsearch') { lpNav = { step: 'servers', serverId: null, workspaceName: null, platform: null }; renderPanelList(); return; }
+    if (act === 'clear-lp') { postSet('localproj', null); closePanel(); return; }
+    if (act === 'clear-jira') { postSet('jira', null); closePanel(); return; }
+    var raw = t.getAttribute('data-p');
+    if (!raw) return;
+    var payload = null;
+    try { payload = JSON.parse(decodeURIComponent(raw)); } catch (_) {}
+    if (!payload) return;
+    postSet(payload.k, payload.v);
+    closePanel();
+  }
+
+  function clearSearch() {
+    var inp = panelEl && panelEl.querySelector('.twx-p-search input');
+    if (inp) inp.value = '';
+  }
+
+  function lpBack() {
+    if (lpNav.step === 'projects') lpNav = { step: 'platforms', serverId: lpNav.serverId, workspaceName: lpNav.workspaceName, platform: null };
+    else if (lpNav.step === 'platforms') lpNav = { step: 'workspaces', serverId: lpNav.serverId, workspaceName: null, platform: null };
+    else lpNav = { step: 'servers', serverId: null, workspaceName: null, platform: null };
+    panelQuery = '';
+    clearSearch();
+  }
+
+  function setNavHeader(backText, title) {
+    var nav = panelEl && panelEl.querySelector('.twx-p-nav');
+    if (!nav) return;
+    if (!title) { nav.style.display = 'none'; return; }
+    nav.style.display = 'flex';
+    nav.querySelector('.twx-back i').textContent = backText;
+    nav.querySelector('.twx-nav-title').textContent = title;
+  }
+
+  function isSel(key, idOrObj) {
+    var v = ctxState.values || {};
+    if (key === 'opengrok') return (v.opengrok || 'auto') === idOrObj;
+    if (key === 'gerrit') return (v.gerrit || 'all') === idOrObj;
+    if (key === 'jira') return !!(v.jira && idOrObj && v.jira.key === idOrObj.key);
+    if (key === 'localproj') return !!(v.localproj && idOrObj && v.localproj.id === idOrObj.id);
+    return false;
+  }
+
+  function optRow(name, desc, on, payload) {
+    return '<div class="twx-opt' + (on ? ' on' : '') + '" data-p="' + encodeURIComponent(JSON.stringify(payload)) + '">' +
+      '<span class="t-main"><span class="t-name">' + esc(name) + '</span>' +
+      (desc ? '<span class="t-desc">' + esc(desc) + '</span>' : '') +
+      '</span>' + (on ? '<span class="t-check">✓</span>' : '') + '</div>';
+  }
+
+  function drillRow(act, val, name, tag, desc) {
+    return '<div class="twx-opt" data-act="' + act + '" data-v="' + esc(val) + '">' +
+      '<span class="t-main"><span class="t-name">' + esc(name) +
+      (tag ? '<span class="twx-tag">' + esc(tag) + '</span>' : '') + '</span>' +
+      (desc ? '<span class="t-desc">' + esc(desc) + '</span>' : '') +
+      '</span><span class="twx-arr">›</span></div>';
+  }
+
+  function curCard(name, desc, clearAct) {
+    return '<div class="twx-cur"><span class="twx-cur-ic">✓</span>' +
+      '<span class="t-main"><span class="t-name">已选: ' + esc(name) + '</span>' +
+      (desc ? '<span class="t-desc">' + esc(desc) + '</span>' : '') + '</span>' +
+      '<button type="button" class="twx-cur-x" data-act="' + clearAct + '">清除</button></div>';
+  }
+
+  function emptyWithGlobal(msg) {
+    return '<div class="twx-empty">' + msg + '<button type="button" class="twx-gbtn" data-act="gsearch">切换至全局搜索</button></div>';
+  }
+
+  function renderPanelList() {
+    if (!panelEl) return;
+    var listEl = panelEl.querySelector('.twx-p-list');
+    var html = '';
+    var q = panelQuery;
+    if (openKey === 'opengrok') {
+      setNavHeader('', '');
+      for (var i = 0; i < OG_PROJECTS.length; i++) {
+        var p = OG_PROJECTS[i];
+        html += optRow(p.name, p.desc, isSel('opengrok', p.id), { k: 'opengrok', v: p.id });
+      }
+    } else if (openKey === 'gerrit') {
+      setNavHeader('', '');
+      for (var j = 0; j < GERRIT_FILTERS.length; j++) {
+        var f = GERRIT_FILTERS[j];
+        html += optRow(f.name, f.desc, isSel('gerrit', f.id), { k: 'gerrit', v: f.id });
+      }
+    } else if (openKey === 'jira') {
+      setNavHeader('', '');
+      var issues = (ctxState.lists && ctxState.lists.jira) || [];
+      var bound = ctxState.values && ctxState.values.jira;
+      if (bound && bound.key) {
+        html += curCard(bound.key, (bound.summary || '') + (bound.status ? ' · ' + bound.status : ''), 'clear-jira');
+      }
+      var shown = 0;
+      for (var m = 0; m < issues.length; m++) {
+        var it = issues[m];
+        var hay = ((it.key || '') + ' ' + (it.summary || '') + ' ' + (it.status || '') + ' ' + (it.assignee || '')).toLowerCase();
+        if (q && hay.indexOf(q) === -1) continue;
+        html += optRow(it.key + '  ' + (it.summary || ''), (it.status || '') + (it.priority ? ' · ' + it.priority : ''), isSel('jira', it), { k: 'jira', v: it });
+        if (++shown >= 60) break;
+      }
+      if (!shown && !html) html = '<div class="twx-empty">无工单数据</div>';
+    } else if (openKey === 'localproj') {
+      html = renderLocalproj(q);
+    }
+    listEl.innerHTML = html || '<div class="twx-empty">无可用选项</div>';
+  }
+
+  // 本地工程: 「服务器 > 总代码路径 > CPU平台 > 机型」四级递进 (与抽屉 localProjNavState 同构)
+  function renderLocalproj(q) {
+    var projs = (ctxState.lists && ctxState.lists.localproj) || [];
+    var cur = ctxState.values && ctxState.values.localproj;
+    if (!projs.length) {
+      setNavHeader('', '');
+      return '<div class="twx-empty">无工程缓存</div>';
+    }
+
+    // 聚合层级树
+    var smap = {}, sorder = [];
+    for (var i = 0; i < projs.length; i++) {
+      var p = projs[i];
+      if (!smap[p.serverId]) { smap[p.serverId] = { id: p.serverId, name: p.serverName, ip: p.serverIp, wmap: {}, worder: [] }; sorder.push(p.serverId); }
+      var srv = smap[p.serverId];
+      if (!srv.wmap[p.workspaceName]) { srv.wmap[p.workspaceName] = { name: p.workspaceName, pmap: {}, porder: [] }; srv.worder.push(p.workspaceName); }
+      var ws = srv.wmap[p.workspaceName];
+      var pk = p.platform || '通用';
+      if (!ws.pmap[pk]) { ws.pmap[pk] = { name: pk, projects: [] }; ws.porder.push(pk); }
+      ws.pmap[pk].projects.push(p);
+    }
+
+    // 顶层输入搜索词 → 全局打平过滤直达机型
+    if (q && lpNav.step === 'servers') {
+      setNavHeader('', '');
+      var ghtml = '';
+      var gcount = 0;
+      for (var g = 0; g < projs.length && gcount < 50; g++) {
+        var gp = projs[g];
+        var hay = ((gp.project || '') + ' ' + (gp.platform || '') + ' ' + (gp.workspaceName || '') + ' ' + (gp.label || '') + ' ' + (gp.serverId || '')).toLowerCase();
+        if (hay.indexOf(q) === -1) continue;
+        ghtml += '<div class="twx-opt' + (isSel('localproj', gp) ? ' on' : '') + '" data-p="' + encodeURIComponent(JSON.stringify({ k: 'localproj', v: gp })) + '">' +
+          '<span class="t-main"><span class="t-name">' + esc(gp.project) + '<span class="twx-tag">' + esc(gp.platform || '') + '</span><span class="twx-tag">' + esc(gp.serverId) + '服</span></span>' +
+          '<span class="t-desc">' + esc(gp.serverId) + '服 › ' + esc(gp.workspaceName) + '</span></span>' +
+          (isSel('localproj', gp) ? '<span class="t-check">✓</span>' : '') + '</div>';
+        gcount++;
+      }
+      return ghtml || '<div class="twx-empty">未匹配到包含 "' + esc(q) + '" 的本地工程</div>';
+    }
+
+    // Level 1: 服务器
+    if (lpNav.step === 'servers') {
+      setNavHeader('', '');
+      var html = '';
+      if (cur && cur.id) {
+        html += curCard(cur.label || cur.project, (cur.workspaceName || '') + ' · ' + (cur.platform || '') + ' · ' + (cur.serverId || '') + '服', 'clear-lp');
+      } else {
+        html += '<div class="twx-opt" data-act="clear-lp" style="opacity:.9;">' +
+          '<span class="t-main"><span class="t-name">未指定 (默认)</span><span class="t-desc">不绑定特定工程与机型</span></span><span class="t-check">✓</span></div>';
+      }
+      for (var s = 0; s < sorder.length; s++) {
+        var sv = smap[sorder[s]];
+        var totPlat = 0, totProj = 0;
+        for (var w = 0; w < sv.worder.length; w++) {
+          var wsv = sv.wmap[sv.worder[w]];
+          totPlat += wsv.porder.length;
+          for (var pp = 0; pp < wsv.porder.length; pp++) totProj += wsv.pmap[wsv.porder[pp]].projects.length;
+        }
+        html += drillRow('srv', sv.id, sv.name || (sv.id + ' 服务器'), sv.ip, sv.worder.length + ' 套代码 · ' + totPlat + ' 个平台 · ' + totProj + ' 款机型');
+      }
+      return html;
+    }
+
+    var srv2 = smap[lpNav.serverId];
+    if (!srv2) { lpNav = { step: 'servers', serverId: null, workspaceName: null, platform: null }; return renderLocalproj(q); }
+
+    // Level 2: 总代码路径
+    if (lpNav.step === 'workspaces') {
+      setNavHeader('服务器', (srv2.name || srv2.id) + ' (' + srv2.worder.length + '套代码)');
+      var html2 = '';
+      for (var w2 = 0; w2 < srv2.worder.length; w2++) {
+        var wsName = srv2.worder[w2];
+        var ws2 = srv2.wmap[wsName];
+        if (q) {
+          var wmatch = wsName.toLowerCase().indexOf(q) !== -1;
+          if (!wmatch) {
+            for (var pk2 = 0; pk2 < ws2.porder.length; pk2++) {
+              var pl2 = ws2.pmap[ws2.porder[pk2]];
+              if (pl2.name.toLowerCase().indexOf(q) !== -1 || pl2.projects.some(function (x) { return (x.project || '').toLowerCase().indexOf(q) !== -1; })) { wmatch = true; break; }
+            }
+          }
+          if (!wmatch) continue;
+        }
+        var wProjCount = 0;
+        for (var pk3 = 0; pk3 < ws2.porder.length; pk3++) wProjCount += ws2.pmap[ws2.porder[pk3]].projects.length;
+        var isCurWs = cur && cur.serverId === lpNav.serverId && cur.workspaceName === wsName;
+        html2 += drillRow('ws', wsName, wsName, isCurWs ? '当前' : '', ws2.porder.length + ' 个平台 · ' + wProjCount + ' 款机型');
+      }
+      return html2 || emptyWithGlobal('当前服务器未匹配到包含 "' + esc(q) + '" 的代码路径');
+    }
+
+    var ws3 = srv2.wmap[lpNav.workspaceName];
+    if (!ws3) { lpNav = { step: 'workspaces', serverId: lpNav.serverId, workspaceName: null, platform: null }; return renderLocalproj(q); }
+
+    // Level 3: CPU 平台
+    if (lpNav.step === 'platforms') {
+      var wsShort = (lpNav.workspaceName || '').split('/').pop();
+      setNavHeader('代码路径', wsShort + ' (' + ws3.porder.length + '个平台)');
+      var html3 = '';
+      for (var p3 = 0; p3 < ws3.porder.length; p3++) {
+        var platKey = ws3.porder[p3];
+        var pl3 = ws3.pmap[platKey];
+        if (q) {
+          var pmatch = platKey.toLowerCase().indexOf(q) !== -1 || pl3.projects.some(function (x) { return (x.project || '').toLowerCase().indexOf(q) !== -1; });
+          if (!pmatch) continue;
+        }
+        var isCurPlat = cur && cur.serverId === lpNav.serverId && cur.workspaceName === lpNav.workspaceName && cur.platform === platKey;
+        html3 += drillRow('plat', platKey, platKey, pl3.projects.length + '款机型', lpNav.serverId + '服 › ' + lpNav.workspaceName + (isCurPlat ? ' · 当前' : ''));
+      }
+      return html3 || emptyWithGlobal('当前代码路径未匹配到包含 "' + esc(q) + '" 的平台');
+    }
+
+    var pl4 = ws3.pmap[lpNav.platform];
+    if (!pl4) { lpNav = { step: 'platforms', serverId: lpNav.serverId, workspaceName: lpNav.workspaceName, platform: null }; return renderLocalproj(q); }
+
+    // Level 4: 机型 SKU
+    setNavHeader(lpNav.platform + '平台', lpNav.platform + ' (' + pl4.projects.length + '款机型)');
+    var html4 = '';
+    for (var p4 = 0; p4 < pl4.projects.length; p4++) {
+      var pj = pl4.projects[p4];
+      if (q) {
+        var pjm = (pj.project || '').toLowerCase().indexOf(q) !== -1 || (pj.label || '').toLowerCase().indexOf(q) !== -1;
+        if (!pjm) continue;
+      }
+      html4 += '<div class="twx-opt' + (isSel('localproj', pj) ? ' on' : '') + '" data-p="' + encodeURIComponent(JSON.stringify({ k: 'localproj', v: pj })) + '">' +
+        '<span class="t-main"><span class="t-name">' + esc(pj.project) + '<span class="twx-tag">' + esc(pj.platform || '') + '</span></span>' +
+        '<span class="t-desc">' + esc(pj.priDriverRel || '') + '</span></span>' +
+        (isSel('localproj', pj) ? '<span class="t-check">✓</span>' : '') + '</div>';
+    }
+    return html4 || emptyWithGlobal('当前平台未匹配到包含 "' + esc(q) + '" 的机型');
+  }
+
+  // ---- 输入区上下文胶囊: 克隆「完全权限」胶囊样式, 紧跟其后插入同一工具栏行 ----
+  function findPermPill() {
+    // 底部区域含「权限/permission」短文本的最内层元素, 向上爬到胶囊容器 (宽<220px 高<48px)
+    var all = document.querySelectorAll('body *');
+    var cand = null;
+    for (var i = 0; i < all.length; i++) {
+      var el = all[i];
+      if (el.closest && (el.closest('.twx-chips') || el.closest('.twx-panel'))) continue;
+      var t = el.innerText;
+      if (!t) continue;
+      t = t.trim();
+      if (t.length > 12 || !/(权限|permission)/i.test(t)) continue;
+      var r = el.getBoundingClientRect();
+      if (r.width < 30 || r.top < window.innerHeight * 0.5 || r.top > window.innerHeight) continue;
+      cand = el;
+    }
+    if (!cand) return null;
+    var pill = cand;
+    while (pill.parentElement) {
+      var pr = pill.parentElement.getBoundingClientRect();
+      var pt = (pill.parentElement.innerText || '').trim();
+      if (pt.length <= 12 && /(权限|permission)/i.test(pt) && pr.width < 220 && pr.height < 48) {
+        pill = pill.parentElement;
+      } else break;
+    }
+    return pill;
+  }
+
+  function updateCtxChips() {
+    var v = ctxState.values || {};
+    var defs = [];
+    if (v.localproj && v.localproj.id) defs.push({ k: 'localproj', label: v.localproj.label || v.localproj.project, color: '#F59E0B' });
+    if (v.jira && v.jira.key) defs.push({ k: 'jira', label: v.jira.key, color: '#0EA5E9' });
+    if (v.opengrok && v.opengrok !== 'auto') defs.push({ k: 'opengrok', label: v.opengrok, color: '#10B981' });
+    if (v.gerrit && v.gerrit !== 'all') defs.push({ k: 'gerrit', label: (GERRIT_LABELS[v.gerrit] || v.gerrit), color: '#6366F1' });
+
+    var pill = defs.length ? findPermPill() : null;
+    if (!defs.length || !pill) {
+      if (chipsEl) { try { chipsEl.remove(); } catch (_) {} chipsEl = null; }
+      return;
+    }
+    if (!chipsEl) {
+      chipsEl = document.createElement('span');
+      chipsEl.className = 'twx-chips';
+      chipsEl.onclick = function (e) {
+        var x = e.target && e.target.closest ? e.target.closest('.t-x') : null;
+        if (!x) return;
+        e.stopPropagation();
+        var k = x.getAttribute('data-k');
+        var def = { opengrok: 'auto', gerrit: 'all', jira: null, localproj: null };
+        postSet(k, def[k] === undefined ? null : def[k]);
+      };
+    }
+    // 紧跟权限胶囊插入 (React 重渲染位移时自动纠正)
+    if (!chipsEl.isConnected || chipsEl.previousElementSibling !== pill) {
+      try { pill.insertAdjacentElement('afterend', chipsEl); } catch (_) { return; }
+    }
+    // 逐像素克隆权限胶囊外观: 字体/颜色/背景/圆角/内边距/行高/高度
+    var cs = getComputedStyle(pill);
+    var chipCss = 'display:inline-flex;align-items:center;gap:4px;white-space:nowrap;cursor:default;box-sizing:border-box;' +
+      'font-size:' + cs.fontSize + ';font-family:' + cs.fontFamily + ';font-weight:' + cs.fontWeight + ';' +
+      'color:' + cs.color + ';background:' + cs.backgroundColor + ';border:' + cs.border + ';' +
+      'border-radius:' + cs.borderRadius + ';line-height:' + cs.lineHeight + ';' +
+      'padding:' + cs.paddingTop + ' ' + cs.paddingRight + ';' +
+      'max-width:140px;overflow:hidden;';
+    var html = '';
+    for (var i = 0; i < defs.length; i++) {
+      var d = defs[i];
+      html += '<span class="twx-chip" style="' + chipCss + '">' +
+        '<span class="t-dot" style="background:' + d.color + ';width:6px;height:6px;border-radius:50%;flex:0 0 auto;"></span>' +
+        '<span style="overflow:hidden;text-overflow:ellipsis;">' + esc(d.label) + '</span>' +
+        '<span class="t-x" data-k="' + d.k + '" style="cursor:pointer;opacity:.55;margin-left:1px;">✕</span></span>';
+    }
+    chipsEl.innerHTML = html;
+  }
+
+  window.addEventListener('resize', updateCtxChips);
+
+  // ---- 新对话侦测: 点击「新对话/新建对话/New Chat」类按钮 或 路由回到应用根路径 ----
+  var NEWCHAT_RE = /^\s*(新对话|新建对话|新会话|new\s+chat|new\s+conversation)\s*$/i;
+  var lastHref = '';
+  function notifyNewChat() {
+    try {
+      if (window.parent && window.parent !== window) {
+        window.parent.postMessage({ type: 'tabonkb-dsh-new-chat' }, '*');
+      }
+    } catch (_) {}
+  }
+  document.addEventListener('click', function (e) {
+    var el = e.target;
+    for (var d = 0; el && d < 5; el = el.parentElement, d++) {
+      var tx = (el.getAttribute && (el.getAttribute('aria-label') || el.getAttribute('title'))) ||
+        (el.nodeType === 1 && el.children.length <= 3 ? (el.innerText || '').trim() : '');
+      if (tx && NEWCHAT_RE.test(tx)) { notifyNewChat(); return; }
+    }
+  }, true);
+
+  function checkRoute() {
+    var cur = location.href;
+    if (cur === lastHref) return;
+    var prev = lastHref; lastHref = cur;
+    if (!prev) return;
+    // 新会话判定: 回到无会话段的应用根路径 (path 或 hash 路由)
+    var path = location.pathname || '/';
+    var hash = location.hash || '';
+    var bare = (path === '/' || path === '/index.html') && (hash === '' || hash === '#/' || hash === '#');
+    if (bare) notifyNewChat();
+  }
+  try {
+    var _ps = history.pushState, _rs = history.replaceState;
+    history.pushState = function () { var r = _ps.apply(this, arguments); setTimeout(checkRoute, 0); return r; };
+    history.replaceState = function () { var r = _rs.apply(this, arguments); setTimeout(checkRoute, 0); return r; };
+    window.addEventListener('popstate', function () { setTimeout(checkRoute, 0); });
+    setInterval(checkRoute, 1200);
+    lastHref = location.href;
+  } catch (_) {}
+
+  // 面板外点击自然退出
+  document.addEventListener('click', function (e) {
+    if (!panelEl) return;
+    if (panelEl.contains(e.target)) return;
+    var t = e.target;
+    if (t && t.closest && t.closest('.twx-item')) return;
+    closePanel();
+  }, true);
+
+  // 委托绑定注入行的点击 (React 重渲染后仍有效)
+  document.addEventListener('click', function (e) {
+    var it = e.target && e.target.closest ? e.target.closest('.twx-item') : null;
+    if (!it) return;
+    e.stopPropagation();
+    openPanel(it.getAttribute('data-k'), it);
+  }, true);
+
+  var scanQueued = false;
+  var pendingRoots = [];
+  function scheduleScan(root) {
+    if (root) pendingRoots.push(root);
+    if (scanQueued) return;
+    scanQueued = true;
+    setTimeout(function () {
+      scanQueued = false;
+      var roots = pendingRoots; pendingRoots = [];
+      try {
+        for (var i = 0; i < roots.length; i++) {
+          var menu = pickMenu(roots[i]);
+          if (menu) { onMenuFound(menu); break; }
+        }
+        // 菜单被 React 卸载/重渲染时仅释放锚点：级联面板驻留至用户选择或外点，
+        // 避免点击面板选项触发 DSH 菜单外点关闭时连带销毁面板
+        if (menuEl && !menuEl.isConnected) { menuEl = null; }
+        else if (menuEl && !menuEl.querySelector('.twx-ctx-block')) injectGroup(menuEl);
+        updateCtxChips();
+      } catch (_) {}
+    }, 40);
+  }
+
+  var mo = new MutationObserver(function (muts) {
+    try {
+      for (var i = 0; i < muts.length; i++) {
+        var m = muts[i];
+        if (m.type === 'attributes') { scheduleScan(m.target); continue; }
+        var adds = m.addedNodes;
+        for (var j = 0; j < adds.length; j++) {
+          if (adds[j] && adds[j].nodeType === 1) scheduleScan(adds[j]);
+        }
+        // 子树内结构变化时, 复查已注入块是否被 React 覆盖
+        if (menuEl && m.target && menuEl.contains && menuEl.contains(m.target)) scheduleScan(null);
+      }
+    } catch (_) {}
+  });
+  mo.observe(document.documentElement || document.body, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ['class', 'style', 'hidden']
+  });
+
+  askHost();
+  setTimeout(askHost, 800);
+  setTimeout(updateCtxChips, 400);
 })();
 `.trim();
 }
@@ -1069,6 +1820,8 @@ class DshDaemonManager {
         const isHtmlReq = reqPath === '/' || reqPath.startsWith('/?') || reqPath.startsWith('/index.html');
         if (isHtmlReq) {
           forwardHeaders['accept-encoding'] = 'identity';
+          delete forwardHeaders['if-none-match'];
+          delete forwardHeaders['if-modified-since'];
         }
 
         const proxyReq = httpLib.request({
@@ -1106,10 +1859,26 @@ class DshDaemonManager {
               const bridgeJs = typeof getDshFileBridgeScript === 'function' ? getDshFileBridgeScript() : '';
               const hideCss = typeof getDshSidebarHideStyles === 'function' ? getDshSidebarHideStyles() : '';
               // 方案A: 定制关闭时不再注入空 style 标签, 避免残留 #tabonkb-dsh-overrides 覆盖原生布局
+              let themeTag = '';
+              try {
+                const te = (typeof TabonKBThemeEngine !== 'undefined') ? TabonKBThemeEngine : (typeof window !== 'undefined' ? window.TabonKBThemeEngine : null);
+                if (te && typeof te.buildDshThemePayload === 'function') {
+                  const payload = te.buildDshThemePayload(this.plugin, null);
+                  if (payload && payload.css) {
+                    const initJs = `try{document.documentElement.dataset.akSkin=${JSON.stringify(payload.skinId)};document.documentElement.dataset.akWall=${JSON.stringify(payload.wallId)};document.documentElement.style.colorScheme=${JSON.stringify(payload.mode)};localStorage.setItem("dt.skin",${JSON.stringify(payload.skinId)});localStorage.setItem("dt.wall",${JSON.stringify(payload.wallId)});localStorage.removeItem("dsh.antutu.off");}catch(_){}`;
+                    themeTag = `\n<script id="tabonkb-dsh-theme-init">${initJs}</script>\n<style id="tabonkb-dsh-theme-style">\n${payload.css}\n</style>\n`;
+                  }
+                }
+              } catch (_) {}
               const styleTag = customCss ? `\n<style id="tabonkb-dsh-overrides">\n${customCss}\n</style>\n` : '';
               const hideStyleTag = hideCss ? `\n<style id="tabonkb-dsh-sidebar-hide">\n${hideCss}\n</style>\n` : '';
               const scriptTag = bridgeJs ? `\n<script id="tabonkb-dsh-file-bridge">\n${bridgeJs}\n</script>\n` : '';
-              const injectTags = `${styleTag}${hideStyleTag}${scriptTag}`;
+              const ctxJs = typeof getDshContextBridgeScript === 'function' ? getDshContextBridgeScript() : '';
+              const ctxTag = ctxJs ? `\n<script id="tabonkb-dsh-ctx-bridge">\n${ctxJs}\n</script>\n` : '';
+              const injectTags = `${styleTag}${hideStyleTag}${themeTag}${scriptTag}${ctxTag}`;
+              delete resHeaders['etag'];
+              delete resHeaders['last-modified'];
+              resHeaders['cache-control'] = 'no-store, no-cache, must-revalidate';
               let modifiedHtml = rawHtml;
               if (modifiedHtml.includes('</head>')) {
                 modifiedHtml = modifiedHtml.replace('</head>', `${injectTags}</head>`);
@@ -1469,5 +2238,6 @@ module.exports = {
   getTabonKbWebRequestBridge,
   getDshCustomStyles,
   getDshSidebarHideStyles,
-  getDshFileBridgeScript
+  getDshFileBridgeScript,
+  getDshContextBridgeScript
 };

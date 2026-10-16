@@ -121,6 +121,15 @@ class PiDrawerView {
     this._stickToBottom = true;
     this._contentBelowPending = false;
 
+    // Code Viewer Split-Pane (Monaco Editor Integration)
+    this.codeViewerPanel = null;
+    this.splitResizerEl = null;
+    this.codePanelWrap = null;
+    this.drawerContentWrap = null;
+    this.isSplitPaneOpen = false;
+    this.savedSplitRatio = 55;
+    this._prevDrawerWidth = null;
+
     // Bottom-Left Model Selector elements
     this.modelWrapEl = null;
     this.modelPillEl = null;
@@ -309,6 +318,7 @@ class PiDrawerView {
     const contentWrap = document.createElement('div');
     contentWrap.className = 'tw-drawer-content';
     this.drawerEl.appendChild(contentWrap);
+    this.drawerContentWrap = contentWrap;
 
     // Header with Agent Selector Dropdown
     const activeAdapter = this.hub.getActiveAdapter();
@@ -1307,8 +1317,7 @@ class PiDrawerView {
     new NoticeCls(`✓ 已切换至模型: ${modelName}${levelSuffix}`, 2500);
 
     if (this.inputEl) {
-      const fullLabel = `${modelName}${levelSuffix}`;
-      this.inputEl.placeholder = `向 ${adapter.displayName || adapter.name} (${fullLabel}) 提问... (Enter 发送)`;
+      this.updateInputPlaceholder();
       this.inputEl.focus();
     }
   }
@@ -1446,7 +1455,13 @@ class PiDrawerView {
         const p = localStorage.getItem('tabonkb-local-selected-project');
         if (p) {
           const parsed = JSON.parse(p);
-          if (parsed && parsed.id) return parsed;
+          if (parsed && parsed.id) {
+            if (!parsed.priDriverRel && parsed.platform && parsed.project) {
+              parsed.priDriverRel = `pri_project/driver/${parsed.platform}/${parsed.project}/base`;
+              parsed.publicDriverRel = 'pri_project/driver/public';
+            }
+            return parsed;
+          }
         }
       }
     } catch (_) {}
@@ -2661,13 +2676,7 @@ class PiDrawerView {
     }
 
     // 5. 动态联动输入框 placeholder 提示当前最高优先级工程
-    if (this.inputEl) {
-      const adapter = this.hub.getActiveAdapter();
-      const agentName = adapter.displayName || adapter.name || 'Agent';
-      if (isCustomLocalProj) {
-        this.inputEl.placeholder = `向 ${agentName} [${localProjShort}] 提问... (Enter 发送)`;
-      }
-    }
+    this.updateInputPlaceholder();
   }
 
   // 会话上下文提示条: 输入卡上方迷你胶囊, 标注当前会话绑定的 Jira/本地工程/OpenGrok/Gerrit; 点胶囊打开选项浮窗, × 即解除绑定
@@ -2803,21 +2812,49 @@ class PiDrawerView {
 
     this.updateModelSelectorPill();
     this.updateProjectSelectorPill();
+    this.updateInputPlaceholder();
+  }
 
-    const currentModel = typeof adapter.getModel === 'function' ? adapter.getModel() : null;
+  updateInputPlaceholder() {
+    if (!this.inputEl || !this.hub) return;
+    const adapter = this.hub.getActiveAdapter();
+    const agents = typeof this.hub.getAgentList === 'function' ? this.hub.getAgentList() : [];
+    const meta = agents.find(a => a.id === this.hub.activeAgentId) || {
+      name: adapter?.name || 'Agent',
+      displayName: adapter?.displayName || adapter?.name || 'Agent'
+    };
+    const agentName = meta.displayName || meta.name || 'Agent';
+
     let modelSuffix = '';
-    if (currentModel?.name) {
+    const currentModel = typeof adapter?.getModel === 'function' ? adapter.getModel() : null;
+    if (currentModel?.name && currentModel.name !== agentName) {
       let mName = currentModel.name;
-      if (typeof adapter.supportsReasoningEffort === 'function' && adapter.supportsReasoningEffort(currentModel.id)) {
-        const effortConfig = typeof adapter.getReasoningEffortConfig === 'function' ? adapter.getReasoningEffortConfig() : null;
+      if (typeof adapter?.supportsReasoningEffort === 'function' && adapter.supportsReasoningEffort(currentModel.id)) {
+        const effortConfig = typeof adapter?.getReasoningEffortConfig === 'function' ? adapter.getReasoningEffortConfig() : null;
         if (effortConfig && effortConfig.label) mName += ` · ${effortConfig.label}`;
       }
       modelSuffix = ` (${mName})`;
     }
 
-    if (this.inputEl) {
-      this.inputEl.placeholder = `向 ${meta.displayName || meta.name}${modelSuffix} 提问，输入需求或问题... (Enter 发送)`;
+    const isCustomLocalProj = Boolean(this.selectedLocalProject && this.selectedLocalProject.id && this.selectedLocalProject.id !== 'none');
+    const localProjShort = isCustomLocalProj ? (this.selectedLocalProject.label || this.selectedLocalProject.project) : '';
+    const isCustomJira = Boolean(this.selectedJiraIssue && this.selectedJiraIssue.key);
+    const jiraKey = isCustomJira ? this.selectedJiraIssue.key : '';
+
+    let ctxTag = '';
+    if (localProjShort && jiraKey) {
+      ctxTag = ` [${localProjShort} · ${jiraKey}]`;
+    } else if (localProjShort) {
+      ctxTag = ` [${localProjShort}]`;
+    } else if (jiraKey) {
+      ctxTag = ` [${jiraKey}]`;
     }
+
+    const basePlaceholder = `向 ${agentName}${modelSuffix}${ctxTag} 提问... (Enter 发送)`;
+    this._inputPlaceholder = basePlaceholder;
+
+    const hasChips = !!(this.inputChips && this.inputChips.length);
+    this.inputEl.placeholder = hasChips ? '输入消息内容...' : basePlaceholder;
   }
 
   checkAdapterInstalledState(adapter) {
@@ -2856,9 +2893,18 @@ class PiDrawerView {
     this.activeToolCards.clear();
     this.currentAssistantMessage = null;
 
+    if (this.stickyHeaderEl) {
+      this.stickyHeaderEl.classList.remove('visible');
+      const qText = this.stickyHeaderEl.querySelector('.tw-sticky-q-text');
+      if (qText) qText.textContent = '';
+    }
+    this._minimapBubbles = [];
+
     const messages = this.hub.sessionManager.getMessages(agentId);
     if (!messages || messages.length === 0) {
       // Empty state: do not render bulky welcome card (per user request)
+      if (typeof this.buildChatMinimap === 'function') this.buildChatMinimap();
+      if (typeof this.updateStickyQuestion === 'function') this.updateStickyQuestion();
       return;
     }
 
@@ -2870,6 +2916,8 @@ class PiDrawerView {
       }
     }
     this.scrollToBottom(true);
+    if (typeof this.buildChatMinimap === 'function') this.buildChatMinimap();
+    if (typeof this.updateStickyQuestion === 'function') this.updateStickyQuestion();
   }
 
   resolveImageSrc(img) {
@@ -3280,6 +3328,11 @@ class PiDrawerView {
         e.preventDefault();
         this.handleSend();
       } else if (e.key === 'Escape') {
+        if (this.isSplitPaneOpen) {
+          e.preventDefault();
+          this.closeCodeSplitPane();
+          return;
+        }
         if (this.hub.isStreaming()) {
           e.preventDefault();
           this.handleAbort();
@@ -3343,6 +3396,365 @@ class PiDrawerView {
     // Drag and Drop & Paste handling for files & images
     this.bindDragAndDropEvents();
     this.bindPasteEvents();
+
+    // 3. Middle Split Resizer Handle (Between Chat and Code Viewer)
+    this.splitResizerEl = document.createElement('div');
+    this.splitResizerEl.className = 'tw-split-resizer';
+    this.splitResizerEl.title = '拖拽调整对话区与代码区比例 (双击重置 55:45)';
+    this.splitResizerEl.style.display = 'none';
+    this.drawerEl.appendChild(this.splitResizerEl);
+
+    // 4. Right Code Viewer Panel Wrap
+    this.codePanelWrap = document.createElement('div');
+    this.codePanelWrap.className = 'tw-code-panel-wrap';
+    this.codePanelWrap.style.display = 'none';
+    this.drawerEl.appendChild(this.codePanelWrap);
+
+    // Initialize CodeViewerPanel instance (先销毁旧实例：避免抽屉重建时 Monaco iframe
+    // 与 window 级 message/keydown/MutationObserver 监听器逐次泄漏堆叠)
+    if (typeof CodeViewerPanel !== 'undefined') {
+      if (this.codeViewerPanel) {
+        try { this.codeViewerPanel.destroy(); } catch (_) {}
+      }
+      this.codeViewerPanel = new CodeViewerPanel({
+        app: this.app,
+        vaultBasePath: this.vaultBasePath,
+        onClose: () => this.closeCodeSplitPane()
+      });
+      this.codeViewerPanel.mount(this.codePanelWrap);
+    }
+
+    this.bindSplitResizer();
+  }
+
+  bindSplitResizer() {
+    if (!this.splitResizerEl) return;
+    let isDragging = false;
+    let startX = 0;
+    let startContentWidth = 0;
+
+    this.splitResizerEl.onmousedown = (e) => {
+      e.preventDefault();
+      if (!this.drawerContentWrap || !this.drawerEl) return;
+      isDragging = true;
+      startX = e.clientX;
+      startContentWidth = this.drawerContentWrap.getBoundingClientRect().width;
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+
+      // Drag overlay to prevent iframe stealing mouse events
+      const overlay = document.createElement('div');
+      overlay.className = 'tw-resize-drag-overlay';
+      overlay.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;z-index:99999;cursor:col-resize;';
+      document.body.appendChild(overlay);
+
+      const onMouseMove = (ev) => {
+        if (!isDragging) return;
+        const dx = ev.clientX - startX;
+        const totalWidth = this.drawerEl.getBoundingClientRect().width;
+        let newWidth = startContentWidth + dx;
+        const minW = 340;
+        const maxW = totalWidth - 300;
+        if (newWidth < minW) newWidth = minW;
+        if (newWidth > maxW) newWidth = maxW;
+        const pct = Math.round((newWidth / totalWidth) * 100);
+        this.savedSplitRatio = pct;
+        this.drawerContentWrap.style.flex = `0 0 ${pct}%`;
+        this.drawerContentWrap.style.width = `${pct}%`;
+      };
+
+      const onMouseUp = () => {
+        isDragging = false;
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+        if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+        window.removeEventListener('mousemove', onMouseMove);
+        window.removeEventListener('mouseup', onMouseUp);
+      };
+
+      window.addEventListener('mousemove', onMouseMove);
+      window.addEventListener('mouseup', onMouseUp);
+    };
+
+    // Double click resets to 55:45
+    this.splitResizerEl.ondblclick = () => {
+      this.savedSplitRatio = 55;
+      if (this.drawerContentWrap) {
+        this.drawerContentWrap.style.flex = '0 0 55%';
+        this.drawerContentWrap.style.width = '55%';
+      }
+    };
+  }
+
+  /**
+   * 在对话框右侧分屏打开代码/文件
+   * @param {string} rawTarget
+   * @param {number} [targetLine=1]
+   */
+  openCodeInSplitPane(rawTarget, targetLine = 1) {
+    if (!rawTarget) return;
+
+    this.isSplitPaneOpen = true;
+
+    if (this.drawerEl) {
+      this.drawerEl.classList.add('has-code-split');
+      // 如果不是 studio 模式且抽屉过窄，临时拓宽抽屉
+      if (!this.drawerEl.classList.contains('tw-studio-mode')) {
+        const curW = parseInt(this.drawerEl.style.width, 10) || 520;
+        if (curW < 960) {
+          this._prevDrawerWidth = this.drawerEl.style.width;
+          this.drawerEl.style.width = '980px';
+        }
+      }
+    }
+
+    if (this.drawerContentWrap) {
+      const ratio = this.savedSplitRatio || 55;
+      this.drawerContentWrap.style.flex = `0 0 ${ratio}%`;
+      this.drawerContentWrap.style.width = `${ratio}%`;
+    }
+
+    if (this.splitResizerEl) {
+      this.splitResizerEl.style.display = 'flex';
+    }
+
+    if (this.codePanelWrap) {
+      this.codePanelWrap.style.display = 'flex';
+    }
+
+    // 1. 决议目标文件的路径与行号 (零阻塞秒级决议)
+    const resolved = this.resolveCodeFilePath(rawTarget, targetLine);
+    const activeProj = this.selectedLocalProject || (typeof this.getSavedLocalProject === 'function' ? this.getSavedLocalProject() : null);
+
+    if (this.codeViewerPanel) {
+      const finalPath = resolved?.filePath || String(rawTarget).trim();
+      const finalLine = resolved?.line || targetLine || 1;
+      this.codeViewerPanel.openFile(finalPath, finalLine, {
+        rawTarget,
+        activeProject: activeProj
+      });
+    }
+  }
+
+  closeCodeSplitPane() {
+    this.isSplitPaneOpen = false;
+
+    if (this.drawerEl) {
+      this.drawerEl.classList.remove('has-code-split');
+      if (this._prevDrawerWidth) {
+        this.drawerEl.style.width = this._prevDrawerWidth;
+        this._prevDrawerWidth = null;
+      }
+    }
+
+    if (this.drawerContentWrap) {
+      this.drawerContentWrap.style.flex = '1 1 100%';
+      this.drawerContentWrap.style.width = '100%';
+    }
+
+    if (this.splitResizerEl) {
+      this.splitResizerEl.style.display = 'none';
+    }
+
+    if (this.codePanelWrap) {
+      this.codePanelWrap.style.display = 'none';
+    }
+  }
+
+  /**
+   * 跨服务器/工程/知识库智能决议文件路径与行号 (零阻塞即时决议)
+   * @param {string} rawTarget
+   * @param {number} [fallbackLine=1]
+   * @returns {{ filePath: string, line: number, isRemoteCandidate?: boolean } | null}
+   */
+  resolveCodeFilePath(rawTarget, fallbackLine = 1) {
+    if (!rawTarget) return null;
+    let clean = String(rawTarget).trim();
+    let line = fallbackLine || 1;
+
+    // 1. 去除两端包裹字符
+    clean = clean.replace(/^[`"']|[`"']$/g, '');
+    clean = clean.replace(/^\[\[(.*?)\]\]$/, '$1'); // Wikilink
+    clean = clean.replace(/^file:\/\/\/?/i, '');
+
+    // 2. 提取行号锚点 (#L85 或 :85 或 :85:12)
+    const hashMatch = clean.match(/#L(\d+)/i);
+    if (hashMatch) {
+      line = parseInt(hashMatch[1], 10);
+      clean = clean.replace(/#L\d+(-L\d+)?/i, '');
+    } else {
+      const colonMatch = clean.match(/:(\d+)(?::\d+)?$/);
+      if (colonMatch) {
+        line = parseInt(colonMatch[1], 10);
+        clean = clean.replace(/:(\d+)(?::\d+)?$/, '');
+      }
+    }
+    // 清理尾部可能的冒号、句点或中文字符
+    clean = clean.replace(/[:：\s，,。.]+$/, '');
+
+    // 3. Linux 远程服务器路径映射 (62 服务器与 31 服务器)
+    if (clean.startsWith('/dfb/tankaikun/share/')) {
+      clean = clean.replace('/dfb/tankaikun/share/', 'Y:\\').replace(/\//g, '\\');
+    } else if (clean.startsWith('/home/tankaikun/share/work/')) {
+      clean = clean.replace('/home/tankaikun/share/work/', 'Z:\\work\\').replace(/\//g, '\\');
+    } else if (clean.startsWith('/home/tankaikun/')) {
+      clean = clean.replace('/home/tankaikun/', 'Z:\\').replace(/\//g, '\\');
+    }
+
+    // 4. 标准化 Windows 路径分隔符
+    let norm = clean.replace(/\//g, '\\');
+
+    // 5. 已知远程服务器绝对路径 (Y:\ / Z:\ / UNC)：直接返回，交由 openFile 异步竞速读 + SSH 兜底。
+    //    绝不对 SMB 挂载点做同步 existsSync/statSync——盘符离线时 Windows 会挂起主线程数秒尝试重连。
+    if (/^[YyZz]:[\\\/]/i.test(norm) || norm.startsWith('\\\\192.168.1.')) {
+      return { filePath: norm, line };
+    }
+
+    // 6. 若已是绝对路径且在磁盘物理存在，直接返回 (仅本地盘符)
+    try {
+      if (path.isAbsolute(norm) && fs.existsSync(norm) && fs.statSync(norm).isFile()) {
+        return { filePath: norm, line };
+      }
+    } catch (_) {}
+
+    // 6. 结合当前激活的本地工程 (selectedLocalProject) 与候选子目录前缀
+    const activeProj = this.selectedLocalProject || (typeof this.getSavedLocalProject === 'function' ? this.getSavedLocalProject() : null);
+
+    // 挂载盘离线快检 (30s TTL)：盘符不在线时直接走远端候选，跳过 ~40 次同步 SMB 探测
+    const projDriveOnline = this._isDriveLikelyOnline(activeProj?.fullPathWin);
+
+    // 剥离已知的多余前缀 (例如用户传了带有工程名字的路径)
+    let strippedNorm = norm;
+    if (activeProj && activeProj.fullPathWin && norm.toLowerCase().startsWith(activeProj.fullPathWin.toLowerCase())) {
+      strippedNorm = norm.slice(activeProj.fullPathWin.length).replace(/^[\\\/]+/, '');
+    } else {
+      strippedNorm = norm.replace(/^[A-Za-z]:[\\\/]/, '').replace(/^(?:W[\\\/]01-sprd[\\\/]|W[\\\/]03-mtk-ww[\\\/]|AndroidW[\\\/]05-UW[\\\/]|work[\\\/]|dfb[\\\/]|share[\\\/])+/i, '');
+    }
+
+    const baseName = path.basename(strippedNorm);
+    const stem = baseName.replace(/\.[^.]+$/, '');
+    const cleanNormWithoutBase = strippedNorm.replace(/^base[\\\/]/i, '');
+
+    const subBranches = [
+      path.join('bsp', 'kernel5.15', 'kernel5.15', 'drivers', 'misc', 'prize', stem, baseName),
+      path.join('bsp', 'kernel5.15', 'kernel5.15', 'drivers', 'misc', 'prize', 'hardware_info', baseName),
+      path.join('bsp', 'kernel5.15', 'kernel5.15', 'drivers', 'power', 'supply', baseName),
+      path.join('bsp', 'kernel5.15', 'kernel5.15', 'drivers', 'misc', 'prize', baseName),
+      path.join('bsp', 'modules', 'kernel5.15', 'touchscreen', stem, baseName),
+      path.join('bsp', 'kernel5.15', 'kernel5.15', stem, baseName),
+      path.join('bsp', 'kernel5.15', 'kernel5.15', baseName),
+      path.join('bsp', baseName),
+      baseName
+    ];
+
+    if (activeProj && activeProj.fullPathWin && projDriveOnline) {
+      // 单次决议探测总耗时封顶 800ms：SMB 延迟叠加的连环 stat 不再拖慢打开
+      const probeStart = Date.now();
+      const probeExpired = () => (Date.now() - probeStart) > 800;
+      let probeAborted = false;
+
+      // 6.1 前缀探测 (Tier 2 项目定制、Tier 1 公共差分)
+      const candidatePrefixes = [];
+      if (activeProj.priDriverRel) {
+        candidatePrefixes.push(activeProj.priDriverRel.replace(/\//g, '\\'));
+      }
+      if (activeProj.publicDriverRel) {
+        candidatePrefixes.push(activeProj.publicDriverRel.replace(/\//g, '\\'));
+      }
+      candidatePrefixes.push('', 'vendor_t', 'pri_project', 'idh');
+
+      for (const prefix of candidatePrefixes) {
+        for (const targetCand of [strippedNorm, cleanNormWithoutBase]) {
+          if (probeExpired()) { probeAborted = true; break; }
+          const cand = prefix ? path.join(activeProj.fullPathWin, prefix, targetCand) : path.join(activeProj.fullPathWin, targetCand);
+          try {
+            if (fs.existsSync(cand) && fs.statSync(cand).isFile()) {
+              return { filePath: cand, line };
+            }
+          } catch (_) {}
+        }
+        if (probeAborted) break;
+      }
+
+      // 6.2 探测 Tier 2: 项目私有定制目录 subBranches
+      if (!probeAborted && activeProj.priDriverRel) {
+        const priDir = path.join(activeProj.fullPathWin, activeProj.priDriverRel.replace(/\//g, '\\'));
+        for (const sub of subBranches) {
+          if (probeExpired()) { probeAborted = true; break; }
+          const cand = path.join(priDir, sub);
+          try {
+            if (fs.existsSync(cand) && fs.statSync(cand).isFile()) {
+              return { filePath: cand, line };
+            }
+          } catch (_) {}
+        }
+      }
+
+      // 6.3 探测 Tier 1: 公司公共定制目录 subBranches
+      if (!probeAborted && activeProj.publicDriverRel) {
+        const pubDir = path.join(activeProj.fullPathWin, activeProj.publicDriverRel.replace(/\//g, '\\'));
+        for (const sub of subBranches) {
+          if (probeExpired()) { probeAborted = true; break; }
+          const cand = path.join(pubDir, sub);
+          try {
+            if (fs.existsSync(cand) && fs.statSync(cand).isFile()) {
+              return { filePath: cand, line };
+            }
+          } catch (_) {}
+        }
+      }
+
+      // 6.4 若本地 SMB 未命中，构造优先路径直接返回，交给后续 SSH 秒级查找
+      const defaultPri = activeProj.priDriverRel ? path.join(activeProj.fullPathWin, activeProj.priDriverRel.replace(/\//g, '\\'), cleanNormWithoutBase) : path.join(activeProj.fullPathWin, strippedNorm);
+      return { filePath: defaultPri, line, isRemoteCandidate: true };
+    }
+
+    // 7. 检查 TabonKB 知识库内部 (vaultBasePath)
+    if (this.vaultBasePath) {
+      const candVault = path.join(this.vaultBasePath, norm);
+      try {
+        if (fs.existsSync(candVault) && fs.statSync(candVault).isFile()) return { filePath: candVault, line };
+      } catch (_) {}
+
+      // 如果未带 .md 后缀，尝试补齐
+      if (!norm.toLowerCase().endsWith('.md')) {
+        const candMd = path.join(this.vaultBasePath, `${norm}.md`);
+        try {
+          if (fs.existsSync(candMd) && fs.statSync(candMd).isFile()) return { filePath: candMd, line };
+        } catch (_) {}
+      }
+
+      // 在 vault 中匹配文件名
+      try {
+        const bName = path.basename(norm).toLowerCase();
+        const bNameMd = bName.endsWith('.md') ? bName : `${bName}.md`;
+        const vFiles = this.app?.vault?.getFiles?.() || [];
+        for (const vf of vFiles) {
+          if (vf.name?.toLowerCase() === bName || vf.name?.toLowerCase() === bNameMd) {
+            return { filePath: path.join(this.vaultBasePath, vf.path), line };
+          }
+        }
+      } catch (_) {}
+    }
+
+    return { filePath: norm, line };
+  }
+
+  /**
+   * 挂载盘在线快检：对 Y:\ / Z:\ 盘符根做一次 existsSync 并缓存 30s，
+   * 避免每次点击文件都对离线盘符发起数秒的 SMB 重连探测。
+   */
+  _isDriveLikelyOnline(rootPath) {
+    const letter = String(rootPath || '')[0] || '';
+    if (!/^[YyZz]$/.test(letter)) return true;
+    this._driveOnlineCache = this._driveOnlineCache || {};
+    const key = letter.toUpperCase();
+    const cached = this._driveOnlineCache[key];
+    if (cached && (Date.now() - cached.ts) < 30000) return cached.online;
+    let online = false;
+    try { online = !!fs.existsSync(`${key}:\\`); } catch (_) { online = false; }
+    this._driveOnlineCache[key] = { online, ts: Date.now() };
+    return online;
   }
 
   bindDragAndDropEvents() {
@@ -4475,12 +4887,7 @@ class PiDrawerView {
   }
 
   _syncInputPlaceholder() {
-    if (!this.inputEl) return;
-    if (this._inputPlaceholder === null) {
-      this._inputPlaceholder = this.inputEl.placeholder || '';
-    }
-    const hasChips = !!(this.inputChips && this.inputChips.length);
-    this.inputEl.placeholder = hasChips ? '输入你的任务。' : this._inputPlaceholder;
+    this.updateInputPlaceholder();
   }
 
   _serializeChips(text) {
@@ -5681,13 +6088,62 @@ class PiDrawerView {
     this.postProcessRenderedMarkdown(el);
   }
 
+  isLikelyCodeFile(str) {
+    if (!str || typeof str !== 'string') return false;
+    let clean = str.trim().replace(/^[`"']|[`"']$/g, '');
+    if (clean.length < 3 || clean.length > 300) return false;
+    if (clean.startsWith('http://') || clean.startsWith('https://')) return false;
+    if (/^(?:cd|git|ls|rm|mkdir|chmod|chown|cat|grep|sed|awk|echo|export|source)\s+/i.test(clean)) return false;
+
+    const validExts = new Set([
+      '.c', '.h', '.cpp', '.hpp', '.cc', '.cxx',
+      '.py', '.sh', '.bash', '.dts', '.dtsi',
+      '.mk', '.json', '.js', '.mjs', '.ts',
+      '.md', '.xml', '.rc', '.ini', '.conf',
+      '.diff', '.patch', '.yaml', '.yml', '.java', '.rs', '.go', '.txt'
+    ]);
+
+    const noAnchor = clean.replace(/#L\d+(-L\d+)?/i, '').replace(/:\d+(?::\d+)?$/, '');
+    const ext = path.extname(noAnchor).toLowerCase();
+    const base = path.basename(noAnchor).toLowerCase();
+
+    if (base === 'makefile' || base === 'kbuild' || base === 'kconfig') return true;
+    if (validExts.has(ext)) return true;
+    if (clean.startsWith('file://')) return true;
+
+    if ((clean.includes('/') || clean.includes('\\')) && (clean.includes('driver') || clean.includes('pri_project') || clean.includes('kernel') || clean.includes('hardware'))) {
+      return true;
+    }
+
+    return false;
+  }
+
   postProcessRenderedMarkdown(containerEl) {
     if (!containerEl) return;
 
-    // 1. Add rel, target, and direct click handler to external links
+    // 1. Intercept file/code links and external links in <a>
     containerEl.querySelectorAll('a').forEach(a => {
       const href = a.getAttribute('href') || a.href || '';
-      const text = a.textContent || '';
+      const text = (a.textContent || '').trim();
+
+      // Check if it's a code/file link (file:// URI, code file path, or wikilink to note)
+      const isFileUri = href.startsWith('file:') || href.startsWith('file:///');
+      const isCodeHref = this.isLikelyCodeFile(href);
+      const isCodeText = this.isLikelyCodeFile(text);
+      const isInternalNote = a.classList.contains('internal-link') || a.getAttribute('data-href');
+
+      if (isFileUri || isCodeHref || isCodeText || isInternalNote) {
+        const targetCandidate = isFileUri ? href : (isCodeHref ? href : (isCodeText ? text : (a.getAttribute('data-href') || href || text)));
+        a.classList.add('tw-clickable-file-link');
+        a.title = `点击在右侧分屏查看: ${targetCandidate}`;
+        a.onclick = (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          this.openCodeInSplitPane(targetCandidate);
+        };
+        return;
+      }
+
       const targetUrl = resolveLinkToUrl(href, text, a, this.vaultBasePath);
       if (targetUrl) {
         a.setAttribute('href', targetUrl);
@@ -5698,6 +6154,21 @@ class PiDrawerView {
           e.preventDefault();
           e.stopPropagation();
           openExternalUrl(targetUrl);
+        };
+      }
+    });
+
+    // 1.1 Turn inline <code> that look like file paths into clickable links
+    containerEl.querySelectorAll('code').forEach(codeEl => {
+      if (codeEl.closest('pre')) return; // skip multi-line blocks
+      const codeText = (codeEl.textContent || '').trim();
+      if (this.isLikelyCodeFile(codeText)) {
+        codeEl.classList.add('tw-clickable-file-link');
+        codeEl.title = `点击在右侧分屏打开: ${codeText}`;
+        codeEl.onclick = (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          this.openCodeInSplitPane(codeText);
         };
       }
     });
@@ -6853,7 +7324,12 @@ class PiDrawerView {
     }
     if (this.stickyHeaderEl) {
       this.stickyHeaderEl.classList.remove('visible');
+      const qText = this.stickyHeaderEl.querySelector('.tw-sticky-q-text');
+      if (qText) qText.textContent = '';
     }
+    this._minimapBubbles = [];
+    if (typeof this.buildChatMinimap === 'function') this.buildChatMinimap();
+    if (typeof this.updateStickyQuestion === 'function') this.updateStickyQuestion();
     if (this.inputEl) {
       this.inputEl.value = '';
       this.inputEl.style.height = `${this.inputHeight}px`;

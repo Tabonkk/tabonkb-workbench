@@ -552,6 +552,37 @@ class LogicWaveView {
     return ctx;
   }
 
+  syncThemeColors(force = false) {
+    const root = (this.rootEl && this.rootEl.closest && this.rootEl.closest('.tw-la-root')) || this.rootEl;
+    const sig = root && root.dataset ? (root.dataset.laTheme || 'native') : 'native';
+    if (!force && this._cachedLaPal && this._cachedLaSig === sig) {
+      return this._cachedLaPal;
+    }
+    let cs = null;
+    try {
+      if (root && typeof getComputedStyle === 'function') cs = getComputedStyle(root);
+    } catch (_) {}
+    const g = (k, fb) => {
+      if (!cs) return fb;
+      const v = cs.getPropertyValue(k);
+      return (v && v.trim()) ? v.trim() : fb;
+    };
+    this._cachedLaSig = sig;
+    this._cachedLaPal = {
+      back: g('--la-back', LA_BACK),
+      fore: g('--la-fore', LA_FORE),
+      foreDim: g('--la-fore-dim', LA_FORE_DIM),
+      sel: g('--la-sel', LA_SEL),
+      measAct: g('--la-meas-act', LA_MEAS_ACT),
+      measBox: g('--la-meas-box', LA_MEAS_BOX)
+    };
+    return this._cachedLaPal;
+  }
+
+  _pal() {
+    return this.syncThemeColors(false);
+  }
+
   _draw() {
     if (this._destroyed || !this._w) return;
     this._drawRuler();
@@ -562,12 +593,13 @@ class LogicWaveView {
   // ---------- 标尺 (DSView draw_logic_tick_mark) ----------
 
   _drawRuler() {
+    const pal = this._pal();
     const ctx = this._ctx2d(this.rulerCanvas);
     const { start, end } = this.viewport;
     const w = this._w;
     ctx.clearRect(0, 0, w, LA_RULER_H);
     ctx.font = '10px "Segoe UI", sans-serif';
-    ctx.fillStyle = LA_BACK;
+    ctx.fillStyle = pal.back;
     ctx.fillRect(0, 0, w, LA_RULER_H);
     const textH = 10;
     const majorY1 = textH + 15, tickY2 = LA_RULER_H - 14;
@@ -575,8 +607,8 @@ class LogicWaveView {
     if (this.total && this.rate) {
       const t = laDsvTicks(start, end, this.rate, w, null,
         (s) => this._measure(ctx, s));
-      ctx.strokeStyle = LA_FORE;
-      ctx.fillStyle = LA_FORE;
+      ctx.strokeStyle = pal.fore;
+      ctx.fillStyle = pal.fore;
       ctx.lineWidth = 1;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'top';
@@ -643,6 +675,7 @@ class LogicWaveView {
   // ---------- 主区 ----------
 
   _drawMain() {
+    const pal = this._pal();
     const ctx = this._ctx2d(this.mainCanvas);
     const dpr = (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
     const w = this._w, h = Math.max(40, this.mainCanvas.height / dpr);
@@ -650,14 +683,14 @@ class LogicWaveView {
     const span = Math.max(1e-9, end - start);
     const s2x = (s) => (s - start) / span * w;
     ctx.clearRect(0, 0, w, h);
-    ctx.fillStyle = LA_BACK;
+    ctx.fillStyle = pal.back;
     ctx.fillRect(0, 0, w, h);
     ctx.font = '10px "Segoe UI", sans-serif';
 
     // 选中高亮带 (View::Blue 半透明)
     if (this.highlight) {
       const x0 = s2x(this.highlight.ss), x1 = s2x(Math.max(this.highlight.es, this.highlight.ss + 1));
-      ctx.fillStyle = LA_SEL;
+      ctx.fillStyle = pal.sel;
       ctx.fillRect(x0, 0, Math.max(2, x1 - x0), h);
     }
 
@@ -674,12 +707,12 @@ class LogicWaveView {
       const yHi = mid - sigH / 2 + 0.5;
       const yLo = mid + sigH / 2 + 0.5;
       // 点状轴线 (paint_back: 波形高电平高度的点线)
-      ctx.strokeStyle = LA_FORE_DIM;
+      ctx.strokeStyle = pal.foreDim;
       ctx.setLineDash([1, 3]);
       ctx.beginPath(); ctx.moveTo(0, yHi); ctx.lineTo(w, yHi); ctx.stroke();
       ctx.setLineDash([]);
-      ctx.strokeStyle = LA_FORE;
-      ctx.fillStyle = LA_FORE;
+      ctx.strokeStyle = pal.fore;
+      ctx.fillStyle = pal.fore;
       ctx.lineWidth = 1;
       if (!c) continue;
       if (c.mode === 'dense' && c.buckets) {
@@ -731,7 +764,7 @@ class LogicWaveView {
         || (maxW === 0 && samplesPerPx < 10);
       if (!show) { this._drawNodetail(ctx, cy, ah, w); continue; }
       // 行首标题: ▶ + title (paint_back headings)
-      ctx.fillStyle = LA_FORE;
+      ctx.fillStyle = pal.fore;
       ctx.beginPath();
       ctx.moveTo(2, cy - LA_ARROW);
       ctx.lineTo(2 + LA_ARROW, cy);
@@ -740,7 +773,7 @@ class LogicWaveView {
       ctx.fill();
       ctx.textAlign = 'left';
       ctx.textBaseline = 'middle';
-      ctx.fillStyle = LA_FORE;
+      ctx.fillStyle = pal.fore;
       ctx.fillText(String(ar.title || ar.label || ''), 2 + LA_ARROW * 2, cy - 2);
 
       let lastX = -1;
@@ -779,7 +812,7 @@ class LogicWaveView {
         const cap = Math.min(bw / 4, LA_ENDCAP_W);
         const top = cy + 0.5 - ah / 2, bot = cy + 0.5 + ah / 2;
         ctx.fillStyle = fill;
-        ctx.strokeStyle = LA_BACK;
+        ctx.strokeStyle = pal.back;
         ctx.beginPath();
         ctx.moveTo(ax0, cy + 0.5);
         ctx.lineTo(ax0 + cap, top);
@@ -824,7 +857,7 @@ class LogicWaveView {
     // ---------- 悬停测量 (Viewport::paintMeasure: 基准帽线 + 蓝色详情框) ----------
     const hm = this._hoverPt && this._hoverMeasure(this._hoverPt.x, this._hoverPt.y);
     if (hm) {
-      ctx.strokeStyle = LA_MEAS_ACT;
+      ctx.strokeStyle = pal.measAct;
       ctx.lineWidth = 1;
       const y = hm.midY;
       ctx.beginPath();
@@ -850,9 +883,9 @@ class LogicWaveView {
         let bx = this._hoverPt.x, by = this._hoverPt.y;
         if (bx + tw > w) bx -= tw;
         if (by + 80 > h) by -= 80;
-        ctx.fillStyle = LA_MEAS_BOX;
+        ctx.fillStyle = pal.measBox;
         ctx.fillRect(bx, by, tw, 80);
-        ctx.fillStyle = LA_MEAS_ACT;
+        ctx.fillStyle = pal.measAct;
         ctx.textAlign = 'right';
         ctx.textBaseline = 'middle';
         for (let i = 0; i < vals.length; i++) ctx.fillText(vals[i], bx + tw - 6, by + 10 + i * 20);
@@ -899,8 +932,8 @@ class LogicWaveView {
     const info = 'Zoom in for details';
     const tw = this._measure(ctx, info);
     const th = 10;
-    ctx.strokeStyle = LA_FORE;
-    ctx.fillStyle = LA_FORE;
+    ctx.strokeStyle = pal.fore;
+    ctx.fillStyle = pal.fore;
     ctx.lineWidth = 1;
     const l = (w - tw) / 2 - 8, rr = (w + tw) / 2 + 8;
     ctx.beginPath();
@@ -923,6 +956,7 @@ class LogicWaveView {
   }
 
   _drawMini() {
+    const pal = this._pal();
     const ctx = this._ctx2d(this.miniCanvas);
     const w = this._w;
     ctx.clearRect(0, 0, w, LA_MINI_H);

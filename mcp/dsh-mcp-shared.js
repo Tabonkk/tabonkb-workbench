@@ -311,6 +311,11 @@ function buildDshDaemonEnv(vaultBasePath) {
     // 凭证抽取静默回退
   }
 
+  // 用户在 UI 中即时选择的上下文 (Harness「+」菜单 / Agent 抽屉选项) 优先于 data.json 静态默认，
+  // 二者均已在 applyDshCtxSelection / saveProject / saveLocalProject 中写入 process.env。
+  if (process.env.OPENGROK_DEFAULT_PROJECT) env.OPENGROK_DEFAULT_PROJECT = process.env.OPENGROK_DEFAULT_PROJECT;
+  if (process.env.TABONKB_LOCAL_PROJECT_JSON) env.TABONKB_LOCAL_PROJECT_JSON = process.env.TABONKB_LOCAL_PROJECT_JSON;
+
   // 释放权限给 Harness：允许派生外部程序 (cmd.exe/git.exe/ssh.exe) 与跨目录访问，免借票审批
   env.DSH_PERMISSION_MODE = 'danger-full-access';
 
@@ -478,7 +483,14 @@ Bringup 或多步疑难排障，先用规划模式拆成可观测的小步，每
 
 六、交付与沉淀
 引用代码统一给出「路径:行号」（如 drivers/power/supply/xxx.c:123 或 03-Driver/05-Charger/xxx.md），便于工作台右侧点击联动。
-结论按「现象 / 根因 / 证据（日志片段+出处）/ 改动 / 验证 / 遗留风险」六段式整理，写入 00-Inbox/ 或对应模块目录（03-Driver/<模块>/、04-Debug/、06-Spec/）；正式命名归档与索引维护交给「知识库管理」预设。`),
+结论按「现象 / 根因 / 证据（日志片段+出处）/ 改动 / 验证 / 遗留风险」六段式整理，写入 00-Inbox/ 或对应模块目录（03-Driver/<模块>/、04-Debug/、06-Spec/）；正式命名归档与索引维护交给「知识库管理」预设。
+
+七、会话工程上下文（用户在「+」菜单绑定，经环境变量下发）
+1. 本地工程 TABONKB_LOCAL_PROJECT_JSON（JSON：serverId/serverName/workspaceName/linuxPath/platform/project/priDriverRel/publicDriverRel）为最高优先级事实源：检索与定位优先项目专属定制路径 priDriverRel，其次公共差分 publicDriverRel，原厂基线仅作对照且禁止直接修改；建议编译/烧录命令一律按该工程的 platform+project 组装，不要凭通用模板。
+2. OpenGrok OPENGROK_DEFAULT_PROJECT：非空即代表用户圈定的目标源码工程，opengrok_search_code / opengrok_list_projects 的 project 参数默认取该值，跨库联检仅在用户明确要求时放宽。
+3. Jira 工单绑定 TABONKB_JIRA_ISSUE_JSON（JSON：key/summary/status/priority/assignee/url）：先用 jira_get_issue 拉取描述/复现条件，再 jira_list_attachments 与 jira_download_attachment 取证附件；答复引用工单号并贴合其环境。
+4. Gerrit 过滤器 TABONKB_GERRIT_FILTER（all/open/merged/mine/reviewing）：gerrit_search_changes 默认按该范围组织查询条件，非 all 时优先收窄到对应变更集。
+5. 新建对话时上述绑定会被清空；若环境变量缺失或为空，按未绑定处理，不要沿用上一会话的工程假设。`),
           planningGroup,
           compactionGroup
         ]

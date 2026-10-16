@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>TabonKB Monaco Host</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #1e1e1e;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    }
+    #editor-container {
+      width: 100%;
+      height: 100%;
+    }
+    .tw-target-line-highlight {
+      background-color: rgba(139, 92, 246, 0.28) !important;
+      border-left: 3px solid #8b5cf6 !important;
+    }
+    .tw-target-line-glyph {
+      background: #8b5cf6;
+      border-radius: 50%;
+      width: 8px !important;
+      height: 8px !important;
+      margin-left: 5px;
+      margin-top: 5px;
+    }
+  </style>
+  <link rel="stylesheet" data-name="vs/editor/editor.main" href="./vs/editor/editor.main.css">
+</head>
+<body>
+  <div id="editor-container"></div>
+  <script>
+    // Ensure AMD loader runs in web mode
+    if (typeof process !== 'undefined') {
+      try { delete window.process; } catch(_) { window.process = undefined; }
+    }
+  </script>
+  <script src="./vs/loader.js"></script>
+  <script>
+    require.config({ paths: { 'vs': './vs' } });
+
+    var editorInstance = null;
+    var currentDecorations = [];
+    var isReady = false;
+    var pendingCall = null;
+
+    require(['vs/editor/editor.main'], function() {
+      isReady = true;
+
+      // Register DTS / DTSI as C-like syntax
+      try {
+        monaco.languages.register({ id: 'dts' });
+        monaco.languages.setMonarchTokensProvider('dts', {
+          keywords: ['compatible', 'reg', 'status', 'interrupts', 'ranges', 'include', 'dtsi', 'okay', 'disabled'],
+          tokenizer: {
+            root: [
+              [/[a-zA-Z_][\w-]*/, {
+                cases: {
+                  '@keywords': 'keyword',
+                  '@default': 'identifier'
+                }
+              }],
+              [/\/\/.*/, 'comment'],
+              [/\/\*/, 'comment', '@comment'],
+              [/".*?"/, 'string'],
+              [/<.*?>/, 'number.hex'],
+              [/0x[0-9a-fA-F]+/, 'number.hex'],
+              [/[0-9]+/, 'number']
+            ],
+            comment: [
+              [/[^\/*]+/, 'comment'],
+              [/\*\//, 'comment', '@pop'],
+              [/[\/*]/, 'comment']
+            ]
+          }
+        });
+      } catch (e) {
+        console.warn('[Monaco] custom dts grammar register failed:', e);
+      }
+
+      if (pendingCall) {
+        doOpenFile(
+          pendingCall.code,
+          pendingCall.lang,
+          pendingCall.targetLine,
+          pendingCall.readOnly,
+          pendingCall.theme
+        );
+        pendingCall = null;
+      }
+
+      // Notify parent via postMessage & direct window function fallback
+      if (window.parent) {
+        try { window.parent.postMessage({ type: 'monaco-host-ready' }, '*'); } catch (_) {}
+        try { if (typeof window.parent.onMonacoHostReady === 'function') window.parent.onMonacoHostReady(); } catch (_) {}
+      }
+    });
+
+    function doOpenFile(code, lang, targetLine, readOnly, theme) {
+      if (!isReady) {
+        pendingCall = { code: code, lang: lang, targetLine: targetLine, readOnly: readOnly, theme: theme };
+        return;
+      }
+
+      var container = document.getElementById('editor-container');
+      var safeLang = lang || 'plaintext';
+      var safeTheme = theme || 'vs-dark';
+
+      if (editorInstance) {
+        var oldModel = editorInstance.getModel();
+        var newModel = monaco.editor.createModel(code || '', safeLang);
+        editorInstance.setModel(newModel);
+        if (oldModel) oldModel.dispose();
+        editorInstance.updateOptions({
+          readOnly: !!readOnly,
+          theme: safeTheme
+        });
+      } else {
+        editorInstance = monaco.editor.create(container, {
+          value: code || '',
+          language: safeLang,
+          readOnly: !!readOnly,
+          theme: safeTheme,
+          automaticLayout: true,
+          fontSize: 13,
+          fontFamily: "'Fira Code', 'JetBrains Mono', Consolas, 'Courier New', monospace",
+          lineNumbers: 'on',
+          glyphMargin: true,
+          minimap: { enabled: true, maxColumn: 80 },
+          scrollBeyondLastLine: false,
+          folding: true,
+          renderWhitespace: 'selection',
+          smoothScrolling: true,
+          cursorBlinking: 'smooth',
+          tabSize: 4,
+          insertSpaces: true
+        });
+
+        // Keybinding for Ctrl+S / Cmd+S
+        editorInstance.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, function() {
+          if (window.parent) {
+            try { window.parent.postMessage({ type: 'monaco-save-request', code: editorInstance.getValue() }, '*'); } catch (_) {}
+            try { if (typeof window.parent.onMonacoSaveRequest === 'function') window.parent.onMonacoSaveRequest(editorInstance.getValue()); } catch (_) {}
+          }
+        });
+
+        // Keybinding for Ctrl+F / Cmd+F -> Forward to Workbench Notepad++ Search
+        editorInstance.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyF, function() {
+          if (window.parent) {
+            try { window.parent.postMessage({ type: 'monaco-toggle-find' }, '*'); } catch (_) {}
+          }
+        });
+
+        // Content changed notification
+        editorInstance.onDidChangeModelContent(function() {
+          if (window.parent) {
+            try { window.parent.postMessage({ type: 'monaco-content-change', code: editorInstance.getValue() }, '*'); } catch (_) {}
+            try { if (typeof window.parent.onMonacoContentChange === 'function') window.parent.onMonacoContentChange(editorInstance.getValue()); } catch (_) {}
+          }
+        });
+      }
+
+      // Jump and highlight target line
+      if (targetLine && targetLine > 0) {
+        setTimeout(function() {
+          if (!editorInstance) return;
+          editorInstance.revealLineInCenter(targetLine);
+          editorInstance.setPosition({ lineNumber: targetLine, column: 1 });
+          currentDecorations = editorInstance.deltaDecorations(currentDecorations, [
+            {
+              range: new monaco.Range(targetLine, 1, targetLine, 1),
+              options: {
+                isWholeLine: true,
+                className: 'tw-target-line-highlight',
+                glyphMarginClassName: 'tw-target-line-glyph'
+              }
+            }
+          ]);
+        }, 60);
+      } else {
+        currentDecorations = editorInstance.deltaDecorations(currentDecorations, []);
+      }
+    }
+
+    // Direct access compatibility
+    window.openFile = doOpenFile;
+    window.setReadOnly = function(readOnly) {
+      if (editorInstance) editorInstance.updateOptions({ readOnly: !!readOnly });
+    };
+    window.setTheme = function(theme) {
+      if (window.monaco && monaco.editor) monaco.editor.setTheme(theme);
+      if (editorInstance) editorInstance.updateOptions({ theme: theme });
+      document.body.style.background = (theme === 'vs' ? '#ffffff' : '#1e1e1e');
+    };
+    window.getCode = function() {
+      return editorInstance ? editorInstance.getValue() : '';
+    };
+
+    // Listen to messages from parent window
+    window.addEventListener('message', function(event) {
+      var data = event.data;
+      if (!data || typeof data !== 'object') return;
+
+      if (data.type === 'open-file') {
+        doOpenFile(data.code, data.lang, data.targetLine, data.readOnly, data.theme);
+        if (data.theme) {
+          document.body.style.background = (data.theme === 'vs' ? '#ffffff' : '#1e1e1e');
+        }
+      } else if (data.type === 'set-readonly') {
+        if (editorInstance) {
+          editorInstance.updateOptions({ readOnly: !!data.readOnly });
+        }
+      } else if (data.type === 'set-theme') {
+        if (window.monaco && monaco.editor) {
+          monaco.editor.setTheme(data.theme);
+        }
+        if (editorInstance) {
+          editorInstance.updateOptions({ theme: data.theme });
+        }
+        document.body.style.background = (data.theme === 'vs' ? '#ffffff' : '#1e1e1e');
+      } else if (data.type === 'reveal-line') {
+        if (editorInstance && data.line) {
+          var targetLine = parseInt(data.line, 10);
+          editorInstance.revealLineInCenter(targetLine);
+          editorInstance.setPosition({ lineNumber: targetLine, column: data.col || 1 });
+          currentDecorations = editorInstance.deltaDecorations(currentDecorations, [
+            {
+              range: new monaco.Range(targetLine, 1, targetLine, 1),
+              options: {
+                isWholeLine: true,
+                className: 'tw-target-line-highlight',
+                glyphMarginClassName: 'tw-target-line-glyph'
+              }
+            }
+          ]);
+        }
+      } else if (data.type === 'request-code') {
+        if (window.parent) {
+          try {
+            window.parent.postMessage({
+              type: 'response-code',
+              code: editorInstance ? editorInstance.getValue() : '',
+              reqId: data.reqId
+            }, '*');
+          } catch (_) {}
+        }
+      }
+    });
+  </script>
+</body>
+</html>

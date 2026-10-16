@@ -76,7 +76,7 @@ class WeKnoraGraphEngine {
     this.onRenderCallback = null;
 
     // 主题体系 (默认: 科技星云 immersive, 兼具 cosmic / graphite)
-    this.currentTheme = 'immersive';
+    this.currentTheme = 'workbench';
 
     // 专注模式与视口右侧避让边距
     this.isEgoMode = false;
@@ -533,8 +533,8 @@ class WeKnoraGraphEngine {
   }
 
   setTheme(themeKey) {
-    if (themeKey !== 'cosmic' && themeKey !== 'graphite' && themeKey !== 'immersive') {
-      themeKey = 'cosmic';
+    if (themeKey !== 'workbench' && themeKey !== 'cosmic' && themeKey !== 'graphite' && themeKey !== 'immersive') {
+      themeKey = 'workbench';
     }
     this.currentTheme = themeKey;
     this.hasFitted = false;
@@ -886,7 +886,36 @@ class WeKnoraGraphEngine {
     const th = this.currentTheme;
 
     // 2. 主题背景绘制
-    if (th === 'cosmic') {
+    if (th === 'workbench') {
+      const host = (this.containerEl && this.containerEl.closest && this.containerEl.closest('.tabonkb-workbench-container')) || document.body;
+      const curSig = host && host.dataset ? `${host.dataset.twSkin || ''}|${host.dataset.twMode || ''}` : '';
+      if (!this._cachedWbBg || this._cachedWbSig !== curSig) {
+        let wbBg = '#FFFFFF', wbGrid = 'rgba(226, 232, 240, 0.45)';
+        try {
+          if (host && typeof getComputedStyle === 'function') {
+            const cs = getComputedStyle(host);
+            wbBg = (cs.getPropertyValue('--g-m2') || '').trim() || wbBg;
+            wbGrid = (cs.getPropertyValue('--g-sep') || '').trim() || wbGrid;
+          }
+        } catch (_) {}
+        this._cachedWbSig = curSig;
+        this._cachedWbBg = wbBg;
+        this._cachedWbGrid = wbGrid;
+      }
+      const wbBg = this._cachedWbBg;
+      const wbGrid = this._cachedWbGrid;
+      ctx.fillStyle = wbBg;
+      ctx.fillRect(0, 0, this.width, this.height);
+      ctx.save();
+      ctx.strokeStyle = wbGrid;
+      ctx.lineWidth = 0.5;
+      ctx.beginPath();
+      const gStep = 44;
+      for (let x = 0; x < this.width; x += gStep) { ctx.moveTo(x, 0); ctx.lineTo(x, this.height); }
+      for (let y = 0; y < this.height; y += gStep) { ctx.moveTo(0, y); ctx.lineTo(this.width, y); }
+      ctx.stroke();
+      ctx.restore();
+    } else if (th === 'cosmic') {
       // 深空星系经典暗夜渐变 (Galaxy Deep Space)
       const bgGrad = ctx.createRadialGradient(this.width / 2, this.height / 2, 40, this.width / 2, this.height / 2, Math.max(this.width, this.height) * 0.9);
       bgGrad.addColorStop(0, '#0E1424');

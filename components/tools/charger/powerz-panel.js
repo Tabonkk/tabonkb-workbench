@@ -113,258 +113,471 @@ class PowerzPanel {
     this.container.innerHTML = `
       <style id="pz-console-styles">
         #twChargerPane_powerz {
-          background:#0a0c10 !important;
-          padding:4px 6px 6px !important;
-          border-radius:4px !important;
-          color:#e2e8f0;
-          font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
-          height:100% !important;
-          max-height:100% !important;
-          min-height:0 !important;
-          display:flex !important;
-          flex-direction:column !important;
-          flex:1 1 0 !important;
-          overflow:hidden !important;
-          box-sizing:border-box !important;
+          background: var(--g-canvas, var(--background-secondary, #f8fafc)) !important;
+          padding: 8px 10px 10px !important;
+          border-radius: 0 !important;
+          color: var(--g-label, var(--text-normal, #0f172a));
+          font-family: var(--g-font, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif);
+          height: 100% !important;
+          max-height: 100% !important;
+          min-height: 0 !important;
+          display: flex !important;
+          flex-direction: column !important;
+          flex: 1 1 0 !important;
+          overflow: hidden !important;
+          box-sizing: border-box !important;
         }
         .pz-wrap {
-          width:100% !important;
-          height:100% !important;
-          max-height:100% !important;
-          min-height:0 !important;
-          display:flex !important;
-          flex-direction:column !important;
-          flex:1 1 0 !important;
-          overflow:hidden !important;
-          box-sizing:border-box !important;
-          user-select:none !important;
+          width: 100% !important;
+          height: 100% !important;
+          max-height: 100% !important;
+          min-height: 0 !important;
+          display: flex !important;
+          flex-direction: column !important;
+          flex: 1 1 0 !important;
+          overflow: hidden !important;
+          box-sizing: border-box !important;
+          user-select: none !important;
         }
-        .pz-wrap * { box-sizing:border-box; }
+        .pz-wrap * { box-sizing: border-box; }
 
         /* 三大视图共享尺寸规范 (主控制台、数据记录仪、PD协议分析仪) */
         #pzMainView.pz-con,
         #pzCurveView,
         #pzPdView {
-          width:100% !important;
-          height:100% !important;
-          max-height:100% !important;
-          min-height:0 !important;
-          flex:1 1 0 !important;
-          flex-direction:column !important;
-          overflow:hidden !important;
-          position:relative !important;
-          box-sizing:border-box !important;
+          width: 100% !important;
+          height: 100% !important;
+          max-height: 100% !important;
+          min-height: 0 !important;
+          flex: 1 1 0 !important;
+          flex-direction: column !important;
+          overflow: hidden !important;
+          position: relative !important;
+          box-sizing: border-box !important;
         }
 
         /* 视图严格单例互斥：未激活严格隐藏，激活独占 flex 容器 */
         #pzMainView:not(.is-active),
         #pzCurveView:not(.is-active),
         #pzPdView:not(.is-active) {
-          display:none !important;
+          display: none !important;
         }
         #pzMainView.is-active,
         #pzCurveView.is-active,
         #pzPdView.is-active {
-          display:flex !important;
+          display: flex !important;
         }
 
-        /* 主控制台特定外观 */
+        /* 主控制台特定外观 (跟随工作台主题动态令牌) */
         #pzMainView.pz-con {
-          background:#12151d;
-          border:1px solid #232838;
-          border-radius:6px;
-          padding:12px;
+          background: var(--g-m2, var(--background-primary, #ffffff));
+          backdrop-filter: var(--g-b2, none);
+          -webkit-backdrop-filter: var(--g-b2, none);
+          border: 1px solid var(--g-edge2, var(--background-modifier-border, #e2e8f0));
+          border-radius: var(--g-r4, 14px);
+          box-shadow: var(--g-spec, 0 0 0 0 transparent), var(--g-sh1, none);
+          padding: 14px 16px;
+          color: var(--g-label, #0f172a);
         }
-        .pz-con-title { display:flex; align-items:center; justify-content:space-between; font-size:13px; font-weight:800; color:#cbd5e1; margin-bottom:12px; }
-        .pz-title-left { display:flex; align-items:center; gap:8px; }
-        .pz-con-badge { background:#2563eb; color:#fff; border-radius:3px; padding:2px 6px; font-size:10px; font-weight:900; }
-        .pz-con-row { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:12px; }
-        .pz-btn { background:#181c26 !important; border:1px solid #283144 !important; color:#cbd5e1 !important; font-size:12px !important; font-weight:600 !important;
-                  border-radius:4px !important; padding:5px 12px !important; cursor:pointer !important; transition:all .15s !important; display:inline-flex !important; align-items:center !important; gap:6px !important; line-height:1.2 !important; }
-        .pz-btn:hover { background:#222838 !important; color:#fff !important; border-color:#3b82f6 !important; }
-        .pz-btn.primary { background:#2563eb !important; border-color:#2563eb !important; color:#fff !important; }
-        .pz-btn.primary:hover { background:#3b82f6 !important; }
-        .pz-btn.sm { font-size:11px !important; padding:3px 8px !important; border-radius:3px !important; gap:4px !important; }
-        .pz-con-sub { font-size:11px; color:#94a3b8; margin:10px 0 6px; font-weight:700; display:flex; justify-content:space-between; align-items:center; }
-        .pz-con-dir { font-family:Consolas,monospace; font-size:10px; color:#64748b; margin-bottom:8px; word-break:break-all; }
-        .pz-list { background:#0e1017; border:1px solid #1e2230; border-radius:4px; flex:1 1 0; min-height:160px; max-height:none; overflow-y:auto; padding:6px; }
-        .pz-item { font-family:Consolas,monospace; font-size:11px; color:#cbd5e1; padding:6px 8px; border-radius:4px;
-                   display:flex; align-items:center; justify-content:space-between; margin-bottom:3px; background:#141722; border:1px solid transparent; transition:all .15s; }
-        .pz-item:hover { background:#1d2232; border-color:#3b82f6; color:#fff; }
-        .pz-item-info { display:flex; align-items:center; gap:8px; }
-        .pz-item-tag { font-size:9px; font-weight:800; border-radius:2px; padding:1px 5px; }
-        .pz-tag-db { background:#065f46; color:#6ee7b7; border:1px solid #059669; }
-        .pz-tag-pd { background:#075985; color:#7dd3fc; border:1px solid #0284c7; }
-        .pz-tag-other { background:#334155; color:#94a3b8; }
-        .pz-item-name { font-weight:600; color:#93c5fd; }
-        .pz-item-meta { display:flex; align-items:center; gap:10px; }
-        .pz-item .sz { color:#64748b; font-size:10px; }
-        .pz-empty { color:#64748b; font-size:11px; padding:14px; text-align:center; }
-        .pz-sum { display:none; margin-top:10px; background:#0e1e28; border:1px solid #1a3344; border-radius:4px;
-                  padding:8px 10px; font-family:Consolas,monospace; font-size:11px; color:#cbd5e1; white-space:pre-wrap; line-height:1.5; }
-        .pz-log { margin-top:10px; font-family:Consolas,monospace; font-size:10px; color:#64748b; max-height:60px; overflow-y:auto; }
+        .pz-con-title { display: flex; align-items: center; justify-content: space-between; font-size: 13px; font-weight: 800; color: var(--g-label, #0f172a); margin-bottom: 12px; }
+        .pz-title-left { display: flex; align-items: center; gap: 8px; }
+        .pz-con-badge { background: var(--bp-bg, var(--g-blue, #2563eb)); color: var(--bp-fg, #fff); border-radius: var(--g-r1, 5px); padding: 2px 7px; font-size: 10px; font-weight: 900; box-shadow: var(--bp-sh, none); }
+        .pz-con-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+        .pz-btn {
+          background: var(--bt-bg, var(--g-m3, #f8fafc)) !important;
+          border: var(--bt-bd, 1px solid var(--g-edge2, #cbd5e1)) !important;
+          color: var(--bt-fg, var(--g-label, #1e293b)) !important;
+          font-size: 12px !important;
+          font-weight: 600 !important;
+          border-radius: var(--bt-r, var(--g-r2, 7px)) !important;
+          padding: 5px 12px !important;
+          cursor: pointer !important;
+          transition: all .15s !important;
+          display: inline-flex !important;
+          align-items: center !important;
+          gap: 6px !important;
+          line-height: 1.2 !important;
+          box-shadow: var(--bt-sh, none) !important;
+        }
+        .pz-btn:hover {
+          background: var(--bt-hv-bg, var(--g-fill-2, rgba(148,163,184,0.16))) !important;
+          color: var(--g-label, #0f172a) !important;
+          border-color: var(--g-blue, #3b82f6) !important;
+        }
+        .pz-btn.primary {
+          background: var(--bp-bg, var(--g-accent-fill, #2563eb)) !important;
+          border-color: transparent !important;
+          color: var(--bp-fg, var(--sk-on-accent, #fff)) !important;
+          box-shadow: var(--bp-sh, none) !important;
+        }
+        .pz-btn.primary:hover { filter: brightness(1.06); }
+        .pz-btn.sm { font-size: 11px !important; padding: 3px 9px !important; border-radius: var(--g-r1, 5px) !important; gap: 4px !important; }
+        .pz-con-sub { font-size: 11px; color: var(--g-label-2, #475569); margin: 10px 0 6px; font-weight: 700; display: flex; justify-content: space-between; align-items: center; }
+        .pz-con-dir { font-family: var(--g-mono, Consolas, monospace); font-size: 10.5px; color: var(--g-label-3, #64748b); margin-bottom: 8px; word-break: break-all; }
+        .pz-list {
+          background: var(--g-m1, rgba(148,163,184,0.06));
+          border: 1px solid var(--g-edge, #e2e8f0);
+          border-radius: var(--g-r3, 10px);
+          flex: 1 1 0;
+          min-height: 160px;
+          max-height: none;
+          overflow-y: auto;
+          padding: 8px;
+        }
+        .pz-item {
+          font-family: var(--g-mono, Consolas, monospace);
+          font-size: 11.5px;
+          color: var(--g-label, #1e293b);
+          padding: 7px 10px;
+          border-radius: var(--g-r2, 8px);
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          margin-bottom: 5px;
+          background: var(--g-m2, #ffffff);
+          border: 1px solid var(--g-edge, rgba(148,163,184,0.18));
+          box-shadow: var(--g-sh1, none);
+          transition: all .15s;
+        }
+        .pz-item:hover {
+          background: var(--g-m3, #f8fafc);
+          border-color: var(--g-blue, #3b82f6);
+          color: var(--g-label, #0f172a);
+          transform: translateY(-1px);
+        }
+        .pz-item-info { display: flex; align-items: center; gap: 8px; }
+        .pz-item-tag { font-size: 9.5px; font-weight: 800; border-radius: 4px; padding: 1.5px 6px; }
+        .pz-tag-db {
+          background: color-mix(in srgb, var(--g-green, #10b981) 15%, transparent);
+          color: var(--g-green, #059669);
+          border: 1px solid color-mix(in srgb, var(--g-green, #10b981) 38%, transparent);
+        }
+        .pz-tag-pd {
+          background: color-mix(in srgb, var(--g-blue, #0284c7) 15%, transparent);
+          color: var(--g-blue, #0284c7);
+          border: 1px solid color-mix(in srgb, var(--g-blue, #0284c7) 38%, transparent);
+        }
+        .pz-tag-other {
+          background: var(--g-fill, rgba(148,163,184,0.15));
+          color: var(--g-label-2, #64748b);
+        }
+        .pz-item-name { font-weight: 600; color: var(--g-blue, #2563eb); }
+        .pz-item-meta { display: flex; align-items: center; gap: 10px; }
+        .pz-item .sz { color: var(--g-label-3, #64748b); font-size: 10.5px; }
+        .pz-empty { color: var(--g-label-3, #64748b); font-size: 11.5px; padding: 18px; text-align: center; }
+        .pz-sum {
+          display: none;
+          margin-top: 10px;
+          background: var(--sk-tint, rgba(37,99,235,0.08));
+          border: 1px solid var(--g-edge2, #cbd5e1);
+          border-radius: var(--g-r2, 8px);
+          padding: 8px 10px;
+          font-family: var(--g-mono, Consolas, monospace);
+          font-size: 11px;
+          color: var(--g-label, #1e293b);
+          white-space: pre-wrap;
+          line-height: 1.5;
+        }
+        .pz-log { margin-top: 10px; font-family: var(--g-mono, Consolas, monospace); font-size: 10px; color: var(--g-label-3, #64748b); max-height: 60px; overflow-y: auto; }
 
         /* 顶部导航与通用徽章 (图2 图3 顶部条) */
-        .pz-view-header { flex-shrink:0 !important; display:flex !important; align-items:center !important; justify-content:space-between !important; margin-bottom:5px !important; background:#11141c !important; border:1px solid #202636 !important; border-radius:4px !important; padding:4px 8px !important; }
-        .pz-header-left { display:flex !important; align-items:center !important; gap:8px !important; }
-        .pz-badge-device { background:#161a24 !important; color:#cbd5e1 !important; font-family:Consolas,monospace !important; font-weight:700 !important; font-size:11px !important; padding:2px 7px !important; border-radius:3px !important; border:1px solid #283144 !important; display:flex !important; align-items:center !important; gap:6px !important; }
-        .pz-badge-device .num { background:#2563eb !important; color:#fff !important; padding:0 4px !important; border-radius:2px !important; font-size:10px !important; font-weight:800 !important; }
-        .pz-tabs-switch { display:flex !important; gap:2px !important; background:#090c12 !important; border:1px solid #1a202c !important; border-radius:4px !important; padding:2px !important; }
-        .pz-tab-btn { display:inline-flex !important; align-items:center !important; background:transparent !important; border:1px solid transparent !important; color:#8592a6 !important; font-size:11px !important; font-weight:600 !important; padding:3px 8px !important; border-radius:3px !important; cursor:pointer !important; transition:all .15s !important; gap:5px !important; }
-        .pz-tab-btn .tw-ip-icon { flex-shrink:0 !important; }
-        .pz-tab-btn .pz-tab-arrow { display:inline-flex !important; align-items:center !important; margin-left:2px !important; opacity:0.8 !important; }
-        .pz-tab-btn.active { background:#1a2130 !important; border-color:#2b3952 !important; color:#38bdf8 !important; font-weight:700 !important; box-shadow:0 1px 3px rgba(0,0,0,0.3) !important; }
-        .pz-tab-btn:hover:not(.active) { color:#cbd5e1 !important; background:#141822 !important; }
-
-        /* 1:1 复刻官方紧凑 HUD 看板 (Segoe UI / Bahnschrift 比例字体，彻底根治图5粗笨丑化问题) */
-        .pz-hud-grid { flex-shrink:0 !important; display:flex !important; flex-wrap:nowrap !important; gap:4px !important; margin-bottom:4px !important; max-width:780px !important; transition:max-height 0.25s ease, opacity 0.2s; overflow:hidden !important; }
-        .pz-hud-grid.collapsed { max-height:0 !important; margin-bottom:0 !important; opacity:0 !important; pointer-events:none !important; }
-        .pz-hud-card { height:42px !important; min-height:42px !important; max-height:42px !important; padding:3px 8px 3px !important; border-radius:4px !important; position:relative !important; overflow:hidden !important; font-family:"Segoe UI", "Bahnschrift", -apple-system, BlinkMacSystemFont, Arial, sans-serif !important; display:flex !important; flex-direction:column !important; justify-content:flex-start !important; gap:0 !important; box-sizing:border-box !important; }
-        .pz-hud-vbus { flex:0 0 205px !important; background:#3dae8c !important; border:1px solid rgba(255,255,255,0.18) !important; color:#ffffff !important; }
-        .pz-hud-ibus { flex:0 0 174px !important; background:#dc7989 !important; border:1px solid rgba(255,255,255,0.18) !important; color:#ffffff !important; }
-        .pz-hud-pwr  { flex:0 0 174px !important; background:#2b97e4 !important; border:1px solid rgba(255,255,255,0.18) !important; color:#ffffff !important; }
-        .pz-hud-sub  { flex:0 0 180px !important; background:#2b2d35 !important; border:1px solid rgba(255,255,255,0.12) !important; color:#e2e8f0 !important; }
-        .pz-hud-title { font-size:9.5px !important; font-weight:700 !important; opacity:0.95 !important; height:12px !important; min-height:12px !important; max-height:12px !important; line-height:12px !important; margin:0 !important; padding:0 !important; display:flex !important; align-items:center !important; letter-spacing:0.4px !important; box-sizing:border-box !important; }
-        .pz-hud-dir-btn { position:absolute !important; top:3px !important; right:8px !important; background:#ffffff !important; color:#dc7989 !important; width:13px !important; height:13px !important; border-radius:50% !important; display:inline-flex !important; align-items:center !important; justify-content:center !important; font-size:8.5px !important; font-weight:900 !important; cursor:pointer !important; line-height:1 !important; z-index:2 !important; user-select:none !important; }
-        .pz-hud-val { height:24px !important; min-height:24px !important; max-height:24px !important; line-height:24px !important; margin:0 !important; padding:0 !important; font-size:22px !important; font-weight:700 !important; letter-spacing:0.2px !important; white-space:nowrap !important; font-variant-numeric:tabular-nums !important; -webkit-font-smoothing:antialiased !important; box-sizing:border-box !important; }
-
-        .pz-hud-sub-grid { display:grid !important; grid-template-columns:1fr 1fr !important; gap:1px 6px !important; font-size:9.5px !important; line-height:1.25 !important; margin-top:0 !important; }
-        .pz-hud-sub-item { display:flex !important; justify-content:space-between !important; gap:3px !important; }
-        .pz-hud-sub-item .k { color:#94a3b8 !important; font-weight:600 !important; font-size:9px !important; }
-        .pz-hud-sub-item .v { font-weight:700 !important; color:#ffffff !important; font-size:9.5px !important; font-variant-numeric:tabular-nums !important; }
-
-        /* 图2: 曲线副工具栏 (带左上角曲线内容设置图标) */
-        .pz-sub-bar { flex-shrink:0 !important; position:relative !important; display:flex !important; align-items:center !important; justify-content:space-between !important; background:#11141c !important; border:1px solid #202636 !important; border-radius:4px !important; padding:2px 8px !important; margin-bottom:4px !important; font-size:11px !important; font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif !important; }
-        .pz-sub-left { display:flex !important; align-items:center !important; gap:6px !important; }
-        .pz-menu-icon-btn { background:#181c26 !important; border:1px solid #283144 !important; color:#94a3b8 !important; width:22px !important; height:22px !important; border-radius:3px !important; display:inline-flex !important; align-items:center !important; justify-content:center !important; cursor:pointer !important; transition:all .15s !important; padding:0 !important; }
-        .pz-menu-icon-btn:hover, .pz-menu-icon-btn.active { background:#2563eb !important; border-color:#3b82f6 !important; color:#ffffff !important; }
-        .pz-collapse-btn { background:#181c26 !important; border:1px solid #283144 !important; color:#94a3b8 !important; width:22px !important; height:22px !important; border-radius:3px !important; display:inline-flex !important; align-items:center !important; justify-content:center !important; cursor:pointer !important; padding:0 !important; transition:transform 0.2s, background 0.15s, color 0.15s !important; }
-        .pz-collapse-btn:hover { background:#2563eb !important; border-color:#3b82f6 !important; color:#ffffff !important; }
-        .pz-collapse-btn.collapsed { transform:rotate(180deg) !important; }
-        .pz-ch-tag { background:#141722 !important; border:1px solid #232a3b !important; color:#8592a6 !important; font-size:10px !important; font-weight:700 !important; border-radius:3px !important; padding:2px 7px !important; cursor:pointer !important; user-select:none !important; transition:all .15s !important; }
-        .pz-ch-tag:hover:not(.active) { background:#1c2230 !important; color:#cbd5e1 !important; border-color:#323d54 !important; }
-        .pz-ch-tag.active { background:#1e3a8a !important; color:#93c5fd !important; border-color:#3b82f6 !important; }
-        .pz-sub-center-title { font-weight:700 !important; font-size:12.5px !important; color:#e2e8f0 !important; letter-spacing:0.3px !important; }
-        .pz-sub-right { display:flex !important; align-items:center !important; gap:6px !important; }
-        .pz-action-tag { background:#141722 !important; border:1px solid #232a3b !important; color:#8592a6 !important; font-size:10px !important; font-weight:700 !important; border-radius:3px !important; padding:2px 6px !important; cursor:pointer !important; display:inline-flex !important; align-items:center !important; gap:3px !important; transition:all .15s !important; }
-        .pz-action-tag:hover { color:#ffffff !important; border-color:#3b82f6 !important; background:#1c2230 !important; }
-
-        /* 左上角曲线内容设置展开浮窗菜单 (10 项功能) */
-        .pz-content-menu { position:absolute !important; left:6px !important; top:30px !important; z-index:100 !important; background:rgba(18, 22, 32, 0.95) !important; border:1px solid #2d3748 !important; border-radius:5px !important; box-shadow:0 12px 28px rgba(0, 0, 0, 0.65) !important; backdrop-filter:blur(12px) !important; -webkit-backdrop-filter:blur(12px) !important; width:195px !important; padding:4px 0 !important; font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif !important; font-size:11px !important; user-select:none !important; }
-        .pz-menu-item { display:flex !important; align-items:center !important; gap:8px !important; padding:5px 10px !important; color:#94a3b8 !important; cursor:pointer !important; transition:all 0.12s !important; }
-        .pz-menu-item:hover { background:#2563eb !important; color:#ffffff !important; }
-        .pz-menu-item .tw-ip-icon { flex-shrink:0 !important; opacity:0.9 !important; }
-        .pz-menu-item:hover .tw-ip-icon { opacity:1 !important; stroke:#ffffff !important; }
-        .pz-menu-divider { height:1px !important; background:#242c3d !important; margin:3px 0 !important; }
-        .pz-menu-check { width:13px !important; height:13px !important; border:1px solid #3c485e !important; border-radius:2px !important; display:inline-flex !important; align-items:center !important; justify-content:center !important; font-size:9px !important; color:#ffffff !important; background:#0d1017 !important; flex-shrink:0 !important; }
-        .pz-menu-check-placeholder { width:13px !important; height:13px !important; flex-shrink:0 !important; display:inline-block !important; }
-        .pz-menu-item.checked .pz-menu-check { background:#2563eb !important; border-color:#3b82f6 !important; color:#ffffff !important; }
-
-        /* 图2: 主画布容器 (1:1 坐标系、双游标、右上T1-T2差值表、左下统计表、POWER-Z水印) */
-        .pz-chart-wrap {
-          position:relative !important;
-          background:#05070a !important;
-          border:1px solid #1c202a !important;
-          border-radius:4px !important;
-          flex:1 1 0 !important;
-          min-height:100px !important;
-          margin-bottom:4px !important;
-          overflow:hidden !important;
-          box-sizing:border-box !important;
+        .pz-view-header {
+          flex-shrink: 0 !important;
+          display: flex !important;
+          align-items: center !important;
+          justify-content: space-between !important;
+          margin-bottom: 5px !important;
+          background: var(--g-m2, #ffffff) !important;
+          border: 1px solid var(--g-edge2, #e2e8f0) !important;
+          border-radius: var(--g-r2, 8px) !important;
+          padding: 4px 8px !important;
         }
-        .pz-canvas { width:100%; height:100%; display:block; cursor:crosshair; }
+        .pz-header-left { display: flex !important; align-items: center !important; gap: 8px !important; }
+        .pz-badge-device {
+          background: var(--g-m3, #f8fafc) !important;
+          color: var(--g-label, #1e293b) !important;
+          font-family: var(--g-mono, Consolas, monospace) !important;
+          font-weight: 700 !important;
+          font-size: 11px !important;
+          padding: 2px 7px !important;
+          border-radius: var(--g-r1, 5px) !important;
+          border: 1px solid var(--g-edge2, #cbd5e1) !important;
+          display: flex !important;
+          align-items: center !important;
+          gap: 6px !important;
+        }
+        .pz-badge-device .num { background: var(--bp-bg, var(--g-blue, #2563eb)) !important; color: var(--bp-fg, #fff) !important; padding: 0 4px !important; border-radius: 3px !important; font-size: 10px !important; font-weight: 800 !important; }
+        .pz-tabs-switch {
+          display: flex !important;
+          gap: 2px !important;
+          background: var(--seg-bg, var(--g-fill, #f1f5f9)) !important;
+          border: 1px solid var(--g-edge, #e2e8f0) !important;
+          border-radius: var(--seg-r, var(--g-r2, 7px)) !important;
+          padding: 2px !important;
+        }
+        .pz-tab-btn {
+          display: inline-flex !important;
+          align-items: center !important;
+          background: transparent !important;
+          border: 1px solid transparent !important;
+          color: var(--g-label-2, #64748b) !important;
+          font-size: 11px !important;
+          font-weight: 600 !important;
+          padding: 3px 8px !important;
+          border-radius: var(--seg-bt-r, 5px) !important;
+          cursor: pointer !important;
+          transition: all .15s !important;
+          gap: 5px !important;
+        }
+        .pz-tab-btn .tw-ip-icon { flex-shrink: 0 !important; }
+        .pz-tab-btn .pz-tab-arrow { display: inline-flex !important; align-items: center !important; margin-left: 2px !important; opacity: 0.8 !important; }
+        .pz-tab-btn.active {
+          background: var(--seg-on-bg, var(--g-m3, #ffffff)) !important;
+          border-color: var(--g-edge2, #cbd5e1) !important;
+          color: var(--seg-on-fg, var(--g-blue, #2563eb)) !important;
+          font-weight: 700 !important;
+          box-shadow: var(--seg-on-sh, var(--g-sh1, none)) !important;
+        }
+        .pz-tab-btn:hover:not(.active) { color: var(--g-label, #0f172a) !important; background: var(--g-fill, rgba(148,163,184,0.1)) !important; }
 
-        /* 右上角 T1-T2 差值计算框 (官方毛玻璃虚化透光风格) */
-        .pz-diff-overlay { position:absolute; right:55px; top:12px; background:rgba(18, 24, 38, 0.55); border:1px solid rgba(255, 255, 255, 0.16); border-radius:6px; padding:6px 12px; font-family:"Segoe UI", -apple-system, BlinkMacSystemFont, Arial, sans-serif; font-size:10.5px; color:#e2e8f0; pointer-events:none; line-height:1.4; min-width:155px; box-shadow:0 8px 24px rgba(0, 0, 0, 0.45); backdrop-filter:blur(12px) saturate(180%); -webkit-backdrop-filter:blur(12px) saturate(180%); }
-        .pz-diff-header { color:#f1f5f9; font-weight:800; border-bottom:1px solid rgba(255, 255, 255, 0.16); padding-bottom:2px; margin-bottom:4px; font-size:11px; }
-        .pz-diff-row { display:flex; justify-content:space-between; gap:12px; }
-        .pz-diff-row .k { color:#94a3b8; }
-        .pz-diff-row .v { color:#f1f5f9; font-weight:700; text-align:right; font-variant-numeric:tabular-nums; }
+        /* 1:1 复刻官方紧凑 HUD 看板 */
+        .pz-hud-grid { flex-shrink: 0 !important; display: flex !important; flex-wrap: nowrap !important; gap: 4px !important; margin-bottom: 4px !important; max-width: 780px !important; transition: max-height 0.25s ease, opacity 0.2s; overflow: hidden !important; }
+        .pz-hud-grid.collapsed { max-height: 0 !important; margin-bottom: 0 !important; opacity: 0 !important; pointer-events: none !important; }
+        .pz-hud-card { height: 42px !important; min-height: 42px !important; max-height: 42px !important; padding: 3px 8px 3px !important; border-radius: var(--g-r1, 6px) !important; position: relative !important; overflow: hidden !important; font-family: "Segoe UI", "Bahnschrift", -apple-system, BlinkMacSystemFont, Arial, sans-serif !important; display: flex !important; flex-direction: column !important; justify-content: flex-start !important; gap: 0 !important; box-sizing: border-box !important; }
+        .pz-hud-vbus { flex: 0 0 205px !important; background: #3dae8c !important; border: 1px solid rgba(255,255,255,0.22) !important; color: #ffffff !important; }
+        .pz-hud-ibus { flex: 0 0 174px !important; background: #dc7989 !important; border: 1px solid rgba(255,255,255,0.22) !important; color: #ffffff !important; }
+        .pz-hud-pwr  { flex: 0 0 174px !important; background: #2b97e4 !important; border: 1px solid rgba(255,255,255,0.22) !important; color: #ffffff !important; }
+        .pz-hud-sub  { flex: 0 0 180px !important; background: var(--g-m2, #f1f5f9) !important; border: 1px solid var(--g-edge2, #cbd5e1) !important; color: var(--g-label, #0f172a) !important; }
+        .pz-hud-title { font-size: 9.5px !important; font-weight: 700 !important; opacity: 0.95 !important; height: 12px !important; min-height: 12px !important; max-height: 12px !important; line-height: 12px !important; margin: 0 !important; padding: 0 !important; display: flex !important; align-items: center !important; letter-spacing: 0.4px !important; box-sizing: border-box !important; }
+        .pz-hud-dir-btn { position: absolute !important; top: 3px !important; right: 8px !important; background: #ffffff !important; color: #dc7989 !important; width: 13px !important; height: 13px !important; border-radius: 50% !important; display: inline-flex !important; align-items: center !important; justify-content: center !important; font-size: 8.5px !important; font-weight: 900 !important; cursor: pointer !important; line-height: 1 !important; z-index: 2 !important; user-select: none !important; }
+        .pz-hud-val { height: 24px !important; min-height: 24px !important; max-height: 24px !important; line-height: 24px !important; margin: 0 !important; padding: 0 !important; font-size: 22px !important; font-weight: 700 !important; letter-spacing: 0.2px !important; white-space: nowrap !important; font-variant-numeric: tabular-nums !important; -webkit-font-smoothing: antialiased !important; box-sizing: border-box !important; }
 
-        /* 左下角 全部/窗口 统计覆盖表 (完全通透风格，消除死黑遮挡) */
-        .pz-stats-overlay { position:absolute; left:60px; bottom:28px; background:transparent !important; border:1px solid rgba(255, 255, 255, 0.14); border-radius:4px; padding:4px 8px; font-family:"Segoe UI", Consolas, monospace; font-size:10px; color:#e2e8f0; pointer-events:none; line-height:1.35; box-shadow:none; backdrop-filter:none; }
-        .pz-stats-table { border-collapse:collapse; text-align:right; }
-        .pz-stats-table th { color:#94a3b8; font-weight:600; padding:0 6px 3px; border-bottom:1px solid rgba(255, 255, 255, 0.12); font-size:9.5px; }
-        .pz-stats-table td { padding:2px 6px; font-size:10px; font-variant-numeric:tabular-nums; color:#e2e8f0; }
-        .pz-stats-badge { color:#fff; padding:1px 5px; border-radius:2px; font-weight:800; font-size:9.5px; opacity:0.9; }
+        .pz-hud-sub-grid { display: grid !important; grid-template-columns: 1fr 1fr !important; gap: 1px 6px !important; font-size: 9.5px !important; line-height: 1.25 !important; margin-top: 0 !important; }
+        .pz-hud-sub-item { display: flex !important; justify-content: space-between !important; gap: 3px !important; }
+        .pz-hud-sub-item .k { color: var(--g-label-3, #64748b) !important; font-weight: 600 !important; font-size: 9px !important; }
+        .pz-hud-sub-item .v { font-weight: 700 !important; color: var(--g-label, #0f172a) !important; font-size: 9.5px !important; font-variant-numeric: tabular-nums !important; }
+
+        /* 图2: 曲线副工具栏 */
+        .pz-sub-bar {
+          flex-shrink: 0 !important;
+          position: relative !important;
+          display: flex !important;
+          align-items: center !important;
+          justify-content: space-between !important;
+          background: var(--g-m2, #ffffff) !important;
+          border: 1px solid var(--g-edge2, #e2e8f0) !important;
+          border-radius: var(--g-r2, 7px) !important;
+          padding: 3px 8px !important;
+          margin-bottom: 4px !important;
+          font-size: 11px !important;
+        }
+        .pz-sub-left { display: flex !important; align-items: center !important; gap: 6px !important; }
+        .pz-menu-icon-btn, .pz-collapse-btn {
+          background: var(--bt-bg, var(--g-m3, #f8fafc)) !important;
+          border: 1px solid var(--g-edge2, #cbd5e1) !important;
+          color: var(--g-label-2, #475569) !important;
+          width: 22px !important;
+          height: 22px !important;
+          border-radius: 4px !important;
+          display: inline-flex !important;
+          align-items: center !important;
+          justify-content: center !important;
+          cursor: pointer !important;
+          transition: all .15s !important;
+          padding: 0 !important;
+        }
+        .pz-menu-icon-btn:hover, .pz-menu-icon-btn.active, .pz-collapse-btn:hover {
+          background: var(--bp-bg, var(--g-blue, #2563eb)) !important;
+          border-color: transparent !important;
+          color: var(--bp-fg, #ffffff) !important;
+        }
+        .pz-collapse-btn.collapsed { transform: rotate(180deg) !important; }
+        .pz-ch-tag, .pz-action-tag {
+          background: var(--bt-bg, var(--g-m3, #f8fafc)) !important;
+          border: 1px solid var(--g-edge, #e2e8f0) !important;
+          color: var(--g-label-2, #64748b) !important;
+          font-size: 10px !important;
+          font-weight: 700 !important;
+          border-radius: 4px !important;
+          padding: 2px 7px !important;
+          cursor: pointer !important;
+          user-select: none !important;
+          display: inline-flex !important;
+          align-items: center !important;
+          gap: 3px !important;
+          transition: all .15s !important;
+        }
+        .pz-ch-tag:hover:not(.active), .pz-action-tag:hover {
+          background: var(--g-fill-2, rgba(148,163,184,0.16)) !important;
+          color: var(--g-label, #0f172a) !important;
+          border-color: var(--g-blue, #3b82f6) !important;
+        }
+        .pz-ch-tag.active {
+          background: var(--sk-tint, rgba(37,99,235,0.15)) !important;
+          color: var(--g-blue, #2563eb) !important;
+          border-color: var(--g-blue, #3b82f6) !important;
+        }
+        .pz-sub-center-title { font-weight: 700 !important; font-size: 12.5px !important; color: var(--g-label, #0f172a) !important; letter-spacing: 0.3px !important; }
+        .pz-sub-right { display: flex !important; align-items: center !important; gap: 6px !important; }
+
+        /* 左上角曲线内容设置展开浮窗菜单 */
+        .pz-content-menu {
+          position: absolute !important;
+          left: 6px !important;
+          top: 30px !important;
+          z-index: 100 !important;
+          background: var(--pop-bg, var(--g-m4, #ffffff)) !important;
+          border: var(--pop-bd, 1px solid var(--g-edge2, #cbd5e1)) !important;
+          border-radius: var(--pop-r, 8px) !important;
+          box-shadow: var(--pop-sh, var(--g-sh3)) !important;
+          backdrop-filter: blur(16px) !important;
+          -webkit-backdrop-filter: blur(16px) !important;
+          width: 195px !important;
+          padding: 4px 0 !important;
+          font-size: 11px !important;
+          user-select: none !important;
+        }
+        .pz-menu-item { display: flex !important; align-items: center !important; gap: 8px !important; padding: 5px 10px !important; color: var(--g-label, #1e293b) !important; cursor: pointer !important; transition: all 0.12s !important; }
+        .pz-menu-item:hover { background: var(--pop-hv-bg, var(--g-fill-2)) !important; color: var(--pop-hv-fg, var(--g-blue)) !important; }
+        .pz-menu-item .tw-ip-icon { flex-shrink: 0 !important; opacity: 0.9 !important; }
+        .pz-menu-divider { height: 1px !important; background: var(--g-sep, #e2e8f0) !important; margin: 3px 0 !important; }
+        .pz-menu-check { width: 13px !important; height: 13px !important; border: 1px solid var(--g-edge2, #94a3b8) !important; border-radius: 3px !important; display: inline-flex !important; align-items: center !important; justify-content: center !important; font-size: 9px !important; color: #ffffff !important; background: var(--g-m1, transparent) !important; flex-shrink: 0 !important; }
+        .pz-menu-check-placeholder { width: 13px !important; height: 13px !important; flex-shrink: 0 !important; display: inline-block !important; }
+        .pz-menu-item.checked .pz-menu-check { background: var(--g-blue, #2563eb) !important; border-color: var(--g-blue, #2563eb) !important; color: #ffffff !important; }
+
+        /* 图2: 主画布容器 */
+        .pz-chart-wrap {
+          position: relative !important;
+          background: var(--g-m2, #ffffff) !important;
+          border: 1px solid var(--g-edge2, #e2e8f0) !important;
+          border-radius: var(--g-r2, 8px) !important;
+          flex: 1 1 0 !important;
+          min-height: 100px !important;
+          margin-bottom: 4px !important;
+          overflow: hidden !important;
+          box-sizing: border-box !important;
+        }
+        .pz-canvas { width: 100%; height: 100%; display: block; cursor: crosshair; }
+
+        /* 右上角 T1-T2 差值计算框 */
+        .pz-diff-overlay {
+          position: absolute;
+          right: 55px;
+          top: 12px;
+          background: var(--pop-bg, var(--g-m4, rgba(255,255,255,0.9))) !important;
+          border: var(--pop-bd, 1px solid var(--g-edge2, #cbd5e1)) !important;
+          border-radius: var(--g-r2, 8px);
+          padding: 6px 12px;
+          font-size: 10.5px;
+          color: var(--g-label, #0f172a);
+          pointer-events: none;
+          line-height: 1.4;
+          min-width: 155px;
+          box-shadow: var(--g-sh2, 0 8px 24px rgba(0,0,0,0.12));
+          backdrop-filter: blur(12px) saturate(160%);
+          -webkit-backdrop-filter: blur(12px) saturate(160%);
+        }
+        .pz-diff-header { color: var(--g-label, #0f172a); font-weight: 800; border-bottom: 1px solid var(--g-sep, #e2e8f0); padding-bottom: 2px; margin-bottom: 4px; font-size: 11px; }
+        .pz-diff-row { display: flex; justify-content: space-between; gap: 12px; }
+        .pz-diff-row .k { color: var(--g-label-3, #64748b); }
+        .pz-diff-row .v { color: var(--g-label, #0f172a); font-weight: 700; text-align: right; font-variant-numeric: tabular-nums; }
+
+        /* 左下角 全部/窗口 统计覆盖表 */
+        .pz-stats-overlay {
+          position: absolute;
+          left: 60px;
+          bottom: 28px;
+          background: var(--pop-bg, rgba(255,255,255,0.82)) !important;
+          border: 1px solid var(--g-edge2, rgba(148,163,184,0.3));
+          border-radius: 6px;
+          padding: 4px 8px;
+          font-family: "Segoe UI", Consolas, monospace;
+          font-size: 10px;
+          color: var(--g-label, #0f172a);
+          pointer-events: none;
+          line-height: 1.35;
+          backdrop-filter: blur(8px);
+        }
+        .pz-stats-table { border-collapse: collapse; text-align: right; }
+        .pz-stats-table th { color: var(--g-label-3, #64748b); font-weight: 600; padding: 0 6px 3px; border-bottom: 1px solid var(--g-sep, #e2e8f0); font-size: 9.5px; }
+        .pz-stats-table td { padding: 2px 6px; font-size: 10px; font-variant-numeric: tabular-nums; color: var(--g-label, #0f172a); }
+        .pz-stats-badge { color: #fff; padding: 1px 5px; border-radius: 3px; font-weight: 800; font-size: 9.5px; opacity: 0.92; }
 
         /* 右下角 POWER-Z 官方水印 */
-        .pz-watermark { position:absolute; right:62px; bottom:30px; font-family:"Impact", "Arial Black", sans-serif; font-size:15px; letter-spacing:2px; color:#232836; pointer-events:none; }
+        .pz-watermark { position: absolute; right: 62px; bottom: 30px; font-family: "Impact", "Arial Black", sans-serif; font-size: 15px; letter-spacing: 2px; color: var(--g-label-3, #94a3b8); opacity: 0.22; pointer-events: none; }
 
         /* 图2: 底部缩略图时间轴与滑块 */
         .pz-overview-wrap {
-          position:relative !important;
-          background:#0f1118 !important;
-          border:1px solid #1e2230 !important;
-          border-radius:4px !important;
-          height:34px !important;
-          min-height:34px !important;
-          max-height:34px !important;
-          flex-shrink:0 !important;
-          overflow:hidden !important;
-          margin-bottom:2px !important;
-          box-sizing:border-box !important;
+          position: relative !important;
+          background: var(--g-m1, #f8fafc) !important;
+          border: 1px solid var(--g-edge2, #e2e8f0) !important;
+          border-radius: var(--g-r1, 6px) !important;
+          height: 34px !important;
+          min-height: 34px !important;
+          max-height: 34px !important;
+          flex-shrink: 0 !important;
+          overflow: hidden !important;
+          margin-bottom: 2px !important;
+          box-sizing: border-box !important;
         }
-        .pz-overview-canvas { width:100%; height:100%; display:block; cursor:pointer; }
-        .pz-slider-window { position:absolute; top:0; bottom:0; background:rgba(37, 99, 235, 0.20); border:1px solid #3b82f6; cursor:grab; }
+        .pz-overview-canvas { width: 100%; height: 100%; display: block; cursor: pointer; }
+        .pz-slider-window { position: absolute; top: 0; bottom: 0; background: var(--sk-tint, rgba(37, 99, 235, 0.20)); border: 1px solid var(--g-blue, #3b82f6); cursor: grab; }
 
-        /* 图1: 坐标轴与颜色设置弹窗 (浮动模态框) */
-        .pz-modal-mask { position:absolute; inset:0; background:rgba(0,0,0,0.45); z-index:10; display:flex; align-items:center; justify-content:center; }
-        .pz-settings-modal { background:#1e222e; border:1px solid #363e52; border-radius:6px; width:340px; padding:12px; font-family:Consolas,monospace; font-size:11px; box-shadow:0 12px 28px rgba(0,0,0,0.7); }
-        .pz-modal-header { display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #2f3647; padding-bottom:6px; margin-bottom:8px; font-weight:800; color:#cbd5e1; }
-        .pz-modal-row { display:flex; align-items:center; justify-content:space-between; margin-bottom:6px; font-size:11px; }
-        .pz-modal-row select { background:#12151d; border:1px solid #2d3448; color:#cbd5e1; border-radius:3px; padding:2px 4px; font-size:10px; }
-        .pz-color-table { width:100%; border-collapse:collapse; margin-top:6px; }
-        .pz-color-table th { color:#94a3b8; font-size:10px; text-align:left; padding:3px 2px; border-bottom:1px solid #2d3448; }
-        .pz-color-table td { padding:4px 2px; font-size:10px; }
-        .pz-color-swatch { width:14px; height:14px; border-radius:2px; display:inline-block; vertical-align:middle; margin-right:4px; }
-        .pz-slider-input { width:65px; height:4px; vertical-align:middle; }
+        /* 图1: 坐标轴与颜色设置弹窗 */
+        .pz-modal-mask { position: absolute; inset: 0; background: rgba(0,0,0,0.45); z-index: 10; display: flex; align-items: center; justify-content: center; }
+        .pz-settings-modal { background: var(--pop-bg, var(--g-m4, #ffffff)); border: var(--pop-bd, 1px solid var(--g-edge2, #cbd5e1)); border-radius: var(--pop-r, 10px); width: 340px; padding: 12px; font-family: var(--g-mono, Consolas, monospace); font-size: 11px; color: var(--g-label, #0f172a); box-shadow: var(--pop-sh, var(--g-sh3)); }
+        .pz-modal-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--g-sep, #e2e8f0); padding-bottom: 6px; margin-bottom: 8px; font-weight: 800; color: var(--g-label, #0f172a); }
+        .pz-modal-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; font-size: 11px; }
+        .pz-modal-row select { background: var(--in-bg, var(--g-m3, #f8fafc)); border: 1px solid var(--g-edge2, #cbd5e1); color: var(--g-label, #0f172a); border-radius: 4px; padding: 2px 4px; font-size: 10px; }
+        .pz-color-table { width: 100%; border-collapse: collapse; margin-top: 6px; }
+        .pz-color-table th { color: var(--g-label-3, #64748b); font-size: 10px; text-align: left; padding: 3px 2px; border-bottom: 1px solid var(--g-sep, #e2e8f0); }
+        .pz-color-table td { padding: 4px 2px; font-size: 10px; }
+        .pz-color-swatch { width: 14px; height: 14px; border-radius: 3px; display: inline-block; vertical-align: middle; margin-right: 4px; }
+        .pz-slider-input { width: 65px; height: 4px; vertical-align: middle; }
 
-        /* 图3: PD 协议分析仪布局 (上下分栏) */
-        .pz-pd-table-wrap { background:#0e1017; border:1px solid #1e2230; border-radius:4px; flex:1 1 0 !important; min-height:80px !important; overflow-y:auto; margin-bottom:2px; }
-        .pz-pd-table { width:100%; border-collapse:collapse; font-family:Consolas,monospace; font-size:11px; text-align:left; }
-        .pz-pd-table thead { position:sticky; top:0; background:#181b24; z-index:2; border-bottom:1px solid #2d3448; }
-        .pz-pd-table th { padding:5px 8px; color:#94a3b8; font-weight:700; white-space:nowrap; }
-        .pz-pd-table td { padding:3.5px 8px; border-bottom:1px solid #161924; white-space:nowrap; }
-        .pz-pd-row { cursor:pointer; }
-        .pz-pd-row:hover { background:#181e2b; }
-        .pz-pd-row.selected { background:#0f2b48 !important; color:#fff !important; }
-        .pz-pd-row.selected td:not(.pz-pd-msg-cell) { background:#0f2b48 !important; }
+        /* 图3: PD 协议分析仪布局 */
+        .pz-pd-table-wrap { background: var(--g-m2, #ffffff); border: 1px solid var(--g-edge2, #e2e8f0); border-radius: var(--g-r2, 8px); flex: 1 1 0 !important; min-height: 80px !important; overflow-y: auto; margin-bottom: 2px; }
+        .pz-pd-table { width: 100%; border-collapse: collapse; font-family: var(--g-mono, Consolas, monospace); font-size: 11px; text-align: left; }
+        .pz-pd-table thead { position: sticky; top: 0; background: var(--g-m3, #f8fafc); z-index: 2; border-bottom: 1px solid var(--g-sep, #e2e8f0); }
+        .pz-pd-table th { padding: 5px 8px; color: var(--g-label-2, #475569); font-weight: 700; white-space: nowrap; }
+        .pz-pd-table td { padding: 3.5px 8px; border-bottom: 1px solid var(--g-sep, #f1f5f9); color: var(--g-label, #1e293b); white-space: nowrap; }
+        .pz-pd-row { cursor: pointer; }
+        .pz-pd-row:hover { background: var(--g-fill, rgba(148,163,184,0.1)); }
+        .pz-pd-row.selected { background: var(--sk-tint, rgba(37,99,235,0.16)) !important; color: var(--g-label, #0f172a) !important; }
+        .pz-pd-row.selected td:not(.pz-pd-msg-cell) { background: var(--sk-tint, rgba(37,99,235,0.16)) !important; color: var(--g-label, #0f172a) !important; }
         @keyframes pzRowFlash {
           0% { box-shadow: inset 0 0 0 2px #38bdf8; }
           100% { box-shadow: inset 0 0 0 2px transparent; }
         }
-        .pz-pd-row.pz-flash {
-          animation: pzRowFlash 1.2s ease-out;
-        }
+        .pz-pd-row.pz-flash { animation: pzRowFlash 1.2s ease-out; }
 
-        /* Msg 列背景完全覆盖整个单元格 (复刻官方 KM003C 规范) */
+        /* Msg 列背景 */
         .pz-pd-table td.pz-pd-msg-cell {
           padding: 3px 6px !important;
           text-align: center !important;
           font-weight: 700 !important;
           font-size: 10.5px !important;
           color: #ffffff !important;
-          border-bottom: 1px solid #161924 !important;
-          border-left: 1px solid rgba(255,255,255,0.08) !important;
-          border-right: 1px solid rgba(255,255,255,0.08) !important;
+          border-bottom: 1px solid var(--g-sep, rgba(148,163,184,0.18)) !important;
+          border-left: 1px solid rgba(255,255,255,0.12) !important;
+          border-right: 1px solid rgba(255,255,255,0.12) !important;
           line-height: 1.25 !important;
         }
-        .pz-pd-table td.pz-pd-msg-cell.pz-badge-goodcrc { background:#0284c7 !important; }
-        .pz-pd-table td.pz-pd-msg-cell.pz-badge-accept  { background:#0d9488 !important; }
-        .pz-pd-table td.pz-pd-msg-cell.pz-badge-ps_rdy  { background:#c2410c !important; }
-        .pz-pd-table td.pz-pd-msg-cell.pz-badge-request { background:#e11d48 !important; }
-        .pz-pd-table td.pz-pd-msg-cell.pz-badge-source_caps { background:#7c3aed !important; }
-        .pz-pd-table td.pz-pd-msg-cell.pz-badge-sink_caps   { background:#059669 !important; }
-        .pz-pd-table td.pz-pd-msg-cell.pz-badge-other       { background:#475569 !important; }
+        .pz-pd-table td.pz-pd-msg-cell.pz-badge-goodcrc { background: #0284c7 !important; }
+        .pz-pd-table td.pz-pd-msg-cell.pz-badge-accept  { background: #0d9488 !important; }
+        .pz-pd-table td.pz-pd-msg-cell.pz-badge-ps_rdy  { background: #c2410c !important; }
+        .pz-pd-table td.pz-pd-msg-cell.pz-badge-request { background: #e11d48 !important; }
+        .pz-pd-table td.pz-pd-msg-cell.pz-badge-source_caps { background: #7c3aed !important; }
+        .pz-pd-table td.pz-pd-msg-cell.pz-badge-sink_caps   { background: #059669 !important; }
+        .pz-pd-table td.pz-pd-msg-cell.pz-badge-other       { background: #475569 !important; }
 
-        /* 官方点状调节器 (上下分栏: 6个水平点) */
+        /* 官方点状调节器 (上下分栏) */
         .pz-pd-h-splitter {
           flex-shrink: 0 !important;
           height: 12px !important;
-          background: #10131b !important;
-          border-top: 1px solid #1c212f !important;
-          border-bottom: 1px solid #1c212f !important;
+          background: var(--g-m1, #f1f5f9) !important;
+          border-top: 1px solid var(--g-sep, #e2e8f0) !important;
+          border-bottom: 1px solid var(--g-sep, #e2e8f0) !important;
           display: flex !important;
           align-items: center !important;
           justify-content: center !important;
@@ -375,33 +588,18 @@ class PowerzPanel {
           transition: background .15s, border-color .15s !important;
         }
         .pz-pd-h-splitter:hover, .pz-pd-h-splitter.is-dragging {
-          background: #171d2b !important;
-          border-color: #2b3548 !important;
+          background: var(--g-fill-2, #e2e8f0) !important;
         }
-        .pz-pd-dots-h {
-          display: inline-flex !important;
-          align-items: center !important;
-          justify-content: center !important;
-          gap: 3.5px !important;
-          height: 100% !important;
-          padding: 0 32px !important;
-          cursor: row-resize !important;
-          pointer-events: none !important;
-        }
-        .pz-pd-dots-h span {
-          width: 3px !important;
-          height: 3px !important;
-          border-radius: 50% !important;
-          background: #505a72 !important;
-          pointer-events: none !important;
-          transition: background .15s !important;
-        }
+        .pz-pd-dots-h { display: inline-flex !important; align-items: center !important; justify-content: center !important; gap: 3.5px !important; height: 100% !important; padding: 0 32px !important; pointer-events: none !important; }
+        .pz-pd-dots-h span, .pz-pd-dots-v span { width: 3px !important; height: 3px !important; border-radius: 50% !important; background: var(--g-label-3, #64748b) !important; pointer-events: none !important; transition: background .15s !important; }
         .pz-pd-h-splitter:hover .pz-pd-dots-h span,
-        .pz-pd-h-splitter.is-dragging .pz-pd-dots-h span {
-          background: #38bdf8 !important;
+        .pz-pd-h-splitter.is-dragging .pz-pd-dots-h span,
+        .pz-pd-v-splitter:hover .pz-pd-dots-v span,
+        .pz-pd-v-splitter.is-dragging .pz-pd-dots-v span {
+          background: var(--g-blue, #38bdf8) !important;
         }
 
-        /* 下部分割容器 (Flex 水平布局 - 允许动态拖拽高度) */
+        /* 下部分割容器 */
         .pz-pd-lower-split {
           display: flex !important;
           flex-direction: row !important;
@@ -417,31 +615,32 @@ class PowerzPanel {
           flex: 0 0 50%;
           min-width: 160px;
           max-width: calc(100% - 160px);
-          background: #12151d;
-          border: 1px solid #1e2230;
-          border-radius: 4px;
+          background: var(--g-m2, #ffffff);
+          border: 1px solid var(--g-edge2, #e2e8f0);
+          border-radius: var(--g-r2, 8px);
           padding: 8px 10px;
           overflow-y: auto;
-          font-family: Consolas, monospace;
+          font-family: var(--g-mono, Consolas, monospace);
           font-size: 11px;
+          color: var(--g-label, #0f172a);
           box-sizing: border-box;
         }
-        .pz-pd-detail-title { font-size:11px; font-weight:800; color:#93c5fd; margin-bottom:5px; display:flex; justify-content:space-between; }
-        .pz-pd-detail-meta { display:flex; gap:8px; margin-bottom:6px; font-size:10px; color:#94a3b8; background:#0e1017; padding:4px 6px; border-radius:3px; }
-        .pz-pd-detail-meta b { color:#38bdf8; }
-        .pz-field-table { width:100%; border-collapse:collapse; margin-bottom:6px; font-size:9.5px; }
-        .pz-field-table th { background:#1a1e2b; color:#94a3b8; padding:3px; border:1px solid #2d3448; font-weight:600; text-align:center; }
-        .pz-field-table td { padding:3px; border:1px solid #2d3448; text-align:center; color:#e2e8f0; font-weight:700; }
-        .pz-rdo-box { background:#0a0c10; border:1px solid #1e2230; border-radius:3px; padding:5px 7px; font-size:10px; line-height:1.4; color:#cbd5e1; }
-        .pz-rdo-box b { color:#f43f5e; }
+        .pz-pd-detail-title { font-size: 11px; font-weight: 800; color: var(--g-blue, #2563eb); margin-bottom: 5px; display: flex; justify-content: space-between; }
+        .pz-pd-detail-meta { display: flex; gap: 8px; margin-bottom: 6px; font-size: 10px; color: var(--g-label-2, #64748b); background: var(--g-m1, #f8fafc); padding: 4px 6px; border-radius: 4px; }
+        .pz-pd-detail-meta b { color: var(--g-blue, #0284c7); }
+        .pz-field-table { width: 100%; border-collapse: collapse; margin-bottom: 6px; font-size: 9.5px; }
+        .pz-field-table th { background: var(--g-m3, #f1f5f9); color: var(--g-label-2, #475569); padding: 3px; border: 1px solid var(--g-sep, #cbd5e1); font-weight: 600; text-align: center; }
+        .pz-field-table td { padding: 3px; border: 1px solid var(--g-sep, #cbd5e1); text-align: center; color: var(--g-label, #0f172a); font-weight: 700; }
+        .pz-rdo-box { background: var(--g-m1, #f8fafc); border: 1px solid var(--g-edge, #e2e8f0); border-radius: 4px; padding: 5px 7px; font-size: 10px; line-height: 1.4; color: var(--g-label, #1e293b); }
+        .pz-rdo-box b { color: var(--g-red, #f43f5e); }
 
-        /* 官方点状调节器 (左右分栏: 6个垂直点) */
+        /* 官方点状调节器 (左右分栏) */
         .pz-pd-v-splitter {
           flex-shrink: 0 !important;
           width: 12px !important;
-          background: #10131b !important;
-          border-left: 1px solid #1c212f !important;
-          border-right: 1px solid #1c212f !important;
+          background: var(--g-m1, #f1f5f9) !important;
+          border-left: 1px solid var(--g-sep, #e2e8f0) !important;
+          border-right: 1px solid var(--g-sep, #e2e8f0) !important;
           display: flex !important;
           flex-direction: column !important;
           align-items: center !important;
@@ -453,49 +652,26 @@ class PowerzPanel {
           transition: background .15s, border-color .15s !important;
         }
         .pz-pd-v-splitter:hover, .pz-pd-v-splitter.is-dragging {
-          background: #171d2b !important;
-          border-color: #2b3548 !important;
+          background: var(--g-fill-2, #e2e8f0) !important;
         }
-        .pz-pd-dots-v {
-          display: inline-flex !important;
-          flex-direction: column !important;
-          align-items: center !important;
-          justify-content: center !important;
-          gap: 3.5px !important;
-          width: 100% !important;
-          padding: 32px 0 !important;
-          cursor: col-resize !important;
-          pointer-events: none !important;
-        }
-        .pz-pd-dots-v span {
-          width: 3px !important;
-          height: 3px !important;
-          border-radius: 50% !important;
-          background: #505a72 !important;
-          pointer-events: none !important;
-          transition: background .15s !important;
-        }
-        .pz-pd-v-splitter:hover .pz-pd-dots-v span,
-        .pz-pd-v-splitter.is-dragging .pz-pd-dots-v span {
-          background: #38bdf8 !important;
-        }
+        .pz-pd-dots-v { display: inline-flex !important; flex-direction: column !important; align-items: center !important; justify-content: center !important; gap: 3.5px !important; width: 100% !important; padding: 32px 0 !important; pointer-events: none !important; }
 
         /* 图3: 右下同步波形 */
         .pz-pd-chart-pane {
           flex: 1 1 0 !important;
           min-width: 180px !important;
           position: relative;
-          background: #0d0f14;
-          border: 1px solid #1e2230;
-          border-radius: 4px;
+          background: var(--g-m2, #ffffff);
+          border: 1px solid var(--g-edge2, #e2e8f0);
+          border-radius: var(--g-r2, 8px);
           overflow: hidden;
           display: flex;
           flex-direction: column;
           box-sizing: border-box;
         }
-        .pz-pd-chart-bar { display:flex; align-items:center; justify-content:space-between; padding:3px 8px; background:#12151d; border-bottom:1px solid #1e2230; font-size:10px; font-family:Consolas,monospace; }
-        .pz-pd-chart-legends { display:flex; gap:8px; }
-        .pz-pd-chart-canvas { flex:1; width:100%; height:100%; display:block; cursor:crosshair; }
+        .pz-pd-chart-bar { display: flex; align-items: center; justify-content: space-between; padding: 3px 8px; background: var(--g-m3, #f8fafc); border-bottom: 1px solid var(--g-sep, #e2e8f0); font-size: 10px; font-family: var(--g-mono, Consolas, monospace); color: var(--g-label-2, #475569); }
+        .pz-pd-chart-legends { display: flex; gap: 8px; }
+        .pz-pd-chart-canvas { flex: 1; width: 100%; height: 100%; display: block; cursor: crosshair; }
       </style>
 
       <div class="pz-wrap">
@@ -505,7 +681,7 @@ class PowerzPanel {
             <div class="pz-title-left">
               <span class="pz-con-badge">Z</span> POWER-Z 官方控制台
             </div>
-            <div id="pzArchiveState" style="color:#94a3b8;font-size:11px;font-weight:400;">监测中</div>
+            <div id="pzArchiveState" style="color:var(--g-label-3, #64748b);font-size:11px;font-weight:500;">监测中</div>
           </div>
 
           <div class="pz-con-row">
@@ -1658,6 +1834,55 @@ class PowerzPanel {
     return { start, end: ticks.at(-1) || end, step, ticks };
   }
 
+  syncThemePalette(force = false) {
+    if (this._themePal && !force) return this._themePal;
+    let isDark = false;
+    let canvasBg = "#ffffff";
+    let overviewBg = "#f8fafc";
+    let axisText = "#475569";
+    let mutedText = "#64748b";
+    let gridLine = "rgba(148, 163, 184, 0.22)";
+    let subSplitLine = "rgba(148, 163, 184, 0.38)";
+    let axisBorder = "rgba(148, 163, 184, 0.42)";
+    let popBg = "rgba(255, 255, 255, 0.94)";
+    let popBorder = "rgba(148, 163, 184, 0.35)";
+    let popText = "#0f172a";
+    let cursorLine = "#475569";
+    try {
+      const host = (this.container && this.container.closest && this.container.closest(".tabonkb-workbench-container")) || this.container || document.body;
+      if (host && typeof getComputedStyle === "function") {
+        const cs = getComputedStyle(host);
+        const getV = (k) => (cs.getPropertyValue(k) || "").trim();
+        const modeAttr = (host.dataset && host.dataset.twMode) || getV("--sk-scheme");
+        isDark = modeAttr === "dark" || (typeof document !== "undefined" && document.body && document.body.classList.contains("theme-dark") && modeAttr !== "light");
+        const firstCol = (val, fb) => {
+          const m = /#[0-9a-fA-F]{3,8}\b|(?:rgba?|hsla?)\([^)]*\)/.exec(val || "");
+          return m ? m[0] : fb;
+        };
+        canvasBg = firstCol(getV("--g-m2"), isDark ? "#0d1117" : "#ffffff");
+        overviewBg = firstCol(getV("--g-m1"), isDark ? "#090c12" : "#f8fafc");
+        axisText = firstCol(getV("--g-label-2"), isDark ? "#94a3b8" : "#475569");
+        mutedText = firstCol(getV("--g-label-3"), isDark ? "#64748b" : "#64748b");
+        gridLine = firstCol(getV("--g-sep"), isDark ? "rgba(255,255,255,0.08)" : "rgba(148,163,184,0.22)");
+        subSplitLine = firstCol(getV("--g-edge2"), isDark ? "rgba(255,255,255,0.16)" : "rgba(148,163,184,0.38)");
+        axisBorder = subSplitLine;
+        popBg = firstCol(getV("--pop-bg") || getV("--g-m4"), isDark ? "rgba(18, 24, 38, 0.94)" : "rgba(255, 255, 255, 0.95)");
+        popBorder = subSplitLine;
+        popText = firstCol(getV("--g-label"), isDark ? "#f1f5f9" : "#0f172a");
+        cursorLine = isDark ? "#cbd5e1" : "#475569";
+      }
+    } catch (_) {}
+    this._themePal = { isDark, canvasBg, overviewBg, axisText, mutedText, gridLine, subSplitLine, axisBorder, popBg, popBorder, popText, cursorLine };
+    return this._themePal;
+  }
+
+  refreshTheme() {
+    this.syncThemePalette(true);
+    try { this.drawMainChart(); } catch (_) {}
+    try { this.drawOverviewChart(); } catch (_) {}
+    try { this.drawPdWaveform(); } catch (_) {}
+  }
+
   drawMainChart() {
     const canvas = this.container.querySelector('#pzMainCanvas');
     if (!canvas || !this.curveData || !this.curveData.points) return;
@@ -1676,8 +1901,9 @@ class PowerzPanel {
     const W = rect.width;
     const H = rect.height;
 
-    // 1. 深色主背景 (与官方完全一致的深邃纯黑 #05070a)
-    ctx.fillStyle = '#05070a';
+    // 1. 跟随工作台主题的自适应画布背景
+    const pal = this.syncThemePalette();
+    ctx.fillStyle = pal.canvasBg;
     ctx.fillRect(0, 0, W, H);
 
     // 2. 截取视窗内数据
@@ -1723,7 +1949,7 @@ class PowerzPanel {
     const yCoordSub = isSub ? ((v) => subPadT + subPlotH - ((v - subAxis.start) / (subAxis.end - subAxis.start)) * subPlotH) : yCoordV;
 
     // 4. 绘制细微网格线 (清晰像素对齐，颜色 #1a1d26)
-    ctx.strokeStyle = '#1a1d26';
+    ctx.strokeStyle = pal.gridLine;
     ctx.lineWidth = 1;
     ctx.setLineDash([]);
 
@@ -1737,7 +1963,7 @@ class PowerzPanel {
         ctx.stroke();
 
         // 左 Y 轴刻度文字 (官方 Segoe UI 字体: 11.000V, 0.500V)
-        ctx.fillStyle = '#8f9bb3';
+        ctx.fillStyle = pal.axisText;
         ctx.font = '10px "Segoe UI", -apple-system, Arial, sans-serif';
         ctx.textAlign = 'right';
         ctx.fillText(`${tv.toFixed(tv < 0.05 && tv > 0 ? 4 : 3)}V`, padL - 6, y + 3.5);
@@ -1748,7 +1974,7 @@ class PowerzPanel {
     iAxis.ticks.forEach(ti => {
       const y = Math.round(yCoordI(ti)) + 0.5;
       if (y >= padT && y <= padT + mainPlotH) {
-        ctx.fillStyle = '#8f9bb3';
+        ctx.fillStyle = pal.axisText;
         ctx.font = '10px "Segoe UI", -apple-system, Arial, sans-serif';
         ctx.textAlign = 'left';
         ctx.fillText(`${ti.toFixed(ti < 0.05 && ti > 0 ? 4 : 3)}A`, W - padR + 6, y + 3.5);
@@ -1758,13 +1984,13 @@ class PowerzPanel {
     // 副图分屏网格线与刻度 (图2: 0..3.5V 步进 0.500V)
     if (isSub && subAxis) {
       // 主副图水平分割线
-      ctx.strokeStyle = '#222838';
+      ctx.strokeStyle = pal.subSplitLine;
       ctx.beginPath();
       ctx.moveTo(padL, padT + mainPlotH + 9);
       ctx.lineTo(W - padR, padT + mainPlotH + 9);
       ctx.stroke();
 
-      ctx.strokeStyle = '#1a1d26';
+      ctx.strokeStyle = pal.gridLine;
       subAxis.ticks.forEach(tsv => {
         const y = Math.round(yCoordSub(tsv)) + 0.5;
         if (y >= subPadT && y <= subPadT + subPlotH) {
@@ -1773,7 +1999,7 @@ class PowerzPanel {
           ctx.lineTo(W - padR, y);
           ctx.stroke();
 
-          ctx.fillStyle = '#8f9bb3';
+          ctx.fillStyle = pal.axisText;
           ctx.font = '10px "Segoe UI", -apple-system, Arial, sans-serif';
           ctx.textAlign = 'right';
           ctx.fillText(`${tsv.toFixed(3)}V`, padL - 6, y + 3.5);
@@ -1800,14 +2026,14 @@ class PowerzPanel {
       const mm = String(Math.floor((secInt % 3600) / 60)).padStart(2, '0');
       const ss = String(secInt % 60).padStart(2, '0');
 
-      ctx.fillStyle = '#8f9bb3';
+      ctx.fillStyle = pal.axisText;
       ctx.font = '9.5px "Segoe UI", -apple-system, Arial, sans-serif';
       ctx.textAlign = 'center';
       ctx.fillText(`${hh}:${mm}:${ss}.${msDec}`, x, padT + plotH + 14);
     }
 
     // X 轴中央底部标签 "Elapsed Time"
-    ctx.fillStyle = '#5a6578';
+    ctx.fillStyle = pal.mutedText;
     ctx.font = '10.5px "Segoe UI", -apple-system, Arial, sans-serif';
     ctx.textAlign = 'center';
     ctx.fillText('Elapsed Time', padL + plotW / 2, padT + plotH + 24);
@@ -1898,8 +2124,8 @@ class PowerzPanel {
       const extH = 68;
 
       ctx.save();
-      ctx.fillStyle = 'rgba(10, 14, 22, 0.88)';
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.16)';
+      ctx.fillStyle = pal.popBg;
+      ctx.strokeStyle = pal.popBorder;
       ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.roundRect(extX, extY, extW, extH, 4);
@@ -1978,8 +2204,8 @@ class PowerzPanel {
       if (tipX + tipW > W - padR) tipX = hx - tipW - 10;
       const tipY = Math.max(padT + 4, Math.min(hyV, hyI) - 15);
 
-      ctx.fillStyle = 'rgba(15, 20, 28, 0.94)';
-      ctx.strokeStyle = '#2f3647';
+      ctx.fillStyle = pal.popBg;
+      ctx.strokeStyle = pal.popBorder;
       ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.roundRect(tipX, tipY, tipW, tipH, 4);
@@ -1992,7 +2218,7 @@ class PowerzPanel {
       const timeStr = `${Math.floor(s/3600)}:${String(Math.floor((s%3600)/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}.${remMs}`;
 
       ctx.font = '10px "Segoe UI", Consolas, monospace';
-      ctx.fillStyle = '#cbd5e1';
+      ctx.fillStyle = pal.popText;
       ctx.fillText(timeStr, tipX + 8, tipY + 14);
       ctx.fillStyle = '#3cb371';
       ctx.fillText(`VBUS  ${this.hoverPoint.v.toFixed(6)}V`, tipX + 8, tipY + 28);
@@ -2030,7 +2256,7 @@ class PowerzPanel {
       // 1. 垂直测量线 (悬停/拖拽时高亮为天蓝色)
       ctx.save();
       ctx.setLineDash(isHovered ? [] : [3, 3]);
-      ctx.strokeStyle = isHovered ? '#38bdf8' : '#cbd5e1';
+      ctx.strokeStyle = isHovered ? '#38bdf8' : pal.cursorLine;
       ctx.lineWidth = isHovered ? 1.5 : 1.0;
       ctx.beginPath();
       ctx.moveTo(cx, padT);
@@ -2135,7 +2361,8 @@ class PowerzPanel {
     const W = rect.width;
     const H = rect.height;
 
-    ctx.fillStyle = '#0d0f14';
+    const pal = this.syncThemePalette();
+    ctx.fillStyle = pal.overviewBg;
     ctx.fillRect(0, 0, W, H);
 
     let maxV = 0.001;
@@ -2633,8 +2860,9 @@ class PowerzPanel {
     const W = rect.width;
     const H = rect.height;
 
-    // 1. 深色主背景 (与官方保持一致的 #080a0f)
-    ctx.fillStyle = '#080a0f';
+    // 1. 跟随工作台主题的自适应画布背景
+    const pal = this.syncThemePalette();
+    ctx.fillStyle = pal.canvasBg;
     ctx.fillRect(0, 0, W, H);
 
     // 边距: 左侧放电压刻度(52px), 右侧放电流刻度(50px), 顶部裕量(16px), 底部时间轴(24px)
@@ -2674,7 +2902,7 @@ class PowerzPanel {
       const y = Math.round(yCoordV(tv)) + 0.5;
       if (y >= padT - 1 && y <= padT + plotH + 1) {
         // 水平贯穿细网格线
-        ctx.strokeStyle = '#151922';
+        ctx.strokeStyle = pal.gridLine;
         ctx.lineWidth = 1;
         ctx.beginPath();
         ctx.moveTo(padL, y);
@@ -2682,14 +2910,14 @@ class PowerzPanel {
         ctx.stroke();
 
         // 左侧 Tick 小短线
-        ctx.strokeStyle = '#2b3346';
+        ctx.strokeStyle = pal.axisBorder;
         ctx.beginPath();
         ctx.moveTo(padL - 3, y);
         ctx.lineTo(padL, y);
         ctx.stroke();
 
         // 左侧刻度数值文本 (如 9.000V, 8.000V, 0.000V)
-        ctx.fillStyle = '#8f9bb3';
+        ctx.fillStyle = pal.axisText;
         ctx.textAlign = 'right';
         ctx.fillText(`${tv.toFixed(3)}V`, padL - 5, y + 3.5);
       }
@@ -2700,21 +2928,21 @@ class PowerzPanel {
       const y = Math.round(yCoordI(ti)) + 0.5;
       if (y >= padT - 1 && y <= padT + plotH + 1) {
         // 右侧 Tick 小短线
-        ctx.strokeStyle = '#2b3346';
+        ctx.strokeStyle = pal.axisBorder;
         ctx.beginPath();
         ctx.moveTo(W - padR, y);
         ctx.lineTo(W - padR + 3, y);
         ctx.stroke();
 
         // 右侧刻度数值文本 (如 1.800A, 1.600A, 0.000A)
-        ctx.fillStyle = '#94a3b8';
+        ctx.fillStyle = pal.axisText;
         ctx.textAlign = 'left';
         ctx.fillText(`${ti.toFixed(3)}A`, W - padR + 5, y + 3.5);
       }
     });
 
     // 5. 绘制外边界轴线 (左侧、右侧、底部基准线)
-    ctx.strokeStyle = '#232938';
+    ctx.strokeStyle = pal.axisBorder;
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(padL, padT);
@@ -2733,14 +2961,14 @@ class PowerzPanel {
       const x = Math.round(xCoord(curT)) + 0.5;
       if (x >= padL && x <= W - padR) {
         // 垂直细微虚线网格
-        ctx.strokeStyle = '#12151e';
+        ctx.strokeStyle = pal.gridLine;
         ctx.beginPath();
         ctx.moveTo(x, padT);
         ctx.lineTo(x, padT + plotH);
         ctx.stroke();
 
         // 底部 Tick 短线
-        ctx.strokeStyle = '#2b3346';
+        ctx.strokeStyle = pal.axisBorder;
         ctx.beginPath();
         ctx.moveTo(x, padT + plotH);
         ctx.lineTo(x, padT + plotH + 3);

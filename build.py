@@ -1,7 +1,8 @@
 import re
 import os
 
-plugin_dir = r"d:\work\Mgmt\TabonKB\.obsidian\plugins\tabonkb-workbench"
+_script_dir = os.path.dirname(os.path.abspath(__file__))
+plugin_dir = _script_dir if os.path.exists(os.path.join(_script_dir, "main.js.bak")) else r"d:\work\Mgmt\TabonKB\.obsidian\plugins\tabonkb-workbench"
 
 def clean_code(code):
     # Remove node requires that will be hoisted to the top or resolved locally
@@ -14,6 +15,7 @@ def clean_code(code):
 # Read each source module
 files = [
     f"{plugin_dir}\\ui\\iconpark.js",
+    f"{plugin_dir}\\ui\\theme-engine.js",
     f"{plugin_dir}\\providers\\agent-adapter-base.js",
     f"{plugin_dir}\\services\\intranet-fetcher.js",
     f"{plugin_dir}\\mcp\\vendor-mcp-shared.js",
@@ -43,6 +45,7 @@ files = [
     f"{plugin_dir}\\agent-hub.js",
     f"{plugin_dir}\\agent-context-provider.js",
     f"{plugin_dir}\\services\\local-project-service.js",
+    f"{plugin_dir}\\components\\code-viewer-panel.js",
     f"{plugin_dir}\\pi-drawer-view.js",
     f"{plugin_dir}\\services\\jira-service.js",
     f"{plugin_dir}\\services\\rss-service.js",
@@ -86,7 +89,8 @@ files = [
 
 module_codes = []
 for fpath in files:
-    with open(fpath, "r", encoding="utf-8") as f:
+    fpath_norm = fpath.replace("\\", os.sep)
+    with open(fpath_norm, "r", encoding="utf-8") as f:
         cleaned = clean_code(f.read())
         module_codes.append(cleaned)
 
@@ -110,7 +114,7 @@ const shell = electronModule ? electronModule.shell : null;
    ========================================================================== */
 """
 
-with open(f"{plugin_dir}\\main.js.bak", "r", encoding="utf-8") as f:
+with open(os.path.join(plugin_dir, "main.js.bak"), "r", encoding="utf-8") as f:
     main_code = f.read()
 
 workbench_anchor = 'const VIEW_TYPE_WORKBENCH = "tabonkb-workbench-view";'
@@ -202,6 +206,11 @@ new_constructor = """class TabonKBWorkbenchView extends ItemView {
     this.heatmapDimension = this.getSavedHeatmapDimension();
     this._selectedHeatCell = null;
     this._heatDocClickBound = null;
+
+    // Home Tab Agent Usage Analytics
+    this.agentUsageCardEl = null;
+    this.agentUsageRange = this.getAgentUsageRange();
+    this._agentUsageExpanded = new Set();
 
     // Multi-Agent Hub Integration (Pi, Hermes, Gemini)
     const vaultPath = this.app?.vault?.adapter?.basePath || 'd:\\\\work\\\\Mgmt\\\\TabonKB';
@@ -483,7 +492,7 @@ new_constructor = """class TabonKBWorkbenchView extends ItemView {
       if (i === 0) anchor = 'start';
       else if (i === N - 1) anchor = 'end';
       const isEnd = i === N - 1;
-      const fill = isEnd ? '#10B981' : 'var(--text-muted, #8b949e)';
+      const fill = isEnd ? 'var(--g-green, #10B981)' : 'var(--g-label-3, var(--text-muted, #8b949e))';
       return `<text x="${x}" y="${H - 4}" font-size="9" fill="${fill}" font-family="monospace" text-anchor="${anchor}">${lbl}${isEnd ? '(本期)' : ''}</text>`;
     }).join('');
 
@@ -502,20 +511,20 @@ new_constructor = """class TabonKBWorkbenchView extends ItemView {
       <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" style="width: 100%; height: 100%; overflow: visible; display: block;">
         <defs>
           <linearGradient id="twTrendGreenGrad" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stop-color="#10B981" stop-opacity="0.25"/>
-            <stop offset="100%" stop-color="#10B981" stop-opacity="0.02"/>
+            <stop offset="0%" stop-color="var(--g-green, #10B981)" stop-opacity="0.28"/>
+            <stop offset="100%" stop-color="var(--g-green, #10B981)" stop-opacity="0.02"/>
           </linearGradient>
         </defs>
-        <line x1="0" y1="${topY + 7}" x2="${W}" y2="${topY + 7}" stroke="var(--background-modifier-border, #E2E8F0)" stroke-dasharray="3 3"/>
-        <line x1="0" y1="${Math.round((topY + baseY) / 2)}" x2="${W}" y2="${Math.round((topY + baseY) / 2)}" stroke="var(--background-modifier-border, #E2E8F0)" stroke-dasharray="3 3"/>
-        <line x1="0" y1="${baseY}" x2="${W}" y2="${baseY}" stroke="var(--background-modifier-border, #E2E8F0)" stroke-dasharray="3 3"/>
+        <line x1="0" y1="${topY + 7}" x2="${W}" y2="${topY + 7}" stroke="var(--g-sep, var(--background-modifier-border, #E2E8F0))" stroke-dasharray="3 3"/>
+        <line x1="0" y1="${Math.round((topY + baseY) / 2)}" x2="${W}" y2="${Math.round((topY + baseY) / 2)}" stroke="var(--g-sep, var(--background-modifier-border, #E2E8F0))" stroke-dasharray="3 3"/>
+        <line x1="0" y1="${baseY}" x2="${W}" y2="${baseY}" stroke="var(--g-sep, var(--background-modifier-border, #E2E8F0))" stroke-dasharray="3 3"/>
         <path d="${doneAreaPath}" fill="url(#twTrendGreenGrad)"/>
-        <path d="${doneLinePath}" fill="none" stroke="#10B981" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
-        <path d="${createdLinePath}" fill="none" stroke="#EF4444" stroke-width="2" stroke-dasharray="4 2" stroke-linecap="round" stroke-linejoin="round"/>
-        <line id="twTrendGuideline" x1="0" y1="${topY - 4}" x2="0" y2="${baseY}" stroke="var(--interactive-accent, #2563EB)" stroke-width="1.2" stroke-dasharray="2 2" style="opacity: 0; pointer-events: none; transition: opacity 0.1s ease;"/>
+        <path d="${doneLinePath}" fill="none" stroke="var(--g-green, #10B981)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="${createdLinePath}" fill="none" stroke="var(--g-red, #EF4444)" stroke-width="2" stroke-dasharray="4 2" stroke-linecap="round" stroke-linejoin="round"/>
+        <line id="twTrendGuideline" x1="0" y1="${topY - 4}" x2="0" y2="${baseY}" stroke="var(--g-blue, var(--interactive-accent, #2563EB))" stroke-width="1.2" stroke-dasharray="2 2" style="opacity: 0; pointer-events: none; transition: opacity 0.1s ease;"/>
         ${dotsHtml}
-        <circle cx="${lastX}" cy="${lastDoneY}" r="3.2" fill="#10B981" class="tw-trend-latest-dot"/>
-        <circle cx="${lastX}" cy="${lastCreatedY}" r="3.2" fill="#EF4444" class="tw-trend-latest-dot"/>
+        <circle cx="${lastX}" cy="${lastDoneY}" r="3.2" fill="var(--g-green, #10B981)" class="tw-trend-latest-dot"/>
+        <circle cx="${lastX}" cy="${lastCreatedY}" r="3.2" fill="var(--g-red, #EF4444)" class="tw-trend-latest-dot"/>
         ${labelTexts}
       </svg>
     `;
@@ -576,8 +585,8 @@ new_constructor = """class TabonKBWorkbenchView extends ItemView {
       </div>
       <div class="tw-trend-footer">
         <div class="tw-trend-legend">
-          <span><span style="color: #EF4444; font-weight:bold;">--</span> 新增Bug</span>
-          <span><span style="color: #10B981; font-weight:bold;">—</span> 闭环解决</span>
+          <span><span style="color: var(--g-red, #EF4444); font-weight:bold;">--</span> 新增Bug</span>
+          <span><span style="color: var(--g-green, #10B981); font-weight:bold;">—</span> 闭环解决</span>
         </div>
       </div>
     `;
@@ -1345,6 +1354,228 @@ new_constructor = """class TabonKBWorkbenchView extends ItemView {
       };
       window.addEventListener('click', this._heatDocClickBound);
     }, 20);
+  }
+
+  // ==========================================================================
+  // Home Tab Agent Usage Analytics (多 Agent Token 用量额度细分统计)
+  // ==========================================================================
+
+  getAgentUsageRange() {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        const r = localStorage.getItem('tabonkb-agent-usage-range');
+        if (r === 'today' || r === 'week' || r === 'all') return r;
+      }
+    } catch (e) {}
+    return 'week';
+  }
+
+  saveAgentUsageRange(range) {
+    this.agentUsageRange = range;
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('tabonkb-agent-usage-range', range);
+      }
+    } catch (e) {}
+  }
+
+  fmtUsageTok(n) {
+    const v = Number(n) || 0;
+    const trim = (num, div) => {
+      const s = (num / div).toFixed(1);
+      return s.endsWith('.0') ? s.slice(0, -2) : s;
+    };
+    if (v >= 1000000) return trim(v, 1000000) + 'M';
+    if (v >= 1000) return trim(v, 1000) + 'k';
+    return String(v);
+  }
+
+  collectAgentUsageStats() {
+    const AGENT_NAMES = {
+      pi: 'Pi Agent', antigravity: 'Antigravity', niceaigc: 'NiceAIGC',
+      codex: 'Codex', gemini: 'Gemini', hermes: 'Hermes', dsh: 'DSH'
+    };
+    const range = this.agentUsageRange || 'week';
+    const now = Date.now();
+    let startTs = 0;
+    if (range === 'today') {
+      const d0 = new Date();
+      d0.setHours(0, 0, 0, 0);
+      startTs = d0.getTime();
+    } else if (range === 'week') {
+      startTs = now - 7 * 86400000;
+    }
+
+    const sm = this.agentHub && this.agentHub.sessionManager;
+    const agentsMap = (sm && sm.agents instanceof Map) ? sm.agents : null;
+    const rows = [];
+    const totals = { tokens: 0, input: 0, output: 0, cache: 0, turns: 0, sessions: 0, tools: 0 };
+
+    if (agentsMap) {
+      for (const [agentId, agent] of agentsMap.entries()) {
+        const row = {
+          id: agentId,
+          name: AGENT_NAMES[agentId] || agentId,
+          tokens: 0, input: 0, output: 0, cache: 0,
+          turns: 0, sessions: 0, tools: 0,
+          models: new Map()
+        };
+        for (const sess of (agent.sessions || [])) {
+          let hit = false;
+          for (const m of (sess.messages || [])) {
+            if (!m || m.role !== 'assistant') continue;
+            const ts = m.timestamp || 0;
+            if (ts < startTs) continue;
+            hit = true;
+            row.turns++;
+            row.tools += Array.isArray(m.toolCalls) ? m.toolCalls.length : (m.toolCount || 0);
+            const u = m.usage;
+            if (u && (u.totalTokens > 0 || u.inputTokens > 0 || u.outputTokens > 0)) {
+              const inp = Math.max(0, u.inputTokens || 0);
+              const out = Math.max(0, u.outputTokens || 0);
+              const cache = Math.max(0, u.cacheReadTokens || 0);
+              const tot = Math.max(0, u.totalTokens || (inp + out + cache));
+              row.input += inp;
+              row.output += out;
+              row.cache += cache;
+              row.tokens += tot;
+              const mName = m.model || u.providerAndModel || '未标注模型';
+              const cur = row.models.get(mName) || { tokens: 0, turns: 0 };
+              cur.tokens += tot;
+              cur.turns += 1;
+              row.models.set(mName, cur);
+            }
+          }
+          if (hit) row.sessions++;
+        }
+        if (row.turns > 0) {
+          rows.push(row);
+          totals.tokens += row.tokens;
+          totals.input += row.input;
+          totals.output += row.output;
+          totals.cache += row.cache;
+          totals.turns += row.turns;
+          totals.sessions += row.sessions;
+          totals.tools += row.tools;
+        }
+      }
+    }
+
+    rows.sort((a, b) => b.tokens - a.tokens);
+    for (const r of rows) {
+      r.modelList = Array.from(r.models.entries())
+        .map(([name, v]) => ({ name, tokens: v.tokens, turns: v.turns }))
+        .sort((a, b) => b.tokens - a.tokens);
+      r.segSum = Math.max(1, r.input + r.output + r.cache);
+    }
+    const maxTokens = rows.length ? Math.max(1, rows[0].tokens) : 1;
+    return { rows, totals, maxTokens, range };
+  }
+
+  renderAgentUsageCard(parentEl) {
+    this.agentUsageCardEl = parentEl.createDiv({ cls: 'tw-card tw-agent-usage-card' });
+    this.updateAgentUsageCard();
+    // Agent 回合结束后自动重算（仅在首页卡片仍挂载时），无需手动刷新
+    if (!this._agentUsageBound && this.agentHub && typeof this.agentHub.on === 'function') {
+      this._agentUsageBound = true;
+      const schedule = () => {
+        if (this.agentUsageCardEl && this.agentUsageCardEl.isConnected) {
+          setTimeout(() => this.updateAgentUsageCard(), 400);
+        }
+      };
+      this.agentHub.on('turn_end', schedule);
+      this.agentHub.on('agent_settled', schedule);
+    }
+  }
+
+  updateAgentUsageCard() {
+    if (!this.agentUsageCardEl) return;
+    const stats = this.collectAgentUsageStats();
+    const range = stats.range;
+    const fmt = (n) => this.fmtUsageTok(n);
+    const full = (n) => (Number(n) || 0).toLocaleString();
+
+    let bodyHtml = '';
+    if (stats.rows.length === 0) {
+      bodyHtml = '<div class="tw-au-empty">该周期暂无用量记录</div>';
+    } else {
+      const rowsHtml = stats.rows.map((r) => {
+        const wIn = (r.input / r.segSum) * 100;
+        const wOut = (r.output / r.segSum) * 100;
+        const wCache = Math.max(0, 100 - wIn - wOut);
+        const barW = r.tokens > 0 ? Math.max(2, (r.tokens / stats.maxTokens) * 100) : 0;
+        const segsHtml = r.tokens > 0 ? `<span class="tw-au-seg tw-au-seg-in" style="width:${wIn.toFixed(1)}%"></span><span class="tw-au-seg tw-au-seg-out" style="width:${wOut.toFixed(1)}%"></span><span class="tw-au-seg tw-au-seg-cache" style="width:${wCache.toFixed(1)}%"></span>` : '';
+        const expanded = this._agentUsageExpanded.has(r.id);
+        const tip = `输入 ${full(r.input)} · 输出 ${full(r.output)} · 缓存 ${full(r.cache)}`;
+        const modelsHtml = expanded ? (r.modelList.length ? r.modelList.map(m =>
+          `<div class="tw-au-model-line"><span class="tw-au-model-name">${escapeHtml(m.name)}</span><span>${fmt(m.tokens)} tok · ${m.turns}轮</span></div>`
+        ).join('') : '<div class="tw-au-model-line"><span class="tw-au-model-name">无模型用量记录</span><span>—</span></div>') : '';
+        let icon = '';
+        try { icon = getAgentBrandSvg(r.id, 12); } catch (e) {}
+        return `
+          <div class="tw-au-row${expanded ? ' expanded' : ''}" data-agent="${r.id}" title="${escapeHtml(tip)}">
+            <span class="tw-au-name">${icon}<span>${escapeHtml(r.name)}</span></span>
+            <div class="tw-au-bar-wrap"><div class="tw-au-bar" style="width:${barW.toFixed(1)}%">${segsHtml}</div></div>
+            <span class="tw-au-meta"><b>${fmt(r.tokens)}</b> tok · ${r.turns}轮 · ${r.sessions}会话<span class="tw-au-caret">›</span></span>
+            <div class="tw-au-models">${modelsHtml}</div>
+          </div>`;
+      }).join('');
+      bodyHtml = `<div class="tw-au-rows">${rowsHtml}</div>`;
+    }
+
+    const t = stats.totals;
+    const footerHtml = `
+      <div class="tw-au-footer">
+        <span class="tw-au-total">合计 <b>${fmt(t.tokens)}</b> tok · ${t.turns}轮 · ${t.sessions}会话${t.tools ? ` · ${t.tools}工具` : ''}</span>
+        <span class="tw-au-legend">
+          <span><i class="tw-au-dot" style="background:var(--g-blue,#2563EB)"></i>输入 ${fmt(t.input)}</span>
+          <span><i class="tw-au-dot" style="background:var(--g-green,#10B981)"></i>输出 ${fmt(t.output)}</span>
+          <span><i class="tw-au-dot" style="background:#8B5CF6"></i>缓存 ${fmt(t.cache)}</span>
+        </span>
+      </div>`;
+
+    this.agentUsageCardEl.innerHTML = `
+      <div class="tw-card-header tw-au-header">
+        <span>Agent 用量</span>
+        <div class="tw-trend-controls-right">
+          <select class="tw-trend-range-select tw-au-range-select" title="切换统计周期">
+            <option value="today" ${range === 'today' ? 'selected' : ''}>今日</option>
+            <option value="week" ${range === 'week' ? 'selected' : ''}>近7天</option>
+            <option value="all" ${range === 'all' ? 'selected' : ''}>全部</option>
+          </select>
+          <button class="tw-trend-refresh-btn" id="btnRefreshAgentUsage" title="刷新用量统计">${getIconPark('refresh', 12)}</button>
+        </div>
+      </div>
+      ${bodyHtml}
+      ${stats.rows.length ? footerHtml : ''}
+    `;
+
+    const rangeSelect = this.agentUsageCardEl.querySelector('.tw-au-range-select');
+    if (rangeSelect) {
+      rangeSelect.onchange = () => {
+        this.saveAgentUsageRange(rangeSelect.value);
+        this.updateAgentUsageCard();
+      };
+    }
+
+    const refreshBtn = this.agentUsageCardEl.querySelector('#btnRefreshAgentUsage');
+    if (refreshBtn) {
+      refreshBtn.onclick = () => {
+        refreshBtn.classList.add('spinning');
+        this.updateAgentUsageCard();
+        setTimeout(() => refreshBtn.classList.remove('spinning'), 500);
+      };
+    }
+
+    this.agentUsageCardEl.querySelectorAll('.tw-au-row').forEach(el => {
+      el.onclick = () => {
+        const id = el.dataset.agent;
+        if (!id) return;
+        if (this._agentUsageExpanded.has(id)) this._agentUsageExpanded.delete(id);
+        else this._agentUsageExpanded.add(id);
+        this.updateAgentUsageCard();
+      };
+    });
   }"""
 
 if old_constructor in workbench_part:
@@ -1758,10 +1989,14 @@ if idx_render != -1 and idx_cpanel != -1:
         const live = this.getContainer();
         if (live) {
           this.ensureStylesheet(live.ownerDocument);
-          const t = (this.plugin && this.plugin.settings && this.plugin.settings.workbenchTheme) ||
-                    (this.app?.plugins?.plugins?.['tabonkb-workbench']?.settings?.workbenchTheme) || 'standard';
-          live.removeClass('tw-theme-standard', 'tw-theme-fresh');
-          live.addClass(`tw-theme-${t}`);
+          const activePlugin = this.plugin || (this.app?.plugins?.plugins?.['tabonkb-workbench']);
+          const t = (activePlugin && activePlugin.settings && activePlugin.settings.workbenchTheme) || 'fresh';
+          if (typeof TabonKBThemeEngine !== 'undefined' && activePlugin) {
+            TabonKBThemeEngine.applyTokensToElement(live, t, activePlugin.settings?.workbenchThemeMode || 'auto', activePlugin.settings?.workbenchWallpaper || 'aurora');
+          } else {
+            live.removeClass('tw-theme-standard', 'tw-theme-fresh');
+            live.addClass(`tw-theme-${t}`);
+          }
         }
         return;
       }
@@ -1772,11 +2007,14 @@ if idx_render != -1 and idx_cpanel != -1:
       container.empty();
       this._harnessMounted = false; // 整体重建后旧挂载标记必然失效
       container.addClass('tabonkb-workbench-container', 'with-drawer');
-      const curTheme = (this.plugin && this.plugin.settings && this.plugin.settings.workbenchTheme) || 
-                       (this.app?.plugins?.plugins?.['tabonkb-workbench']?.settings?.workbenchTheme) || 
-                       'standard';
-      container.removeClass('tw-theme-standard', 'tw-theme-fresh');
-      container.addClass(`tw-theme-${curTheme}`);
+      const activePlugin = this.plugin || (this.app?.plugins?.plugins?.['tabonkb-workbench']);
+      const curTheme = (activePlugin && activePlugin.settings && activePlugin.settings.workbenchTheme) || 'fresh';
+      if (typeof TabonKBThemeEngine !== 'undefined' && activePlugin) {
+        TabonKBThemeEngine.applyTokensToElement(container, curTheme, activePlugin.settings?.workbenchThemeMode || 'auto', activePlugin.settings?.workbenchWallpaper || 'aurora');
+      } else {
+        container.removeClass('tw-theme-standard', 'tw-theme-fresh');
+        container.addClass(`tw-theme-${curTheme}`);
+      }
 
       // Global right-click copy menu for any selected text
       container.oncontextmenu = (e) => {
@@ -1830,14 +2068,20 @@ if idx_render != -1 and idx_cpanel != -1:
       } else if (this.activeTab === 'news') {
         this.renderNewsTab(stage);
       } else if (this.activeTab === 'explore') {
+        stage.addClass('tw-stage-explore', 'tw-stage-fullbleed');
+        mainPanel.addClass('tw-main-explore', 'tw-main-fullbleed');
         this.renderExploreTab(stage);
       } else if (this.activeTab === 'tools') {
-        stage.addClass('tw-stage-tools');
-        mainPanel.addClass('tw-main-tools');
+        stage.addClass('tw-stage-tools', 'tw-stage-fullbleed');
+        mainPanel.addClass('tw-main-tools', 'tw-main-fullbleed');
         this.renderToolsTab(stage);
       } else if (this.activeTab === 'harness') {
+        stage.addClass('tw-stage-harness', 'tw-stage-fullbleed');
+        mainPanel.addClass('tw-main-harness', 'tw-main-fullbleed');
         this.renderHarnessTab(stage);
       } else if (this.activeTab === 'manage') {
+        stage.addClass('tw-stage-manage', 'tw-stage-fullbleed');
+        mainPanel.addClass('tw-main-manage', 'tw-main-fullbleed');
         this.renderManageTab(stage);
       } else {
         this.renderHomeTab(stage);
@@ -2088,8 +2332,7 @@ if idx_render != -1 and idx_cpanel != -1:
 
     for (const t of tabs) {
       const btn = itemsGroup.createEl('button', {
-        cls: `tw-nav-btn ${this.activeTab === t.id ? 'active' : ''}`,
-        title: t.title
+        cls: `tw-nav-btn ${this.activeTab === t.id ? 'active' : ''}`
       });
       btn.innerHTML = `
         <span class="tw-nav-icon">${getIconPark(t.icon, 22)}</span>
@@ -2145,18 +2388,40 @@ if idx_render != -1 and idx_cpanel != -1:
       }
     }
 
-    // Bottom Section: Divider + Settings Shortcut
+    // Bottom Section: Divider + Theme Quick Switch + Settings Shortcut
     const btmSec = rail.createDiv({ cls: 'tw-nav-rail-bottom' });
     btmSec.createDiv({ cls: 'tw-nav-divider' });
+    const btnTheme = btmSec.createEl('button', {
+      cls: 'tw-nav-btn tw-nav-theme-btn'
+    });
+    btnTheme.innerHTML = `
+      <span class="tw-nav-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.95" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 0 0 18c1.1 0 2-.9 2-2 0-.5-.2-1-.5-1.3-.3-.4-.5-.8-.5-1.3 0-1.1.9-2 2-2h2.3A3.7 3.7 0 0 0 21 10.7"/></svg></span>
+      <span class="tw-nav-label">主题</span>
+    `;
+    btnTheme.onclick = (e) => {
+      e.stopPropagation();
+      const p = this.plugin || (this.app?.plugins?.plugins?.['tabonkb-workbench']);
+      if (typeof TabonKBThemeEngine !== 'undefined' && p) {
+        TabonKBThemeEngine.openThemeLibraryPopover(btnTheme, p);
+      }
+    };
     const btnSettings = btmSec.createEl('button', {
-      cls: 'tw-nav-btn tw-nav-settings-btn',
-      title: '打开工作台设置'
+      cls: 'tw-nav-btn tw-nav-settings-btn'
     });
     btnSettings.innerHTML = `
       <span class="tw-nav-icon">${getIconPark('setting-config', 22)}</span>
       <span class="tw-nav-label">设置</span>
     `;
-    btnSettings.onclick = () => {
+    btnSettings.onclick = (e) => {
+      e.stopPropagation();
+      try {
+        this.closeExploreSubmenu();
+        this.closeManageSubmenu();
+        this.closeToolsSubmenu();
+        if (typeof TabonKBThemeEngine !== 'undefined') {
+          TabonKBThemeEngine.closeThemeLibraryPopover(false);
+        }
+      } catch (_) {}
       this.app.setting?.open?.();
       this.app.setting?.openTabById?.('tabonkb-workbench');
     };
@@ -2328,6 +2593,9 @@ if idx_render != -1 and idx_cpanel != -1:
 
     // Heatmap Card (dynamically bound to multi-source engineering data)
     this.renderHomeHeatmapCard(chartsGrid);
+
+    // Agent Usage Quota Strip (multi-agent token consumption breakdown)
+    this.renderAgentUsageCard(wrap);
 
     // Layer 3: Knowledge Workspace (Graph + Dynamic Context Panel)
     const workspaceWrap = wrap.createDiv({ cls: 'tw-knowledge-workspace dashboard-knowledge-workspace', id: 'twKnowledgeWorkspace' });
@@ -2729,6 +2997,30 @@ module.exports = class TabonKBWorkbenchPlugin extends Plugin {
       },
     });
 
+    this.addCommand({
+      id: 'open-tabonkb-theme-library',
+      name: '打开工作台主题库 (44套主题悬停实时预览)',
+      callback: () => {
+        this.activateView().then(() => {
+          const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_WORKBENCH);
+          const view = leaves[0]?.view;
+          const container = view?.getContainer?.();
+          const anchor = container?.querySelector('.tw-nav-theme-btn') || container;
+          if (anchor && typeof TabonKBThemeEngine !== 'undefined') {
+            TabonKBThemeEngine.openThemeLibraryPopover(anchor, this);
+          }
+        });
+      },
+    });
+
+    this._lastObsidianDark = typeof TabonKBThemeEngine !== 'undefined' ? TabonKBThemeEngine.isObsidianDark() : false;
+    this.registerEvent(this.app.workspace.on('css-change', () => {
+      const curDark = typeof TabonKBThemeEngine !== 'undefined' ? TabonKBThemeEngine.isObsidianDark() : false;
+      if (this._lastObsidianDark === curDark) return;
+      this._lastObsidianDark = curDark;
+      this.applyWorkbenchTheme(this.settings?.workbenchTheme);
+    }));
+
 
   }
 
@@ -2801,7 +3093,7 @@ module.exports = class TabonKBWorkbenchPlugin extends Plugin {
     }
   }
 
-  async saveSettings() {
+  async saveSettings(opts = {}) {
     if (this.settings.jira) {
       delete this.settings.jira.token;
       delete this.settings.jira.apiToken;
@@ -2813,6 +3105,7 @@ module.exports = class TabonKBWorkbenchPlugin extends Plugin {
     }
     await this.saveData(this.settings);
     this.applyWorkbenchTheme(this.settings.workbenchTheme);
+    if (opts && opts.themeOnly) return;
 
     // Notify active workbench views to refresh if config changed
     const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_WORKBENCH);
@@ -2835,6 +3128,13 @@ module.exports = class TabonKBWorkbenchPlugin extends Plugin {
   }
 
   applyWorkbenchTheme(theme) {
+    if (theme && this.settings) {
+      this.settings.workbenchTheme = theme;
+    }
+    if (typeof TabonKBThemeEngine !== 'undefined') {
+      TabonKBThemeEngine.applyGlobalTheme(this, theme || null);
+      return;
+    }
     const targetTheme = theme || this.settings?.workbenchTheme || 'fresh';
     try {
       if (typeof document !== 'undefined' && document.body) {
@@ -2930,7 +3230,7 @@ else:
 
 bundled = header + "\n" + combined_modules + "\n\n\n" + workbench_part
 
-with open(f"{plugin_dir}\\main.js", "w", encoding="utf-8") as f:
+with open(os.path.join(plugin_dir, "main.js"), "w", encoding="utf-8") as f:
     f.write(bundled)
 
 print("Successfully bundled all components into main.js!")

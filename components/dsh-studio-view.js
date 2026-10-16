@@ -206,6 +206,17 @@ class DshStudioView extends ItemView {
         const src = this.iframeEl.getAttribute('src') || this.iframeEl.src;
         if (src && src.startsWith('http')) {
           this.setLoading(false);
+          const syncFn = () => {
+            try {
+              const p = this.plugin || (this.app?.plugins?.plugins?.['tabonkb-workbench']);
+              if (typeof TabonKBThemeEngine !== 'undefined' && p && p.settings) {
+                TabonKBThemeEngine.syncDshSkinStorage(p.settings.workbenchTheme || 'fresh', p.settings.workbenchWallpaper || 'aurora', p);
+              }
+            } catch (_) {}
+          };
+          syncFn();
+          setTimeout(syncFn, 200);
+          setTimeout(syncFn, 650);
         }
       };
     }
