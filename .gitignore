@@ -14,3 +14,7 @@ __pycache__/
 /native/dslogic-core/build/
 /native/dslogic-core/bin/
 
+# Runtime cache & diagnostic profiles
+.startup-profile.json
+active-context.json
+

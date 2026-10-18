@@ -171,6 +171,17 @@ class TabonKBThemeEngine {
       appliedKeys.push(bk);
     }
 
+    // Also sync canvas and status-bar colors to document.body for global fallback consistency
+    try {
+      if (typeof document !== 'undefined' && document.body) {
+        const canvasBg = tokens["--g-canvas"] || tokens["--g-m1"] || (mode === "dark" ? "#0f172a" : "#f8fafc");
+        const edgeCol = tokens["--g-edge"] || tokens["--g-sep"] || (mode === "dark" ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)");
+        document.body.style.setProperty('--g-canvas', canvasBg);
+        document.body.style.setProperty('--status-bar-background', canvasBg);
+        document.body.style.setProperty('--status-bar-border-color', edgeCol);
+      }
+    } catch (_) {}
+
     el._twAppliedTokenKeys = appliedKeys;
     if (el.dataset) {
       el.dataset.twSkin = skin.id;

@@ -45,6 +45,7 @@ files = [
     f"{plugin_dir}\\agent-hub.js",
     f"{plugin_dir}\\agent-context-provider.js",
     f"{plugin_dir}\\services\\local-project-service.js",
+    f"{plugin_dir}\\services\\agent-version-service.js",
     f"{plugin_dir}\\components\\code-viewer-panel.js",
     f"{plugin_dir}\\pi-drawer-view.js",
     f"{plugin_dir}\\services\\jira-service.js",
@@ -210,7 +211,12 @@ new_constructor = """class TabonKBWorkbenchView extends ItemView {
     // Home Tab Agent Usage Analytics
     this.agentUsageCardEl = null;
     this.agentUsageRange = this.getAgentUsageRange();
+    this.agentUsageMetric = this.getAgentUsageMetric();
     this._agentUsageExpanded = new Set();
+    this._auLedgerCache = null;
+    this._auDayLock = null;
+    this._auLastTrend = [];
+    this._agyQuotaCache = null; // @deprecated 额度功能已下线，字段保留置空防残留引用
 
     // Multi-Agent Hub Integration (Pi, Hermes, Gemini)
     const vaultPath = this.app?.vault?.adapter?.basePath || 'd:\\\\work\\\\Mgmt\\\\TabonKB';
@@ -234,6 +240,7 @@ new_constructor = """class TabonKBWorkbenchView extends ItemView {
       app: this.app,
       onNodeFocus: (nodeId) => this.selectKnowledgeNode(nodeId)
     });
+    try { globalThis.__twBootMark && __twBootMark('view.ctor:end'); } catch (e) {}
   }
 
   getSavedActiveTab() {
@@ -972,6 +979,12 @@ new_constructor = """class TabonKBWorkbenchView extends ItemView {
     const assetEvents = this.getKnowledgeAssetEvents();
     const tuningEvents = this.getJiraTuningEvents();
     const aiEvents = this.loadAiOplogEvents();
+    // 「AI 协同」维度合流 Agent 用量账本（跨源: 会话历史 + pi jsonl + DSH），
+    // 与 Oplog 记录并存展示——Oplog 记录代码改动，用量记录对话调机，非同源不去重
+    const aiUsageEvents = (typeof this.collectAgentUsageDailyEvents === 'function') ? this.collectAgentUsageDailyEvents() : {};
+    for (const [dk, evs] of Object.entries(aiUsageEvents)) {
+      aiEvents[dk] = (aiEvents[dk] || []).concat(evs);
+    }
 
     const now = new Date();
     const todayDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -1379,6 +1392,21 @@ new_constructor = """class TabonKBWorkbenchView extends ItemView {
     } catch (e) {}
   }
 
+  getAgentUsageMetric() {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        const m = localStorage.getItem('tabonkb-agent-usage-metric');
+        if (m === 'tokens' || m === 'net' || m === 'tools') return m;
+      }
+    } catch (e) {}
+    return 'tokens';
+  }
+
+  saveAgentUsageMetric(m) {
+    this.agentUsageMetric = m;
+    try { if (typeof localStorage !== 'undefined') localStorage.setItem('tabonkb-agent-usage-metric', m); } catch (e) {}
+  }
+
   fmtUsageTok(n) {
     const v = Number(n) || 0;
     const trim = (num, div) => {
@@ -1390,12 +1418,270 @@ new_constructor = """class TabonKBWorkbenchView extends ItemView {
     return String(v);
   }
 
-  collectAgentUsageStats() {
+  // 剥离模型名中的思考档位后缀 → 纯净 modelName; 'None'/null/'' 归并默认
+  normalizeModelName(raw, agentId) {
+    let name = String(raw || '').trim();
+    name = name.replace(/\\s*[·•]\\s*(极高推理|高推理|中推理|低推理|关闭思考|关闭|极高|高|中|低)\\s*$/u, '');
+    name = name.replace(/\\s*\\((x?high|medium|low|max|off)\\)\\s*$/i, '');
+    name = name.trim();
+    if (!name || /^(none|null|undefined|未标注模型|未知)$/i.test(name)) return '默认模型';
+    // 同物理模型大小写/分隔符/展示名别名归并：key 为小写 + [._空格] 统一为 -（表内 key 同形）
+    const ALIASES = {
+      'deepseek-flash': 'DeepSeek V4 Flash',
+      'deepseek-v4-flash': 'DeepSeek V4 Flash',
+      'deepseek-v4': 'DeepSeek V4',
+      'deepseek': 'DeepSeek V4',
+      'gemini-3-8-flash': 'Gemini 3.8 Flash',
+      'gemini-3-8-flash-high': 'Gemini 3.8 Flash',
+      'gpt-6-1-sol': 'GPT-6.1 Sol',
+      'gpt-6-sol': 'GPT-6 Sol',
+      'gpt-6-astra': 'GPT-6 Astra',
+      'gpt-5-6-sol': 'GPT-5.6 Sol',
+      'gpt-5-6-luna': 'GPT-5.6 Luna',
+      'claude-sonnet-5-5': 'Claude Sonnet 5.5',
+      'claude-sonnet-5': 'Claude Sonnet 5',
+      'claude-sonnet-4-6': 'Claude Sonnet 4.6',
+      'claude-sonnet-4-5': 'Claude Sonnet 4.5',
+      'claude-opus-5-5': 'Claude Opus 5.5',
+      'glm-5-3': 'GLM-5.3',
+      'muse-spark-1-3-contributor': 'Muse Spark 1.3'
+    };
+    // provider 前缀（kiro/openrouter 等）仅在剥除后能命中别名时才剥，避免 swe-2 这类独立名被截断
+    const keyFull = name.toLowerCase().replace(/[.\\s_]+/g, '-');
+    const keyStripped = keyFull.replace(/^[a-z0-9-]+\\//i, '');
+    if (ALIASES[keyFull]) return ALIASES[keyFull];
+    if (ALIASES[keyStripped]) return ALIASES[keyStripped];
+    return name;
+  }
+
+  // 内置离线模型定价表 (USD / 1M Tokens)
+  _auModelPricing(modelKey) {
+    const TABLE = {
+      'deepseek-v4-flash': { in: 0.14, out: 0.28, cacheRead: 0.014, cacheWrite: 0.175 },
+      'deepseek-v4':       { in: 0.55, out: 2.19, cacheRead: 0.055, cacheWrite: 0.69 },
+      'deepseek':          { in: 0.55, out: 2.19, cacheRead: 0.055, cacheWrite: 0.69 },
+      'gpt-6.1':           { in: 1.25, out: 10.0, cacheRead: 0.125, cacheWrite: 1.56 },
+      'gpt-6':             { in: 1.25, out: 10.0, cacheRead: 0.125, cacheWrite: 1.56 },
+      'gpt-5':             { in: 1.25, out: 10.0, cacheRead: 0.125, cacheWrite: 1.56 },
+      'claude-opus':       { in: 15.0, out: 75.0, cacheRead: 1.5, cacheWrite: 18.75 },
+      'opus':              { in: 15.0, out: 75.0, cacheRead: 1.5, cacheWrite: 18.75 },
+      'claude-sonnet':     { in: 3.0, out: 15.0, cacheRead: 0.3, cacheWrite: 3.75 },
+      'sonnet':            { in: 3.0, out: 15.0, cacheRead: 0.3, cacheWrite: 3.75 },
+      'claude':            { in: 3.0, out: 15.0, cacheRead: 0.3, cacheWrite: 3.75 },
+      'gemini-3.8-flash':  { in: 0.30, out: 2.5, cacheRead: 0.03, cacheWrite: 0.375 },
+      'gemini.*flash':     { in: 0.30, out: 2.5, cacheRead: 0.03, cacheWrite: 0.375 },
+      'gemini':            { in: 1.25, out: 10.0, cacheRead: 0.125, cacheWrite: 1.56 },
+      'glm':               { in: 0.60, out: 2.2, cacheRead: 0.06, cacheWrite: 0.75 },
+      'qwen':              { in: 0.40, out: 1.2, cacheRead: 0.04, cacheWrite: 0.5 }
+    };
+    const k = String(modelKey || '').toLowerCase();
+    for (const key of Object.keys(TABLE)) {
+      if (key.includes('*')) {
+        const re = new RegExp('^' + key.replace(/\\*/g, '.*') + '$');
+        if (re.test(k)) return TABLE[key];
+      } else if (k.includes(key)) return TABLE[key];
+    }
+    return { in: 1.0, out: 3.0, cacheRead: 0.1, cacheWrite: 1.25 };
+  }
+
+  _auHomeDir() {
+    try { return require('os').homedir(); } catch (e) { return process.env.USERPROFILE || ''; }
+  }
+
+  // pi 会话目录编码规则: 盘符冒号→-, 路径分隔符→-, 首尾包裹 --
+  _auPiSessionDir() {
+    try {
+      const vault = this.app?.vault?.adapter?.basePath || (process.cwd ? process.cwd() : '');
+      if (!vault) return null;
+      const enc = '--' + String(vault).replace(/:/g, '-').replace(/[\\\\/]/g, '-') + '--';
+      return require('path').join(this._auHomeDir(), '.pi', 'agent', 'sessions', enc);
+    } catch (e) { return null; }
+  }
+
+  // 解析单个 pi .jsonl: 按 user 消息分组为「用户回合组」，返回组级聚合记录
+  _auParsePiJsonl(fp) {
+    const groups = [];
+    try {
+      const fs = require('fs');
+      const lines = fs.readFileSync(fp, 'utf8').split('\\n');
+      let cur = null;
+      for (const line of lines) {
+        const t = line.trim();
+        if (!t || !t.startsWith('{')) continue;
+        let o; try { o = JSON.parse(t); } catch (_) { continue; }
+        if (o.type !== 'message' || !o.message) continue;
+        const m = o.message;
+        const ts = o.timestamp ? Date.parse(o.timestamp) : 0;
+        if (m.role === 'user') {
+          cur = { agentId: 'pi', grpKey: fp + '|' + (o.id || ts), endTs: ts, records: [], model: null };
+          groups.push(cur);
+          continue;
+        }
+        if (m.role !== 'assistant') continue;
+        if (!cur) { cur = { agentId: 'pi', grpKey: fp + '|g0', endTs: ts, records: [], model: null }; groups.push(cur); }
+        const u = m.usage || {};
+        const inp = Math.max(0, u.input ?? u.inputTokens ?? 0);
+        const out = Math.max(0, u.output ?? u.outputTokens ?? 0);
+        const cr  = Math.max(0, u.cacheRead ?? u.cacheReadTokens ?? 0);
+        const cw  = Math.max(0, u.cacheWrite ?? u.cacheWriteTokens ?? 0);
+        if (!(inp + out + cr + cw > 0)) { if (ts) cur.endTs = ts; continue; }
+        let toolN = 0;
+        if (Array.isArray(m.content)) {
+          for (const p of m.content) { if (p && /tool_call|tool_use|toolCall/i.test(p.type || '')) toolN++; }
+        }
+        cur.records.push({
+          ts, input: inp, output: out, cacheR: cr, cacheW: cw,
+          reasoning: Math.max(0, u.reasoning ?? u.reasoningTokens ?? 0),
+          total: Math.max(inp + out + cr + cw, u.totalTokens || u.total_tokens || 0),
+          cost: Math.max(0, Number(u.cost?.total ?? 0)),
+          model: m.model || null,
+          toolN,
+          est: false
+        });
+        if (ts) cur.endTs = ts;
+      }
+    } catch (_) {}
+    return groups.filter(g => g.records.length > 0);
+  }
+
+  // 解析单个 DSH session_projcache 会话: identity.cwd 匹配当前工作区才纳入
+  _auParseDshSession(fp, vaultNorm) {
+    try {
+      const fs = require('fs');
+      const o = JSON.parse(fs.readFileSync(fp, 'utf8'));
+      const rec = o && o.record;
+      if (!rec || !rec.identity) return [];
+      const cwd = String(rec.identity.cwd || '').replace(/\\\\/g, '/').toLowerCase();
+      if (vaultNorm && cwd && cwd !== vaultNorm) return [];
+      const rows = rec.rows || {};
+      const tu = rows.tokenUsage && rows.tokenUsage.val && rows.tokenUsage.val.totals;
+      const ss = rows.sessionStats && rows.sessionStats.val;
+      if (!tu && !ss) return [];
+      const inp = Math.max(0, tu?.uncachedInputTokens || 0);
+      const out = Math.max(0, tu?.outputTokens || 0);
+      const cr  = Math.max(0, tu?.cacheReadTokens || 0);
+      const cw  = Math.max(0, tu?.cacheWriteTokens || 0);
+      const ts = (rows.sessionListMetadata && rows.sessionListMetadata.val && rows.sessionListMetadata.val.lastPromptAt) || rec.identity.createdAt || 0;
+      const model = rows.modelSelection && rows.modelSelection.val && rows.modelSelection.val.lastUsed && rows.modelSelection.val.lastUsed.model;
+      // 工具名 Top：从原始多帧 zstd 转录 ~/.dsh/sessions/<cwd编码>/<sid>/session.v4.jsonl.zstd 解析 tool/call
+      const sessId = require('path').basename(fp, '.json');
+      let toolMap = null;
+      const tfp = this._auDshTranscriptPath(sessId);
+      if (tfp) toolMap = this._auDshToolCounts(tfp);
+      return [{
+        agentId: 'dsh', grpKey: 'dsh|' + fp, ts,
+        input: inp, output: out, cacheR: cr, cacheW: cw,
+        reasoning: 0,
+        total: inp + out + cr + cw,
+        cost: 0, model: model || null,
+        toolN: Math.max(0, ss?.steps || 0),
+        toolMap: toolMap || null,
+        turns: Math.max(1, ss?.turns || 1),
+        durMs: Math.max(0, ss?.llmMs || 0),
+        est: false
+      }];
+    } catch (_) { return []; }
+  }
+
+  // DSH 原始转录路径: ~/.dsh/sessions/<cwd编码>/<sessionId>/session.v4.jsonl.zstd
+  _auDshTranscriptPath(sessId) {
+    try {
+      const fs = require('fs'), path = require('path');
+      const vault = this.app?.vault?.adapter?.basePath || (process.cwd ? process.cwd() : '');
+      if (!vault || !sessId) return null;
+      // DSH 目录编码与 pi 不同：盘符冒号直接删除（D:\\work → D-work），非替换为 -
+      const enc = '--' + String(vault).replace(/:/g, '').replace(/[\\\\/]/g, '-') + '--';
+      const fp = path.join(this._auHomeDir(), '.dsh', 'sessions', enc, sessId, 'session.v4.jsonl.zstd');
+      return fs.existsSync(fp) ? fp : null;
+    } catch (_) { return null; }
+  }
+
+  // 多帧 zstd 解压 + 逐行解析 tool/call → {工具名: 次数}; Node>=22.15 内置 zstd，缺能力时优雅返回空
+  _auDshToolCounts(fp) {
+    const map = {};
+    try {
+      const fs = require('fs'), zlib = require('zlib');
+      if (typeof zlib.zstdDecompressSync !== 'function') return map;
+      const raw = fs.readFileSync(fp);
+      const MAGIC = Buffer.from([0x28, 0xb5, 0x2f, 0xfd]);
+      const offs = [0];
+      let i = 4;
+      while ((i = raw.indexOf(MAGIC, i)) > 0) { offs.push(i); i += 4; }
+      const parts = [];
+      for (let k = 0; k < offs.length; k++) {
+        const end = k + 1 < offs.length ? offs[k + 1] : raw.length;
+        try { parts.push(zlib.zstdDecompressSync(raw.slice(offs[k], end))); } catch (_) {}
+      }
+      for (const line of Buffer.concat(parts).toString('utf8').split('\\n')) {
+        if (!line.includes('"tool/call"')) continue;
+        try {
+          const o = JSON.parse(line);
+          let name = o && o.data && o.data.name;
+          if (!name) continue;
+          name = String(name).replace(/^mcp__[^_]+__/, '').replace(/^mcp__/, '');
+          map[name] = (map[name] || 0) + 1;
+        } catch (_) {}
+      }
+    } catch (_) {}
+    return map;
+  }
+
+  // 跨源账本扫描: 10s 内存缓存 + 文件 mtimeMs 增量校验
+  _auLedgerScan() {
+    const cache = this._auLedgerCache || (this._auLedgerCache = { at: 0, fileMtimes: {}, records: null });
+    const now = Date.now();
+    if (cache.records && (now - cache.at) < 10000) return cache.records;
+    const out = { piGroups: [], dsh: [] };
+    try {
+      const fs = require('fs'); const path = require('path');
+      const piDir = this._auPiSessionDir();
+      if (piDir && fs.existsSync(piDir)) {
+        for (const f of fs.readdirSync(piDir)) {
+          if (!f.endsWith('.jsonl')) continue;
+          const fp = path.join(piDir, f);
+          let st; try { st = fs.statSync(fp); } catch (_) { continue; }
+          const ck = 'pi:' + fp;
+          const hit = cache.fileMtimes[ck];
+          if (hit && hit.mtime === st.mtimeMs) { out.piGroups.push(...hit.records); continue; }
+          const records = this._auParsePiJsonl(fp);
+          cache.fileMtimes[ck] = { mtime: st.mtimeMs, records };
+          out.piGroups.push(...records);
+        }
+      }
+      const vaultNorm = String(this.app?.vault?.adapter?.basePath || '').replace(/\\\\/g, '/').toLowerCase();
+      const dshDir = path.join(this._auHomeDir(), '.dsh', 'storages', 'session_projcache', 'sessions');
+      if (fs.existsSync(dshDir)) {
+        for (const f of fs.readdirSync(dshDir)) {
+          if (!f.endsWith('.json')) continue;
+          const fp = path.join(dshDir, f);
+          let st; try { st = fs.statSync(fp); } catch (_) { continue; }
+          const ck = 'dsh:' + fp;
+          // 转录 zstd（工具名来源）mtime 一并纳入缓存键——转录晚于 projcache 更新时不致用陈旧工具计数
+          let tm = 0;
+          try {
+            const tfp = this._auDshTranscriptPath(path.basename(f, '.json'));
+            if (tfp) tm = fs.statSync(tfp).mtimeMs;
+          } catch (_) {}
+          const mkey = Math.max(st.mtimeMs, tm);
+          const hit = cache.fileMtimes[ck];
+          if (hit && hit.mtime === mkey) { out.dsh.push(...hit.records); continue; }
+          const records = this._auParseDshSession(fp, vaultNorm);
+          cache.fileMtimes[ck] = { mtime: mkey, records };
+          out.dsh.push(...records);
+        }
+      }
+    } catch (_) {}
+    cache.at = now;
+    cache.records = out;
+    return out;
+  }
+
+  collectAgentUsageStats(rangeOverride) {
     const AGENT_NAMES = {
       pi: 'Pi Agent', antigravity: 'Antigravity', niceaigc: 'NiceAIGC',
-      codex: 'Codex', gemini: 'Gemini', hermes: 'Hermes', dsh: 'DSH'
+      codex: 'Codex', gemini: 'Gemini', hermes: 'Hermes', dsh: 'Harness'
     };
-    const range = this.agentUsageRange || 'week';
+    const range = rangeOverride || this.agentUsageRange || 'week';
     const now = Date.now();
     let startTs = 0;
     if (range === 'today') {
@@ -1406,70 +1692,261 @@ new_constructor = """class TabonKBWorkbenchView extends ItemView {
       startTs = now - 7 * 86400000;
     }
 
+    // ── 统一归一化消费记录 ──
+    // {agentId, ts, in, out, cr, cw, reas, tot, net, cost, est, model, effort, durMs, toolN, toolNames, toolErrs, sessKey}
+    const records = [];
+    const histPiTs = [];   // 历史库中 pi 回合落库时间戳, 用于 jsonl 去重
+
+    // 数据源 A: sessionManager 内存会话 (.chat-history.json)
     const sm = this.agentHub && this.agentHub.sessionManager;
     const agentsMap = (sm && sm.agents instanceof Map) ? sm.agents : null;
-    const rows = [];
-    const totals = { tokens: 0, input: 0, output: 0, cache: 0, turns: 0, sessions: 0, tools: 0 };
-
     if (agentsMap) {
       for (const [agentId, agent] of agentsMap.entries()) {
-        const row = {
-          id: agentId,
-          name: AGENT_NAMES[agentId] || agentId,
-          tokens: 0, input: 0, output: 0, cache: 0,
-          turns: 0, sessions: 0, tools: 0,
-          models: new Map()
-        };
         for (const sess of (agent.sessions || [])) {
-          let hit = false;
           for (const m of (sess.messages || [])) {
             if (!m || m.role !== 'assistant') continue;
-            const ts = m.timestamp || 0;
-            if (ts < startTs) continue;
-            hit = true;
-            row.turns++;
-            row.tools += Array.isArray(m.toolCalls) ? m.toolCalls.length : (m.toolCount || 0);
             const u = m.usage;
-            if (u && (u.totalTokens > 0 || u.inputTokens > 0 || u.outputTokens > 0)) {
-              const inp = Math.max(0, u.inputTokens || 0);
-              const out = Math.max(0, u.outputTokens || 0);
-              const cache = Math.max(0, u.cacheReadTokens || 0);
-              const tot = Math.max(0, u.totalTokens || (inp + out + cache));
-              row.input += inp;
-              row.output += out;
-              row.cache += cache;
-              row.tokens += tot;
-              const mName = m.model || u.providerAndModel || '未标注模型';
-              const cur = row.models.get(mName) || { tokens: 0, turns: 0 };
-              cur.tokens += tot;
-              cur.turns += 1;
-              row.models.set(mName, cur);
-            }
+            if (!u || !((u.totalTokens || 0) > 0 || (u.inputTokens || 0) > 0 || (u.outputTokens || 0) > 0)) continue;
+            const ts = m.timestamp || 0;
+            if (agentId === 'pi' && ts) histPiTs.push(ts);
+            const inp = Math.max(0, u.inputTokens || 0);
+            const out = Math.max(0, u.outputTokens || 0);
+            const cr  = Math.max(0, u.cacheReadTokens || 0);
+            const cw  = Math.max(0, u.cacheWriteTokens || 0);
+            const tcs = Array.isArray(m.toolCalls) ? m.toolCalls : [];
+            records.push({
+              agentId, ts,
+              in: inp, out, cr, cw,
+              reas: Math.max(0, u.reasoningTokens || 0),
+              tot: Math.max(inp + out + cr + cw, u.totalTokens || 0),
+              net: Math.max(0, u.netBillableTokens ?? (inp + out + cw)),
+              cost: Math.max(0, u.costUsd || 0),
+              est: u.isEstimated === true,
+              model: u.modelName || m.model || u.providerAndModel || null,
+              effort: u.reasoningEffort || null,
+              durMs: Math.max(0, m.duration || 0),
+              toolN: tcs.length || (m.toolCount || 0),
+              toolNames: tcs.map(t => t.toolName || t.name || 'tool'),
+              toolErrs: tcs.filter(t => t.isError).length,
+              sessKey: agentId + '|' + (sess.id || '')
+            });
           }
-          if (hit) row.sessions++;
-        }
-        if (row.turns > 0) {
-          rows.push(row);
-          totals.tokens += row.tokens;
-          totals.input += row.input;
-          totals.output += row.output;
-          totals.cache += row.cache;
-          totals.turns += row.turns;
-          totals.sessions += row.sessions;
-          totals.tools += row.tools;
         }
       }
     }
 
-    rows.sort((a, b) => b.tokens - a.tokens);
+    // 数据源 B + C: 跨源账本 (mtime 增量缓存)
+    const ledger = this._auLedgerScan();
+    // B: pi 原生 jsonl —— 按用户回合组聚合; 与历史库重合的组整体跳过 (±15s 时间窗)
+    for (const g of (ledger.piGroups || [])) {
+      const endTs = g.endTs || 0;
+      const dup = histPiTs.some(ht => Math.abs(ht - endTs) < 15000);
+      if (dup) continue;
+      const totIn = g.records.reduce((s, r) => s + r.input, 0);
+      const totOut = g.records.reduce((s, r) => s + r.output, 0);
+      const totCr = g.records.reduce((s, r) => s + r.cacheR, 0);
+      const totCw = g.records.reduce((s, r) => s + r.cacheW, 0);
+      const totReas = g.records.reduce((s, r) => s + r.reasoning, 0);
+      const totCost = g.records.reduce((s, r) => s + r.cost, 0);
+      const toolN = g.records.reduce((s, r) => s + r.toolN, 0);
+      records.push({
+        agentId: 'pi', ts: endTs,
+        in: totIn, out: totOut, cr: totCr, cw: totCw, reas: totReas,
+        tot: Math.max(totIn + totOut + totCr + totCw, g.records.reduce((s, r) => s + r.total, 0)),
+        net: totIn + totOut + totCw,
+        cost: totCost,
+        est: false,
+        model: g.records[g.records.length - 1].model,
+        effort: null, durMs: 0,
+        toolN, toolNames: [], toolErrs: 0,
+        sessKey: 'pijsonl|' + g.grpKey
+      });
+    }
+    // C: DSH 会话聚合记录
+    for (const r of (ledger.dsh || [])) {
+      records.push({
+        agentId: 'dsh', ts: r.ts,
+        in: r.input, out: r.output, cr: r.cacheR, cw: r.cacheW,
+        reas: r.reasoning || 0,
+        tot: r.total,
+        net: r.input + r.output + r.cacheW,
+        cost: r.cost || 0,
+        est: r.est !== false,
+        model: r.model, effort: null,
+        durMs: r.durMs || 0,
+        toolN: r.toolN || 0, toolNames: [], toolErrs: 0,
+        toolMap: r.toolMap || null,
+        sessKey: r.grpKey,
+        extraTurns: Math.max(0, (r.turns || 1) - 1)
+      });
+    }
+
+    // ── 聚合引擎 ──
+    const inRange = records.filter(r => (r.ts || 0) >= startTs);
+    const prevRange = range === 'all' ? [] : records.filter(r => (r.ts || 0) < startTs && (r.ts || 0) >= (startTs - (now - startTs)));
+    const rowMap = new Map();
+    const daily = new Map();   // dateKey → {in,out,cr,tot,net,tools,turns,cost}
+    const hourly = new Map();  // hourKey → 同上 (today 视图 24h 桶)
+    const totals = {
+      tokens: 0, input: 0, output: 0, cache: 0, cacheW: 0, net: 0,
+      turns: 0, sessions: 0, tools: 0, toolErrs: 0,
+      costUsd: 0, savedByCacheUsd: 0, durMs: 0, durN: 0,
+      exactTok: 0, estTok: 0
+    };
+    const sessSet = new Set();
+
+    const dayKeyOf = (ts) => {
+      const d = new Date(ts);
+      return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    };
+    const hourKeyOf = (ts) => {
+      const d = new Date(ts);
+      return dayKeyOf(ts) + 'T' + String(d.getHours()).padStart(2, '0');
+    };
+
+    for (const r of inRange) {
+      let row = rowMap.get(r.agentId);
+      if (!row) {
+        row = {
+          id: r.agentId, name: AGENT_NAMES[r.agentId] || r.agentId,
+          tokens: 0, input: 0, output: 0, cache: 0, cacheW: 0, net: 0,
+          turns: 0, sessions: 0, tools: 0, toolErrs: 0,
+          costUsd: 0, savedUsd: 0, durMs: 0, durN: 0,
+          exactTok: 0, estTok: 0,
+          models: new Map(), toolsTop: new Map(), _sess: new Set()
+        };
+        rowMap.set(r.agentId, row);
+      }
+      const price = this._auModelPricing(r.model);
+      const costUsd = r.cost > 0 ? r.cost : (r.in * price.in + r.out * price.out + r.cr * price.cacheRead + r.cw * price.cacheWrite) / 1e6;
+      const savedUsd = Math.max(0, (r.cr / 1e6) * (price.in - price.cacheRead));
+      const turns = 1 + (r.extraTurns || 0);
+      row.turns += turns;
+      row.tools += r.toolN;
+      row.toolErrs += r.toolErrs;
+      row.input += r.in; row.output += r.out; row.cache += r.cr; row.cacheW += r.cw;
+      row.tokens += r.tot; row.net += r.net;
+      row.costUsd += costUsd; row.savedUsd += savedUsd;
+      // 单轮耗时 >5min 的挂起异常值封顶计入，避免个别僵尸会话拉偏平均耗时
+      const durCapped = Math.min(r.durMs, 300000);
+      if (durCapped > 0) { row.durMs += durCapped; row.durN += turns; }
+      if (r.est) row.estTok += r.tot; else row.exactTok += r.tot;
+      if (r.sessKey && !row._sess.has(r.sessKey)) { row._sess.add(r.sessKey); row.sessions++; sessSet.add(r.sessKey); }
+      const mName = this.normalizeModelName(r.model, r.agentId);
+      const mc = row.models.get(mName) || { tokens: 0, turns: 0, in: 0, out: 0, cr: 0, effort: r.effort || null, est: r.est };
+      mc.tokens += r.tot; mc.turns += turns;
+      mc.in += r.in; mc.out += r.out; mc.cr += r.cr;
+      row.models.set(mName, mc);
+      for (const tn of r.toolNames) row.toolsTop.set(tn, (row.toolsTop.get(tn) || 0) + 1);
+      if (r.toolMap) for (const [tn, c] of Object.entries(r.toolMap)) row.toolsTop.set(tn, (row.toolsTop.get(tn) || 0) + c);
+
+      totals.tokens += r.tot; totals.input += r.in; totals.output += r.out;
+      totals.cache += r.cr; totals.cacheW += r.cw; totals.net += r.net;
+      totals.turns += turns; totals.tools += r.toolN; totals.toolErrs += r.toolErrs;
+      totals.costUsd += costUsd; totals.savedByCacheUsd += savedUsd;
+      if (durCapped > 0) { totals.durMs += durCapped; totals.durN += turns; }
+      if (r.est) totals.estTok += r.tot; else totals.exactTok += r.tot;
+
+      const dk = r.ts ? dayKeyOf(r.ts) : null;
+      if (dk) {
+        const d = daily.get(dk) || { in: 0, out: 0, cr: 0, tot: 0, net: 0, tools: 0, turns: 0, cost: 0 };
+        d.in += r.in; d.out += r.out; d.cr += r.cr; d.tot += r.tot; d.net += r.net; d.tools += r.toolN;
+        d.turns += turns; d.cost += costUsd;
+        daily.set(dk, d);
+      }
+      const hk2 = r.ts ? hourKeyOf(r.ts) : null;
+      if (hk2) {
+        const hb = hourly.get(hk2) || { in: 0, out: 0, cr: 0, tot: 0, net: 0, tools: 0, turns: 0, cost: 0 };
+        hb.in += r.in; hb.out += r.out; hb.cr += r.cr; hb.tot += r.tot; hb.net += r.net; hb.tools += r.toolN;
+        hb.turns += turns; hb.cost += costUsd;
+        hourly.set(hk2, hb);
+      }
+    }
+    totals.sessions = sessSet.size;
+
+    const rows = Array.from(rowMap.values());
     for (const r of rows) {
       r.modelList = Array.from(r.models.entries())
-        .map(([name, v]) => ({ name, tokens: v.tokens, turns: v.turns }))
+        .map(([name, v]) => ({ name, tokens: v.tokens, turns: v.turns, effort: v.effort, est: v.est, in: v.in, out: v.out, cr: v.cr }))
         .sort((a, b) => b.tokens - a.tokens);
+      r.toolList = Array.from(r.toolsTop.entries())
+        .map(([name, n]) => ({ name, n }))
+        .sort((a, b) => b.n - a.n).slice(0, 6);
       r.segSum = Math.max(1, r.input + r.output + r.cache);
+      r.hitRate = (r.input + r.cache + r.cacheW) > 0 ? r.cache / (r.input + r.cache + r.cacheW) : 0;
+      r.avgDurS = r.durN > 0 ? r.durMs / r.durN / 1000 : 0;
+      r.toolOkRate = r.tools > 0 ? (r.tools - r.toolErrs) / r.tools : null;
+      delete r._sess; delete r.models; delete r.toolsTop;
     }
-    const maxTokens = rows.length ? Math.max(1, rows[0].tokens) : 1;
-    return { rows, totals, maxTokens, range };
+    const metric = this.agentUsageMetric || 'tokens';
+    const metricOf = (r) => metric === 'net' ? r.net : metric === 'tools' ? r.tools : r.tokens;
+    rows.sort((a, b) => metricOf(b) - metricOf(a));
+    const maxMetric = rows.length ? Math.max(1, metricOf(rows[0])) : 1;
+
+    // 环比 (同窗口长度上一周期, range=all 时无意义置 null)
+    let momPct = null;
+    if (range !== 'all') {
+      const prevTok = prevRange.reduce((s, r) => s + r.tot, 0);
+      if (prevTok > 0) momPct = (totals.tokens - prevTok) / prevTok * 100;
+    }
+
+    // 趋势桶序列: today→24h 小时桶 / week→7 日桶 / all→30 日桶
+    const trend = [];
+    if (range === 'today') {
+      for (let h = 23; h >= 0; h--) {
+        const dt = new Date(now - h * 3600000);
+        const hk = dayKeyOf(dt.getTime()) + 'T' + String(dt.getHours()).padStart(2, '0');
+        const acc = hourly.get(hk) || { in: 0, out: 0, cr: 0, tot: 0, net: 0, tools: 0, turns: 0, cost: 0 };
+        trend.push({ key: hk, label: String(dt.getHours()).padStart(2, '0') + ':00', ...acc });
+      }
+    } else {
+      const days = range === 'week' ? 7 : 30;
+      for (let i = days - 1; i >= 0; i--) {
+        const dt = new Date(now - i * 86400000);
+        const dk = dayKeyOf(dt.getTime());
+        const acc = daily.get(dk) || { in: 0, out: 0, cr: 0, tot: 0, net: 0, tools: 0, turns: 0, cost: 0 };
+        trend.push({ key: dk, label: (dt.getMonth() + 1) + '/' + dt.getDate(), ...acc });
+      }
+    }
+
+    const cacheDenom = totals.input + totals.cache + totals.cacheW;
+    const kpis = {
+      tokens: totals.tokens,
+      net: totals.net,
+      inOutRatio: totals.output > 0 ? (totals.input / totals.output) : null,
+      hitRate: cacheDenom > 0 ? totals.cache / cacheDenom : 0,
+      cacheRead: totals.cache,
+      savedUsd: totals.savedByCacheUsd,
+      turns: totals.turns,
+      sessions: totals.sessions,
+      avgDurS: totals.durN > 0 ? totals.durMs / totals.durN / 1000 : 0,
+      tools: totals.tools,
+      toolOkRate: totals.tools > 0 ? (totals.tools - totals.toolErrs) / totals.tools : null,
+      toolsPerTurn: totals.turns > 0 ? totals.tools / totals.turns : 0
+    };
+
+    return { rows, totals, kpis, trend, daily, maxMetric, metric, range, momPct };
+  }
+
+  // 热力图「AI 协同」维度数据源: 按日聚合的 Agent 对话事件
+  collectAgentUsageDailyEvents() {
+    try {
+      const stats = this.collectAgentUsageStats('all');
+      const out = {};
+      for (const [dk, d] of (stats.daily || new Map()).entries()) {
+        if (!d.tot) continue;
+        out[dk] = [{
+          type: 'ai',
+          date: dk,
+          time: '',
+          level: 'L1',
+          action: 'agent-usage',
+          title: `Agent 对话 ${this.fmtUsageTok(d.tot)} tok`,
+          detail: `输入 ${this.fmtUsageTok(d.in)} · 输出 ${this.fmtUsageTok(d.out)} · 缓存 ${this.fmtUsageTok(d.cr)}`
+        }];
+      }
+      return out;
+    } catch (e) { return {}; }
   }
 
   renderAgentUsageCard(parentEl) {
@@ -1480,6 +1957,7 @@ new_constructor = """class TabonKBWorkbenchView extends ItemView {
       this._agentUsageBound = true;
       const schedule = () => {
         if (this.agentUsageCardEl && this.agentUsageCardEl.isConnected) {
+          if (this._auLedgerCache) this._auLedgerCache.at = 0; // 回合结束强制作废账本缓存
           setTimeout(() => this.updateAgentUsageCard(), 400);
         }
       };
@@ -1488,56 +1966,218 @@ new_constructor = """class TabonKBWorkbenchView extends ItemView {
     }
   }
 
+  // 耗时格式化: >=60s → "1m 12s / 轮"; <60s → "24.5s / 轮"
+  _auFmtDur(s) {
+    if (!(s > 0)) return '';
+    if (s >= 60) return `${Math.floor(s / 60)}m ${Math.round(s % 60)}s / 轮`;
+    return `${s.toFixed(1)}s / 轮`;
+  }
+
+  // 每日趋势: 三色堆叠柱(输入/输出/缓存读) + HTML 数值标签 + HTML x 轴 + 峰值摘要
+  // —— 杜绝 SVG <text> 随容器拉伸变形; 图表容器由 CSS 锁定高度
+  _auTrendChart(trend, metric) {
+    if (!trend || !trend.length) return '';
+    const W = 220, H = 84, HMAX = H - 4;
+    const valOf = (b) => metric === 'net' ? b.net : metric === 'tools' ? b.tools : b.tot;
+    const maxV = Math.max(1, ...trend.map(valOf));
+    const step = W / trend.length;
+    const bw = Math.min(16, Math.max(3, step * 0.6));
+    let bars = '', vals = '';
+    let peak = null, peakV = 0;
+    const labelAll = trend.length <= 12; // >12 桶只标 ≥40% 峰值柱，避免 30 日重叠
+    trend.forEach((b, i) => {
+      const v = valOf(b);
+      if (v > peakV) { peakV = v; peak = b; }
+      const x = i * step + (step - bw) / 2;
+      const tip = `${b.label} · ${metric === 'tools' ? v + ' 次工具' : this.fmtUsageTok(v) + ' tok'}\\n输入 ${this.fmtUsageTok(b.in)} · 输出 ${this.fmtUsageTok(b.out)} · 缓存 ${this.fmtUsageTok(b.cr)}`;
+      let hTot = 0;
+      if (metric === 'tools') {
+        const h = v > 0 ? Math.max(2, (v / maxV) * HMAX) : 0;
+        hTot = h;
+        if (h > 0) bars += `<rect x="${x.toFixed(1)}" y="${(H - h).toFixed(1)}" width="${bw.toFixed(1)}" height="${h.toFixed(1)}" rx="1.5" fill="#8B5CF6" opacity=".75"><title>${escapeHtml(tip)}</title></rect>`;
+      } else {
+        // 自底向上堆叠: 输入(蓝) → 输出(绿) → 缓存读(紫)
+        const segs = [
+          { h: Math.max(0, (b.in / maxV) * HMAX), fill: 'var(--g-blue, #2563EB)', op: '.9' },
+          { h: Math.max(0, (b.out / maxV) * HMAX), fill: 'var(--g-green, #10B981)', op: '.9' },
+          { h: Math.max(0, (b.cr / maxV) * HMAX), fill: 'rgba(139,92,246,0.45)', op: '1' }
+        ];
+        hTot = segs[0].h + segs[1].h + segs[2].h;
+        if (hTot > 0) {
+          let y = H;
+          for (const s of segs) {
+            if (s.h <= 0.5) continue;
+            y -= s.h;
+            bars += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${s.h.toFixed(1)}" fill="${s.fill}" opacity="${s.op}"><title>${escapeHtml(tip)}</title></rect>`;
+          }
+        }
+      }
+      if (v > 0 && (labelAll || v >= maxV * 0.4)) {
+        vals += `<span class="tw-au-chart-val" style="left:${(((x + bw / 2) / W) * 100).toFixed(1)}%;bottom:${Math.min(96, ((hTot + 3) / H) * 100).toFixed(0)}%">${this.fmtUsageTok(v)}</span>`;
+      }
+    });
+    const mid = Math.floor((trend.length - 1) / 2);
+    const xaxis = `<div class="tw-au-chart-xaxis"><span>${escapeHtml(trend[0].label)}</span><span>${escapeHtml(trend[mid].label)}</span><span>${escapeHtml(trend[trend.length - 1].label)}</span></div>`;
+    const peakHtml = peak ? `<div class="tw-au-chart-peak">峰值 ${escapeHtml(peak.label)} · ${this.fmtUsageTok(peakV)}${metric === 'tools' ? ' 次' : ' tok'}</div>` : '';
+    // 每列一条全高透明热区（覆盖柱体与空白），承接 hover/click 浮窗定位
+    let cols = '';
+    trend.forEach((b, i) => {
+      cols += `<span class="tw-au-day-col${this._auDayLock === i ? ' locked' : ''}" data-i="${i}" title="${escapeHtml(b.label)}"></span>`;
+    });
+    return `<div class="tw-au-daily-chart"><svg class="tw-au-trend-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${bars}</svg><div class="tw-au-day-cols">${cols}</div>${vals}<div class="tw-trend-tooltip tw-au-day-popover" hidden></div></div>${xaxis}${peakHtml}`;
+  }
+
+  _auHideDayPopover() {
+    const p = this.agentUsageCardEl && this.agentUsageCardEl.querySelector('.tw-au-day-popover');
+    if (p) p.hidden = true;
+    this.agentUsageCardEl && this.agentUsageCardEl.querySelectorAll('.tw-au-day-col.locked').forEach(c => c.classList.remove('locked'));
+    if (this._auDayLock != null) this._auDayLock = null;
+  }
+
+  // 日柱详情浮窗：缓存/输入/输出三色构成 + 占比 + 当日交互页脚；靠右列向左弹
+  _auShowDayPopover(i) {
+    const chart = this.agentUsageCardEl && this.agentUsageCardEl.querySelector('.tw-au-daily-chart');
+    const pop = chart && chart.querySelector('.tw-au-day-popover');
+    const b = (this._auLastTrend || [])[i];
+    if (!pop || !b) return;
+    const fmt = (n) => this.fmtUsageTok(n);
+    const segSum = Math.max(1, (b.in || 0) + (b.out || 0) + (b.cr || 0));
+    const pct = (v) => '(' + ((v / segSum) * 100).toFixed(1) + '%)';
+    let head;
+    if (String(b.key).indexOf('T') >= 0) {
+      head = `${escapeHtml(b.label)} 时段`;
+    } else {
+      const wd = '日一二三四五六'[new Date(String(b.key) + 'T00:00:00').getDay()];
+      head = `${escapeHtml(String(b.key))}（周${wd}）`;
+    }
+    const totLine = this.agentUsageMetric === 'tools' ? `${b.tools || 0} 次工具` : `共 ${fmt(b.tot)} tok`;
+    pop.innerHTML = `
+      <div class="tw-tt-header">${head} · ${totLine}</div>
+      <div class="tw-tt-row"><span class="tw-tt-indicator" style="background:#8B5CF6"></span><span class="tw-tt-label">缓存读取:</span><span class="tw-tt-val">${fmt(b.cr)} <small>${pct(b.cr)}</small></span></div>
+      <div class="tw-tt-row"><span class="tw-tt-indicator" style="background:#2563EB"></span><span class="tw-tt-label">未缓存输入:</span><span class="tw-tt-val">${fmt(b.in)} <small>${pct(b.in)}</small></span></div>
+      <div class="tw-tt-row"><span class="tw-tt-indicator" style="background:#10B981"></span><span class="tw-tt-label">模型输出:</span><span class="tw-tt-val">${fmt(b.out)} <small>${pct(b.out)}</small></span></div>
+      <div class="tw-tt-row tw-tt-footer-row"><span class="tw-tt-label">当日交互</span><span class="tw-tt-val">${b.turns || 0} 轮 · ${b.tools || 0} 工具${(b.cost || 0) > 0.001 ? ' · ~$' + b.cost.toFixed(2) : ''}</span></div>`;
+    const n = Math.max(1, (this._auLastTrend || []).length);
+    const frac = (i + 0.5) / n;
+    if (frac > 0.55) {
+      pop.style.left = 'auto';
+      pop.style.right = `calc(${((1 - frac) * 100).toFixed(1)}% + 12px)`;
+    } else {
+      pop.style.right = 'auto';
+      pop.style.left = `calc(${(frac * 100).toFixed(1)}% + 12px)`;
+    }
+    pop.style.top = '2px';
+    pop.hidden = false;
+  }
+
   updateAgentUsageCard() {
     if (!this.agentUsageCardEl) return;
     const stats = this.collectAgentUsageStats();
     const range = stats.range;
+    const metric = stats.metric;
     const fmt = (n) => this.fmtUsageTok(n);
     const full = (n) => (Number(n) || 0).toLocaleString();
+    const k = stats.kpis, t = stats.totals;
 
-    let bodyHtml = '';
+    // ── 层1: 标题 + 周期摘要 + 指标切换 + 周期选择 + 刷新 ──
+    const rangeLabel = { today: '今日', week: '近7天', all: '全部' }[range] || range;
+    const momHtml = stats.momPct != null
+      ? ` · 环比 <b class="${stats.momPct >= 0 ? 'tw-au-up' : 'tw-au-down'}">${stats.momPct >= 0 ? '+' : ''}${stats.momPct.toFixed(0)}%</b>` : '';
+    const metricSeg = `
+      <div class="tw-au-metric-seg" role="tablist">
+        <button type="button" class="tw-au-metric-btn${metric === 'tokens' ? ' active' : ''}" data-m="tokens">总Token</button>
+        <button type="button" class="tw-au-metric-btn${metric === 'net' ? ' active' : ''}" data-m="net">净计费</button>
+        <button type="button" class="tw-au-metric-btn${metric === 'tools' ? ' active' : ''}" data-m="tools">工具</button>
+      </div>`;
+
+    // ── 层2: 四格 KPI（图标徽章 + 大数字 + 左标签右微胶囊）──
+    const hitPct = (k.hitRate * 100).toFixed(1);
+    const okPct = k.toolOkRate == null ? '—' : (k.toolOkRate * 100).toFixed(1) + '%';
+    const ic = (n) => { try { return getIconPark(n, 12); } catch (e) { return ''; } };
+    const kpiHtml = `
+      <div class="tw-au-kpis">
+        <div class="tw-au-kpi">
+          <div class="tw-au-kpi-head"><span class="tw-au-kpi-label">总消耗 Token</span><i class="tw-au-kpi-ic ic-blue">${ic('database')}</i></div>
+          <b class="tw-au-kpi-val">${fmt(k.tokens)}<i> tok</i></b>
+          <span class="tw-au-kpi-sub"><span class="lab">净计费 ${fmt(k.net)}</span>${k.inOutRatio != null ? `<span class="tw-au-sub-pill p-blue">入/出 ${k.inOutRatio.toFixed(1)}:1</span>` : ''}</span></div>
+        <div class="tw-au-kpi">
+          <div class="tw-au-kpi-head"><span class="tw-au-kpi-label">缓存命中与降本</span><i class="tw-au-kpi-ic ic-purple">${ic('pie')}</i></div>
+          <b class="tw-au-kpi-val">${hitPct}<i>%</i></b>
+          <span class="tw-au-kpi-sub"><span class="lab">缓存读 ${fmt(k.cacheRead)}</span><span class="tw-au-sub-pill p-green">省 ~$${k.savedUsd.toFixed(1)}</span></span></div>
+        <div class="tw-au-kpi">
+          <div class="tw-au-kpi-head"><span class="tw-au-kpi-label">对话轮次与时效</span><i class="tw-au-kpi-ic ic-cyan">${ic('time')}</i></div>
+          <b class="tw-au-kpi-val">${k.turns}<i> 轮</i></b>
+          <span class="tw-au-kpi-sub"><span class="lab">${k.sessions} 会话</span>${k.avgDurS > 0 ? `<span class="tw-au-sub-pill p-slate">均耗 ${this._auFmtDur(k.avgDurS).replace(' / 轮', '/轮')}</span>` : ''}</span></div>
+        <div class="tw-au-kpi">
+          <div class="tw-au-kpi-head"><span class="tw-au-kpi-label">工具调用与成功率</span><i class="tw-au-kpi-ic ic-orange">${ic('tool')}</i></div>
+          <b class="tw-au-kpi-val">${full(k.tools)}<i> 次</i></b>
+          <span class="tw-au-kpi-sub"><span class="lab">${k.toolsPerTurn.toFixed(1)} 次/轮</span>${k.toolOkRate != null ? `<span class="tw-au-sub-pill p-green">成功率 ${okPct}</span>` : ''}</span></div>
+      </div>`;
+
+    // ── 层3: 左趋势 SVG + 右效能排行矩阵 ──
+    let mainHtml = '';
     if (stats.rows.length === 0) {
-      bodyHtml = '<div class="tw-au-empty">该周期暂无用量记录</div>';
+      mainHtml = '<div class="tw-au-empty">该周期暂无用量记录</div>';
     } else {
+      this._auLastTrend = stats.trend || [];
+      const trendHtml = `<div class="tw-au-trend"><div class="tw-au-trend-title">每日用量趋势<span class="tw-au-mini-legend"><i class="lg-in"></i>输入<i class="lg-out"></i>输出<i class="lg-cr"></i>缓存</span></div>${this._auTrendChart(stats.trend, metric)}</div>`;
+      const metricOf = (r) => metric === 'net' ? r.net : metric === 'tools' ? r.tools : r.tokens;
       const rowsHtml = stats.rows.map((r) => {
         const wIn = (r.input / r.segSum) * 100;
         const wOut = (r.output / r.segSum) * 100;
         const wCache = Math.max(0, 100 - wIn - wOut);
-        const barW = r.tokens > 0 ? Math.max(2, (r.tokens / stats.maxTokens) * 100) : 0;
+        const mv = metricOf(r);
+        const barW = mv > 0 ? Math.max(2, (mv / stats.maxMetric) * 100) : 0;
         const segsHtml = r.tokens > 0 ? `<span class="tw-au-seg tw-au-seg-in" style="width:${wIn.toFixed(1)}%"></span><span class="tw-au-seg tw-au-seg-out" style="width:${wOut.toFixed(1)}%"></span><span class="tw-au-seg tw-au-seg-cache" style="width:${wCache.toFixed(1)}%"></span>` : '';
         const expanded = this._agentUsageExpanded.has(r.id);
-        const tip = `输入 ${full(r.input)} · 输出 ${full(r.output)} · 缓存 ${full(r.cache)}`;
-        const modelsHtml = expanded ? (r.modelList.length ? r.modelList.map(m =>
-          `<div class="tw-au-model-line"><span class="tw-au-model-name">${escapeHtml(m.name)}</span><span>${fmt(m.tokens)} tok · ${m.turns}轮</span></div>`
-        ).join('') : '<div class="tw-au-model-line"><span class="tw-au-model-name">无模型用量记录</span><span>—</span></div>') : '';
         let icon = '';
         try { icon = getAgentBrandSvg(r.id, 12); } catch (e) {}
+        let expandHtml = '';
+        if (expanded) {
+          const modelRows = r.modelList.length ? r.modelList.map(m => {
+            const mw = r.modelList[0].tokens > 0 ? Math.max(3, m.tokens / r.modelList[0].tokens * 100) : 0;
+            const perTurn = m.turns > 0 ? fmt(Math.round(m.tokens / m.turns)) : '—';
+            const mSum = Math.max(1, (m.in || 0) + (m.out || 0) + (m.cr || 0));
+            const wI = ((m.in || 0) / mSum) * 100;
+            const wO = ((m.out || 0) / mSum) * 100;
+            const wC = Math.max(0, 100 - wI - wO);
+            return `<div class="tw-au-model-line"><span class="tw-au-model-name">${escapeHtml(m.name)}${m.effort ? `<i class="tw-au-effort">${escapeHtml(m.effort)}</i>` : ''}</span><span class="tw-au-model-bar-wrap"><span class="tw-au-mbar" style="width:${mw.toFixed(0)}%"><i class="in" style="width:${wI.toFixed(1)}%"></i><i class="out" style="width:${wO.toFixed(1)}%"></i><i class="cache" style="width:${wC.toFixed(1)}%"></i></span></span><span class="tw-au-model-meta"><b class="mm-tok">${fmt(m.tokens)}</b><i class="mm-per">${perTurn}/轮</i><i class="mm-turns">${m.turns}轮</i></span></div>`;
+          }).join('') : '<div class="tw-au-model-line"><span class="tw-au-model-name">无模型用量记录</span><span>—</span></div>';
+          expandHtml = `<div class="tw-au-expand">${modelRows}</div>`;
+        }
+        const tip = `输入 ${full(r.input)} · 输出 ${full(r.output)} · 缓存 ${full(r.cache)}${r.costUsd > 0.001 ? ' · ~$' + r.costUsd.toFixed(2) : ''}`;
         return `
           <div class="tw-au-row${expanded ? ' expanded' : ''}" data-agent="${r.id}" title="${escapeHtml(tip)}">
-            <span class="tw-au-name">${icon}<span>${escapeHtml(r.name)}</span></span>
-            <div class="tw-au-bar-wrap"><div class="tw-au-bar" style="width:${barW.toFixed(1)}%">${segsHtml}</div></div>
-            <span class="tw-au-meta"><b>${fmt(r.tokens)}</b> tok · ${r.turns}轮 · ${r.sessions}会话<span class="tw-au-caret">›</span></span>
-            <div class="tw-au-models">${modelsHtml}</div>
+            <div class="tw-au-row-main">
+              <span class="tw-au-name">${icon}<span>${escapeHtml(r.name)}</span></span>
+              <div class="tw-au-bar-wrap"><div class="tw-au-bar" style="width:${barW.toFixed(1)}%">${segsHtml}</div></div>
+              <span class="tw-au-meta"><b>${fmt(mv)}</b>${metric === 'tools' ? ' 次' : ' tok'} · ${r.turns}轮<span class="tw-au-caret">›</span></span>
+            </div>
+            ${expandHtml}
           </div>`;
       }).join('');
-      bodyHtml = `<div class="tw-au-rows">${rowsHtml}</div>`;
+      mainHtml = `<div class="tw-au-main">${trendHtml}<div class="tw-au-rank">${rowsHtml}</div></div>`;
     }
 
-    const t = stats.totals;
+    // ── 层4: 页脚合计 + 精确度占比 + 等效成本 + 图例 ──
+    const totalTok = Math.max(1, t.exactTok + t.estTok);
+    const exactPct = Math.round(t.exactTok / totalTok * 100);
     const footerHtml = `
       <div class="tw-au-footer">
-        <span class="tw-au-total">合计 <b>${fmt(t.tokens)}</b> tok · ${t.turns}轮 · ${t.sessions}会话${t.tools ? ` · ${t.tools}工具` : ''}</span>
+        <span class="tw-au-total">合计 <b>${fmt(t.tokens)}</b> tok <i class="tw-au-acc2">精确 ${exactPct}% / 估算 ${100 - exactPct}%</i>${t.costUsd > 0.001 ? ` · 等效 ~$${t.costUsd.toFixed(2)}` : ''}</span>
         <span class="tw-au-legend">
-          <span><i class="tw-au-dot" style="background:var(--g-blue,#2563EB)"></i>输入 ${fmt(t.input)}</span>
+          <span><i class="tw-au-dot" style="background:var(--g-blue,#2563EB)"></i>未缓存输入 ${fmt(t.input)}</span>
           <span><i class="tw-au-dot" style="background:var(--g-green,#10B981)"></i>输出 ${fmt(t.output)}</span>
-          <span><i class="tw-au-dot" style="background:#8B5CF6"></i>缓存 ${fmt(t.cache)}</span>
+          <span><i class="tw-au-dot tw-au-dot-hatch" style="background:#8B5CF6"></i>缓存读 ${fmt(t.cache)}</span>
         </span>
       </div>`;
 
     this.agentUsageCardEl.innerHTML = `
       <div class="tw-card-header tw-au-header">
-        <span>Agent 用量</span>
+        <span>Agent 用量与效能看板</span>
+        <span class="tw-au-period">${rangeLabel}累计 <b>${fmt(t.tokens)}</b> tok${momHtml}</span>
         <div class="tw-trend-controls-right">
+          ${metricSeg}
           <select class="tw-trend-range-select tw-au-range-select" title="切换统计周期">
             <option value="today" ${range === 'today' ? 'selected' : ''}>今日</option>
             <option value="week" ${range === 'week' ? 'selected' : ''}>近7天</option>
@@ -1546,7 +2186,8 @@ new_constructor = """class TabonKBWorkbenchView extends ItemView {
           <button class="tw-trend-refresh-btn" id="btnRefreshAgentUsage" title="刷新用量统计">${getIconPark('refresh', 12)}</button>
         </div>
       </div>
-      ${bodyHtml}
+      ${kpiHtml}
+      ${mainHtml}
       ${stats.rows.length ? footerHtml : ''}
     `;
 
@@ -1558,13 +2199,42 @@ new_constructor = """class TabonKBWorkbenchView extends ItemView {
       };
     }
 
+    this.agentUsageCardEl.querySelectorAll('.tw-au-metric-btn').forEach(el => {
+      el.onclick = () => {
+        this.saveAgentUsageMetric(el.dataset.m);
+        this.updateAgentUsageCard();
+      };
+    });
+
     const refreshBtn = this.agentUsageCardEl.querySelector('#btnRefreshAgentUsage');
     if (refreshBtn) {
       refreshBtn.onclick = () => {
         refreshBtn.classList.add('spinning');
+        if (this._auLedgerCache) this._auLedgerCache.at = 0;
+        // 额度功能已下线，手动刷新仅重建统计数据
         this.updateAgentUsageCard();
         setTimeout(() => refreshBtn.classList.remove('spinning'), 500);
       };
+    }
+
+    // 趋势日柱: hover 即览 / click 锁定; 点击空白或再次点击取消锁定
+    this.agentUsageCardEl.querySelectorAll('.tw-au-day-col').forEach(col => {
+      const i = +col.dataset.i;
+      col.onmouseenter = () => { if (this._auDayLock == null) this._auShowDayPopover(i); };
+      col.onmouseleave = () => { if (this._auDayLock == null) this._auHideDayPopover(); };
+      col.onclick = (e) => {
+        e.stopPropagation();
+        this._auDayLock = (this._auDayLock === i) ? null : i;
+        this.agentUsageCardEl.querySelectorAll('.tw-au-day-col.locked').forEach(c => c.classList.remove('locked'));
+        if (this._auDayLock == null) { this._auHideDayPopover(); }
+        else { col.classList.add('locked'); this._auShowDayPopover(i); }
+      };
+    });
+    if (!this._auDocBound) {
+      this._auDocBound = true;
+      document.addEventListener('click', (e) => {
+        if (this._auDayLock != null && !(e.target && e.target.closest && e.target.closest('.tw-au-daily-chart'))) this._auHideDayPopover();
+      }, true);
     }
 
     this.agentUsageCardEl.querySelectorAll('.tw-au-row').forEach(el => {
@@ -1626,6 +2296,16 @@ new_on_close = """  async onClose() {
       try { this._homeTrendResizeObs.disconnect(); } catch (e) {}
       this._homeTrendResizeObs = null;
     }
+    try {
+      const remainingLeaves = this.app?.workspace?.getLeavesOfType?.(VIEW_TYPE_WORKBENCH) || [];
+      if (remainingLeaves.length <= 1) {
+        if (typeof document !== 'undefined' && document.body) {
+          document.body.classList.remove('tw-workbench-active', 'tw-has-workbench');
+          const sb = document.querySelector('.status-bar');
+          if (sb) sb.style.removeProperty('display');
+        }
+      }
+    } catch (_) {}
   }"""
 
 if old_on_close in workbench_part:
@@ -2007,6 +2687,13 @@ if idx_render != -1 and idx_cpanel != -1:
       container.empty();
       this._harnessMounted = false; // 整体重建后旧挂载标记必然失效
       container.addClass('tabonkb-workbench-container', 'with-drawer');
+      try {
+        if (typeof document !== 'undefined' && document.body) {
+          document.body.classList.add('tw-workbench-active', 'tw-has-workbench');
+          const sb = document.querySelector('.status-bar');
+          if (sb) sb.style.setProperty('display', 'none', 'important');
+        }
+      } catch (_) {}
       const activePlugin = this.plugin || (this.app?.plugins?.plugins?.['tabonkb-workbench']);
       const curTheme = (activePlugin && activePlugin.settings && activePlugin.settings.workbenchTheme) || 'fresh';
       if (typeof TabonKBThemeEngine !== 'undefined' && activePlugin) {
@@ -2051,7 +2738,11 @@ if idx_render != -1 and idx_cpanel != -1:
       const mainPanel = layout.createDiv({ cls: 'tabonkb-workbench-main' });
 
       // 3. Mount Pi Agent Hub Drawer into layout (docked on right across all tabs)
-      this.agentDrawer.mount(layout);
+      // 探索页 ai 子页由 renderExploreTab → renderAiSubView 挂载到 aiWrap (studio 全宽)，
+      // 此处跳过，避免同一次 render() 内先普通模式挂载又立刻搬到 studio 容器造成二次挂载
+      if (!(this.activeTab === 'explore' && this.getExploreSubTab() === 'ai')) {
+        this.agentDrawer.mount(layout);
+      }
 
       // 4. Render Context-Aware Top Bar.
       // Explore owns its own sub-navigation and search surface, so the global
@@ -2781,16 +3472,20 @@ if idx_render != -1 and idx_cpanel != -1:
       getConfig: () => this.settings?.vendorPortals || DEFAULT_SETTINGS.vendorPortals
     });
 
-    this.exploreView = new ExploreView({
-      app: this.app,
-      vendorService: vendorService,
-      agentDrawer: this.agentDrawer,
-      agentHub: this.agentHub,
-      onOpenSettings: () => {
-        this.app.setting?.open?.();
-        this.app.setting?.openTabById?.('tabonkb-workbench');
-      }
-    });
+    // 复用 ExploreView 实例：保留 liveSearchResults / selectedSources / expandedCardIds 等
+    // 内存态，切页回来时不再因缓存为空触发 executeInSituSearch() 重发官网检索请求
+    if (!this.exploreView) {
+      this.exploreView = new ExploreView({
+        app: this.app,
+        vendorService: vendorService,
+        agentDrawer: this.agentDrawer,
+        agentHub: this.agentHub,
+        onOpenSettings: () => {
+          this.app.setting?.open?.();
+          this.app.setting?.openTabById?.('tabonkb-workbench');
+        }
+      });
+    }
 
     // Restore keyword BEFORE mount so renderSearchSubView sees it and auto-triggers live search
     if (this.keyword && this.exploreView.activeSubTab === 'search') {
@@ -2870,7 +3565,9 @@ new_plugin_class = """var TW_BRAND_ICON_OK = false;
 
 module.exports = class TabonKBWorkbenchPlugin extends Plugin {
   async onload() {
+    try { globalThis.__twBootMark && __twBootMark('onload:start'); } catch (e) {}
     await this.loadSettings();
+    try { globalThis.__twBootMark && __twBootMark('onload:settings+theme'); } catch (e) {}
     this.applyWorkbenchTheme(this.settings.workbenchTheme);
 
     this.jiraService = new JiraService({
@@ -2897,6 +3594,7 @@ module.exports = class TabonKBWorkbenchPlugin extends Plugin {
       app: this.app,
       getNiceaigcConfig: () => this.settings.niceaigc || DEFAULT_SETTINGS.niceaigc
     });
+    try { globalThis.__twBootMark && __twBootMark('onload:services+hub'); } catch (e) {}
 
     // Companion Sync Server for Chrome / Edge Extension (127.0.0.1:28123)
     this.companionServer = new CompanionSyncServer({ plugin: this, port: 28123 });
@@ -2904,6 +3602,7 @@ module.exports = class TabonKBWorkbenchPlugin extends Plugin {
 
     this.drawioBroker = new DrawioBroker({ vaultBasePath: vaultPath });
     this.drawioBroker.start();
+    try { globalThis.__twBootMark && __twBootMark('onload:servers'); } catch (e) {}
 
     // DSH Daemon Manager
     if (this.settings?.dsh?.enabled !== false && typeof DshDaemonManager !== 'undefined') {
@@ -2917,6 +3616,7 @@ module.exports = class TabonKBWorkbenchPlugin extends Plugin {
         this.dshDaemon.start().catch((e) => console.warn('[TabonKB] DSH Daemon auto-start failed:', e));
       }
     }
+    try { globalThis.__twBootMark && __twBootMark('onload:dsh'); } catch (e) {}
 
     this.addSettingTab(new TabonKBSettingTab(this.app, this));
 
@@ -2936,13 +3636,20 @@ module.exports = class TabonKBWorkbenchPlugin extends Plugin {
       );
     }
 
+    // 冷启动索引期 create/modify/resolved 会对每个文件连发——350ms 尾触发防抖，
+    // 整轮索引合并为一次 loadVaultDocs；loadVaultDocs 内部另有 in-flight 闸防重入
+    let _rwTimer = null;
     const refreshWorkbench = () => {
-      const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_WORKBENCH);
-      leaves.forEach(leaf => {
-        if (leaf.view && typeof leaf.view.refreshVaultDocs === 'function') {
-          leaf.view.refreshVaultDocs();
-        }
-      });
+      if (_rwTimer) clearTimeout(_rwTimer);
+      _rwTimer = setTimeout(() => {
+        _rwTimer = null;
+        const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_WORKBENCH);
+        leaves.forEach(leaf => {
+          if (leaf.view && typeof leaf.view.refreshVaultDocs === 'function') {
+            leaf.view.refreshVaultDocs();
+          }
+        });
+      }, 350);
     };
 
     this.registerEvent(this.app.vault.on('create', refreshWorkbench));
@@ -2963,6 +3670,35 @@ module.exports = class TabonKBWorkbenchPlugin extends Plugin {
         });
       }
     }));
+
+    const syncWorkbenchStatusBar = () => {
+      try {
+        const activeLeaf = this.app?.workspace?.activeLeaf;
+        const isWorkbenchActive = activeLeaf?.view?.getViewType?.() === VIEW_TYPE_WORKBENCH;
+        const leaves = this.app?.workspace?.getLeavesOfType?.(VIEW_TYPE_WORKBENCH) || [];
+        const hasWorkbench = leaves.length > 0;
+        if (typeof document !== 'undefined' && document.body) {
+          const shouldHide = isWorkbenchActive || hasWorkbench;
+          document.body.classList.toggle('tw-workbench-active', shouldHide);
+          document.body.classList.toggle('tw-has-workbench', hasWorkbench);
+          const sb = document.querySelector('.status-bar');
+          if (sb) {
+            if (shouldHide) {
+              sb.style.setProperty('display', 'none', 'important');
+            } else {
+              sb.style.removeProperty('display');
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('[TabonKB Workbench] syncWorkbenchStatusBar error:', err);
+      }
+    };
+
+    this.registerEvent(this.app.workspace.on('active-leaf-change', syncWorkbenchStatusBar));
+    this.registerEvent(this.app.workspace.on('layout-change', syncWorkbenchStatusBar));
+    setTimeout(syncWorkbenchStatusBar, 100);
+    setTimeout(syncWorkbenchStatusBar, 500);
 
     // Add ribbon icon on left navigation bar
     // 图标注册失败不得拖垮插件加载: 捕获后回退内置图标
@@ -3021,7 +3757,7 @@ module.exports = class TabonKBWorkbenchPlugin extends Plugin {
       this.applyWorkbenchTheme(this.settings?.workbenchTheme);
     }));
 
-
+    try { globalThis.__twBootMark && __twBootMark('onload:end'); } catch (e) {}
   }
 
   async getSecret(secretName) {
@@ -3186,6 +3922,13 @@ module.exports = class TabonKBWorkbenchPlugin extends Plugin {
     if (this.dshDaemon) {
       this.dshDaemon.destroy();
     }
+    try {
+      if (typeof document !== 'undefined' && document.body) {
+        document.body.classList.remove('tw-workbench-active', 'tw-has-workbench');
+        const sb = document.querySelector('.status-bar');
+        if (sb) sb.style.removeProperty('display');
+      }
+    } catch (_) {}
   }
 
   async activateView() {

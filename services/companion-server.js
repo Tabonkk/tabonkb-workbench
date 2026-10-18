@@ -427,8 +427,6 @@ class CompanionSyncServer {
         }
       }
 
-
-
       if (req.method === 'POST' && pathname === '/api/sync-credential') {
         let body = '';
         req.on('data', chunk => {

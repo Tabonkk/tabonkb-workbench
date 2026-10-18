@@ -98,6 +98,10 @@ class TabonKBSettingTab extends PluginSettingTab {
   constructor(app, plugin) {
     super(app, plugin);
     this.plugin = plugin;
+    this._verSvc = null;              // AgentVersionService 懒实例
+    this._verState = {};              // agentId → {phase, info, result, resultOk, logText}
+    this._verLogOpen = {};            // agentId → changelog 展开态
+    this._verContainerEl = null;      // 版本区块容器（局部重渲染）
   }
 
   _readSecretsFileCached() {
@@ -1447,6 +1451,156 @@ class TabonKBSettingTab extends PluginSettingTab {
             await this.plugin.saveSettings();
           });
       });
+
+    // =========================================================================
+    // Agent 运行环境（版本探测 · 一键更新 · 更新日志）
+    // =========================================================================
+    containerEl.createEl('h3', { text: '🧩 Agent 运行环境' });
+    containerEl.createDiv({
+      cls: 'setting-item-description',
+      text: '检测 Pi Agent 与 Antigravity CLI 的本地版本、可更新状态与版本迭代内容；更新命令仅在点击后执行。',
+    });
+    const verCard = containerEl.createDiv({ cls: 'tw-ver-card' });
+    this._verContainerEl = verCard;
+    this._renderVersionSection(verCard);
+    ['pi', 'antigravity'].forEach(id => {
+      const st = this._verState[id];
+      if (!st || st.phase === 'idle' || st.phase === 'error') this._loadAgentVersion(id);
+    });
+  }
+
+  /* ===== Agent 运行环境：渲染与交互 ===== */
+
+  _verSvcGet() {
+    if (!this._verSvc && typeof AgentVersionService === 'function') {
+      try { this._verSvc = new AgentVersionService(); } catch (e) {}
+    }
+    return this._verSvc;
+  }
+
+  _renderVersionSection(cardEl) {
+    cardEl.empty();
+    ['pi', 'antigravity'].forEach(id => this._renderAgentVerRow(cardEl, id));
+  }
+
+  _rerenderVerSection() {
+    if (this._verContainerEl && this._verContainerEl.isConnected) {
+      this._renderVersionSection(this._verContainerEl);
+    }
+  }
+
+  _renderAgentVerRow(cardEl, agentId) {
+    const st = this._verState[agentId] || (this._verState[agentId] = { phase: 'idle' });
+    const name = agentId === 'pi' ? 'Pi Agent' : 'Antigravity CLI';
+    const info = st.info || null;
+    const rowEl = cardEl.createDiv({ cls: 'tw-ver-row' });
+    const headEl = rowEl.createDiv({ cls: 'tw-au-ver-head' });
+    headEl.createSpan({ cls: 'tw-au-ver-name', text: name });
+
+    if (info && info.current) {
+      headEl.createSpan({ cls: 'tw-au-ver-cur', text: `v${info.current}` });
+      if (info.latest) {
+        headEl.createSpan({ cls: 'tw-au-ver-arr', text: '→' });
+        headEl.createSpan({ cls: 'tw-au-ver-new', text: `v${info.latest}` });
+      }
+    } else {
+      headEl.createSpan({ cls: 'tw-au-ver-cur dim', text: '—' });
+    }
+
+    if (st.phase === 'loading' || st.phase === 'idle') {
+      headEl.createEl('i', { cls: 'tw-au-ver-badge st-dim', text: '检查中…' });
+    } else if (st.phase === 'updating') {
+      headEl.createEl('i', { cls: 'tw-au-ver-badge st-upd', text: '更新中…' });
+    } else if (info && info.current) {
+      const map = {
+        latest: ['st-ok', '已是最新'],
+        update: ['st-upd', '可更新'],
+        self: ['st-self', '官方自更新'],
+        missing: ['st-dim', '未安装'],
+      };
+      const [cls, label] = map[info.status] || ['st-dim', '未知'];
+      headEl.createEl('i', { cls: `tw-au-ver-badge ${cls}`, text: label });
+    } else {
+      headEl.createEl('i', {
+        cls: 'tw-au-ver-badge st-dim',
+        text: info && info.status === 'missing' ? '未检测到' : '探测失败',
+      });
+    }
+
+    const actEl = headEl.createSpan({ cls: 'tw-au-ver-actions' });
+    const mkBtn = (label, act, title) => {
+      const b = actEl.createEl('button', { cls: 'tw-au-ver-act', text: label, attr: { type: 'button' } });
+      if (title) b.title = title;
+      b.onclick = (e) => { e.stopPropagation(); this._versionAction(agentId, act); };
+    };
+    if (st.phase === 'ready' && info && info.current) {
+      mkBtn(agentId === 'antigravity' ? '检查更新' : '一键更新', 'update', info.updateCmd || '');
+      mkBtn('更新内容', 'changelog');
+      mkBtn('刷新', 'refresh', '重新检测版本');
+    } else if (st.phase === 'error' || (info && !info.current)) {
+      mkBtn('重试', 'refresh');
+    }
+
+    if (st.result) {
+      rowEl.createDiv({ cls: `tw-au-ver-result${st.resultOk ? ' ok' : ' err'}`, text: st.result });
+    }
+    if (this._verLogOpen[agentId]) {
+      rowEl.createDiv({ cls: 'tw-au-ver-log', text: st.logText || '读取中…' });
+    }
+  }
+
+  async _loadAgentVersion(agentId, force = false) {
+    const svc = this._verSvcGet();
+    const st = this._verState[agentId] || (this._verState[agentId] = { phase: 'idle' });
+    if (!svc) { st.phase = 'error'; this._rerenderVerSection(); return; }
+    if (st.phase === 'loading' || st.phase === 'updating') return;
+    st.phase = 'loading';
+    this._rerenderVerSection();
+    try {
+      st.info = await svc.getInfo(agentId, { force });
+      st.phase = 'ready';
+    } catch (e) { st.phase = 'error'; }
+    this._rerenderVerSection();
+  }
+
+  async _runAgentUpdate(agentId) {
+    const svc = this._verSvcGet();
+    const st = this._verState[agentId] || (this._verState[agentId] = { phase: 'idle' });
+    if (!svc || st.phase === 'updating') return;
+    st.phase = 'updating';
+    st.result = null;
+    this._rerenderVerSection();
+    try {
+      const res = await svc.runUpdate(agentId);
+      st.resultOk = !!res.ok;
+      st.result = res.ok
+        ? (res.newVersion ? `已更新至 v${res.newVersion}` : '更新完成')
+        : `更新失败${res.output ? '：' + String(res.output).split('\n').pop().slice(0, 100) : ''}`;
+      st.info = await svc.getInfo(agentId, { force: true });
+      st.phase = 'ready';
+    } catch (e) {
+      st.phase = 'ready';
+      st.resultOk = false;
+      st.result = `更新异常：${e.message || e}`;
+    }
+    this._rerenderVerSection();
+  }
+
+  async _versionAction(agentId, act) {
+    if (act === 'refresh') { this._loadAgentVersion(agentId, true); return; }
+    if (act === 'update') { this._runAgentUpdate(agentId); return; }
+    if (act === 'changelog') {
+      this._verLogOpen[agentId] = !this._verLogOpen[agentId];
+      this._rerenderVerSection();
+      const st = this._verState[agentId] || (this._verState[agentId] = { phase: 'idle' });
+      if (this._verLogOpen[agentId] && !st.logText) {
+        st.logText = '读取中…';
+        const svc = this._verSvcGet();
+        try { st.logText = (svc ? await svc.getChangelog(agentId) : '') || '(暂无更新日志)'; }
+        catch (e) { st.logText = '(读取失败)'; }
+        this._rerenderVerSection();
+      }
+    }
   }
 }
 

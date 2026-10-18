@@ -23,6 +23,9 @@ const shell = electronModule ? electronModule.shell : null;
  * Stroke: currentColor, stroke-width: 2, stroke-linecap: round, stroke-linejoin: round
  */
 
+// Boot profiler epoch: bundled first — all marks measure elapsed from bundle eval start
+globalThis.__twBootT0 = Date.now();
+
 const ICON_PARK_PATHS = {
   // Navigation & Actions
   'download': '<path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2M12 3v12M7 11l5 5 5-5"/>',
@@ -48,10 +51,15 @@ const ICON_PARK_PATHS = {
   'copy': '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M5 16H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v1"/>',
   'send': '<path d="M22 2 11 13M22 2l-7 20-4-9-9-4 20-7z"/>',
   'arrow-up': '<path d="M12 19V5M5 12l7-7 7 7"/>',
+  'arrow-down': '<path d="M12 5v14M19 12l-7 7-7-7"/>',
+  'plus': '<path d="M12 5v14M5 12h14"/>',
+  'at-sign': '<circle cx="12" cy="12" r="4"/><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8"/>',
+  'slash': '<path d="M17 4 7 20"/>',
 
   // Status & Mode
   'edit': '<path d="m14 4 6 6M4 20l5-1 11-11a2.828 2.828 0 0 0-4-4L5 15l-1 5z"/>',
   'lock': '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
+  'shield': '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><line x1="12" y1="2" x2="12" y2="22"/>',
   'time': '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/>',
   'setting-config': '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
   'options': '<line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/><circle cx="8" cy="6" r="2"/><circle cx="16" cy="12" r="2"/><circle cx="10" cy="18" r="2"/>',
@@ -178,7 +186,7 @@ function detectModelBrand(modelOrBrand) {
   if (lower.includes('claude') || lower.includes('sonnet') || lower.includes('opus') || lower.includes('anthropic')) {
     return 'claude';
   }
-  if (lower.includes('deepseek') || lower.includes('r1')) {
+  if (lower.includes('deepseek') || lower.includes('r1') || lower === 'dsh' || lower.includes('harness')) {
     return 'deepseek';
   }
   if (lower.includes('qwen') || lower.includes('千问') || lower.includes('alibaba')) {
@@ -274,7 +282,10 @@ function getOfficialModelSvg(modelOrBrand, size = 14) {
   }
 
   if (brand === 'antigravity') {
-    return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" class="tw-official-brand tw-brand-antigravity"><defs><linearGradient id="tw-brand-agy-grad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#4285F4"/><stop offset="50%" stop-color="#9B72CF"/><stop offset="100%" stop-color="#00C9A7"/></linearGradient></defs><circle cx="12" cy="12" r="9.5" stroke="url(#tw-brand-agy-grad)" stroke-width="2"/><path d="M12 5.5v13M8 9.5l4-4 4 4" stroke="url(#tw-brand-agy-grad)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="12" r="1.5" fill="url(#tw-brand-agy-grad)"/></svg>`;
+    // 官方 Antigravity mark：蝴蝶结剪影 + 黄/红/绿/蓝四色柔光斑
+    // （官方版为 11 个高斯模糊椭圆，此处 clipPath+径向光斑等效还原，16px 下观感一致且无滤镜开销）
+    const bow = 'M14.0777 13.984C14.945 14.6345 16.2458 14.2008 15.0533 13.0084C11.476 9.53949 12.2349 0 7.79033 0C3.34579 0 4.10461 9.53949 0.527295 13.0084C-0.773543 14.3092 0.635692 14.6345 1.50293 13.984C4.86344 11.7076 4.64663 7.69664 7.79033 7.69664C10.934 7.69664 10.7172 11.7076 14.0777 13.984Z';
+    return `<svg viewBox="0 0 16 15" width="${size}" height="${size}" class="tw-official-brand tw-brand-antigravity"><defs><clipPath id="tw-agy-clip"><path d="${bow}"/></clipPath><radialGradient id="tw-agy-y"><stop offset="0%" stop-color="#FBBC04"/><stop offset="100%" stop-color="#FBBC04" stop-opacity="0"/></radialGradient><radialGradient id="tw-agy-r"><stop offset="0%" stop-color="#FC413D"/><stop offset="100%" stop-color="#FC413D" stop-opacity="0"/></radialGradient><radialGradient id="tw-agy-g"><stop offset="0%" stop-color="#00B95C"/><stop offset="100%" stop-color="#00B95C" stop-opacity="0"/></radialGradient><radialGradient id="tw-agy-b"><stop offset="0%" stop-color="#3186FF"/><stop offset="100%" stop-color="#3186FF" stop-opacity="0"/></radialGradient></defs><g clip-path="url(#tw-agy-clip)"><rect x="-2" y="-2" width="20" height="19" fill="#3186FF"/><ellipse cx="2" cy="-1" rx="7" ry="5.5" fill="url(#tw-agy-y)"/><ellipse cx="15" cy="0" rx="8" ry="6" fill="url(#tw-agy-r)"/><ellipse cx="-1" cy="7" rx="6.5" ry="6" fill="url(#tw-agy-g)"/><ellipse cx="3.5" cy="7" rx="5" ry="4.5" fill="url(#tw-agy-g)"/><ellipse cx="8" cy="14.5" rx="9" ry="6" fill="url(#tw-agy-b)"/><ellipse cx="14" cy="8" rx="5" ry="5" fill="url(#tw-agy-b)"/></g></svg>`;
   }
 
   if (brand === 'niceaigc') {
@@ -507,6 +518,17 @@ class TabonKBThemeEngine {
       el.style.setProperty(bk, bv);
       appliedKeys.push(bk);
     }
+
+    // Also sync canvas and status-bar colors to document.body for global fallback consistency
+    try {
+      if (typeof document !== 'undefined' && document.body) {
+        const canvasBg = tokens["--g-canvas"] || tokens["--g-m1"] || (mode === "dark" ? "#0f172a" : "#f8fafc");
+        const edgeCol = tokens["--g-edge"] || tokens["--g-sep"] || (mode === "dark" ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)");
+        document.body.style.setProperty('--g-canvas', canvasBg);
+        document.body.style.setProperty('--status-bar-background', canvasBg);
+        document.body.style.setProperty('--status-bar-border-color', edgeCol);
+      }
+    } catch (_) {}
 
     el._twAppliedTokenKeys = appliedKeys;
     if (el.dataset) {
@@ -5315,48 +5337,97 @@ function getDshFileBridgeScript() {
 function getDshContextBridgeScript() {
   return `
 (function () {
-  if (window._twxCtxBridgeInstalled) return;
+  if (window._twxCtxBridgeCleanup) {
+    try { window._twxCtxBridgeCleanup(); } catch (_) {}
+  }
   window._twxCtxBridgeInstalled = true;
 
   var CSS = [
-    '.twx-ctx-block{padding:2px 0;}',
-    '.twx-sep{height:1px;background:rgba(128,128,128,.18);margin:4px 10px;}',
-    '.twx-glabel{padding:3px 12px 2px;font-size:10px;font-weight:600;letter-spacing:.4px;color:#8b949e;}',
-    '.twx-item{display:flex;align-items:center;gap:8px;padding:6px 10px;margin:0 4px;border-radius:6px;font-size:12px;cursor:pointer;color:inherit;}',
-    '.twx-item:hover{background:rgba(128,128,128,.12);}',
-    '.twx-dot{width:7px;height:7px;border-radius:50%;flex:0 0 auto;}',
-    '.twx-name{font-weight:500;}',
-    '.twx-val{margin-left:auto;font-size:10.5px;color:#8b949e;max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}',
-    '.twx-arrow{color:#8b949e;font-size:11px;margin-left:2px;}',
-    '.twx-panel{position:fixed;z-index:2147483000;width:262px;max-height:min(340px,calc(100vh - 40px));display:flex;flex-direction:column;border-radius:10px;overflow:hidden;font-family:inherit;font-size:12px;color:inherit;',
-    'background:var(--ds-background-secondary,Canvas);border:1px solid rgba(128,128,128,.25);box-shadow:0 12px 32px -4px rgba(0,0,0,.28);backdrop-filter:blur(20px) saturate(180%);-webkit-backdrop-filter:blur(20px) saturate(180%);}',
-    '.twx-p-search{display:flex;align-items:center;gap:6px;padding:7px 10px;border-bottom:1px solid rgba(128,128,128,.16);}',
-    '.twx-p-search input{flex:1;min-width:0;border:0;outline:0;background:transparent;font-size:11.5px;color:inherit;}',
-    '.twx-p-nav{display:flex;align-items:center;gap:8px;padding:5px 10px;border-bottom:1px solid rgba(128,128,128,.14);font-size:11px;}',
-    '.twx-back{cursor:pointer;color:#8b949e;padding:1px 4px;border-radius:4px;white-space:nowrap;}',
-    '.twx-back:hover{background:rgba(128,128,128,.14);color:inherit;}',
-    '.twx-nav-title{flex:1;min-width:0;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}',
-    '.twx-p-list{overflow-y:auto;padding:4px;flex:1;}',
-    '.twx-opt{display:flex;align-items:center;gap:7px;padding:6px 8px;border-radius:6px;cursor:pointer;font-size:11.5px;}',
-    '.twx-opt:hover{background:rgba(128,128,128,.12);}',
-    '.twx-opt.on{background:rgba(37,99,235,.14);}',
+    '._3e4SsG_item,.twx-item{transition:background-color .12s ease,color .12s ease!important;}',
+    // 分组标题：统一与原生 _3e4SsG_sectionTitle 样式，两端对齐带极简范围提示
+    '._3e4SsG_sectionTitle,.twx-sec-title{display:flex!important;align-items:center!important;justify-content:space-between!important;min-height:22px!important;padding:5px 8px 3px!important;font-size:11px!important;font-weight:500!important;line-height:16px!important;letter-spacing:.2px!important;color:var(--dsw-alias-label-tertiary,#8b949e)!important;background:transparent!important;user-select:none!important;box-sizing:border-box!important;}',
+    '._3e4SsG_sectionTitle:not(:first-child),.twx-sec-title{border-top:.5px solid rgba(128,128,128,.12)!important;margin-top:4px!important;padding-top:5px!important;}',
+    '.twx-sec-name{font-weight:600!important;color:inherit!important;}',
+    // 滚动微角标：提示当前显示子项范围，支持点击与滚轮交互
+    '.twx-sec-badge{display:inline-flex!important;align-items:center!important;font-size:9.5px!important;font-weight:500!important;font-family:ui-monospace,SFMono-Regular,Menlo,monospace!important;color:var(--dsw-alias-label-tertiary,#9ca3af)!important;background:rgba(128,128,128,.08)!important;padding:1px 5px!important;border-radius:4px!important;cursor:pointer!important;transition:all .12s ease!important;}',
+    '.twx-sec-badge:hover{background:rgba(128,128,128,.18)!important;color:var(--dsw-alias-label-primary,#111827)!important;}',
+    // 上下文分组子项按钮：完全复刻原生 _3e4SsG_item 尺寸与状态（不设 !important，确保可被隐藏规则覆盖）
+    '.twx-item{display:flex;align-items:center;gap:7px;width:100%;min-height:34px;height:34px;padding:6px 8px;margin:0;box-sizing:border-box;border:none;border-radius:var(--dsw-radius-md,6px);background:transparent;cursor:pointer;font-size:13px;line-height:20px;color:var(--dsw-alias-label-primary,#111827);text-align:left;}',
+    '.twx-item:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(128,128,128,.08))!important;}',
+    '.twx-dot{width:7px!important;height:7px!important;border-radius:50%!important;flex:0 0 auto!important;}',
+    '.twx-name{font-weight:500!important;color:inherit!important;overflow:hidden!important;text-overflow:ellipsis!important;white-space:nowrap!important;flex:0 0 auto!important;}',
+    '.twx-val{margin-left:auto!important;font-size:12px!important;color:var(--dsw-alias-label-tertiary,#8b949e)!important;max-width:120px!important;overflow:hidden!important;text-overflow:ellipsis!important;white-space:nowrap!important;text-align:right!important;}',
+    '.twx-arrow{color:var(--dsw-alias-label-tertiary,#9ca3af)!important;font-size:12px!important;margin-left:2px!important;flex:0 0 auto!important;}',
+    // 菜单容器外廓约束：固定紧凑高度 ~280px，彻底消除外层冗余纵向滚动条，充足 headroom 避免高 DPI 截断
+    '._3e4SsG_viewport,[role="listbox"]{overflow-y:hidden!important;overflow-x:hidden!important;max-height:none!important;}',
+    '.twx-plus-menu{background:rgba(255,255,255,.97)!important;backdrop-filter:blur(28px) saturate(180%)!important;-webkit-backdrop-filter:blur(28px) saturate(180%)!important;max-height:380px!important;}',
+    '.twx-panel{position:fixed;z-index:2147483000;width:280px;max-height:min(380px,calc(100vh - 40px));display:flex;flex-direction:column;border-radius:12px;overflow:hidden;font-family:inherit;font-size:12px;color:var(--dsw-alias-label-primary,#111827);background:rgba(255,255,255,.97)!important;border:1px solid var(--dsw-alias-border-secondary,rgba(0,0,0,.08));box-shadow:0 16px 36px -4px rgba(0,0,0,.14),0 0 1px 1px rgba(0,0,0,.04);backdrop-filter:blur(28px) saturate(180%);-webkit-backdrop-filter:blur(28px) saturate(180%);}',
+    '.twx-p-search{display:flex;align-items:center;padding:7px 8px 5px;}',
+    '.twx-search-box{display:flex;align-items:center;gap:6px;width:100%;padding:5px 9px;border-radius:7px;background:rgba(128,128,128,.06);border:1px solid rgba(128,128,128,.12);transition:border-color .15s ease,background-color .15s ease,box-shadow .15s ease;}',
+    '.twx-search-box:focus-within{border-color:rgba(16,185,129,.45);background:rgba(128,128,128,.1);box-shadow:0 0 0 2px rgba(16,185,129,.12);}',
+    '.twx-search-ic{color:#8b949e;flex:none;opacity:.8;}',
+    '.twx-search-box input{flex:1;min-width:0;border:0!important;outline:0!important;box-shadow:none!important;background:transparent;font-size:12px;color:inherit;font-family:inherit;line-height:18px;}',
+    '.twx-search-box input::placeholder{color:var(--dsw-alias-label-tertiary,#9ca3af);opacity:.75;}',
+    '.twx-p-nav{display:flex;align-items:center;gap:6px;padding:6px 10px;border-bottom:1px solid rgba(128,128,128,.08);font-size:11.5px;color:var(--dsw-alias-label-primary,#111827);}',
+    '.twx-back{display:inline-flex;align-items:center;gap:4px;cursor:pointer;color:var(--dsw-alias-label-secondary,#64748b);font-weight:500;padding:2px 6px;border-radius:5px;font-style:normal;transition:all .12s ease;user-select:none;}',
+    '.twx-back:hover{color:var(--dsw-alias-label-primary,#0f172a);background:rgba(128,128,128,.08);}',
+    '.twx-back i,.twx-back span{font-style:normal!important;font-family:inherit;}',
+    '.twx-nav-title{flex:1;min-width:0;font-weight:500;font-size:12px;color:var(--dsw-alias-label-primary,#111827);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:ui-monospace,SFMono-Regular,Menlo,monospace,inherit;}',
+    '.twx-p-list{overflow-y:auto;padding:3px 2px 5px;flex:1;}',
+    '.twx-p-list::-webkit-scrollbar{width:5px;}',
+    '.twx-p-list::-webkit-scrollbar-thumb{background:rgba(128,128,128,.2);border-radius:3px;}',
+    '.twx-opt{display:flex;align-items:center;gap:7px;padding:6px 9px;margin:1px 4px;border-radius:7px;cursor:pointer;font-size:12px;transition:background-color .12s ease;}',
+    '.twx-opt:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(128,128,128,.08));}',
+    '.twx-opt.on{background:rgba(37,99,235,.08);}',
     '.twx-opt .t-main{min-width:0;flex:1;}',
-    '.twx-opt .t-name{display:block;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}',
-    '.twx-opt .t-desc{display:block;font-size:10px;color:#8b949e;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}',
-    '.twx-opt .t-check{color:#10B981;font-size:11px;flex:0 0 auto;}',
-    '.twx-tag{display:inline-block;margin-left:5px;padding:0 5px;border-radius:5px;font-size:9.5px;font-weight:500;background:rgba(128,128,128,.14);color:#8b949e;vertical-align:1px;}',
-    '.twx-arr{color:#8b949e;font-size:11px;flex:0 0 auto;}',
-    '.twx-cur{display:flex;align-items:center;gap:7px;margin:0 0 5px;padding:7px 9px;border-radius:7px;border-left:2px solid #10B981;background:rgba(16,185,129,.08);font-size:11.5px;}',
-    '.twx-cur-ic{color:#10B981;font-size:12px;flex:0 0 auto;}',
-    '.twx-cur .t-name{color:#10B981;font-weight:600;}',
-    '.twx-cur-x{flex:0 0 auto;margin-left:auto;background:transparent;border:0;cursor:pointer;color:#94A3B8;padding:2px 5px;font-size:10.5px;border-radius:4px;}',
-    '.twx-cur-x:hover{background:rgba(128,128,128,.14);color:inherit;}',
+    '.twx-opt .t-name{display:block;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:1.35;color:var(--dsw-alias-label-primary,#111827);}',
+    '.twx-opt .t-desc{display:block;font-size:11px;color:var(--dsw-alias-label-secondary,#6b7280);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:1.3;margin-top:2px;}',
+    '.twx-opt .t-check{color:#10B981;font-size:11px;flex:0 0 auto;display:inline-flex;align-items:center;}',
+    '.twx-tag{display:inline-block;margin-left:6px;padding:1px 5px;border-radius:4px;font-size:10px;font-weight:500;background:rgba(128,128,128,.1);color:var(--dsw-alias-label-secondary,#6b7280);vertical-align:middle;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;}',
+    '.twx-arr{color:#9ca3af;font-size:11px;flex:0 0 auto;display:inline-flex;align-items:center;}',
+    '.twx-cur{position:relative;display:flex;flex-direction:column;gap:3px;margin:4px 6px 6px;padding:6px 26px 6px 8px;border-radius:8px;background:rgba(16,185,129,.05);border:1px solid rgba(16,185,129,.2);font-size:11.5px;}',
+    '.twx-cur-top{display:flex;align-items:center;gap:5px;min-width:0;}',
+    '.twx-cur-badge{display:inline-flex;align-items:center;gap:3px;padding:1px 5px;border-radius:4px;font-size:10px;font-weight:600;color:#059669;background:rgba(16,185,129,.12);flex:none;}',
+    '.twx-cur-name{font-size:12px;font-weight:600;color:var(--dsw-alias-label-primary,#111827);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0;}',
+    '.twx-cur-desc{font-size:11px;color:var(--dsw-alias-label-secondary,#6b7280);line-height:1.35;padding-left:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}',
+    '.twx-cur-clear-btn{position:absolute;top:6px;right:6px;width:18px;height:18px;display:inline-flex;align-items:center;justify-content:center;padding:0;margin:0;border:none;outline:none;background:transparent;border-radius:4px;cursor:pointer;color:var(--dsw-alias-label-secondary,#9ca3af);transition:color .12s ease,background-color .12s ease,transform .1s ease;}',
+    '.twx-cur-clear-btn:hover{color:#ef4444;background:rgba(239,68,68,.12);}',
+    '.twx-cur-clear-btn:active{transform:scale(0.92);}',
     '.twx-srv{padding:5px 8px 2px;font-size:10px;font-weight:600;color:#8b949e;}',
     '.twx-gbtn{display:block;margin:6px auto 2px;padding:3px 10px;font-size:10.5px;border-radius:6px;border:1px solid rgba(128,128,128,.3);background:transparent;color:inherit;cursor:pointer;}',
     '.twx-gbtn:hover{background:rgba(128,128,128,.12);}',
     '.twx-loading,.twx-empty{padding:16px;text-align:center;font-size:11px;color:#8b949e;}',
-    '.twx-chips{display:inline-flex;align-items:center;gap:4px;margin-left:4px;}',
-    '.twx-chip .t-x:hover{opacity:1 !important;}'
+    '.twx-chips{display:inline-flex;align-items:center;gap:2px;margin-left:2px;vertical-align:middle;flex:none;}',
+    '.twx-chip{display:inline-flex;align-items:center;gap:4px;height:28px;padding:0 6px;margin:0;border-radius:var(--dsw-radius-sm,6px);border:none;outline:none;background:transparent;color:var(--dsw-alias-label-secondary,var(--dsw-text-secondary,var(--ds-text-secondary,#515154)));font-family:inherit;font-size:13px;font-weight:500;line-height:20px;cursor:pointer;box-sizing:border-box;max-width:180px;white-space:nowrap;user-select:none;transform:translateZ(0);transition:background-color .12s ease,color .12s ease;}',
+    '.twx-chip:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(128,128,128,.08));color:var(--dsw-alias-label-primary,var(--ds-text-primary,#111827));}',
+    '.twx-chip:focus-visible{outline:2px solid var(--dsw-alias-border-focus,#2563eb);outline-offset:1px;}',
+    '@media (prefers-color-scheme:dark){.twx-panel,.twx-plus-menu{background:rgba(26,26,30,.97)!important;border-color:rgba(255,255,255,.1);box-shadow:0 16px 36px -4px rgba(0,0,0,.45),0 0 1px 1px rgba(255,255,255,.06);color:#f3f4f6;}.twx-item{color:#f3f4f6!important;}.twx-sec-badge{color:#9ca3af!important;background:rgba(255,255,255,.08)!important;}.twx-sec-badge:hover{color:#f3f4f6!important;background:rgba(255,255,255,.16)!important;}.twx-search-box{background:rgba(255,255,255,.05);border-color:rgba(255,255,255,.1);}.twx-search-box:focus-within{background:rgba(255,255,255,.08);border-color:rgba(52,211,153,.5);box-shadow:0 0 0 2px rgba(16,185,129,.2);}.twx-p-nav{border-color:rgba(255,255,255,.08);color:#f3f4f6;}.twx-back{color:#94a3b8;}.twx-back:hover{color:#f8fafc;background:rgba(255,255,255,.08);}.twx-nav-title{color:#f3f4f6;}.twx-cur{background:rgba(16,185,129,.08);border-color:rgba(16,185,129,.25);}.twx-cur-badge{color:#34d399;background:rgba(16,185,129,.16);}.twx-cur-name{color:#f3f4f6;}.twx-cur-desc{color:#9ca3af;}.twx-cur-clear-btn{color:#9ca3af;background:transparent;border:none;}.twx-cur-clear-btn:hover{color:#f87171;background:rgba(239,68,68,.18);}.twx-opt:hover{background:rgba(255,255,255,.06);}.twx-opt .t-name{color:#f3f4f6;}.twx-opt .t-desc{color:#9ca3af;}.twx-chip{color:var(--dsw-alias-label-secondary,var(--dsw-text-secondary,var(--ds-text-secondary,#9ca3af)));}.twx-chip:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(255,255,255,.08));color:var(--dsw-alias-label-primary,var(--ds-text-primary,#f3f4f6));}}',
+    '.dark .twx-panel,[data-theme="dark"] .twx-panel,.dark .twx-plus-menu,[data-theme="dark"] .twx-plus-menu{background:rgba(26,26,30,.97)!important;border-color:rgba(255,255,255,.1);box-shadow:0 16px 36px -4px rgba(0,0,0,.45),0 0 1px 1px rgba(255,255,255,.06);color:#f3f4f6;}',
+    '.dark .twx-item,[data-theme="dark"] .twx-item{color:#f3f4f6!important;}',
+    '.dark .twx-sec-badge,[data-theme="dark"] .twx-sec-badge{color:#9ca3af!important;background:rgba(255,255,255,.08)!important;}',
+    '.dark .twx-sec-badge:hover,[data-theme="dark"] .twx-sec-badge:hover{color:#f3f4f6!important;background:rgba(255,255,255,.16)!important;}',
+    '.dark .twx-search-box,[data-theme="dark"] .twx-search-box{background:rgba(255,255,255,.05);border-color:rgba(255,255,255,.1);}',
+    '.dark .twx-search-box:focus-within,[data-theme="dark"] .twx-search-box:focus-within{background:rgba(255,255,255,.08);border-color:rgba(52,211,153,.5);box-shadow:0 0 0 2px rgba(16,185,129,.2);}',
+    '.dark .twx-p-nav,[data-theme="dark"] .twx-p-nav{border-color:rgba(255,255,255,.08);color:#f3f4f6;}',
+    '.dark .twx-back,[data-theme="dark"] .twx-back{color:#94a3b8;}',
+    '.dark .twx-back:hover,[data-theme="dark"] .twx-back:hover{color:#f8fafc;background:rgba(255,255,255,.08);}',
+    '.dark .twx-nav-title,[data-theme="dark"] .twx-nav-title{color:#f3f4f6;}',
+    '.dark .twx-cur,[data-theme="dark"] .twx-cur{background:rgba(16,185,129,.08);border-color:rgba(16,185,129,.25);}',
+    '.dark .twx-cur-badge,[data-theme="dark"] .twx-cur-badge{color:#34d399;background:rgba(16,185,129,.16);}',
+    '.dark .twx-cur-name,[data-theme="dark"] .twx-cur-name{color:#f3f4f6;}',
+    '.dark .twx-cur-desc,[data-theme="dark"] .twx-cur-desc{color:#9ca3af;}',
+    '.dark .twx-cur-clear-btn,[data-theme="dark"] .twx-cur-clear-btn{color:#9ca3af;background:transparent;border:none;}',
+    '.dark .twx-cur-clear-btn:hover,[data-theme="dark"] .twx-cur-clear-btn:hover{color:#f87171;background:rgba(239,68,68,.18);}',
+    '.dark .twx-opt:hover,[data-theme="dark"] .twx-opt:hover{background:rgba(255,255,255,.06);}',
+    '.dark .twx-opt .t-name,[data-theme="dark"] .twx-opt .t-name{color:#f3f4f6;}',
+    '.dark .twx-opt .t-desc,[data-theme="dark"] .twx-opt .t-desc{color:#9ca3af;}',
+    '.dark .twx-chip,[data-theme="dark"] .twx-chip{color:var(--dsw-alias-label-secondary,var(--dsw-text-secondary,var(--ds-text-secondary,#9ca3af)));}',
+    '.dark .twx-chip:hover,[data-theme="dark"] .twx-chip:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(255,255,255,.08));color:var(--dsw-alias-label-primary,var(--ds-text-primary,#f3f4f6));}',
+    '.twx-chip-icon{flex:none;display:inline-flex;align-items:center;justify-content:center;color:currentColor;}',
+    '.twx-chip-icon svg{width:14px;height:14px;display:block;}',
+    '.twx-chip-label{text-overflow:ellipsis;white-space:nowrap;min-width:0;overflow:hidden;}',
+    // 终极隐藏兜底（位于样式表最末尾，保证最高层叠权重，彻底消除 ghost 占位空白）
+    '[data-twx-hidden="true"],.twx-item[data-twx-hidden="true"],._3e4SsG_item[data-twx-hidden="true"],button[data-twx-hidden="true"]{display:none!important;height:0!important;min-height:0!important;max-height:0!important;padding:0!important;margin:0!important;border:none!important;opacity:0!important;overflow:hidden!important;pointer-events:none!important;visibility:hidden!important;}'
   ].join('\\n');
 
   var styleEl = document.createElement('style');
@@ -5390,6 +5461,13 @@ function getDshContextBridgeScript() {
     { key: 'localproj', name: '本地工程', color: '#F59E0B' }
   ];
   var GERRIT_LABELS = { all: '全部', open: '开放中', merged: '已合入', mine: '我提交', reviewing: '待我审' };
+  // 胶囊小图标 (14×14 规范, stroke=currentColor 跟随主题文字色): 项目=文件夹 / Jira=工单 / OpenGrok=代码 / Gerrit=代码评审
+  var CHIP_ICONS = {
+    localproj: '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3.5h3.6l1.4 1.8h6a1 1 0 0 1 1 1v6.2a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1V4.5a1 1 0 0 1 1-1z"/></svg>',
+    jira: '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="2" width="11" height="12" rx="1.5"/><path d="M5 5.2h6M5 8h6M5 10.8h3.8"/></svg>',
+    opengrok: '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4.5 1.8 8 5 11.5M11 4.5 14.2 8 11 11.5"/></svg>',
+    gerrit: '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><circle cx="4.5" cy="4" r="1.8"/><circle cx="4.5" cy="12" r="1.8"/><circle cx="11.5" cy="8" r="1.8"/><path d="M4.5 5.8v4.4M6.2 11.5c2.3-.3 3.8-1.5 4.3-2.3"/></svg>'
+  };
 
   var ctxState = { values: {}, lists: { jira: [], localproj: [] } };
   var menuEl = null;
@@ -5400,6 +5478,67 @@ function getDshContextBridgeScript() {
   // 本地工程四级递进导航状态 (与自研抽屉 localProjNavState 同构):
   // servers(服务器) > workspaces(总代码路径) > platforms(CPU平台) > projects(机型)
   var lpNav = { step: 'servers', serverId: null, workspaceName: null, platform: null };
+
+  // 「添加」「指令」「上下文」三组统一 2 行限高窗口与独立平滑滚轮/点击步进
+  var groupOffsets = { add: 0, cmd: 0, ctx: 0 };
+  var groupItems = { add: [], cmd: [], ctx: [] };
+
+  function updateGroupVisibility(grp) {
+    var items = groupItems[grp] || [];
+    var off = groupOffsets[grp] || 0;
+    for (var i = 0; i < items.length; i++) {
+      var item = items[i];
+      if (!item) continue;
+      if (i >= off && i <= off + 1) {
+        item.removeAttribute('data-twx-hidden');
+        item.style.removeProperty('display');
+        item.style.removeProperty('height');
+        item.style.removeProperty('min-height');
+        item.style.removeProperty('padding');
+        item.style.removeProperty('margin');
+        item.style.removeProperty('visibility');
+      } else {
+        item.setAttribute('data-twx-hidden', 'true');
+        item.style.setProperty('display', 'none', 'important');
+        item.style.setProperty('height', '0px', 'important');
+        item.style.setProperty('min-height', '0px', 'important');
+        item.style.setProperty('padding', '0px', 'important');
+        item.style.setProperty('margin', '0px', 'important');
+        item.style.setProperty('visibility', 'hidden', 'important');
+      }
+    }
+    if (menuEl) {
+      var badge = menuEl.querySelector('[data-twx-badge="' + grp + '"]');
+      if (badge && items.length > 0) {
+        var start = Math.min(off + 1, items.length);
+        var end = Math.min(off + 2, items.length);
+        badge.textContent = start + '-' + end + '/' + items.length;
+      }
+      var lb = menuEl.querySelector('[role="listbox"]') || menuEl.querySelector('._3e4SsG_viewport') || menuEl;
+      if (lb && lb.scrollTop > 0) lb.scrollTop = 0;
+    }
+  }
+
+  function setupGroupBadges(titleEl, grp, labelText) {
+    if (!titleEl) return;
+    titleEl.setAttribute('data-twx-title-grp', grp);
+    var badge = titleEl.querySelector('.twx-sec-badge');
+    if (!badge) {
+      titleEl.innerHTML = '<span class="twx-sec-name">' + esc(labelText) + '</span>' +
+        '<span class="twx-sec-badge" data-twx-badge="' + grp + '" title="滚轮滑动或点击切换">' +
+        (groupOffsets[grp] + 1) + '-' + (groupOffsets[grp] + 2) + '/4</span>';
+      badge = titleEl.querySelector('.twx-sec-badge');
+      if (badge) {
+        badge.onclick = function (e) {
+          e.stopPropagation();
+          var items = groupItems[grp] || [];
+          var maxOff = Math.max(0, items.length - 2);
+          groupOffsets[grp] = groupOffsets[grp] >= maxOff ? 0 : maxOff;
+          updateGroupVisibility(grp);
+        };
+      }
+    }
+  }
 
   function esc(s) {
     return String(s == null ? '' : s)
@@ -5482,28 +5621,134 @@ function getDshContextBridgeScript() {
     return best;
   }
 
+  function isDarkTheme() {
+    return document.documentElement.classList.contains('dark') ||
+      document.documentElement.getAttribute('data-theme') === 'dark' ||
+      document.body.classList.contains('dark') ||
+      (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+  }
+
+  function applyMenuOpacity(m) {
+    if (!m || m.nodeType !== 1) return;
+    if (m.dataset.twxStyled === 'true') return;
+    m.dataset.twxStyled = 'true';
+    m.classList.add('twx-plus-menu');
+    var bg = isDarkTheme() ? 'rgba(26, 26, 30, 0.97)' : 'rgba(255, 255, 255, 0.97)';
+    m.style.setProperty('background', bg, 'important');
+    m.style.setProperty('backdrop-filter', 'blur(28px) saturate(180%)', 'important');
+    m.style.setProperty('-webkit-backdrop-filter', 'blur(28px) saturate(180%)', 'important');
+  }
+
   function onMenuFound(menu) {
-    if (menu !== menuEl) { menuEl = menu; injectGroup(menu); }
-    else if (!menuEl.querySelector('.twx-ctx-block')) injectGroup(menuEl);
-    else refreshVals();
+    if (menu !== menuEl) {
+      menuEl = menu;
+      groupOffsets.add = 0;
+      groupOffsets.cmd = 0;
+      groupOffsets.ctx = 0;
+      applyMenuOpacity(menu);
+      injectGroup(menu);
+    } else if (!menuEl.querySelector('.twx-sec-title')) {
+      applyMenuOpacity(menuEl);
+      injectGroup(menuEl);
+    } else {
+      applyMenuOpacity(menuEl);
+      refreshVals();
+    }
     askHost();
   }
 
   function injectGroup(menu) {
-    if (menu.querySelector('.twx-ctx-block')) return;
-    var blk = document.createElement('div');
-    blk.className = 'twx-ctx-block';
-    var html = '<div class="twx-sep"></div><div class="twx-glabel">上下文</div>';
-    for (var i = 0; i < ROWS.length; i++) {
-      var r = ROWS[i];
-      html += '<div class="twx-item" data-k="' + r.key + '">' +
-        '<span class="twx-dot" style="background:' + r.color + '"></span>' +
-        '<span class="twx-name">' + r.name + '</span>' +
-        '<span class="twx-val">' + esc(valLabel(r.key)) + '</span>' +
-        '<span class="twx-arrow">›</span></div>';
+    applyMenuOpacity(menu);
+    var listbox = menu.querySelector('[role="listbox"]') || menu.querySelector('._3e4SsG_viewport') || menu;
+    if (!listbox) return;
+
+    // 清理历史旧版残留容器
+    var legacyGroup = listbox.querySelector('.twx-ctx-group');
+    if (legacyGroup) { try { legacyGroup.remove(); } catch (_) {} }
+    var legacyBlock = listbox.querySelector('.twx-ctx-block');
+    if (legacyBlock) { try { legacyBlock.remove(); } catch (_) {} }
+
+    // 1. 扫描 listbox 内部的原生子项，按标题分类到 add 和 cmd
+    var children = Array.from(listbox.children);
+    var currentGroup = 'add';
+    var addItems = [];
+    var cmdItems = [];
+    var addTitle = null;
+    var cmdTitle = null;
+
+    for (var i = 0; i < children.length; i++) {
+      var child = children[i];
+      if (child.classList && child.classList.contains('twx-sec-title')) continue;
+      if (child.classList && child.classList.contains('twx-item')) continue;
+
+      var text = (child.innerText || '').trim();
+      var isTitle = child.getAttribute('role') === 'presentation' ||
+        (child.classList && child.classList.contains('_3e4SsG_sectionTitle')) ||
+        text === '添加' || text.startsWith('添加') ||
+        text === '指令' || text.startsWith('指令');
+
+      if (isTitle) {
+        if (text.indexOf('添加') !== -1 || (!addTitle && text.indexOf('指令') === -1)) {
+          currentGroup = 'add';
+          addTitle = child;
+          setupGroupBadges(child, 'add', '添加');
+        } else if (text.indexOf('指令') !== -1 || addTitle) {
+          currentGroup = 'cmd';
+          cmdTitle = child;
+          setupGroupBadges(child, 'cmd', '指令');
+        }
+      } else if (child.tagName === 'BUTTON' || (child.getAttribute && child.getAttribute('role') === 'option')) {
+        child.setAttribute('data-twx-grp', currentGroup);
+        if (currentGroup === 'add') {
+          child.setAttribute('data-twx-idx', String(addItems.length));
+          addItems.push(child);
+        } else {
+          child.setAttribute('data-twx-idx', String(cmdItems.length));
+          cmdItems.push(child);
+        }
+      }
     }
-    blk.innerHTML = html;
-    menu.appendChild(blk);
+
+    groupItems.add = addItems;
+    groupItems.cmd = cmdItems;
+
+    // 2. 注入第三组：上下文 (结构与前两组完全对称同源)
+    var ctxTitle = listbox.querySelector('.twx-sec-title[data-twx-title-grp="ctx"]');
+    if (!ctxTitle) {
+      ctxTitle = document.createElement('div');
+      ctxTitle.className = '_3e4SsG_sectionTitle twx-sec-title';
+      ctxTitle.setAttribute('role', 'presentation');
+      setupGroupBadges(ctxTitle, 'ctx', '上下文');
+      listbox.appendChild(ctxTitle);
+
+      var ctxItems = [];
+      for (var j = 0; j < ROWS.length; j++) {
+        var r = ROWS[j];
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.setAttribute('role', 'option');
+        btn.className = '_3e4SsG_item twx-item';
+        btn.setAttribute('data-twx-grp', 'ctx');
+        btn.setAttribute('data-twx-idx', String(j));
+        btn.setAttribute('data-k', r.key);
+        btn.innerHTML =
+          '<span class="twx-dot" style="background:' + r.color + '"></span>' +
+          '<span class="_3e4SsG_itemName twx-name">' + r.name + '</span>' +
+          '<span class="_3e4SsG_itemDescription twx-val">' + esc(valLabel(r.key)) + '</span>' +
+          '<span class="twx-arrow">›</span>';
+        listbox.appendChild(btn);
+        ctxItems.push(btn);
+      }
+      groupItems.ctx = ctxItems;
+    } else {
+      var ctxEls = listbox.querySelectorAll('.twx-item[data-twx-grp="ctx"]');
+      groupItems.ctx = Array.from(ctxEls);
+    }
+
+    // 3. 初始只展示各组前 2 项
+    updateGroupVisibility('add');
+    updateGroupVisibility('cmd');
+    updateGroupVisibility('ctx');
   }
 
   // ---- 级联选项面板 (自有 DOM, 非 React 托管) ----
@@ -5515,27 +5760,47 @@ function getDshContextBridgeScript() {
     lpNav = { step: 'servers', serverId: null, workspaceName: null, platform: null };
     var itemR = itemEl.getBoundingClientRect();
     var menuR = (menuEl && menuEl.isConnected) ? menuEl.getBoundingClientRect() : itemR;
-    var w = 262;
-    var left = itemR.right - 6; // 6px 微重叠, 消除父子浮窗裂隙
-    if (left + w > window.innerWidth - 8) {
-      left = menuR.left - w + 6; // 视口右侧不足时向左翻转
+    var w = 280;
+    var isChip = itemEl && itemEl.classList && itemEl.classList.contains('twx-chip');
+    var left, bottomPx;
+    if (isChip) {
+      left = itemR.left;
+      if (left + w > window.innerWidth - 8) {
+        left = Math.max(8, window.innerWidth - w - 8);
+      }
+      bottomPx = window.innerHeight - itemR.top + 6;
+    } else {
+      left = itemR.right - 6; // 6px 微重叠, 消除父子浮窗裂隙
+      if (left + w > window.innerWidth - 8) {
+        left = menuR.left - w + 6; // 视口右侧不足时向左翻转
+      }
+      bottomPx = window.innerHeight - menuR.bottom;
     }
     panelEl = document.createElement('div');
     panelEl.className = 'twx-panel';
     panelEl.style.left = Math.max(8, left) + 'px';
-    // 底端与「+」菜单底边对齐, 向上生长, 杜绝探出窗口下缘
-    var bottomPx = window.innerHeight - menuR.bottom;
     panelEl.style.bottom = Math.max(8, bottomPx) + 'px';
     panelEl.innerHTML =
-      '<div class="twx-p-search" style="display:none;"><input type="text" placeholder="搜索..." /></div>' +
-      '<div class="twx-p-nav" style="display:none;"><span class="twx-back" data-act="back">‹ <i></i></span><span class="twx-nav-title"></span></div>' +
+      '<div class="twx-p-search" style="display:none;"><div class="twx-search-box">' +
+        '<svg class="twx-search-ic" width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="6.5" cy="6.5" r="4.5"/><path d="M10 10l4.5 4.5"/></svg>' +
+        '<input type="text" placeholder="搜索..." spellcheck="false" autocomplete="off" />' +
+      '</div></div>' +
+      '<div class="twx-p-nav" style="display:none;"><span class="twx-back" data-act="back"><svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3.5L5.5 8 10 12.5"/></svg><span></span></span><span class="twx-nav-title"></span></div>' +
       '<div class="twx-p-list"><div class="twx-loading">加载中…</div></div>';
     document.body.appendChild(panelEl);
-    // 面板内委托点击: 选项选择 / 递进下钻 / 回退 / 清除绑定
+    // 阻止面板内任何指针与鼠标事件冒泡至 document，防止触发 DSH 原生外点关闭逻辑造成左侧主菜单消失
+    var stopEvt = function (e) { e.stopPropagation(); };
+    panelEl.addEventListener('pointerdown', stopEvt, true);
+    panelEl.addEventListener('pointerdown', stopEvt, false);
+    panelEl.addEventListener('mousedown', stopEvt, true);
+    panelEl.addEventListener('mousedown', stopEvt, false);
+    panelEl.addEventListener('pointerup', stopEvt, false);
+    panelEl.addEventListener('mouseup', stopEvt, false);
+
     panelEl.onclick = function (e) {
+      e.stopPropagation();
       var t = e.target && e.target.closest ? e.target.closest('[data-act],[data-p]') : null;
       if (!t) return;
-      e.stopPropagation();
       handlePanelAction(t);
     };
     if (key === 'jira' || key === 'localproj') {
@@ -5603,7 +5868,8 @@ function getDshContextBridgeScript() {
     if (!nav) return;
     if (!title) { nav.style.display = 'none'; return; }
     nav.style.display = 'flex';
-    nav.querySelector('.twx-back i').textContent = backText;
+    var labelEl = nav.querySelector('.twx-back span') || nav.querySelector('.twx-back i');
+    if (labelEl) labelEl.textContent = backText || '返回';
     nav.querySelector('.twx-nav-title').textContent = title;
   }
 
@@ -5620,7 +5886,7 @@ function getDshContextBridgeScript() {
     return '<div class="twx-opt' + (on ? ' on' : '') + '" data-p="' + encodeURIComponent(JSON.stringify(payload)) + '">' +
       '<span class="t-main"><span class="t-name">' + esc(name) + '</span>' +
       (desc ? '<span class="t-desc">' + esc(desc) + '</span>' : '') +
-      '</span>' + (on ? '<span class="t-check">✓</span>' : '') + '</div>';
+      '</span>' + (on ? '<span class="t-check"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 8.5l3 3 6-6"/></svg></span>' : '') + '</div>';
   }
 
   function drillRow(act, val, name, tag, desc) {
@@ -5628,14 +5894,20 @@ function getDshContextBridgeScript() {
       '<span class="t-main"><span class="t-name">' + esc(name) +
       (tag ? '<span class="twx-tag">' + esc(tag) + '</span>' : '') + '</span>' +
       (desc ? '<span class="t-desc">' + esc(desc) + '</span>' : '') +
-      '</span><span class="twx-arr">›</span></div>';
+      '</span><span class="twx-arr"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3.5l4.5 4.5L6 12.5"/></svg></span></div>';
   }
 
   function curCard(name, desc, clearAct) {
-    return '<div class="twx-cur"><span class="twx-cur-ic">✓</span>' +
-      '<span class="t-main"><span class="t-name">已选: ' + esc(name) + '</span>' +
-      (desc ? '<span class="t-desc">' + esc(desc) + '</span>' : '') + '</span>' +
-      '<button type="button" class="twx-cur-x" data-act="' + clearAct + '">清除</button></div>';
+    return '<div class="twx-cur">' +
+      '<button type="button" class="twx-cur-clear-btn" data-act="' + clearAct + '" title="清除当前绑定" aria-label="清除当前绑定">' +
+        '<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M3 3l10 10M13 3L3 13"/></svg>' +
+      '</button>' +
+      '<div class="twx-cur-top">' +
+        '<span class="twx-cur-badge"><svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5l3 3 7-7"/></svg>已选</span>' +
+        '<span class="twx-cur-name" title="' + esc(name) + '">' + esc(name) + '</span>' +
+      '</div>' +
+      (desc ? '<div class="twx-cur-desc" title="' + esc(desc) + '">' + esc(desc) + '</div>' : '') +
+    '</div>';
   }
 
   function emptyWithGlobal(msg) {
@@ -5710,12 +5982,13 @@ function getDshContextBridgeScript() {
       var gcount = 0;
       for (var g = 0; g < projs.length && gcount < 50; g++) {
         var gp = projs[g];
-        var hay = ((gp.project || '') + ' ' + (gp.platform || '') + ' ' + (gp.workspaceName || '') + ' ' + (gp.label || '') + ' ' + (gp.serverId || '')).toLowerCase();
+        var srvIp = gp.serverIp || (smap[gp.serverId] && smap[gp.serverId].ip) || (gp.serverId ? ('192.168.1.' + gp.serverId) : '');
+        var hay = ((gp.project || '') + ' ' + (gp.platform || '') + ' ' + (gp.workspaceName || '') + ' ' + (gp.label || '') + ' ' + srvIp + ' ' + (gp.serverId || '')).toLowerCase();
         if (hay.indexOf(q) === -1) continue;
         ghtml += '<div class="twx-opt' + (isSel('localproj', gp) ? ' on' : '') + '" data-p="' + encodeURIComponent(JSON.stringify({ k: 'localproj', v: gp })) + '">' +
-          '<span class="t-main"><span class="t-name">' + esc(gp.project) + '<span class="twx-tag">' + esc(gp.platform || '') + '</span><span class="twx-tag">' + esc(gp.serverId) + '服</span></span>' +
-          '<span class="t-desc">' + esc(gp.serverId) + '服 › ' + esc(gp.workspaceName) + '</span></span>' +
-          (isSel('localproj', gp) ? '<span class="t-check">✓</span>' : '') + '</div>';
+          '<span class="t-main"><span class="t-name">' + esc(gp.project) + '<span class="twx-tag">' + esc(gp.platform || '') + '</span>' + (srvIp ? ('<span class="twx-tag">' + esc(srvIp) + '</span>') : '') + '</span>' +
+          '<span class="t-desc">' + (srvIp ? (esc(srvIp) + ' › ') : '') + esc(gp.workspaceName) + '</span></span>' +
+          (isSel('localproj', gp) ? '<span class="t-check"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 8.5l3 3 6-6"/></svg></span>' : '') + '</div>';
         gcount++;
       }
       return ghtml || '<div class="twx-empty">未匹配到包含 "' + esc(q) + '" 的本地工程</div>';
@@ -5726,10 +5999,11 @@ function getDshContextBridgeScript() {
       setNavHeader('', '');
       var html = '';
       if (cur && cur.id) {
-        html += curCard(cur.label || cur.project, (cur.workspaceName || '') + ' · ' + (cur.platform || '') + ' · ' + (cur.serverId || '') + '服', 'clear-lp');
+        var curIp = cur.serverIp || (smap[cur.serverId] && smap[cur.serverId].ip) || (cur.serverId ? ('192.168.1.' + cur.serverId) : '');
+        html += curCard(cur.label || cur.project, (cur.workspaceName || '') + ' · ' + (cur.platform || '') + (curIp ? (' · ' + curIp) : ''), 'clear-lp');
       } else {
         html += '<div class="twx-opt" data-act="clear-lp" style="opacity:.9;">' +
-          '<span class="t-main"><span class="t-name">未指定 (默认)</span><span class="t-desc">不绑定特定工程与机型</span></span><span class="t-check">✓</span></div>';
+          '<span class="t-main"><span class="t-name">未指定 (默认)</span><span class="t-desc">不绑定特定工程与机型</span></span><span class="t-check"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 8.5l3 3 6-6"/></svg></span></div>';
       }
       for (var s = 0; s < sorder.length; s++) {
         var sv = smap[sorder[s]];
@@ -5749,7 +6023,7 @@ function getDshContextBridgeScript() {
 
     // Level 2: 总代码路径
     if (lpNav.step === 'workspaces') {
-      setNavHeader('服务器', (srv2.name || srv2.id) + ' (' + srv2.worder.length + '套代码)');
+      setNavHeader('返回', srv2.ip || srv2.name || srv2.id);
       var html2 = '';
       for (var w2 = 0; w2 < srv2.worder.length; w2++) {
         var wsName = srv2.worder[w2];
@@ -5777,8 +6051,8 @@ function getDshContextBridgeScript() {
 
     // Level 3: CPU 平台
     if (lpNav.step === 'platforms') {
-      var wsShort = (lpNav.workspaceName || '').split('/').pop();
-      setNavHeader('代码路径', wsShort + ' (' + ws3.porder.length + '个平台)');
+      var wsShort = (lpNav.workspaceName || '').split('/').pop() || lpNav.workspaceName;
+      setNavHeader('返回', wsShort);
       var html3 = '';
       for (var p3 = 0; p3 < ws3.porder.length; p3++) {
         var platKey = ws3.porder[p3];
@@ -5788,7 +6062,8 @@ function getDshContextBridgeScript() {
           if (!pmatch) continue;
         }
         var isCurPlat = cur && cur.serverId === lpNav.serverId && cur.workspaceName === lpNav.workspaceName && cur.platform === platKey;
-        html3 += drillRow('plat', platKey, platKey, pl3.projects.length + '款机型', lpNav.serverId + '服 › ' + lpNav.workspaceName + (isCurPlat ? ' · 当前' : ''));
+        var srvIp3 = srv2.ip || (lpNav.serverId ? ('192.168.1.' + lpNav.serverId) : '');
+        html3 += drillRow('plat', platKey, platKey, pl3.projects.length + '款机型', (srvIp3 ? (srvIp3 + ' › ') : '') + lpNav.workspaceName + (isCurPlat ? ' · 当前' : ''));
       }
       return html3 || emptyWithGlobal('当前代码路径未匹配到包含 "' + esc(q) + '" 的平台');
     }
@@ -5797,7 +6072,7 @@ function getDshContextBridgeScript() {
     if (!pl4) { lpNav = { step: 'platforms', serverId: lpNav.serverId, workspaceName: lpNav.workspaceName, platform: null }; return renderLocalproj(q); }
 
     // Level 4: 机型 SKU
-    setNavHeader(lpNav.platform + '平台', lpNav.platform + ' (' + pl4.projects.length + '款机型)');
+    setNavHeader('返回', lpNav.platform);
     var html4 = '';
     for (var p4 = 0; p4 < pl4.projects.length; p4++) {
       var pj = pl4.projects[p4];
@@ -5808,85 +6083,100 @@ function getDshContextBridgeScript() {
       html4 += '<div class="twx-opt' + (isSel('localproj', pj) ? ' on' : '') + '" data-p="' + encodeURIComponent(JSON.stringify({ k: 'localproj', v: pj })) + '">' +
         '<span class="t-main"><span class="t-name">' + esc(pj.project) + '<span class="twx-tag">' + esc(pj.platform || '') + '</span></span>' +
         '<span class="t-desc">' + esc(pj.priDriverRel || '') + '</span></span>' +
-        (isSel('localproj', pj) ? '<span class="t-check">✓</span>' : '') + '</div>';
+        (isSel('localproj', pj) ? '<span class="t-check"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 8.5l3 3 6-6"/></svg></span>' : '') + '</div>';
     }
     return html4 || emptyWithGlobal('当前平台未匹配到包含 "' + esc(q) + '" 的机型');
   }
 
   // ---- 输入区上下文胶囊: 克隆「完全权限」胶囊样式, 紧跟其后插入同一工具栏行 ----
+  function insideOverlay(el) {
+    // 判定候选是否落在某个浮层内 (权限下拉菜单 / 「+」菜单等):
+    // 祖先 textContent 含权限选项文案, 或祖先本身命中「+」菜单特征
+    var n = el;
+    for (var d = 0; n && d < 12; n = n.parentElement, d++) {
+      var t = n.textContent;
+      if (t && t.length < 300 && (t.indexOf('仅可查看') !== -1 || t.indexOf('工作区内修改') !== -1)) return true;
+      if (d > 0 && looksLikeAttachMenu(n)) return true;
+    }
+    return false;
+  }
+
+  var cachedPermAnchor = null;
   function findPermPill() {
-    // 底部区域含「权限/permission」短文本的最内层元素, 向上爬到胶囊容器 (宽<220px 高<48px)
-    var all = document.querySelectorAll('body *');
-    var cand = null;
-    for (var i = 0; i < all.length; i++) {
-      var el = all[i];
+    if (cachedPermAnchor && cachedPermAnchor.pill && cachedPermAnchor.pill.isConnected) {
+      return cachedPermAnchor;
+    }
+    // 底部工具栏上含「权限/permission/full access」短文本的按钮元素;
+    // 仅扫描 button 元素，杜绝 querySelectorAll('body *') 引发的全量同步重排与慢速闪烁
+    var buttons = document.querySelectorAll('button');
+    var cand = null, bestTop = -1;
+    for (var i = 0; i < buttons.length; i++) {
+      var el = buttons[i];
       if (el.closest && (el.closest('.twx-chips') || el.closest('.twx-panel'))) continue;
-      var t = el.innerText;
+      var t = el.textContent;
       if (!t) continue;
       t = t.trim();
-      if (t.length > 12 || !/(权限|permission)/i.test(t)) continue;
+      if (t.length > 20 || !/(权限|permission|full\s*access|read\s*only|workspace\s*write)/i.test(t)) continue;
       var r = el.getBoundingClientRect();
-      if (r.width < 30 || r.top < window.innerHeight * 0.5 || r.top > window.innerHeight) continue;
-      cand = el;
+      if (r.width < 30 || r.top < window.innerHeight * 0.4 || r.top > window.innerHeight) continue;
+      if (insideOverlay(el)) continue;
+      if (r.top > bestTop) { bestTop = r.top; cand = el; }
     }
     if (!cand) return null;
     var pill = cand;
     while (pill.parentElement) {
       var pr = pill.parentElement.getBoundingClientRect();
-      var pt = (pill.parentElement.innerText || '').trim();
-      if (pt.length <= 12 && /(权限|permission)/i.test(pt) && pr.width < 220 && pr.height < 48) {
+      var pt = (pill.parentElement.textContent || '').trim();
+      if (pt.length <= 20 && /(权限|permission|full\s*access|read\s*only|workspace\s*write)/i.test(pt) && pr.width < 220 && pr.height < 48) {
         pill = pill.parentElement;
       } else break;
     }
-    return pill;
+    cachedPermAnchor = { pill: pill, textEl: cand };
+    return cachedPermAnchor;
   }
 
   function updateCtxChips() {
     var v = ctxState.values || {};
     var defs = [];
-    if (v.localproj && v.localproj.id) defs.push({ k: 'localproj', label: v.localproj.label || v.localproj.project, color: '#F59E0B' });
-    if (v.jira && v.jira.key) defs.push({ k: 'jira', label: v.jira.key, color: '#0EA5E9' });
-    if (v.opengrok && v.opengrok !== 'auto') defs.push({ k: 'opengrok', label: v.opengrok, color: '#10B981' });
-    if (v.gerrit && v.gerrit !== 'all') defs.push({ k: 'gerrit', label: (GERRIT_LABELS[v.gerrit] || v.gerrit), color: '#6366F1' });
+    if (v.localproj && v.localproj.id) defs.push({ k: 'localproj', label: v.localproj.label || v.localproj.project, tip: '本地工程: ' + (v.localproj.workspaceName || '') + ' · ' + (v.localproj.platform || '') });
+    if (v.jira && v.jira.key) defs.push({ k: 'jira', label: v.jira.key, tip: 'Jira: ' + (v.jira.summary || '') });
+    if (v.opengrok && v.opengrok !== 'auto') defs.push({ k: 'opengrok', label: v.opengrok, tip: 'OpenGrok: ' + v.opengrok });
+    if (v.gerrit && v.gerrit !== 'all') defs.push({ k: 'gerrit', label: (GERRIT_LABELS[v.gerrit] || v.gerrit), tip: 'Gerrit 过滤: ' + (GERRIT_LABELS[v.gerrit] || v.gerrit) });
 
-    var pill = defs.length ? findPermPill() : null;
-    if (!defs.length || !pill) {
+    var anchor = defs.length ? findPermPill() : null;
+    if (!defs.length || !anchor) {
       if (chipsEl) { try { chipsEl.remove(); } catch (_) {} chipsEl = null; }
       return;
     }
+    var pill = anchor.pill;
     if (!chipsEl) {
       chipsEl = document.createElement('span');
       chipsEl.className = 'twx-chips';
       chipsEl.onclick = function (e) {
-        var x = e.target && e.target.closest ? e.target.closest('.t-x') : null;
-        if (!x) return;
-        e.stopPropagation();
-        var k = x.getAttribute('data-k');
-        var def = { opengrok: 'auto', gerrit: 'all', jira: null, localproj: null };
-        postSet(k, def[k] === undefined ? null : def[k]);
+        var btn = e.target && e.target.closest ? e.target.closest('.twx-chip') : null;
+        if (!btn) return;
+        var k = btn.getAttribute('data-k');
+        if (k) {
+          e.stopPropagation();
+          openPanel(k, btn);
+        }
       };
     }
-    // 紧跟权限胶囊插入 (React 重渲染位移时自动纠正)
+    // 紧跟权限胶囊插入同一工具栏行 (React 重渲染位移时自动纠正)
     if (!chipsEl.isConnected || chipsEl.previousElementSibling !== pill) {
       try { pill.insertAdjacentElement('afterend', chipsEl); } catch (_) { return; }
     }
-    // 逐像素克隆权限胶囊外观: 字体/颜色/背景/圆角/内边距/行高/高度
-    var cs = getComputedStyle(pill);
-    var chipCss = 'display:inline-flex;align-items:center;gap:4px;white-space:nowrap;cursor:default;box-sizing:border-box;' +
-      'font-size:' + cs.fontSize + ';font-family:' + cs.fontFamily + ';font-weight:' + cs.fontWeight + ';' +
-      'color:' + cs.color + ';background:' + cs.backgroundColor + ';border:' + cs.border + ';' +
-      'border-radius:' + cs.borderRadius + ';line-height:' + cs.lineHeight + ';' +
-      'padding:' + cs.paddingTop + ' ' + cs.paddingRight + ';' +
-      'max-width:140px;overflow:hidden;';
     var html = '';
     for (var i = 0; i < defs.length; i++) {
       var d = defs[i];
-      html += '<span class="twx-chip" style="' + chipCss + '">' +
-        '<span class="t-dot" style="background:' + d.color + ';width:6px;height:6px;border-radius:50%;flex:0 0 auto;"></span>' +
-        '<span style="overflow:hidden;text-overflow:ellipsis;">' + esc(d.label) + '</span>' +
-        '<span class="t-x" data-k="' + d.k + '" style="cursor:pointer;opacity:.55;margin-left:1px;">✕</span></span>';
+      html += '<button type="button" class="twx-chip" data-k="' + d.k + '" title="' + esc(d.tip || d.label) + '">' +
+        '<span class="twx-chip-icon">' + (CHIP_ICONS[d.k] || '') + '</span>' +
+        '<span class="twx-chip-label">' + esc(d.label) + '</span></button>';
     }
-    chipsEl.innerHTML = html;
+    if (chipsEl._lastHtml !== html) {
+      chipsEl._lastHtml = html;
+      chipsEl.innerHTML = html;
+    }
   }
 
   window.addEventListener('resize', updateCtxChips);
@@ -5930,21 +6220,141 @@ function getDshContextBridgeScript() {
     lastHref = location.href;
   } catch (_) {}
 
-  // 面板外点击自然退出
-  document.addEventListener('click', function (e) {
+  // 核心守卫：在 window 捕获阶段拦截指针与键盘事件。
+  // 若事件目标位于自研级联面板 .twx-panel 内，立即终止事件传播 (stopImmediatePropagation)，
+  // 阻止该事件到达 document 捕获阶段，从而彻底杜绝 DSH 原生 MenuView 中
+  // document.addEventListener("pointerdown", onPointerDown, true)
+  // 因判定 target 不在原生菜单内而触发 onDismiss() 导致左侧「+」主菜单被错误销毁的 Bug。
+  function onWindowPointerDown(e) {
+    if (panelEl && panelEl.contains(e.target)) {
+      e.stopImmediatePropagation();
+      if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) {
+        try { e.target.focus(); } catch (_) {}
+      }
+    }
+  }
+  window.addEventListener('pointerdown', onWindowPointerDown, true);
+
+  // 键盘 Escape 键优先关闭级联面板并阻止向上冒泡至 DSH 原生菜单
+  function onWindowKeyDown(e) {
+    if (e.key === 'Escape' && panelEl) {
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+      closePanel();
+    }
+  }
+  window.addEventListener('keydown', onWindowKeyDown, true);
+
+  // 面板外点击自然退出 (双重侦听 pointerdown 与 click，保证与 DSH 原生菜单关闭无缝同步)
+  function onOutsideDismiss(e) {
     if (!panelEl) return;
     if (panelEl.contains(e.target)) return;
     var t = e.target;
-    if (t && t.closest && t.closest('.twx-item')) return;
+    if (t && t.closest && (t.closest('.twx-item') || t.closest('.twx-chip') || t.closest('.twx-panel'))) return;
     closePanel();
-  }, true);
+  }
+  document.addEventListener('pointerdown', onOutsideDismiss, true);
+  document.addEventListener('click', onOutsideDismiss, true);
 
   // 委托绑定注入行的点击 (React 重渲染后仍有效)
+  document.addEventListener('pointerdown', function (e) {
+    var it = e.target && e.target.closest ? e.target.closest('.twx-item') : null;
+    if (it) e.stopPropagation();
+  }, true);
+
   document.addEventListener('click', function (e) {
     var it = e.target && e.target.closest ? e.target.closest('.twx-item') : null;
     if (!it) return;
     e.stopPropagation();
     openPanel(it.getAttribute('data-k'), it);
+  }, true);
+
+  // 鼠标滚轮滑动：悬停在任意分组区域（标题或子项）时，滑动下拉/上滑展示该组其他子项
+  var wheelAccum = { add: 0, cmd: 0, ctx: 0 };
+  var lastWheelStep = 0;
+
+  document.addEventListener('wheel', function (e) {
+    if (!menuEl || !menuEl.isConnected) return;
+    var target = e.target;
+    if (!target) return;
+    if (!menuEl.contains(target)) return;
+
+    var grp = null;
+    var itemEl = target.closest('[data-twx-grp]');
+    if (itemEl) {
+      grp = itemEl.getAttribute('data-twx-grp');
+    } else {
+      var titleEl = target.closest('._3e4SsG_sectionTitle, .twx-sec-title');
+      if (titleEl && titleEl.getAttribute('data-twx-title-grp')) {
+        grp = titleEl.getAttribute('data-twx-title-grp');
+      }
+    }
+    // 鼠标位于分组标题、子项间隙或菜单内边距时，基于 clientY 命中最近的分组
+    if (!grp && menuEl) {
+      var titles = menuEl.querySelectorAll('[data-twx-title-grp]');
+      for (var ti = titles.length - 1; ti >= 0; ti--) {
+        var tr = titles[ti].getBoundingClientRect();
+        if (e.clientY >= tr.top - 2) {
+          grp = titles[ti].getAttribute('data-twx-title-grp');
+          break;
+        }
+      }
+      if (!grp) grp = 'add';
+    }
+    if (!grp) return;
+
+    var items = groupItems[grp] || [];
+    var maxOff = Math.max(0, items.length - 2);
+    if (maxOff <= 0) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+
+    var lb = menuEl.querySelector('[role="listbox"]') || menuEl.querySelector('._3e4SsG_viewport') || menuEl;
+    if (lb && lb.scrollTop > 0) lb.scrollTop = 0;
+
+    var now = Date.now();
+    wheelAccum[grp] += e.deltaY;
+
+    if (Math.abs(wheelAccum[grp]) >= 20 && (now - lastWheelStep > 40)) {
+      lastWheelStep = now;
+      if (wheelAccum[grp] > 0) {
+        if (groupOffsets[grp] < maxOff) {
+          groupOffsets[grp]++;
+          updateGroupVisibility(grp);
+        }
+      } else {
+        if (groupOffsets[grp] > 0) {
+          groupOffsets[grp]--;
+          updateGroupVisibility(grp);
+        }
+      }
+      wheelAccum[grp] = 0;
+    }
+  }, { passive: false });
+
+  // 键盘方向键联动：如果高亮项超出当前可见的 2 项，自动调整 offset 滚动使其可见
+  document.addEventListener('keydown', function (e) {
+    if (!menuEl || !menuEl.isConnected) return;
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+    setTimeout(function () {
+      if (!menuEl) return;
+      var activeEl = menuEl.querySelector('._3e4SsG_item._3e4SsG_active, [role="option"][aria-selected="true"]');
+      if (!activeEl) return;
+      var grp = activeEl.getAttribute('data-twx-grp');
+      var idxStr = activeEl.getAttribute('data-twx-idx');
+      if (!grp || idxStr == null) return;
+      var idx = parseInt(idxStr, 10);
+      var cur = groupOffsets[grp] || 0;
+      if (idx < cur) {
+        groupOffsets[grp] = idx;
+        updateGroupVisibility(grp);
+      } else if (idx > cur + 1) {
+        groupOffsets[grp] = idx - 1;
+        updateGroupVisibility(grp);
+      }
+    }, 20);
   }, true);
 
   var scanQueued = false;
@@ -5957,14 +6367,20 @@ function getDshContextBridgeScript() {
       scanQueued = false;
       var roots = pendingRoots; pendingRoots = [];
       try {
-        for (var i = 0; i < roots.length; i++) {
-          var menu = pickMenu(roots[i]);
-          if (menu) { onMenuFound(menu); break; }
+        if (!menuEl || !menuEl.isConnected) {
+          for (var i = 0; i < roots.length; i++) {
+            var menu = pickMenu(roots[i]);
+            if (menu) { onMenuFound(menu); break; }
+          }
         }
         // 菜单被 React 卸载/重渲染时仅释放锚点：级联面板驻留至用户选择或外点，
         // 避免点击面板选项触发 DSH 菜单外点关闭时连带销毁面板
-        if (menuEl && !menuEl.isConnected) { menuEl = null; }
-        else if (menuEl && !menuEl.querySelector('.twx-ctx-block')) injectGroup(menuEl);
+        if (menuEl && !menuEl.isConnected) {
+          menuEl = null;
+        } else if (menuEl) {
+          var unmapped = menuEl.querySelector('button._3e4SsG_item:not([data-twx-grp])');
+          if (!menuEl.querySelector('.twx-sec-title') || unmapped) injectGroup(menuEl);
+        }
         updateCtxChips();
       } catch (_) {}
     }, 40);
@@ -5974,13 +6390,40 @@ function getDshContextBridgeScript() {
     try {
       for (var i = 0; i < muts.length; i++) {
         var m = muts[i];
-        if (m.type === 'attributes') { scheduleScan(m.target); continue; }
+        var tgt = m.target;
+        if (!tgt || tgt.nodeType !== 1) continue;
+
+        // 1. 彻底跳过自研面板、胶囊及注入项内部变动
+        if (tgt.closest && (tgt.closest('.twx-chips') || tgt.closest('.twx-panel') || tgt.closest('.twx-sec-title') || tgt.closest('.twx-item') || tgt.closest('.twx-plus-menu'))) continue;
+
+        // 2. 彻底跳过原生 Tooltip、气泡、发送/停止按钮区域 (杜绝悬停发送图标导致的全页面慢速重排与闪烁)
+        if (tgt.getAttribute && (tgt.getAttribute('role') === 'tooltip' || tgt.getAttribute('data-portal') === 'true')) continue;
+        if (tgt.closest && tgt.closest('[role="tooltip"], [class*="tooltip"], [class*="bubble"]')) continue;
+        if (tgt.closest && tgt.closest('button[class*="send"], button[class*="stop"], button[aria-label*="发送"], button[aria-label*="终止"], button[aria-label*="Stop"], [class*="_send"]')) continue;
+
+        // 3. 属性变动过滤
+        if (m.type === 'attributes') {
+          var aname = m.attributeName;
+          if (aname && aname.indexOf('twx') !== -1) continue;
+          if (aname === 'class' || aname === 'style') {
+            // 忽略消息气泡流、输入框内部的样式/光标变动
+            if (tgt.closest && tgt.closest('[class*="Message"], [class*="scrollBody"], pre, code, textarea, input')) continue;
+          }
+          scheduleScan(tgt);
+          continue;
+        }
+
+        // 4. 节点新增过滤
         var adds = m.addedNodes;
         for (var j = 0; j < adds.length; j++) {
-          if (adds[j] && adds[j].nodeType === 1) scheduleScan(adds[j]);
+          var an = adds[j];
+          if (an && an.nodeType === 1) {
+            if (an.closest && (an.closest('.twx-chips') || an.closest('.twx-panel') || an.closest('.twx-sec-title') || an.closest('.twx-item') || an.closest('.twx-plus-menu') || an.closest('[role="tooltip"]'))) continue;
+            scheduleScan(an);
+          }
         }
         // 子树内结构变化时, 复查已注入块是否被 React 覆盖
-        if (menuEl && m.target && menuEl.contains && menuEl.contains(m.target)) scheduleScan(null);
+        if (menuEl && tgt && menuEl.contains && menuEl.contains(tgt)) scheduleScan(null);
       }
     } catch (_) {}
   });
@@ -5990,6 +6433,18 @@ function getDshContextBridgeScript() {
     attributes: true,
     attributeFilter: ['class', 'style', 'hidden']
   });
+
+  window._twxCtxBridgeCleanup = function () {
+    try { mo.disconnect(); } catch (_) {}
+    window.removeEventListener('pointerdown', onWindowPointerDown, true);
+    window.removeEventListener('keydown', onWindowKeyDown, true);
+    document.removeEventListener('pointerdown', onOutsideDismiss, true);
+    document.removeEventListener('click', onOutsideDismiss, true);
+    window.removeEventListener('resize', updateCtxChips);
+    if (panelEl) { try { panelEl.remove(); } catch (_) {} }
+    if (chipsEl) { try { chipsEl.remove(); } catch (_) {} }
+    if (styleEl) { try { styleEl.remove(); } catch (_) {} }
+  };
 
   askHost();
   setTimeout(askHost, 800);
@@ -7833,6 +8288,98 @@ function getDSLogicService(options = {}) {
   return _dslogicInstance;
 }
 
+// MCP shared modules for TabonKB services
+
+
+
+
+
+
+/**
+ * 确保 Pi Agent 拥有 TabonKB 专有 MCP 工具配置 (幂等, 自动写入)
+ * 配置写入 ~/.pi/agent/mcp.json
+ */
+function ensurePiMcpServers(vaultBasePath) {
+  try {
+    const userProfile = process.env.USERPROFILE || 'C:\\Users\\Administrator';
+    const piAgentDir = path.join(userProfile, '.pi', 'agent');
+    const mcpConfigFile = path.join(piAgentDir, 'mcp.json');
+
+    const nodeExe = weknoraMcpResolveNodeExe();
+    const tools = {
+      [WEKNORA_MCP_SERVER_NAME]: {
+        script: weknoraMcpScriptPath(vaultBasePath),
+        description: '知识库全文检索与多模态内容提取（Weknora 引擎）',
+        env: buildWeknoraEnv(vaultBasePath)
+      },
+      [VENDOR_MCP_SERVER_NAME]: {
+        script: vendorMcpScriptPath(vaultBasePath),
+        description: '芯片原厂技术资料检索（紫光展锐 Unisoc、联发科 MTK）',
+        env: buildVendorEnv(vaultBasePath)
+      },
+      [GERRIT_MCP_SERVER_NAME]: {
+        script: gerritMcpScriptPath(vaultBasePath),
+        description: 'Gerrit 代码审查平台集成（提交查询、评审意见、CI 状态）',
+        env: buildGerritEnv(vaultBasePath)
+      },
+      [OPENGROK_MCP_SERVER_NAME]: {
+        script: opengrokMcpScriptPath(vaultBasePath),
+        description: 'OpenGrok 源码全局搜索与交叉引用',
+        env: buildOpengrokEnv(vaultBasePath)
+      },
+      [DRAWIO_MCP_SERVER_NAME]: {
+        script: drawioMcpScriptPath(vaultBasePath),
+        description: 'Draw.io 图表操作（导出、渲染、SVG 生成）',
+        env: {}
+      }
+    };
+
+    let mcpConfig = { mcpServers: {} };
+    if (fs.existsSync(mcpConfigFile)) {
+      try {
+        mcpConfig = JSON.parse(fs.readFileSync(mcpConfigFile, 'utf8')) || { mcpServers: {} };
+      } catch (_) {
+        mcpConfig = { mcpServers: {} };
+      }
+    }
+    mcpConfig.mcpServers = mcpConfig.mcpServers || {};
+
+    let mcpChanged = false;
+    for (const [name, config] of Object.entries(tools)) {
+      if (!config.script || !fs.existsSync(config.script)) continue;
+      
+      const existing = mcpConfig.mcpServers[name];
+      const same = existing 
+        && existing.command === nodeExe 
+        && Array.isArray(existing.args) 
+        && existing.args[0] === config.script;
+      
+      if (!same) {
+        mcpConfig.mcpServers[name] = {
+          command: nodeExe,
+          args: [config.script],
+          env: Object.assign({}, config.env, {
+            TABONKB_VAULT_PATH: vaultBasePath,
+            TABONKB_VAULT_NAME: path.basename(vaultBasePath)
+          }),
+          description: config.description
+        };
+        mcpChanged = true;
+      }
+    }
+
+    if (mcpChanged) {
+      if (!fs.existsSync(piAgentDir)) fs.mkdirSync(piAgentDir, { recursive: true });
+      fs.writeFileSync(mcpConfigFile, JSON.stringify(mcpConfig, null, 2), 'utf8');
+    }
+
+    return { ok: true, mcpChanged };
+  } catch (err) {
+    console.warn('[PiAgentBridge] MCP auto-provisioning warning:', err.message);
+    return { ok: false, error: err.message };
+  }
+}
+
 /**
  * PiAgentBridge: Manages the headless Pi Coding Agent via stdin/stdout JSONL RPC.
  * - Spawns Node running Pi CLI bundle with restricted tools: read, grep, find, ls
@@ -8204,6 +8751,13 @@ class PiAgentBridge {
       return true;
     }
 
+    // Auto-provision TabonKB MCP servers for Pi Agent (idempotent)
+    try {
+      ensurePiMcpServers(this.vaultBasePath);
+    } catch (e) {
+      console.warn('[PiAgentBridge] MCP auto-provisioning skipped:', e.message);
+    }
+
     this.setStatus('connecting', '正在启动 Pi 核心引擎...');
     const launch = this.resolveLaunchCommand();
 
@@ -8501,6 +9055,27 @@ class PiAgentBridge {
       this.setStatus('connected', '已就绪');
       this.emit('agent_settled', data);
       this._settleDrawioArtifact();
+      return;
+    }
+
+    if (type === 'queue_update') {
+      // Pi 原生 steer/followUp 队列快照：入队、被消费（message_start 前）与 clear_queue 均会广播
+      this.emit('queue_update', {
+        steering: Array.isArray(data.steering) ? data.steering.slice() : [],
+        followUp: Array.isArray(data.followUp) ? data.followUp.slice() : []
+      });
+      return;
+    }
+
+    if (type === 'message_start') {
+      // 用户消息回显：prompt / steer / followUp 被实际写入会话树时触发，供 UI 对账去重
+      const m = data.message;
+      if (m && m.role === 'user') {
+        const text = Array.isArray(m.content)
+          ? m.content.filter(p => p && p.type === 'text').map(p => p.text || '').join('\n')
+          : (typeof m.content === 'string' ? m.content : '');
+        this.emit('user_message', { text });
+      }
       return;
     }
 
@@ -8847,6 +9422,66 @@ class PiAgentBridge {
   }
 
   /**
+   * 流式中插队纠偏：pi 在当前工具执行完、下一次 LLM 调用前把该消息注入本轮。
+   * @param {string} messageText 用户纠偏内容（原始 wireText，不做上下文注入）
+   */
+  async steer(messageText) {
+    if (!this.process || this.process.killed) {
+      throw new Error('Pi 核心进程未就绪或已断开');
+    }
+    return await this.sendCommand({ type: 'steer', message: messageText });
+  }
+
+  /**
+   * 流式中排队待办：pi 在本轮完全结束（无剩余工具/插队消息）后自动以新回合消费。
+   * @param {string} messageText 用户排队内容
+   */
+  async followUp(messageText) {
+    if (!this.process || this.process.killed) {
+      throw new Error('Pi 核心进程未就绪或已断开');
+    }
+    return await this.sendCommand({ type: 'follow_up', message: messageText });
+  }
+
+  /**
+   * 清空 pi 侧 steer/followUp 队列，返回被移除的 {steering, followUp} 文本数组。
+   * abort 必须搭配本方法：pi 的 abort 不清队列，残留项会污染下一次运行。
+   */
+  async clearQueue() {
+    if (!this.process || this.process.killed) return { steering: [], followUp: [] };
+    try {
+      const res = await this.sendCommand({ type: 'clear_queue' });
+      const d = (res && res.data) || {};
+      return {
+        steering: Array.isArray(d.steering) ? d.steering : [],
+        followUp: Array.isArray(d.followUp) ? d.followUp : []
+      };
+    } catch (e) {
+      return { steering: [], followUp: [] };
+    }
+  }
+
+  /**
+   * 移除单个排队项：pi 仅支持整体清空，采用 清空→按原序重投剩余项 实现。
+   * @param {'steer'|'follow'} kind 队列类型
+   * @param {string} text 排队项原文（queue_update 快照中的文本）
+   */
+  async removeQueuedMessage(kind, text) {
+    const cleared = await this.clearQueue();
+    const steering = cleared.steering.slice();
+    const followUp = cleared.followUp.slice();
+    const list = kind === 'steer' ? steering : followUp;
+    const idx = list.indexOf(text);
+    if (idx >= 0) list.splice(idx, 1);
+    for (const t of steering) {
+      try { await this.sendCommand({ type: 'steer', message: t }); } catch (_) {}
+    }
+    for (const t of followUp) {
+      try { await this.sendCommand({ type: 'follow_up', message: t }); } catch (_) {}
+    }
+  }
+
+  /**
    * Abort current generation
    */
   async abort() {
@@ -8854,6 +9489,11 @@ class PiAgentBridge {
     try {
       this.setStatus('thinking', '正在中止操作...');
       await this.sendCommand({ type: 'abort' });
+      // 回收未消费的插队/排队消息（pi abort 不清队列），交回 UI 层回填输入框
+      const cleared = await this.clearQueue();
+      if (cleared.steering.length || cleared.followUp.length) {
+        this.emit('queue_cleared', cleared);
+      }
     } catch (e) {
       console.warn('[PiAgentBridge] Abort command issue:', e);
     } finally {
@@ -9406,6 +10046,11 @@ class PiAdapter extends AgentAdapter {
       this.isStreaming = false;
       this.emit('error', d);
     });
+
+    // 流式交互队列：steer/follow_up 快照与入队回显、abort 队列回收
+    this.bridge.on('queue_update', (d) => this.emit('queue_update', d));
+    this.bridge.on('user_message', (d) => this.emit('user_message', d));
+    this.bridge.on('queue_cleared', (d) => this.emit('queue_cleared', d));
   }
 
   getStatus() {
@@ -9496,6 +10141,34 @@ class PiAdapter extends AgentAdapter {
     this.isStreaming = false;
     this.setStatus('connected', '已中止');
     this.emit('agent_settled');
+  }
+
+  /**
+   * 流式中插队纠偏（pi 原生）：当前工具结束后、下一次 LLM 调用前注入用户消息。
+   */
+  async steer(text) {
+    if (!this.bridge || typeof this.bridge.steer !== 'function') {
+      throw new Error('当前通道不支持插队纠偏');
+    }
+    return await this.bridge.steer(text);
+  }
+
+  /**
+   * 流式中排队待办（pi 原生队列）：本轮结束后自动以新回合消费。
+   */
+  async followUp(text) {
+    if (!this.bridge || typeof this.bridge.followUp !== 'function') {
+      throw new Error('当前通道不支持排队待办');
+    }
+    return await this.bridge.followUp(text);
+  }
+
+  /**
+   * 移除单个排队项（pi 侧为 清空+按序重投 实现）。
+   */
+  async removeQueuedMessage(kind, text) {
+    if (!this.bridge || typeof this.bridge.removeQueuedMessage !== 'function') return;
+    return await this.bridge.removeQueuedMessage(kind, text);
   }
 
   async getForkMessages() {
@@ -10570,6 +11243,57 @@ function extractLatestThinking(convId, userProfile) {
 }
 
 /**
+ * CJK 感知 Token 估算: 汉字/全角标点 ~0.65 tok, 其余 ~0.28 tok
+ */
+function estTokensByChars(chars) {
+  return Math.ceil(Math.max(0, chars) * 0.28);
+}
+function estTokensFromText(s) {
+  s = String(s || '');
+  if (!s) return 0;
+  let cjk = 0, other = 0;
+  for (const ch of s) {
+    const c = ch.codePointAt(0);
+    if ((c >= 0x4e00 && c <= 0x9fa5) || (c >= 0x3000 && c <= 0x303f) || (c >= 0xff00 && c <= 0xffef)) cjk++;
+    else other++;
+  }
+  return Math.ceil(cjk * 0.65 + other * 0.28);
+}
+
+/**
+ * 从 transcript_full.jsonl 中提取原生 usage/token_count 字段（若 CLI 已记录）
+ */
+function extractNativeUsageFromTranscript(convId, userProfile) {
+  if (!convId) return null;
+  try {
+    const root = userProfile || process.env.USERPROFILE || 'C:\\Users\\Administrator';
+    const fp = path.join(root, '.gemini', 'antigravity-cli', 'brain', convId, '.system_generated', 'logs', 'transcript_full.jsonl');
+    if (!fs.existsSync(fp)) return null;
+    const lines = fs.readFileSync(fp, 'utf8').trim().split('\n').filter(Boolean);
+    let agg = null;
+    for (const line of lines) {
+      try {
+        const e = JSON.parse(line);
+        const u = e && (e.usage || e.token_count || (e.result && (e.result.usage || e.result.token_count)));
+        if (u && typeof u === 'object') {
+          const inp = Math.max(0, u.input ?? u.inputTokens ?? u.prompt_tokens ?? u.promptTokens ?? 0);
+          const out = Math.max(0, u.output ?? u.outputTokens ?? u.completion_tokens ?? u.completionTokens ?? 0);
+          const cr  = Math.max(0, u.cacheRead ?? u.cacheReadTokens ?? u.prompt_cache_hit_tokens ?? 0);
+          const cw  = Math.max(0, u.cacheWrite ?? u.cacheWriteTokens ?? u.cache_creation_input_tokens ?? 0);
+          if (inp + out + cr + cw > 0) {
+            agg = agg || { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 };
+            agg.inputTokens += inp; agg.outputTokens += out; agg.cacheReadTokens += cr; agg.cacheWriteTokens += cw;
+          }
+        }
+      } catch (_) {}
+    }
+    return agg;
+  } catch (_) {
+    return null;
+  }
+}
+
+/**
  * AntigravityAdapter: Native integration for Google Antigravity CLI (`agy`).
  * Runs headless mode with `--output-format stream-json`.
  * Features session UUID tracking, full MCP tool dispatching (WeKnora, Vendor, Gerrit, OpenGrok, DrawIO),
@@ -10870,6 +11594,15 @@ class AntigravityAdapter extends AgentAdapter {
     this.hasEmittedThinkingStart = false;
     this.hasSettledTurn = false;
     this.lastEmittedThinking = '';
+    // 本轮用量载荷追踪: 输入=prompt(含 MCP 工具 hints), 输出=text/思维链/工具参数/工具回传
+    this._turnUsageTrack = {
+      promptChars: (promptText || '').length,
+      thinkingChars: 0,
+      textChars: 0,
+      toolCalls: 0,
+      toolParamChars: 0,
+      toolOutputChars: 0
+    };
     if (this.thinkingPollTimer) {
       clearInterval(this.thinkingPollTimer);
       this.thinkingPollTimer = null;
@@ -10954,7 +11687,7 @@ class AntigravityAdapter extends AgentAdapter {
           }
           if (!this.hasSettledTurn) {
             this.hasSettledTurn = true;
-            this.emit('turn_end');
+            this.emit('turn_end', { usage: this._buildTurnUsage(null) });
             this.emit('agent_settled');
             this.setStatus('connected', '已就绪');
           }
@@ -11006,6 +11739,52 @@ class AntigravityAdapter extends AgentAdapter {
     });
   }
 
+  /**
+   * 构建本轮结构化 usage: 优先 transcript 原生 token 统计, 否则 CJK 感知估算
+   * 输入 = promptText(含 MCP hints) + 工具回传, 输出 = 正文 + 思维链 + 工具参数
+   */
+  _buildTurnUsage(res) {
+    const tr = this._turnUsageTrack || {};
+    this._turnUsageTrack = null;
+    // 1. 原生 usage 优先 (result 事件自带 / transcript_full.jsonl 提取)
+    const native = (res && (res.usage || res.token_count)) || extractNativeUsageFromTranscript(this.sessionId, process.env.USERPROFILE);
+    if (native && typeof native === 'object') {
+      const inp = Math.max(0, native.input ?? native.inputTokens ?? native.prompt_tokens ?? 0);
+      const out = Math.max(0, native.output ?? native.outputTokens ?? native.completion_tokens ?? 0);
+      const cr  = Math.max(0, native.cacheRead ?? native.cacheReadTokens ?? native.prompt_cache_hit_tokens ?? 0);
+      const cw  = Math.max(0, native.cacheWrite ?? native.cacheWriteTokens ?? native.cache_creation_input_tokens ?? 0);
+      if (inp + out + cr + cw > 0) {
+        return {
+          inputTokens: inp, outputTokens: out, cacheReadTokens: cr, cacheWriteTokens: cw,
+          totalTokens: inp + out + cr + cw,
+          netBillableTokens: inp + out + cw,
+          subTurns: 1 + (tr.toolCalls || 0),
+          isEstimated: false
+        };
+      }
+    }
+    // 2. CJK 感知结构化估算 (绝不伪造缓存)
+    const inputTokens = Math.max(1, Math.ceil(
+      estTokensByChars(tr.promptChars || 0) +
+      estTokensByChars(tr.toolOutputChars || 0) +
+      (tr.toolCalls || 0) * 120 + 600
+    ));
+    const outputTokens = Math.max(1,
+      estTokensByChars(tr.textChars || 0) +
+      estTokensByChars(tr.thinkingChars || 0) +
+      estTokensByChars(tr.toolParamChars || 0));
+    return {
+      inputTokens,
+      outputTokens,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      totalTokens: inputTokens + outputTokens,
+      netBillableTokens: inputTokens + outputTokens,
+      subTurns: 1 + (tr.toolCalls || 0),
+      isEstimated: true
+    };
+  }
+
   handleStdoutChunk(chunk) {
     this.stdoutBuffer += chunk;
     const lines = this.stdoutBuffer.split('\n');
@@ -11051,9 +11830,11 @@ class AntigravityAdapter extends AgentAdapter {
       if (step.step_type === 'agent_response') {
         if (step.thinking_delta) {
           this.lastEmittedThinking += step.thinking_delta;
+          if (this._turnUsageTrack) this._turnUsageTrack.thinkingChars += step.thinking_delta.length;
           this.emit('thinking_delta', step.thinking_delta);
         }
         if (step.text_delta) {
+          if (this._turnUsageTrack) this._turnUsageTrack.textChars += step.text_delta.length;
           if (this.isThinkingActive) {
             this.syncThinkingFromTranscript();
             this.emit('thinking_end');
@@ -11077,6 +11858,10 @@ class AntigravityAdapter extends AgentAdapter {
         const callId = `agy_tool_${stepIdx}`;
 
         if (step.state === 'ACTIVE') {
+          if (this._turnUsageTrack) {
+            this._turnUsageTrack.toolCalls += 1;
+            try { this._turnUsageTrack.toolParamChars += JSON.stringify(toolInfo.parameters || {}).length; } catch (_) {}
+          }
           if (this.isThinkingActive) {
             this.syncThinkingFromTranscript();
             this.emit('thinking_end');
@@ -11097,6 +11882,7 @@ class AntigravityAdapter extends AgentAdapter {
         } else if (step.state === 'DONE') {
           const prev = this.activeTools.get(callId) || { startTime: Date.now(), name: toolName };
           const duration = step.duration_seconds ? Math.round(step.duration_seconds * 1000) : (Date.now() - prev.startTime);
+          if (this._turnUsageTrack) this._turnUsageTrack.toolOutputChars += String(toolInfo.output || '').length;
           this.emit('tool_end', {
             toolCallId: callId,
             toolName: prev.name,
@@ -11158,7 +11944,7 @@ class AntigravityAdapter extends AgentAdapter {
       }
       if (!this.hasSettledTurn) {
         this.hasSettledTurn = true;
-        this.emit('turn_end');
+        this.emit('turn_end', { usage: this._buildTurnUsage(res) });
         this.emit('agent_settled');
         this.setStatus('connected', '已就绪');
       }
@@ -11198,6 +11984,18 @@ class AntigravityAdapter extends AgentAdapter {
     this.activeTools.clear();
     this.setStatus('connected', '已重置会话');
   }
+}
+
+function estTokensFromText(s) {
+  s = typeof s === 'string' ? s : JSON.stringify(s || '');
+  if (!s) return 0;
+  let cjk = 0, other = 0;
+  for (const ch of s) {
+    const c = ch.codePointAt(0);
+    if ((c >= 0x4e00 && c <= 0x9fa5) || (c >= 0x3000 && c <= 0x303f) || (c >= 0xff00 && c <= 0xffef)) cjk++;
+    else other++;
+  }
+  return Math.ceil(cjk * 0.65 + other * 0.28);
 }
 
 function generateUuid() {
@@ -11913,6 +12711,47 @@ class NiceAigcAdapter extends AgentAdapter {
     } catch (e) {}
   }
 
+  /**
+   * 构建本轮结构化 usage: 优先 SSE metadata 原生 token, 否则 CJK 感知估算
+   * (输入=实际上下文历史总字数 + 图片×255, 输出=思维链+回复正文)
+   */
+  _buildTurnUsageEstimate(assistantText, imageCount = 0) {
+    const nu = this._lastNativeUsage;
+    this._lastNativeUsage = null;
+    if (nu && typeof nu === 'object') {
+      const inp = Math.max(0, nu.input ?? nu.inputTokens ?? nu.prompt_tokens ?? nu.promptTokens ?? 0);
+      const out = Math.max(0, nu.output ?? nu.outputTokens ?? nu.completion_tokens ?? nu.completionTokens ?? 0);
+      const cr  = Math.max(0, nu.cacheRead ?? nu.cacheReadTokens ?? nu.prompt_cache_hit_tokens ?? 0);
+      const cw  = Math.max(0, nu.cacheWrite ?? nu.cacheWriteTokens ?? nu.cache_creation_input_tokens ?? 0);
+      if (inp + out + cr + cw > 0) {
+        return {
+          inputTokens: inp, outputTokens: out, cacheReadTokens: cr, cacheWriteTokens: cw,
+          totalTokens: inp + out + cr + cw,
+          netBillableTokens: inp + out + cw,
+          subTurns: 1,
+          isEstimated: false
+        };
+      }
+    }
+    // CJK 感知估算: 历史上下文(至多 20 条) + 图片 + 思维链与正文, 绝不伪造缓存
+    let ctxTokens = 0;
+    for (const m of (this.conversationHistory || []).slice(-20)) {
+      ctxTokens += estTokensFromText(typeof m.content === 'string' ? m.content : JSON.stringify(m.content || ''));
+    }
+    const outputTokens = Math.max(1, estTokensFromText(assistantText) + Math.ceil((this._turnThinkChars || 0) * 0.28));
+    const inputTokens = Math.max(1, ctxTokens + (imageCount || 0) * 255 + 600);
+    return {
+      inputTokens,
+      outputTokens,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      totalTokens: inputTokens + outputTokens,
+      netBillableTokens: inputTokens + outputTokens,
+      subTurns: 1,
+      isEstimated: true
+    };
+  }
+
   // GET 小工具: 拉取 JSON (对话树查询用)
   _httpGetJson(url, headers) {
     return new Promise((resolve, reject) => {
@@ -12531,6 +13370,8 @@ class NiceAigcAdapter extends AgentAdapter {
     try {
       this.abortController = new AbortController();
       let fullAssistantText = '';
+      this._lastNativeUsage = null;
+      this._turnThinkChars = 0;
 
       const isConvBroken = (err) => {
         if (!err) return false;
@@ -12623,7 +13464,7 @@ class NiceAigcAdapter extends AgentAdapter {
         this._persistConversationId();
         this.isStreaming = false;
         this.setStatus('connected', '已就绪');
-        this.emit('turn_end', { fullText: fullAssistantText });
+        this.emit('turn_end', { fullText: fullAssistantText, usage: this._buildTurnUsageEstimate(fullAssistantText, imageAttachments.length) });
         this.emit('agent_settled');
         return { success: true };
       } else {
@@ -12726,6 +13567,12 @@ class NiceAigcAdapter extends AgentAdapter {
         const recipient = msg.recipient;
         const channel = msg.channel;
 
+        // 0. 捕获原生 token 统计 (部分上游通道在 metadata 回传 usage/token_usage)
+        const metaUsage = msg.metadata && (msg.metadata.usage || msg.metadata.token_usage || msg.metadata.tokenUsage);
+        if (metaUsage && typeof metaUsage === 'object') {
+          this._lastNativeUsage = metaUsage;
+        }
+
         // 1a. Reasoning recap (OpenAI o1/o3/gpt-6 official recap object)
         if (contentType === 'reasoning_recap') {
           const recapContent = msg.content?.content || (typeof msg.content === 'string' ? msg.content : '');
@@ -12759,6 +13606,7 @@ class NiceAigcAdapter extends AgentAdapter {
             if (fullThought.length > streamState.thinkingAccumulatedLength) {
               const delta = fullThought.slice(streamState.thinkingAccumulatedLength);
               streamState.thinkingAccumulatedLength = fullThought.length;
+              this._turnThinkChars = (this._turnThinkChars || 0) + delta.length;
               this.emit('thinking_delta', delta);
             }
           }
@@ -13970,6 +14818,76 @@ class AgentSessionManager {
         }
         agent.updatedAt = data.updatedAt || Date.now();
       }
+      // 历史假估算 usage 自愈清洗 (旧公式 in=max(120,out*1.5+450)/cache=in*0.4 凭空捏造缓存且不计入合计)
+      this._migrateLegacyFakeUsage();
+    }
+  }
+
+  /**
+   * CJK 感知 Token 估算: 汉字/全角标点 ~0.65 tok, 其余 ~0.28 tok
+   */
+  _estimateTokensFromText(s) {
+    s = String(s || '');
+    if (!s) return 0;
+    let cjk = 0, other = 0;
+    for (const ch of s) {
+      const c = ch.codePointAt(0);
+      if ((c >= 0x4e00 && c <= 0x9fa5) || (c >= 0x3000 && c <= 0x303f) || (c >= 0xff00 && c <= 0xffef)) cjk++;
+      else other++;
+    }
+    return Math.ceil(cjk * 0.65 + other * 0.28);
+  }
+
+  /**
+   * 检测并清洗旧版假估算 usage 记录:
+   * 旧公式特征 inp === max(120, round(out*1.5+450)) 且 cache === round(inp*0.4) 且 tot === inp+out。
+   * 命中后按消息真实 text/thinking/toolCalls 重新估算, 缓存归零, 补标 isEstimated。
+   */
+  _migrateLegacyFakeUsage() {
+    let touched = 0;
+    for (const agent of this.agents.values()) {
+      for (const sess of (agent.sessions || [])) {
+        for (const m of (sess.messages || [])) {
+          if (!m || m.role !== 'assistant' || !m.usage || m.usage.isEstimated === true) continue;
+          const u = m.usage;
+          const inp = u.inputTokens || 0, out = u.outputTokens || 0, cache = u.cacheReadTokens || 0, tot = u.totalTokens || 0;
+          const fakeIn = Math.max(120, Math.round(out * 1.5 + 450));
+          if (inp === fakeIn && cache === Math.round(inp * 0.4) && tot === inp + out) {
+            const tCalls = Array.isArray(m.toolCalls) ? m.toolCalls : [];
+            let toolChars = 0;
+            for (const tc of tCalls) {
+              try { toolChars += JSON.stringify(tc.args || {}).length + String(tc.output || '').length; } catch (_) {}
+            }
+            const outputTokens = Math.max(1,
+              this._estimateTokensFromText(m.text) +
+              this._estimateTokensFromText(m.thinking) +
+              Math.ceil(toolChars * 0.28));
+            const inputTokens = Math.max(1, Math.ceil(outputTokens * 1.6 + tCalls.length * 120 + 600));
+            m.usage = {
+              inputTokens,
+              outputTokens,
+              cacheReadTokens: 0,
+              cacheWriteTokens: 0,
+              totalTokens: inputTokens + outputTokens,
+              netBillableTokens: inputTokens + outputTokens,
+              subTurns: 1 + tCalls.length,
+              isEstimated: true,
+              migratedFakeUsage: true,
+              providerAndModel: u.providerAndModel || null,
+              durationText: u.durationText || null
+            };
+            touched++;
+          } else if (tot > 0 && (inp + out + cache + (u.cacheWriteTokens || 0)) > tot) {
+            // 非假公式但分项相加大于合计 → 归一化兜底, 杜绝页脚悖论
+            u.totalTokens = inp + out + cache + (u.cacheWriteTokens || 0);
+            touched++;
+          }
+        }
+      }
+    }
+    if (touched > 0) {
+      try { console.info('[AgentSessionManager] Migrated/normalized legacy usage records:', touched); } catch (_) {}
+      this.saveSessions();
     }
   }
 
@@ -14025,7 +14943,10 @@ class AgentSessionManager {
           duration: m.duration || null,
           durationText: m.durationText || null,
           usage: m.usage || null,
-          processSteps: Array.isArray(m.processSteps) ? m.processSteps : null
+          processSteps: Array.isArray(m.processSteps) ? m.processSteps : null,
+          // 中止/中断标记必须入白名单，否则落盘即丢（历史恢复误显示"已完成"且 PlanBar 误弹）
+          aborted: m.aborted === true,
+          interrupted: m.interrupted === true
         }))
       }));
 
@@ -14356,6 +15277,12 @@ class AgentHub {
     this.adapters = new Map();
     this.listeners = new Map();
     this.generation = 0;
+    // 本地 follow-up 队列：仅当活跃 adapter 不具备原生排队能力（非 pi）时启用，
+    // 在 agent_settled 时按序自动派发；pi 走 RPC follow_up 原生队列，不占此处。
+    this._localFollowUpQueue = [];
+    // 中止/切换 Agent 期间抑制本地队列派发：adapter.abort() 会同步 emit agent_settled，
+    // 若不加守卫，排队项会被派发给正在被杀的旧 adapter
+    this._suppressFollowUpDispatch = false;
 
     this.initAdapters(options);
     this.activeAgentId = this.getSavedActiveAgent();
@@ -14521,7 +15448,17 @@ class AgentHub {
         if (isCurrentActive()) {
           const payload = (d && typeof d === 'object') ? Object.assign({ generation: this.generation, agentId: id }, d) : d;
           this.emit('agent_settled', payload);
+          this._dispatchLocalFollowUp(adapter);
         }
+      });
+      adapter.on('queue_update', (d) => {
+        if (isCurrentActive()) this.emit('queue_update', d);
+      });
+      adapter.on('user_message', (d) => {
+        if (isCurrentActive()) this.emit('user_message', d);
+      });
+      adapter.on('queue_cleared', (d) => {
+        if (isCurrentActive()) this.emit('queue_cleared', d);
       });
       adapter.on('error', (d) => {
         if (isCurrentActive()) this.emit('error', d);
@@ -14585,15 +15522,23 @@ class AgentHub {
     this.generation = (this.generation || 0) + 1;
     const currentGeneration = this.generation;
 
-    // Explicitly abort previous adapter before switching
-    if (prevAdapter) {
-      try {
-        if (typeof prevAdapter.abort === 'function') {
-          await prevAdapter.abort();
+    // 切换前先清本地队列：abort() 会同步 emit agent_settled，此时 activeAgentId 尚未翻转，
+    // isCurrentActive() 仍为 true，必须防止排队项被派发给正在中止的旧 adapter
+    this._localFollowUpQueue = [];
+    this._emitLocalQueueUpdate();
+    this._suppressFollowUpDispatch = true;
+    try {
+      if (prevAdapter) {
+        try {
+          if (typeof prevAdapter.abort === 'function') {
+            await prevAdapter.abort();
+          }
+        } catch (err) {
+          console.warn(`[AgentHub] Failed to abort previous adapter '${prevAgentId}':`, err);
         }
-      } catch (err) {
-        console.warn(`[AgentHub] Failed to abort previous adapter '${prevAgentId}':`, err);
       }
+    } finally {
+      this._suppressFollowUpDispatch = false;
     }
 
     this.activeAgentId = agentId;
@@ -14679,11 +15624,97 @@ class AgentHub {
     return [];
   }
 
+  /**
+   * 流式中插队纠偏：活跃 adapter 支持原生 steer 时注入本轮（在下一工具间隙生效）；
+   * 否则降级为本地 follow-up 排队（本轮结束后自动派发）。
+   */
+  async steer(text) {
+    const adapter = this.getActiveAdapter();
+    if (adapter && typeof adapter.steer === 'function') {
+      return await adapter.steer(text);
+    }
+    return await this.followUp(text);
+  }
+
+  /**
+   * 流式中排队待办：pi 走原生 follow_up 队列（pi 自行派发并广播 queue_update）；
+   * 其他 adapter 进入 hub 本地队列，settled 后自动派发。
+   */
+  async followUp(text, meta = {}) {
+    const adapter = this.getActiveAdapter();
+    // 派发时是新回合：与正常发送一样注入上下文（meta.prompt 为注入后文本，text 为用户原文）
+    const payload = (meta && meta.prompt) || text;
+    if (adapter && typeof adapter.followUp === 'function') {
+      return await adapter.followUp(payload);
+    }
+    this._localFollowUpQueue.push({ id: `q${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, text, prompt: payload });
+    this._emitLocalQueueUpdate();
+    return { success: true, queued: true };
+  }
+
+  /**
+   * 移除单个排队项：pi 走原生 clear+重投；本地队列直接摘除。
+   */
+  async cancelQueued(kind, text) {
+    const adapter = this.getActiveAdapter();
+    if (adapter && typeof adapter.removeQueuedMessage === 'function') {
+      return await adapter.removeQueuedMessage(kind, text);
+    }
+    const idx = this._localFollowUpQueue.findIndex(i => i.text === text);
+    if (idx >= 0) this._localFollowUpQueue.splice(idx, 1);
+    this._emitLocalQueueUpdate();
+  }
+
+  _emitLocalQueueUpdate() {
+    this.emit('queue_update', {
+      steering: [],
+      followUp: this._localFollowUpQueue.map(i => i.text),
+      _local: true
+    });
+  }
+
+  /**
+   * 本地队列在回合落定后自动派发首项（pi 原生队列由 pi 内部消费，不经此路径）。
+   * 派发前广播 follow_up_dispatched，由 UI 渲染用户气泡并持久化。
+   */
+  _dispatchLocalFollowUp(adapter) {
+    if (!adapter || typeof adapter.followUp === 'function') return;
+    if (this._suppressFollowUpDispatch) return;
+    if (adapter !== this.getActiveAdapter()) return;
+    if (!this._localFollowUpQueue.length) return;
+    const next = this._localFollowUpQueue.shift();
+    this._emitLocalQueueUpdate();
+    if (!next) return;
+    const payload = next.prompt || next.text;
+    this.emit('follow_up_dispatched', { text: next.text, prompt: payload, agentId: this.activeAgentId });
+    try {
+      const r = adapter.send(payload);
+      if (r && typeof r.catch === 'function') {
+        r.catch(e => console.warn('[AgentHub] local followUp dispatch failed:', e));
+      }
+    } catch (e) {
+      console.warn('[AgentHub] local followUp dispatch failed:', e);
+    }
+  }
+
   async abort() {
-    return await this.getActiveAdapter().abort();
+    this._suppressFollowUpDispatch = true;
+    try {
+      // 回收本地队列（pi 原生队列由 bridge.abort → clear_queue 处理并回显 queue_cleared）
+      if (this._localFollowUpQueue.length) {
+        const cleared = this._localFollowUpQueue.splice(0);
+        this._emitLocalQueueUpdate();
+        this.emit('queue_cleared', { steering: [], followUp: cleared.map(i => i.text) });
+      }
+      return await this.getActiveAdapter().abort();
+    } finally {
+      this._suppressFollowUpDispatch = false;
+    }
   }
 
   async newSession() {
+    this._localFollowUpQueue = [];
+    this._emitLocalQueueUpdate();
     this.sessionManager.clearSession(this.activeAgentId);
     return await this.getActiveAdapter().newSession();
   }
@@ -15478,7 +16509,7 @@ function getAllAvailableLocalProjects(forceRefresh = false) {
         const id = `${srv.id}_${cleanWsId}_${p.platform}_${p.project}`;
         const wsShort = ws.relPath.split('/').pop();
         const label = `${wsShort}/${p.project}`;
-        const shortDesc = `${srv.id}服 · ${p.platform}/${p.project}`;
+        const shortDesc = `${srv.host || srv.id} · ${p.platform}/${p.project}`;
 
         list.push({
           id,
@@ -15735,6 +16766,250 @@ function extractCompilerErrors(output) {
     return output.slice(-2000); // 无明确关键字则取尾部 2000 字符
   }
   return errorLines.join('\n');
+}
+
+/* ==========================================================================
+   Agent Version Service — Pi / Antigravity CLI 版本探测 · 更新 · 更新日志
+   
+   数据通道:
+   - Pi 当前版:  读 node_modules/@earendil-works/pi-coding-agent/package.json (纯 fs)
+   - Pi 最新版:  npm registry /latest (https, 6s 超时)
+   - Pi 更新:    spawn nodeDir/npm.cmd i -g (仅用户点击)
+   - Pi 日志:    本地已装包 CHANGELOG.md; 有新版时拉 unpkg @latest/CHANGELOG.md 取增量段
+   - Agy 当前版: spawn 'agy --version' (复用 adapter 候选路径)
+   - Agy 更新:   spawn 'agy update' (官方唯一通道, 执行式)
+   - Agy 日志:   spawn 'agy changelog' (release notes 全文)
+   ========================================================================== */
+
+
+
+
+
+
+const PI_PKG_NAME = '@earendil-works/pi-coding-agent';
+const AGENT_VERSION_CACHE_KEY = 'tabonkb-agent-version-cache';
+const AGENT_VERSION_TTL = 6 * 3600 * 1000; // 6h
+
+class AgentVersionService {
+  constructor(opts = {}) {
+    this.nodeDir = opts.nodeDir || path.join(
+      process.env.APPDATA || 'C:\\Users\\Administrator\\AppData\\Roaming',
+      'node-v24.15.0'
+    );
+    this._inflight = {};
+  }
+
+  /* ------------------------------ 基础工具 ------------------------------ */
+
+  static semverGt(a, b) {
+    const pa = String(a || '').replace(/^v/i, '').split('.').map(x => parseInt(x, 10) || 0);
+    const pb = String(b || '').replace(/^v/i, '').split('.').map(x => parseInt(x, 10) || 0);
+    for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+      const x = pa[i] || 0, y = pb[i] || 0;
+      if (x > y) return true;
+      if (x < y) return false;
+    }
+    return false;
+  }
+
+  /** 从 markdown changelog 提取版本号大于 gtVer 的小节; 无则回退前 maxN 节 */
+  static extractChangelogSections(mdText, gtVer, maxN = 5, maxChars = 6000) {
+    if (!mdText) return '';
+    const parts = mdText.split(/(?=^##+\s*\[?v?\d+\.\d+)/m).filter(s => /\d+\.\d+/.test(s.slice(0, 60)));
+    if (!parts.length) return mdText.slice(0, maxChars);
+    const newer = gtVer ? parts.filter(sec => {
+      const m = sec.match(/(\d+\.\d+(?:\.\d+)?)/);
+      return m && AgentVersionService.semverGt(m[1], gtVer);
+    }) : [];
+    const picked = newer.length ? newer : parts.slice(0, maxN);
+    return picked.join('\n').slice(0, maxChars);
+  }
+
+  _httpsGet(url, timeoutMs = 6000, redirects = 2) {
+    return new Promise((resolve) => {
+      let done = false;
+      const finish = (v) => { if (!done) { done = true; resolve(v); } };
+      try {
+        const req = https.get(url, {
+          headers: { 'User-Agent': 'tabonkb-workbench', 'Accept': 'application/json,*/*' },
+          timeout: timeoutMs
+        }, (res) => {
+          if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location && redirects > 0) {
+            res.resume();
+            this._httpsGet(res.headers.location, timeoutMs, redirects - 1).then(finish);
+            return;
+          }
+          if (res.statusCode !== 200) { res.resume(); finish(null); return; }
+          let body = '';
+          res.on('data', (d) => { body += d.toString(); if (body.length > 400000) req.destroy(); });
+          res.on('end', () => finish(body));
+          res.on('error', () => finish(null));
+        });
+        req.on('timeout', () => { req.destroy(); finish(null); });
+        req.on('error', () => finish(null));
+      } catch (e) { finish(null); }
+    });
+  }
+
+  _spawnCapture(cmd, args, timeoutMs = 10000, opts = {}) {
+    return new Promise((resolve) => {
+      let out = '', settled = false;
+      const finish = (code) => { if (!settled) { settled = true; resolve({ code, out }); } };
+      try {
+        const proc = child_process.spawn(cmd, args, {
+          windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'],
+          cwd: opts.cwd || this.nodeDir, env: process.env
+        });
+        const timer = setTimeout(() => { try { proc.kill(); } catch (e) {} finish(-1); }, timeoutMs);
+        proc.stdout.on('data', (d) => { out += d.toString(); });
+        proc.stderr.on('data', (d) => { out += d.toString(); });
+        proc.on('close', (code) => { clearTimeout(timer); finish(code); });
+        proc.on('error', () => { clearTimeout(timer); finish(-1); });
+      } catch (e) { finish(-1); }
+    });
+  }
+
+  _resolveAgyBinary() {
+    const candidates = [
+      'C:\\Windows\\System32\\agy.exe',
+      path.join(process.env.LOCALAPPDATA || 'C:\\Users\\Administrator\\AppData\\Local', 'agy', 'bin', 'agy.exe'),
+      path.join(process.env.APPDATA || 'C:\\Users\\Administrator\\AppData\\Roaming', 'Antigravity', 'bin', 'agy.exe'),
+      'agy.exe', 'agy'
+    ];
+    for (const c of candidates) {
+      if (c === 'agy' || c === 'agy.exe' || fs.existsSync(c)) return c;
+    }
+    return 'agy';
+  }
+
+  /* ------------------------------ Pi Agent ------------------------------ */
+
+  readPiCurrent() {
+    try {
+      const pkgPath = path.join(this.nodeDir, 'node_modules', ...PI_PKG_NAME.split('/'), 'package.json');
+      const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+      return pkg.version || null;
+    } catch (e) { return null; }
+  }
+
+  readPiLocalChangelog() {
+    try {
+      const p = path.join(this.nodeDir, 'node_modules', ...PI_PKG_NAME.split('/'), 'CHANGELOG.md');
+      return fs.readFileSync(p, 'utf8').slice(0, 60000);
+    } catch (e) { return ''; }
+  }
+
+  async fetchPiLatest() {
+    const body = await this._httpsGet(`https://registry.npmjs.org/${encodeURIComponent(PI_PKG_NAME)}/latest`, 6000);
+    try { return JSON.parse(body).version || null; } catch (e) { return null; }
+  }
+
+  async fetchPiRemoteChangelog() {
+    return await this._httpsGet(`https://unpkg.com/${PI_PKG_NAME}@latest/CHANGELOG.md`, 8000);
+  }
+
+  async execPiUpdate() {
+    const npmCmd = path.join(this.nodeDir, 'npm.cmd');
+    const cmd = fs.existsSync(npmCmd) ? npmCmd : 'npm.cmd';
+    return await this._spawnCapture(cmd, ['i', '-g', PI_PKG_NAME], 120000, { cwd: this.nodeDir });
+  }
+
+  /* ------------------------------ Antigravity ------------------------------ */
+
+  async fetchAgyCurrent() {
+    const { code, out } = await this._spawnCapture(this._resolveAgyBinary(), ['--version'], 8000);
+    if (code !== 0) return null;
+    const m = out.match(/\d+\.\d+(?:\.\d+)?/);
+    return m ? m[0] : null;
+  }
+
+  async fetchAgyChangelog() {
+    const { code, out } = await this._spawnCapture(this._resolveAgyBinary(), ['changelog'], 10000);
+    return code === 0 ? out.slice(0, 60000) : '';
+  }
+
+  async execAgyUpdate() {
+    return await this._spawnCapture(this._resolveAgyBinary(), ['update'], 120000);
+  }
+
+  /* ------------------------------ 聚合入口 ------------------------------ */
+
+  _loadCache() {
+    try { return JSON.parse(localStorage.getItem(AGENT_VERSION_CACHE_KEY) || '{}'); } catch (e) { return {}; }
+  }
+
+  _saveCache(cache) {
+    try { localStorage.setItem(AGENT_VERSION_CACHE_KEY, JSON.stringify(cache)); } catch (e) {}
+  }
+
+  /**
+   * @param {'pi'|'antigravity'} agentId
+   * @returns {Promise<{current:string|null, latest:string|null, status:string, updateCmd:string, checkedAt:number, updateResult:string|null}>}
+   *   status: 'latest' | 'update' | 'self' | 'missing' | 'unknown'
+   */
+  async getInfo(agentId, { force = false } = {}) {
+    const cache = this._loadCache();
+    const hit = cache[agentId];
+    if (!force && hit && (Date.now() - hit.checkedAt) < AGENT_VERSION_TTL) return hit;
+    if (this._inflight[agentId]) return this._inflight[agentId];
+
+    const job = (async () => {
+      let info = null;
+      if (agentId === 'pi') {
+        const current = this.readPiCurrent();
+        const latest = await this.fetchPiLatest();
+        const status = !current ? 'missing'
+          : latest == null ? 'unknown'
+          : AgentVersionService.semverGt(latest, current) ? 'update' : 'latest';
+        info = { current, latest, status, updateCmd: `npm i -g ${PI_PKG_NAME}`, checkedAt: Date.now(), updateResult: null };
+      } else if (agentId === 'antigravity') {
+        const current = await this.fetchAgyCurrent();
+        // agy 无只读最新版接口: 只标自更新通道, 点击「检查更新」后才有结果
+        info = { current, latest: null, status: current ? 'self' : 'missing', updateCmd: 'agy update', checkedAt: Date.now(), updateResult: null };
+      }
+      if (info) {
+        cache[agentId] = info;
+        this._saveCache(cache);
+      }
+      return info;
+    })();
+
+    this._inflight[agentId] = job;
+    try { return await job; } finally { delete this._inflight[agentId]; }
+  }
+
+  /** 更新日志: pi 优先 unpkg 增量段(>当前版), agy 全量前若干节 */
+  async getChangelog(agentId) {
+    if (agentId === 'pi') {
+      const current = this.readPiCurrent();
+      const remote = await this.fetchPiRemoteChangelog();
+      if (remote) {
+        const inc = AgentVersionService.extractChangelogSections(remote, current);
+        if (inc) return inc;
+      }
+      const local = this.readPiLocalChangelog();
+      return AgentVersionService.extractChangelogSections(local, null, 3) || '(暂无更新日志)';
+    }
+    if (agentId === 'antigravity') {
+      const text = await this.fetchAgyChangelog();
+      if (!text) return '(agy changelog 无输出)';
+      // agy 输出形如 "1.4.0:\n· ..." —— 取前 2 个版本节
+      const parts = text.split(/(?=^\d+\.\d+(?:\.\d+)?:\s*$)/m).filter(s => /^\d+\.\d+/.test(s.trim()));
+      return (parts.length ? parts.slice(0, 2).join('\n') : text.slice(0, 6000)).slice(0, 6000);
+    }
+    return '';
+  }
+
+  /** 执行更新并返回 {ok, newVersion, output} —— 仅此入口会产生进程副作用 */
+  async runUpdate(agentId) {
+    const res = agentId === 'pi' ? await this.execPiUpdate() : await this.execAgyUpdate();
+    const newVersion = agentId === 'pi' ? this.readPiCurrent() : await this.fetchAgyCurrent();
+    // 更新后强制刷新缓存
+    const cache = this._loadCache();
+    delete cache[agentId];
+    this._saveCache(cache);
+    return { ok: res.code === 0, newVersion, output: (res.out || '').trim().slice(-2000) };
+  }
 }
 
 /* ==========================================================================
@@ -17254,6 +18529,27 @@ class PiDrawerView {
     this._tpGen = 0;
     this._tpCommandsCache = null;
     this._tpCommandsFetchedAt = 0;
+
+    // 流式交互队列（steer 插队 / follow_up 排队）与排队条 UI
+    this.queueStripEl = null;
+    this._queueSnapshot = null;
+    // 发送↔回显对账本：message_start(user) 回显到达时按 wireText 匹配，
+    // optimistic=true 表示本地已渲染气泡（prompt/steer），false 表示待回显渲染（排队派发）
+    this._pendingSentWires = [];
+    // 只读模式「方案已生成 → 一键切读写执行」横条
+    this.planBarEl = null;
+    // 队列快照原文(可能含注入包裹) → 用户原文映射：胶囊条显示短文本
+    this._queuedWireByPrompt = new Map();
+    // 连续 assistant 段缓冲：steer/follow_up 等用户消息边界切分，回合末/用户气泡前合并落一条记录
+    this._assistantRunBuffer = [];
+    // 本轮运行曾被用户中止：agent_settled 时据此给落库记录打 aborted 标记
+    this._runAborted = false;
+    // abort 后 agent_settled 会重新点亮 PlanBar：一次性抑制
+    this._suppressPlanBarOnce = false;
+    // 多步工具调用回合 Token 累加器：turn_end 每跳累加，杜绝只记最后一跳
+    this.turnUsageAcc = null;
+    // pi .jsonl 孤儿回合恢复防重入
+    this._piRecoverInFlight = false;
     this._tpFetchPromise = null;
     this._tpFileCache = null;
     this._tpFileCacheAt = 0;
@@ -17318,6 +18614,11 @@ class PiDrawerView {
     this.localProjNavTitle = null;
 
     this.isOpenState = false;
+    // 普通页签（非探索页 studio 模式）下右侧抽屉的真实开合状态：
+    // 探索页会强制 isOpenState=true 内嵌全宽，该状态独立记录，供切回普通页时精确还原
+    this._normalDrawerOpen = false;
+    // buildDom() 内 document 级全局监听的统一中止信号（防重复 mount 泄漏）
+    this._docEventsAbort = null;
     this.width = this.getSavedWidth();
     this.inputHeight = this.getSavedInputHeight();
     this.isDragging = false;
@@ -17357,24 +18658,32 @@ class PiDrawerView {
 
   getSavedInputHeight() {
     try {
-      const saved = parseInt(localStorage.getItem('tabonkb-dialog-input-height'), 10);
-      if (!isNaN(saved) && saved >= 42 && saved <= 350) {
-        return Math.max(52, Math.min(saved, 120));
+      localStorage.removeItem('tabonkb-dialog-input-height'); // legacy key: always held an outdated height, drop once
+      const saved = parseInt(localStorage.getItem('tabonkb-dialog-input-height-v2'), 10);
+      if (!isNaN(saved) && saved >= 28 && saved <= 350) {
+        return Math.max(30, Math.min(saved, 120));
       }
     } catch (e) {}
-    return 52; // Comfortably sized base height (elevated from 42px to 52px)
+    return 46; // compact base height — tuned middle ground (52 felt tall, 40 felt cramped)
   }
 
   saveInputHeight(h) {
     try {
       this.inputHeight = h;
-      localStorage.setItem('tabonkb-dialog-input-height', String(h));
+      localStorage.setItem('tabonkb-dialog-input-height-v2', String(h));
     } catch (e) {}
   }
 
   async togglePermissionMode() {
     const nextMode = this.permissionMode === 'readonly' ? 'readwrite' : 'readonly';
-    await this.hub.setPermissionMode(nextMode);
+    await this.setPermissionMode(nextMode);
+  }
+
+  async setPermissionMode(mode) {
+    if (mode !== 'readwrite' && mode !== 'readonly') return;
+    if (mode === this.permissionMode) return;
+    await this.hub.setPermissionMode(mode);
+    this._hidePlanBar();
     this.updatePermBadge();
     this.updatePermHint();
     this.updateStatus(this.hub.getStatus());
@@ -17383,13 +18692,20 @@ class PiDrawerView {
   updatePermBadge() {
     if (!this.permBadgeEl) return;
     const isRW = this.permissionMode === 'readwrite';
-    this.permBadgeEl.className = `tw-drawer-badge-btn ${isRW ? 'readwrite' : 'readonly'}`;
-    this.permBadgeEl.innerHTML = isRW
-      ? `<span class="tw-badge-icon">${getIconPark('edit', 13)}</span>`
-      : `<span class="tw-badge-icon">${getIconPark('lock', 13)}</span>`;
+    this.permBadgeEl.className = `tw-perm-pill ${isRW ? 'readwrite' : 'readonly'}`;
+    this.permBadgeEl.innerHTML = `
+      <span class="tw-perm-pill-icon">${getIconPark(isRW ? 'shield' : 'lock', 13)}</span>
+      <span class="tw-perm-pill-name">${isRW ? '完全权限' : '只读'}</span>
+      <span class="tw-perm-pill-caret">${getIconPark('down', 10)}</span>
+    `;
     this.permBadgeEl.title = isRW
-      ? '当前：读写模式（支持新建与修改笔记），点击切换为只读'
-      : '当前：只读模式（安全检索不修改），点击切换为读写';
+      ? '当前：完全权限（支持新建与修改笔记），点击切换'
+      : '当前：只读模式（安全检索不修改），点击切换';
+    if (this.permPopoverEl) {
+      this.permPopoverEl.querySelectorAll('.tw-perm-opt').forEach((opt) => {
+        opt.classList.toggle('on', opt.getAttribute('data-mode') === this.permissionMode);
+      });
+    }
   }
 
   updatePermHint() {
@@ -17437,18 +18753,59 @@ class PiDrawerView {
 
   mount(parentEl) {
     this.containerEl = parentEl;
-    this.buildDom();
+    // DOM 复用：drawerEl 已存在（页签切换/整页重绘后的重挂载）时直接挂入新容器，
+    // 保留 messagesEl / currentAssistantMessage / activeToolCards / bannerTimer /
+    // 输入框内容与滚动位置，杜绝在途任务气泡被销毁后由后续流事件触发"新建空泡重新计时"
+    const isFirstBuild = !this.drawerEl;
+    if (isFirstBuild) {
+      this.buildDom();
+    } else if (parentEl && this.drawerEl.parentElement !== parentEl) {
+      parentEl.appendChild(this.drawerEl);
+    }
+
+    // 按宿主容器切换形态与显隐：探索页 AI 容器 = 全宽 studio 内嵌；其余 = 右侧抽屉
+    const isStudioHost = Boolean(parentEl && parentEl.classList && parentEl.classList.contains('tw-explore-ai-pane'));
+    if (isStudioHost) {
+      this.drawerEl.classList.add('tw-studio-mode');
+      this.drawerEl.style.display = 'flex';
+      this.drawerEl.style.width = '100%';
+      if (this.resizerEl) this.resizerEl.style.display = 'none';
+      this.isOpenState = true;
+    } else {
+      this.drawerEl.classList.remove('tw-studio-mode');
+      this.drawerEl.style.width = `${this.width}px`;
+      if (this.resizerEl) this.resizerEl.style.display = '';
+      this.isOpenState = Boolean(this._normalDrawerOpen);
+      this.drawerEl.style.display = this.isOpenState ? 'flex' : 'none';
+    }
+
     this.updateContextCapsule();
     this.updateCardAttachments();
     this.updatePermBadge();
     this.updatePermHint();
     this.syncActiveAgentUI();
-    this.restoreSessionMessages(this.hub.activeAgentId);
+    // 仅首次构建或消息区确为空且无在途回复时才恢复历史，严禁覆盖在途气泡与工具句柄
+    const hasLiveUi = !!(this.messagesEl && this.messagesEl.children.length > 0);
+    const hubStreaming = typeof this.hub.isStreaming === 'function' ? this.hub.isStreaming() : false;
+    if (isFirstBuild || (!hasLiveUi && !this.currentAssistantMessage && !hubStreaming)) {
+      this.restoreSessionMessages(this.hub.activeAgentId);
+    }
     this.updateStatus(this.hub.getStatus());
     this.ensureAgentConnected();
+
+    // 重挂载后容器尺寸可能变化，下一帧重对齐导航刻度与吸顶提问条
+    setTimeout(() => {
+      if (typeof this.buildChatMinimap === 'function') this.buildChatMinimap();
+      if (typeof this.updateStickyQuestion === 'function') this.updateStickyQuestion();
+    }, 50);
   }
 
   buildDom() {
+    // 若 buildDom 被再次执行（异常恢复等），先中止上一轮 document 级全局监听，防泄漏叠加
+    if (this._docEventsAbort) {
+      try { this._docEventsAbort.abort(); } catch (_) {}
+    }
+    this._docEventsAbort = new AbortController();
     this.drawerEl = document.createElement('div');
     this.drawerEl.className = 'tw-agent-drawer';
     this.drawerEl.style.width = `${this.width}px`;
@@ -17481,9 +18838,6 @@ class PiDrawerView {
           </button>
           <div class="tw-agent-dropdown-menu" id="twDrawerAgentMenu" style="display:none;"></div>
         </div>
-        <button class="tw-drawer-badge-btn" id="twDrawerPermBadge" title="点击切换：只读模式 / 读写模式">
-          <span class="tw-badge-icon">${getIconPark('edit', 13)}</span>
-        </button>
         <div class="tw-drawer-status">
           <span class="tw-status-dot disconnected" id="twDrawerStatusDot"></span>
           <span class="tw-status-label" id="twDrawerStatusLabel">未连接</span>
@@ -17512,7 +18866,6 @@ class PiDrawerView {
     this.agentNameEl = header.querySelector('#twDrawerAgentName');
     this.statusLed = header.querySelector('#twDrawerStatusDot');
     this.statusText = header.querySelector('#twDrawerStatusLabel');
-    this.permBadgeEl = header.querySelector('#twDrawerPermBadge');
     this.btnHistory = header.querySelector('#twBtnHistory');
     this.btnExportQuickNote = header.querySelector('#twBtnExportQuickNote');
     this.btnNewSession = header.querySelector('#twBtnNewSession');
@@ -17544,7 +18897,7 @@ class PiDrawerView {
       this.statusText.onclick = handleStatusClick;
     }
 
-    if (this.permBadgeEl) this.permBadgeEl.onclick = () => this.togglePermissionMode();
+    // 权限徽章已迁移至输入卡工具栏 tw-perm-pill（见 footer 构建与绑定）
     if (this.btnHistory) this.btnHistory.onclick = () => this.toggleHistoryPanel();
     if (this.btnExportQuickNote) this.btnExportQuickNote.onclick = () => this.exportToQuickNote();
     if (this.btnNewSession) this.btnNewSession.onclick = () => this.handleNewSession();
@@ -17694,15 +19047,25 @@ class PiDrawerView {
     };
 
 
-    contentWrap.appendChild(this.messagesEl);
+    // 5.3 消息视口包裹层: sticky 条与回底按钮的独立定位上下文
+    //     —— top:0 即消息视口顶边，不再依赖 header 高度魔数
+    const messagesViewport = document.createElement('div');
+    messagesViewport.className = 'tw-messages-viewport';
+    contentWrap.appendChild(messagesViewport);
+    messagesViewport.appendChild(this.messagesEl);
 
-    // 5.4 浮动平滑回到底部按钮 (对应 DeepSeek Harness 悬浮箭头)
+    // 5.4 消息视口底部虚化过渡带 (渐变融入发送卡片上方，避免滚动内容生硬截断)
+    this.bottomFadeEl = document.createElement('div');
+    this.bottomFadeEl.className = 'tw-chat-bottom-fade';
+    messagesViewport.appendChild(this.bottomFadeEl);
+
+    // 5.5 浮动平滑回到底部按钮 (正中悬浮正圆向下方箭头，对应 DeepSeek Harness 悬浮图标)
     this.scrollBottomBtn = document.createElement('button');
     this.scrollBottomBtn.className = 'tw-scroll-bottom-btn';
     this.scrollBottomBtn.title = '平滑回到底部';
-    this.scrollBottomBtn.innerHTML = getIconPark('down', 14);
+    this.scrollBottomBtn.innerHTML = getIconPark('arrow-down', 14);
     this.scrollBottomBtn.onclick = () => this.scrollToBottom(true);
-    contentWrap.appendChild(this.scrollBottomBtn);
+    messagesViewport.appendChild(this.scrollBottomBtn);
 
     // 5.5 吸顶提问复用条: 滚动离开原始气泡时钉在消息区顶部 (绝对定位, 不占 flex 流)
     this.stickyHeaderEl = document.createElement('div');
@@ -17712,7 +19075,7 @@ class PiDrawerView {
       <span class="tw-sticky-q-text"></span>
     `;
     this.stickyHeaderEl.onclick = () => this.scrollToBottom(true);
-    contentWrap.insertBefore(this.stickyHeaderEl, this.messagesEl);
+    messagesViewport.insertBefore(this.stickyHeaderEl, this.messagesEl);
 
     if (this._stickyAbort) {
       try { this._stickyAbort.abort(); } catch (_) {}
@@ -17748,8 +19111,11 @@ class PiDrawerView {
         this._stickyRaf = null;
         this.updateStickyQuestion();
         this.updateMinimapActive();
+        const d = this.messagesEl.scrollHeight - this.messagesEl.scrollTop - this.messagesEl.clientHeight;
+        if (this.bottomFadeEl) {
+          this.bottomFadeEl.classList.toggle('visible', d > 24);
+        }
         if (this.scrollBottomBtn) {
-          const d = this.messagesEl.scrollHeight - this.messagesEl.scrollTop - this.messagesEl.clientHeight;
           this.scrollBottomBtn.classList.toggle('visible', d > 120 || this._contentBelowPending);
           if (!this._contentBelowPending) this.scrollBottomBtn.classList.remove('has-new');
         }
@@ -17808,50 +19174,71 @@ class PiDrawerView {
     const footer = document.createElement('div');
     footer.className = 'tw-drawer-footer';
     footer.innerHTML = `
-      <div class="tw-session-ctx" id="twSessionCtx" style="display:none;"></div>
       <div class="tw-drawer-input-card" id="twDrawerInputCard">
         <div class="tw-card-resizer" id="twCardResizer" title="上下拖拽调整对话框高度">
           <span class="tw-card-resizer-line"></span>
         </div>
         <div class="tw-card-image-attachments" id="twCardImageAttachments" style="display:none;"></div>
         <div class="tw-card-attachments" id="twCardAttachments" style="display:none;"></div>
+        <div class="tw-plan-bar" id="twPlanBar" style="display:none;">
+          <span class="tw-plan-bar-icon">${getIconPark('lock', 12)}</span>
+          <span class="tw-plan-bar-text">只读模式已生成方案</span>
+          <button class="tw-plan-bar-run" id="twPlanBarRun" title="切换到读写模式并执行该方案">▶ 执行</button>
+          <button class="tw-plan-bar-close" id="twPlanBarClose" title="忽略">✕</button>
+        </div>
+        <div class="tw-queue-strip" id="twQueueStrip" style="display:none;"></div>
         <div class="tw-card-chips" id="twCardChips" style="display:none;"></div>
         <textarea
           class="tw-drawer-input" 
           id="twDrawerInput" 
-          placeholder="向 ${escapeAttr(activeAdapter.displayName || activeAdapter.name)} 提问，输入需求或问题... (Enter 发送)"
+          placeholder="发消息或创建任务，/ 调用指令，@ 文件或对话"
         ></textarea>
         <div class="tw-card-toolbar">
           <div class="tw-card-toolbar-left">
-            <div class="tw-card-model-wrap" id="twCardModelWrap">
-              <button class="tw-card-model-pill" id="twCardModelPill" title="点击切换当前 AI 模型">
-                <span class="tw-card-model-icon" id="twCardModelIcon">${getOfficialModelSvg('gpt-5-6-thinking', 14)}</span>
-                <span class="tw-card-model-name" id="twCardModelName">GPT-5.6 Sol</span>
-                <span class="tw-card-model-caret">${getIconPark('down', 10)}</span>
-              </button>
-              <div class="tw-model-popover" id="twModelPopover" style="display:none;">
-                <div class="tw-model-search-wrap">
-                  <span class="tw-model-search-icon">${getIconPark('search', 13)}</span>
-                  <input type="text" class="tw-model-search-input" id="twModelSearchInput" placeholder="搜索模型 (如 5.6, Claude, Gemini...)" />
-                  <button type="button" class="tw-model-refresh-btn" id="twModelRefreshBtn" title="实时刷新模型列表">
-                    ${getIconPark('refresh', 13)}
-                  </button>
-                </div>
-                <div class="tw-model-popover-list" id="twModelPopoverList"></div>
-              </div>
-              <div class="tw-reasoning-popover" id="twReasoningPopover" style="display:none;"></div>
-            </div>
-            <button class="tw-card-upload-btn" id="twBtnUploadImage" title="上传图片 (支持相册选择 / Ctrl+V 截图直接粘贴 / 拖拽图片)">
-              ${getIconPark('pic', 15)}
-            </button>
-            <input type="file" id="twImageFileInput" accept="image/png,image/jpeg,image/webp,image/gif" multiple style="display:none;" />
             <div class="tw-card-options-wrap" id="twCardOptionsWrap">
-              <button class="tw-card-options-btn" id="twCardOptionsBtn" title="选项配置">
-                ${getIconPark('options', 15)}
+              <button class="tw-card-options-btn" id="twCardOptionsBtn" title="添加 · 指令 · 上下文">
+                ${getIconPark('plus', 14)}
                 <span class="tw-options-badge-dot" id="twOptionsBadgeDot" style="display:none;"></span>
               </button>
+              <input type="file" id="twImageFileInput" accept="image/png,image/jpeg,image/webp,image/gif" multiple style="display:none;" />
               <div class="tw-options-popover" id="twOptionsPopover" style="display:none;">
                 <div class="tw-options-menu">
+                  <!-- 添加 -->
+                  <div class="tw-opt-group-title">添加<span class="tw-opt-group-count">1-2/2</span></div>
+                  <div class="tw-opt-menu-item" id="twOptImageItem" title="上传图片附件 (支持 Ctrl+V 粘贴 / 拖拽)">
+                    <div class="tw-opt-item-left">
+                      <span class="tw-opt-item-icon">${getIconPark('pic', 14)}</span>
+                      <span class="tw-opt-item-name">图片</span>
+                      <span class="tw-opt-item-en">image</span>
+                    </div>
+                    <div class="tw-opt-item-right">
+                      <span class="tw-opt-item-val">上传附件</span>
+                    </div>
+                  </div>
+                  <div class="tw-opt-menu-item" id="twOptAtItem" title="引用库内文件或技能">
+                    <div class="tw-opt-item-left">
+                      <span class="tw-opt-item-icon">${getIconPark('at-sign', 14)}</span>
+                      <span class="tw-opt-item-name">文件</span>
+                      <span class="tw-opt-item-en">ref</span>
+                    </div>
+                    <div class="tw-opt-item-right">
+                      <span class="tw-opt-item-val">@ 引用</span>
+                    </div>
+                  </div>
+                  <!-- 指令 -->
+                  <div class="tw-opt-group-title">指令<span class="tw-opt-group-count">1-1/1</span></div>
+                  <div class="tw-opt-menu-item" id="twOptSlashItem" title="调用斜杠指令">
+                    <div class="tw-opt-item-left">
+                      <span class="tw-opt-item-icon">${getIconPark('slash', 14)}</span>
+                      <span class="tw-opt-item-name">指令</span>
+                      <span class="tw-opt-item-en">cmd</span>
+                    </div>
+                    <div class="tw-opt-item-right">
+                      <span class="tw-opt-item-val">/ 调用</span>
+                    </div>
+                  </div>
+                  <!-- 上下文 -->
+                  <div class="tw-opt-group-title">上下文<span class="tw-opt-group-count">1-4/4</span></div>
                   <!-- 1. OpenGrok 代码工程 -->
                   <div class="tw-opt-menu-item active has-submenu" id="twOptOpenGrokItem" title="OpenGrok 代码工程切换">
                     <div class="tw-opt-item-left">
@@ -17952,13 +19339,47 @@ class PiDrawerView {
 
               </div>
             </div>
+            <div class="tw-perm-wrap" id="twPermWrap">
+              <button class="tw-perm-pill" id="twPermPill" title="权限模式：切换读写 / 只读"></button>
+              <div class="tw-perm-popover" id="twPermPopover" style="display:none;">
+                <div class="tw-perm-opt" data-mode="readwrite" title="可新建与修改笔记 / 执行命令">
+                  <span class="tw-perm-opt-icon">${getIconPark('shield', 13)}</span>
+                  <span class="tw-perm-opt-name">完全权限</span>
+                  <span class="tw-perm-opt-check">${getIconPark('check-square', 12)}</span>
+                </div>
+                <div class="tw-perm-opt" data-mode="readonly" title="只读安全模式（不修改文件）">
+                  <span class="tw-perm-opt-icon">${getIconPark('lock', 13)}</span>
+                  <span class="tw-perm-opt-name">只读</span>
+                  <span class="tw-perm-opt-check">${getIconPark('check-square', 12)}</span>
+                </div>
+              </div>
+            </div>
+            <div class="tw-session-ctx" id="twSessionCtx" style="display:none;"></div>
           </div>
           <div class="tw-card-toolbar-right">
+            <div class="tw-card-model-wrap" id="twCardModelWrap">
+              <button class="tw-card-model-pill" id="twCardModelPill" title="点击切换当前 AI 模型">
+                <span class="tw-card-model-icon" id="twCardModelIcon">${getOfficialModelSvg('gpt-5-6-thinking', 14)}</span>
+                <span class="tw-card-model-name" id="twCardModelName">GPT-5.6 Sol</span>
+                <span class="tw-card-model-caret">${getIconPark('down', 10)}</span>
+              </button>
+              <div class="tw-model-popover" id="twModelPopover" style="display:none;">
+                <div class="tw-model-search-wrap">
+                  <span class="tw-model-search-icon">${getIconPark('search', 13)}</span>
+                  <input type="text" class="tw-model-search-input" id="twModelSearchInput" placeholder="搜索模型 (如 5.6, Claude, Gemini...)" />
+                  <button type="button" class="tw-model-refresh-btn" id="twModelRefreshBtn" title="实时刷新模型列表">
+                    ${getIconPark('refresh', 13)}
+                  </button>
+                </div>
+                <div class="tw-model-popover-list" id="twModelPopoverList"></div>
+              </div>
+              <div class="tw-reasoning-popover" id="twReasoningPopover" style="display:none;"></div>
+            </div>
             <button class="tw-card-abort-btn" id="twBtnAbort" style="display:none;" title="停止生成 (Esc)">
               <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor"><rect x="5.5" y="5.5" width="13" height="13" rx="2.5"/></svg>
             </button>
             <button class="tw-card-send-btn disabled" id="twBtnSend" title="发送 (Enter)" disabled>
-              ${getIconPark('send', 16)}
+              ${getIconPark('arrow-up', 15)}
             </button>
           </div>
         </div>
@@ -17974,9 +19395,13 @@ class PiDrawerView {
     this.cardImageAttachmentsEl = footer.querySelector('#twCardImageAttachments');
     this.cardAttachmentsEl = footer.querySelector('#twCardAttachments');
     this.chipsEl = footer.querySelector('#twCardChips');
+    this.queueStripEl = footer.querySelector('#twQueueStrip');
+    this.planBarEl = footer.querySelector('#twPlanBar');
     this.sessionCtxEl = footer.querySelector('#twSessionCtx');
-    this.btnUploadImage = footer.querySelector('#twBtnUploadImage');
     this.imageFileInput = footer.querySelector('#twImageFileInput');
+    this.permBadgeEl = footer.querySelector('#twPermPill');
+    this.permWrapEl = footer.querySelector('#twPermWrap');
+    this.permPopoverEl = footer.querySelector('#twPermPopover');
     this.inputEl = footer.querySelector('#twDrawerInput');
     this.btnSend = footer.querySelector('#twBtnSend');
     this.btnAbort = footer.querySelector('#twBtnAbort');
@@ -17997,6 +19422,10 @@ class PiDrawerView {
     this.optionsBadgeDot = footer.querySelector('#twOptionsBadgeDot');
     this.optionsPopoverEl = footer.querySelector('#twOptionsPopover');
     this.btnCloseOptions = footer.querySelector('#twBtnCloseOptions');
+
+    this.optImageItem = footer.querySelector('#twOptImageItem');
+    this.optAtItem = footer.querySelector('#twOptAtItem');
+    this.optSlashItem = footer.querySelector('#twOptSlashItem');
 
     this.optOpenGrokItem = footer.querySelector('#twOptOpenGrokItem');
     this.optProjTrigger = this.optOpenGrokItem;
@@ -18042,6 +19471,7 @@ class PiDrawerView {
     this.bindModelSelectorEvents();
     this.updateModelSelectorPill();
     this.bindProjectSelectorEvents();
+    this.bindPermEvents();
     this.updateProjectSelectorPill();
     this.updateContextCapsule();
     this._restoreChips(this.hub.activeAgentId);
@@ -18069,7 +19499,7 @@ class PiDrawerView {
       if (this.selectorMenu && !this.selectorMenu.contains(e.target) && e.target !== this.selectorBtn) {
         this.selectorMenu.style.display = 'none';
       }
-    });
+    }, { signal: this._docEventsAbort ? this._docEventsAbort.signal : undefined });
   }
 
   renderDropdownMenu() {
@@ -18161,14 +19591,14 @@ class PiDrawerView {
       if (this.modelPopoverEl && this.modelWrapEl && !this.modelWrapEl.contains(e.target)) {
         this.closeModelPopover();
       }
-    });
+    }, { signal: this._docEventsAbort ? this._docEventsAbort.signal : undefined });
 
     // Close on Esc
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape' && this.modelPopoverEl && this.modelPopoverEl.style.display === 'flex') {
         this.closeModelPopover();
       }
-    });
+    }, { signal: this._docEventsAbort ? this._docEventsAbort.signal : undefined });
   }
 
   openModelPopover() {
@@ -18514,6 +19944,7 @@ class PiDrawerView {
         localStorage.setItem('tabonkb-opengrok-selected-project', this.selectedProject);
       }
     } catch (e) {}
+    this._persistActiveContextFile();
     this.updateProjectSelectorPill();
   }
 
@@ -18549,6 +19980,7 @@ class PiDrawerView {
         localStorage.setItem('tabonkb-gerrit-selected-filter', this.selectedGerritFilter);
       }
     } catch (e) {}
+    this._persistActiveContextFile();
     this.updateProjectSelectorPill();
   }
 
@@ -18582,7 +20014,15 @@ class PiDrawerView {
           localStorage.removeItem('tabonkb-jira-selected-issue');
         }
       }
+      if (typeof process !== 'undefined' && process.env) {
+        if (this.selectedJiraIssue) {
+          process.env.TABONKB_JIRA_ISSUE_JSON = JSON.stringify(this.selectedJiraIssue);
+        } else {
+          delete process.env.TABONKB_JIRA_ISSUE_JSON;
+        }
+      }
     } catch (_) {}
+    this._persistActiveContextFile();
     this.updateProjectSelectorPill();
   }
 
@@ -18633,7 +20073,47 @@ class PiDrawerView {
         }
       }
     } catch (_) {}
+    this._persistActiveContextFile();
     this.updateProjectSelectorPill();
+  }
+
+  _persistActiveContextFile() {
+    try {
+      
+      
+      const basePath = this.app?.vault?.adapter?.basePath || (typeof process !== 'undefined' ? process.cwd() : '');
+      if (!basePath) return;
+      const target = path.join(basePath, '.obsidian', 'plugins', 'tabonkb-workbench', 'active-context.json');
+      const payload = {
+        selectedLocalProject: this.selectedLocalProject || null,
+        selectedJiraIssue: this.selectedJiraIssue || null,
+        selectedProject: this.selectedProject || 'auto',
+        selectedGerritFilter: this.selectedGerritFilter || 'all',
+        updatedAt: Date.now()
+      };
+      fs.writeFileSync(target, JSON.stringify(payload, null, 2), 'utf8');
+    } catch (_) {}
+  }
+
+  bindPermEvents() {
+    if (!this.permBadgeEl || !this.permPopoverEl) return;
+    this.permBadgeEl.onclick = (e) => {
+      e.stopPropagation();
+      const open = this.permPopoverEl.style.display === 'flex';
+      this.permPopoverEl.style.display = open ? 'none' : 'flex';
+      if (!open) this.closeProjectPopover(); // 与 + 菜单互斥
+    };
+    this.permPopoverEl.querySelectorAll('.tw-perm-opt').forEach((opt) => {
+      opt.onclick = (e) => {
+        e.stopPropagation();
+        this.permPopoverEl.style.display = 'none';
+        const mode = opt.getAttribute('data-mode');
+        Promise.resolve(this.setPermissionMode(mode)).catch((err) => {
+          console.error('[PiDrawerView] setPermissionMode failed:', err);
+        });
+      };
+    });
+    // 外部点击/Esc 关闭复用 bindProjectSelectorEvents 的 document 级处理器（不新增监听数）
   }
 
   bindProjectSelectorEvents() {
@@ -18645,9 +20125,33 @@ class PiDrawerView {
       if (isVisible) {
         this.closeProjectPopover();
       } else {
+        if (this.permPopoverEl) this.permPopoverEl.style.display = 'none'; // 与权限弹层互斥
         this.openProjectPopover();
       }
     };
+
+    // 「添加/指令」组：图片附件 / @文件引用 / 斜杠指令
+    if (this.optImageItem) {
+      this.optImageItem.onclick = (e) => {
+        e.stopPropagation();
+        this.closeProjectPopover();
+        if (this.imageFileInput) this.imageFileInput.click();
+      };
+    }
+    if (this.optAtItem) {
+      this.optAtItem.onclick = (e) => {
+        e.stopPropagation();
+        this.closeProjectPopover();
+        this._insertTriggerChar('@');
+      };
+    }
+    if (this.optSlashItem) {
+      this.optSlashItem.onclick = (e) => {
+        e.stopPropagation();
+        this.closeProjectPopover();
+        this._insertTriggerChar('/');
+      };
+    }
 
     // 1. OpenGrok 级联子菜单交互
     if (this.optOpenGrokItem && this.optProjDropdownPanel) {
@@ -18843,6 +20347,11 @@ class PiDrawerView {
 
     // Close on click outside - 点击任意空白处关闭退出选项
     document.addEventListener('click', (e) => {
+      // 权限弹层独立关闭（不受 options popover 可见性影响）
+      if (this.permPopoverEl && this.permPopoverEl.style.display !== 'none'
+        && this.permWrapEl && !this.permWrapEl.contains(e.target)) {
+        this.permPopoverEl.style.display = 'none';
+      }
       if (!this.optionsPopoverEl || this.optionsPopoverEl.style.display === 'none') return;
 
       // 如果点击在浮窗内部，不关闭
@@ -18888,14 +20397,18 @@ class PiDrawerView {
           }
         }
       }
-    });
+    }, { signal: this._docEventsAbort ? this._docEventsAbort.signal : undefined });
 
     // Close on Esc
     document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && this.optionsPopoverEl && this.optionsPopoverEl.style.display === 'flex') {
+      if (e.key !== 'Escape') return;
+      if (this.optionsPopoverEl && this.optionsPopoverEl.style.display === 'flex') {
         this.closeProjectPopover();
       }
-    });
+      if (this.permPopoverEl && this.permPopoverEl.style.display !== 'none') {
+        this.permPopoverEl.style.display = 'none';
+      }
+    }, { signal: this._docEventsAbort ? this._docEventsAbort.signal : undefined });
   }
 
   openProjectDropdown() {
@@ -19859,13 +21372,12 @@ class PiDrawerView {
       this.sessionCtxEl.innerHTML = '';
       return;
     }
-    this.sessionCtxEl.style.display = 'flex';
+    this.sessionCtxEl.style.display = 'inline-flex';
     this.sessionCtxEl.innerHTML = chips.map((c, idx) => `
-      <span class="tw-sctx-chip tw-sctx-${c.type}" data-idx="${idx}" title="${escapeAttr(c.tip)}">
-        <span class="tw-sctx-icon">${getIconPark(c.icon, 11)}</span>
+      <button type="button" class="tw-sctx-chip tw-sctx-${c.type}" data-idx="${idx}" title="${escapeAttr(c.tip)}（点击切换配置，右击解除绑定）">
+        <span class="tw-sctx-icon">${getIconPark(c.icon, 14)}</span>
         <span class="tw-sctx-label">${escapeHtml(c.label)}</span>
-        <span class="tw-sctx-x tw-ctx-clear-btn" role="button" tabindex="0" title="解除绑定">${getIconPark('close', 10)}</span>
-      </span>
+      </button>
     `).join('');
     this.sessionCtxEl.querySelectorAll('.tw-sctx-chip').forEach((el) => {
       const chip = chips[Number(el.getAttribute('data-idx'))];
@@ -19873,14 +21385,21 @@ class PiDrawerView {
       el.onclick = (e) => {
         e.stopPropagation();
         if (typeof this.openProjectPopover === 'function') this.openProjectPopover();
+        if (chip.type === 'local' && typeof this.openLocalProjDropdown === 'function') {
+          this.openLocalProjDropdown();
+        } else if (chip.type === 'jira' && typeof this.openJiraDropdown === 'function') {
+          this.openJiraDropdown();
+        } else if (chip.type === 'opengrok' && typeof this.openProjectDropdown === 'function') {
+          this.openProjectDropdown();
+        } else if (chip.type === 'gerrit' && typeof this.openGerritDropdown === 'function') {
+          this.openGerritDropdown();
+        }
       };
-      const x = el.querySelector('.tw-sctx-x');
-      if (x) {
-        x.onclick = (e) => { e.stopPropagation(); chip.clear(); };
-        x.onkeydown = (e) => {
-          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); chip.clear(); }
-        };
-      }
+      el.oncontextmenu = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (typeof chip.clear === 'function') chip.clear();
+      };
     });
   }
 
@@ -19922,6 +21441,15 @@ class PiDrawerView {
 
     // 6. Restore Message History
     this.restoreSessionMessages(agentId);
+    // 排队条/回显对账/方案条随 Agent 切换复位（pi 原生队列快照由 queue_update 事件同步）
+    this._queueSnapshot = null;
+    this._pendingSentWires = [];
+    this._assistantRunBuffer = [];
+    this._runAborted = false;
+    this._suppressPlanBarOnce = false;
+    if (this._queuedWireByPrompt) this._queuedWireByPrompt.clear();
+    this.renderQueueStrip(null);
+    this._hidePlanBar();
 
     // 7. Check if installed and show warning if needed
     this.checkAdapterInstalledState(adapter);
@@ -19964,42 +21492,9 @@ class PiDrawerView {
 
   updateInputPlaceholder() {
     if (!this.inputEl || !this.hub) return;
-    const adapter = this.hub.getActiveAdapter();
-    const agents = typeof this.hub.getAgentList === 'function' ? this.hub.getAgentList() : [];
-    const meta = agents.find(a => a.id === this.hub.activeAgentId) || {
-      name: adapter?.name || 'Agent',
-      displayName: adapter?.displayName || adapter?.name || 'Agent'
-    };
-    const agentName = meta.displayName || meta.name || 'Agent';
-
-    let modelSuffix = '';
-    const currentModel = typeof adapter?.getModel === 'function' ? adapter.getModel() : null;
-    if (currentModel?.name && currentModel.name !== agentName) {
-      let mName = currentModel.name;
-      if (typeof adapter?.supportsReasoningEffort === 'function' && adapter.supportsReasoningEffort(currentModel.id)) {
-        const effortConfig = typeof adapter?.getReasoningEffortConfig === 'function' ? adapter.getReasoningEffortConfig() : null;
-        if (effortConfig && effortConfig.label) mName += ` · ${effortConfig.label}`;
-      }
-      modelSuffix = ` (${mName})`;
-    }
-
-    const isCustomLocalProj = Boolean(this.selectedLocalProject && this.selectedLocalProject.id && this.selectedLocalProject.id !== 'none');
-    const localProjShort = isCustomLocalProj ? (this.selectedLocalProject.label || this.selectedLocalProject.project) : '';
-    const isCustomJira = Boolean(this.selectedJiraIssue && this.selectedJiraIssue.key);
-    const jiraKey = isCustomJira ? this.selectedJiraIssue.key : '';
-
-    let ctxTag = '';
-    if (localProjShort && jiraKey) {
-      ctxTag = ` [${localProjShort} · ${jiraKey}]`;
-    } else if (localProjShort) {
-      ctxTag = ` [${localProjShort}]`;
-    } else if (jiraKey) {
-      ctxTag = ` [${jiraKey}]`;
-    }
-
-    const basePlaceholder = `向 ${agentName}${modelSuffix}${ctxTag} 提问... (Enter 发送)`;
+    // 极简提示：Agent/模型/上下文已由 header 与工具栏胶囊呈现，不再冗余拼接
+    const basePlaceholder = '发消息或创建任务，/ 调用指令，@ 文件或对话';
     this._inputPlaceholder = basePlaceholder;
-
     const hasChips = !!(this.inputChips && this.inputChips.length);
     this.inputEl.placeholder = hasChips ? '输入消息内容...' : basePlaceholder;
   }
@@ -20039,6 +21534,10 @@ class PiDrawerView {
     this.messagesEl.innerHTML = '';
     this.activeToolCards.clear();
     this.currentAssistantMessage = null;
+    // 分段缓冲/中止标记随会话恢复复位（在途内容本就被丢弃，缓冲一并清）
+    this._assistantRunBuffer = [];
+    this._runAborted = false;
+    this._suppressPlanBarOnce = false;
 
     if (this.stickyHeaderEl) {
       this.stickyHeaderEl.classList.remove('visible');
@@ -20062,9 +21561,393 @@ class PiDrawerView {
         this.renderPastAssistantMessage(msg);
       }
     }
+    this._renderInterruptHintIfOrphaned(messages);
     this.scrollToBottom(true);
     if (typeof this.buildChatMinimap === 'function') this.buildChatMinimap();
     if (typeof this.updateStickyQuestion === 'function') this.updateStickyQuestion();
+  }
+
+  /**
+   * 恢复态末尾检测"孤儿回合"：会话最后一条是无应答的 user（或完全空壳的 assistant），
+   * 说明在途回复未落库即丢失（插件热重载/进程被杀导致），渲染极简中断提示分隔条。
+   * 仅 DOM 层标记，不写入 sessionManager；流式/发送中不误标。
+   */
+  _renderInterruptHintIfOrphaned(messages) {
+    if (!this.messagesEl || !Array.isArray(messages) || !messages.length) return;
+    if (this.currentAssistantMessage || this._sendInFlight) return;
+    if (this.hub && typeof this.hub.isStreaming === 'function' && this.hub.isStreaming()) return;
+    const last = messages[messages.length - 1];
+    const isEmptyAssistant = last.role === 'assistant'
+      && !last.text && !last.thinking
+      && !(Array.isArray(last.toolCalls) && last.toolCalls.length)
+      && !(Array.isArray(last.processSteps) && last.processSteps.some(s => s && (s.text || s.content)));
+    const isInterruptedAssistant = last.role === 'assistant' && last.interrupted === true;
+    if (last.role !== 'user' && !isEmptyAssistant && !isInterruptedAssistant) return;
+    const marker = document.createElement('div');
+    marker.className = 'tw-interrupt-marker';
+    marker.innerHTML = '<span>上次回复已中断</span>';
+    this.messagesEl.appendChild(marker);
+
+    // pi 会话：孤儿 user 回合 → 尝试从 pi 原生 .jsonl 恢复中断前的思考链与工具步骤
+    if (last.role === 'user' && this.hub && this.hub.activeAgentId === 'pi') {
+      this._tryRecoverPiInterruptedTurn(last);
+    }
+  }
+
+  /**
+   * 从 pi 原生 .jsonl 会话文件恢复中断回合：pi 在每次 thinking/toolCall/toolResult/text
+   * 落盘实时追加，即使插件热重载导致 UI 层 .chat-history 无记录，.jsonl 尾部仍保留现场。
+   * 恢复结果持久化为带 interrupted 标记的 assistant 消息，仅执行一次。
+   */
+  _tryRecoverPiInterruptedTurn(lastUserMsg) {
+    if (this._piRecoverInFlight) return;
+    this._piRecoverInFlight = true;
+    try {
+      const recovered = this._parsePiSessionTail(lastUserMsg);
+      if (!recovered) return;
+      const agentId = this.hub.activeAgentId;
+      this.hub.sessionManager.addMessage(agentId, recovered);
+      // 恢复气泡插到中断标记之前，随后重渲染标记
+      const marker = this.messagesEl ? this.messagesEl.querySelector('.tw-interrupt-marker') : null;
+      if (marker) marker.remove();
+      this.renderPastAssistantMessage(recovered);
+      this._renderInterruptHintIfOrphaned(this.hub.sessionManager.getMessages(agentId));
+      if (typeof this.buildChatMinimap === 'function') this.buildChatMinimap();
+      if (typeof this.updateStickyQuestion === 'function') this.updateStickyQuestion();
+      this.scrollToBottom(true);
+    } catch (e) {
+      console.warn('[PiDrawerView] recover interrupted pi turn failed:', e);
+    } finally {
+      this._piRecoverInFlight = false;
+    }
+  }
+
+  /** 解析 pi 会话 .jsonl 尾部：取最后一条 user 之后累积的 thinking/toolCall/toolResult/text */
+  _parsePiSessionTail(lastUserMsg) {
+    const file = this._resolvePiSessionFile();
+    if (!file) return null;
+    
+    const raw = fs.readFileSync(file, 'utf-8');
+    const entries = [];
+    for (const line of raw.split('\n')) {
+      const s = line.trim();
+      if (!s) continue;
+      try {
+        const e = JSON.parse(s);
+        if (e && e.type === 'message' && e.message) entries.push(e);
+      } catch (_) {}
+    }
+    // 定位最后一条 user 消息
+    let uIdx = -1;
+    for (let i = entries.length - 1; i >= 0; i--) {
+      if (entries[i].message.role === 'user') { uIdx = i; break; }
+    }
+    if (uIdx < 0 || uIdx >= entries.length - 1) return null;
+    // 会话文件对齐校验：jsonl 中 user 为注入后全文，包含 wireText 片段
+    const want = this._normTxt(lastUserMsg && lastUserMsg.text).slice(0, 48);
+    if (want) {
+      const jText = this._normTxt(this._extractJsonlText(entries[uIdx].message));
+      if (!jText.includes(want.slice(0, 32))) return null;
+    }
+    const thinkingParts = [];
+    const toolCalls = [];
+    const steps = [];
+    let text = '';
+    let curStep = null;
+    for (let i = uIdx + 1; i < entries.length; i++) {
+      const m = entries[i].message;
+      if (m.role === 'assistant' && Array.isArray(m.content)) {
+        for (const part of m.content) {
+          if (!part || typeof part !== 'object') continue;
+          if (part.type === 'thinking' && part.thinking) {
+            thinkingParts.push(part.thinking);
+            if (!curStep || curStep.type !== 'thinking') {
+              curStep = { type: 'thinking', icon: 'sparkle', label: '思考过程', text: '' };
+              steps.push(curStep);
+            }
+            curStep.text += part.thinking;
+          } else if (part.type === 'text' && part.text) {
+            text += part.text;
+            curStep = null;
+          } else if (part.type === 'toolCall' || part.type === 'tool_call' || part.type === 'tool_use') {
+            const tc = {
+              toolCallId: part.id || part.toolCallId || part.tool_use_id || `tc-${i}`,
+              toolName: part.name || part.toolName || 'tool',
+              args: part.arguments || part.args || part.input || {},
+              output: '',
+              isError: false
+            };
+            toolCalls.push(tc);
+            if (!curStep || curStep.type !== 'tool') {
+              curStep = { type: 'tool', icon: 'fileText', label: '已调用工具', text: '', toolCalls: [] };
+              steps.push(curStep);
+            }
+            curStep.toolCalls.push(tc);
+          }
+        }
+      } else if (m.role === 'toolResult') {
+        const tid = m.toolCallId || m.tool_use_id || m.id;
+        const tc = toolCalls.find(t => t.toolCallId === tid) || toolCalls[toolCalls.length - 1];
+        if (tc) {
+          tc.output = this._extractJsonlText(m);
+          tc.isError = !!m.isError;
+        }
+      }
+    }
+    if (!thinkingParts.length && !toolCalls.length && !String(text).trim()) return null;
+    for (const s of steps) {
+      if (s.type === 'tool') {
+        s.label = this.generateBatchToolSummary(s.toolCalls);
+        s.toolSummaries = s.toolCalls.map(tc => this._summarizeToolCall(tc)).filter(Boolean);
+      }
+    }
+    const lastTs = entries[entries.length - 1].timestamp;
+    const ts = typeof lastTs === 'number' ? lastTs : (Date.parse(lastTs) || Date.now());
+    return {
+      role: 'assistant',
+      text,
+      thinking: thinkingParts.join('\n\n'),
+      processSteps: steps,
+      toolCalls,
+      model: '',
+      duration: 0,
+      durationText: '—',
+      interrupted: true,
+      timestamp: ts
+    };
+  }
+
+  /** 定位当前 vault 对应的 pi 会话 .jsonl 文件（优先经 bridge，回落 localStorage 映射） */
+  _resolvePiSessionFile() {
+    try {
+      const adapter = typeof this.hub.getAdapter === 'function' ? this.hub.getAdapter('pi') : null;
+      const bridge = adapter && adapter.bridge;
+      if (bridge && typeof bridge._getSavedSessionFile === 'function') {
+        const f = bridge._getSavedSessionFile();
+        if (f) return f;
+      }
+    } catch (_) {}
+    try {
+      
+      const key = String(this.vaultBasePath || '').replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+      const raw = (typeof localStorage !== 'undefined') ? localStorage.getItem('tabonkb-pi-session-files') : null;
+      const map = raw ? JSON.parse(raw) : {};
+      const file = map[key];
+      if (!file || !fs.existsSync(file)) return null;
+      const head = String(fs.readFileSync(file, 'utf-8')).split('\n', 1)[0];
+      const header = JSON.parse(head);
+      const cwd = String(header.cwd || '').replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+      if (cwd && cwd === key) return file;
+    } catch (_) {}
+    return null;
+  }
+
+  _extractJsonlText(m) {
+    const c = m && m.content;
+    if (typeof c === 'string') return c;
+    if (Array.isArray(c)) {
+      return c.filter(p => p && p.type === 'text').map(p => p.text || '').join('\n');
+    }
+    return '';
+  }
+
+  _normTxt(s) {
+    return String(s || '').replace(/\s+/g, ' ').trim();
+  }
+
+  /**
+   * pi 用户消息回显对账：本地已渲染的 prompt/steer 回显跳过；
+   * 排队项被派发消费时的回显 → 渲染用户原文气泡（持久化由 addUserMessageBubble 承担）。
+   */
+  _onUserMessageEcho(rawText) {
+    const raw = String(rawText || '');
+    if (!raw) return;
+    const core = this._extractUserTextFromWire(raw) || raw;
+    const normRaw = this._normTxt(raw);
+    const normCore = this._normTxt(core);
+    const pending = this._pendingSentWires || [];
+    // 清理超期未匹配项（如扩展命令 handled 无回显），防对账本无限堆积
+    const now = Date.now();
+    for (let i = pending.length - 1; i >= 0; i--) {
+      if (now - (pending[i].ts || 0) > 10 * 60 * 1000) pending.splice(i, 1);
+    }
+    let idx = pending.findIndex(p => {
+      const w = this._normTxt(p.wire);
+      return w === normRaw || w === normCore;
+    });
+    // 技能/模板展开后回显文本与原文不一致 → 取最旧未消费项兜底
+    if (idx < 0 && pending.length) idx = 0;
+    if (idx >= 0) {
+      const p = pending.splice(idx, 1)[0];
+      if (!p.optimistic) this.addUserMessageBubble(p.wire, null);
+      return;
+    }
+    // 非本端入队的回显（如其他端注入）：与最后一条持久化 user 相同则跳过，否则渲染
+    const msgs = this.hub.sessionManager.getMessages(this.hub.activeAgentId) || [];
+    const last = msgs[msgs.length - 1];
+    if (last && last.role === 'user' && (this._normTxt(last.text) === normCore || this._normTxt(last.text) === normRaw)) return;
+    if (normCore) this.addUserMessageBubble(core, null);
+  }
+
+  /**
+   * 流式中提交：Enter=steer 插队纠偏（pi 原生），Alt+Enter=排队待办。
+   * steer 乐观渲染用户气泡；follow_up 仅以排队胶囊呈现，回显派发时再渲染气泡。
+   */
+  async handleQueueSend(mode) {
+    const adapter = this.hub.getActiveAdapter();
+    if (!adapter || adapter.status === 'not_installed') return;
+    if (this._sendInFlight) return;
+    const text = this.inputEl.value.trim();
+    const wireText = this._serializeChips(text);
+    if (!wireText) return;
+
+    // 排队消息派发时是新回合：与正常发送一样注入上下文（steer 轮内纠偏发原文）
+    const isNiceAigc = this.hub.activeAgentId === 'niceaigc';
+    const isSlashCommand = wireText.startsWith('/');
+    const prompt = this._composeContextInjectedPrompt(wireText, isSlashCommand, isNiceAigc);
+    if (!this._queuedWireByPrompt) this._queuedWireByPrompt = new Map();
+    this._queuedWireByPrompt.set(prompt, wireText);
+    this._queuedWireByPrompt.set(wireText, wireText);
+    if (this._queuedWireByPrompt.size > 60) {
+      const firstKey = this._queuedWireByPrompt.keys().next().value;
+      this._queuedWireByPrompt.delete(firstKey);
+    }
+
+    this.inputEl.value = '';
+    this.inputEl.style.height = `${this.inputHeight}px`;
+    this.hub.sessionManager.setDraft(this.hub.activeAgentId, '');
+    this.inputChips = [];
+    this._renderInputChips();
+    this._persistChips();
+    this.closeTriggerPicker();
+
+    const notice = (m) => {
+      const NoticeCls = typeof Notice !== 'undefined' ? Notice : (window.app?.Notice || class {});
+      try { new NoticeCls(m); } catch (_) {}
+    };
+
+    const isPi = this.hub.activeAgentId === 'pi';
+    const useSteer = mode === 'steer' && isPi && typeof adapter.steer === 'function';
+    this._pendingSentWires.push({ wire: wireText, optimistic: useSteer, ts: Date.now() });
+    if (this._pendingSentWires.length > 20) this._pendingSentWires.shift();
+
+    if (useSteer) {
+      // steer 是回合内边界：先把在途 assistant 段收尾入缓冲（addUserMessageBubble 顶部会合并落库），
+      // 否则 pi 注入后的后续输出会继续灌进 DOM 位置在纠偏气泡上方的旧气泡
+      if (this.currentAssistantMessage) {
+        this.finishAssistantMessage(false, { persist: false, preserveTools: true });
+      }
+      this.addUserMessageBubble(wireText, null);
+      const _kids = this.messagesEl && this.messagesEl.children;
+      const bubbleEl = _kids && _kids.length ? _kids[_kids.length - 1] : null;
+      try {
+        await this.hub.steer(wireText);
+      } catch (err) {
+        const i = this._pendingSentWires.findIndex(p => p.wire === wireText && p.optimistic);
+        if (i >= 0) this._pendingSentWires.splice(i, 1);
+        // 回滚乐观气泡：pi 未消费的纠偏消息不应留在历史（防孤儿 user 误触发中断标记）
+        if (bubbleEl && bubbleEl._msgRef && bubbleEl._msgRef.role === 'user' && bubbleEl._msgRef.text === wireText) {
+          const stored = this.hub.sessionManager.getMessages(this.hub.activeAgentId) || [];
+          const sIdx = stored.findIndex(m => m === bubbleEl._msgRef);
+          if (sIdx >= 0 && typeof this.hub.sessionManager.truncateMessages === 'function') {
+            this.hub.sessionManager.truncateMessages(this.hub.activeAgentId, sIdx);
+          } else {
+            bubbleEl._msgRef._removed = true;
+          }
+          bubbleEl.remove();
+        }
+        notice(`插队消息发送失败: ${err.message}`);
+      }
+    } else {
+      if (typeof this.hub.followUp !== 'function') {
+        this.inputEl.value = text;
+        this._pendingSentWires.pop();
+        return;
+      }
+      try {
+        await this.hub.followUp(wireText, { prompt });
+      } catch (err) {
+        const i = this._pendingSentWires.findIndex(p => p.wire === wireText && !p.optimistic);
+        if (i >= 0) this._pendingSentWires.splice(i, 1);
+        notice(`排队失败: ${err.message}`);
+      }
+    }
+    this.updateSendButtonState();
+  }
+
+  /** 排队胶囊条：steer 项（↪）+ followUp 项（◷），✕ 单项移除；显示用户原文而非注入后 prompt */
+  renderQueueStrip(q) {
+    this._queueSnapshot = q || { steering: [], followUp: [] };
+    const items = [];
+    for (const t of (this._queueSnapshot.steering || [])) items.push({ kind: 'steer', text: t });
+    for (const t of (this._queueSnapshot.followUp || [])) items.push({ kind: 'follow', text: t });
+    // 清理已不在快照中的映射，防 Map 无界增长（快照文本为引擎侧实际入队的注入后 prompt）
+    if (this._queuedWireByPrompt && this._queuedWireByPrompt.size) {
+      const live = new Set(items.map(i => i.text));
+      for (const k of Array.from(this._queuedWireByPrompt.keys())) {
+        if (!live.has(k)) this._queuedWireByPrompt.delete(k);
+      }
+    }
+    if (!this.queueStripEl) return;
+    if (!items.length) {
+      this.queueStripEl.style.display = 'none';
+      this.queueStripEl.innerHTML = '';
+      return;
+    }
+    this.queueStripEl.style.display = 'flex';
+    this.queueStripEl.innerHTML = items.map((it) => {
+      const rawLabel = this._normTxt(this._queuedWireByPrompt && this._queuedWireByPrompt.get(it.text))
+        || this._normTxt(this._extractUserTextFromWire(it.text))
+        || this._normTxt(it.text);
+      const label = rawLabel || this._normTxt(it.text);
+      const short = label.length > 28 ? label.slice(0, 28) + '…' : label;
+      return `<span class="tw-queue-chip ${it.kind}">` +
+        `<span class="tw-queue-chip-tag">${it.kind === 'steer' ? '插队' : '排队'}</span>` +
+        `<span class="tw-queue-chip-text" title="${escapeAttr(label)}">${escapeHtml(short)}</span>` +
+        `<button class="tw-queue-chip-x" title="移出队列">✕</button>` +
+        `</span>`;
+    }).join('');
+    const xs = this.queueStripEl.querySelectorAll('.tw-queue-chip-x');
+    xs.forEach((x, i) => {
+      x.onclick = (e) => {
+        e.stopPropagation();
+        this.cancelQueuedItem(items[i]);
+      };
+    });
+  }
+
+  async cancelQueuedItem(item) {
+    if (!item || typeof this.hub.cancelQueued !== 'function') return;
+    try {
+      await this.hub.cancelQueued(item.kind, item.text);
+    } catch (e) {
+      console.warn('[PiDrawerView] cancelQueued failed:', e);
+    }
+  }
+
+  /** 只读模式回合落定且产出正文 → 浮现「切读写执行」极简条（NiceAIGC 无权限概念不弹；中止/中断回合不弹） */
+  _updatePlanBar() {
+    if (!this.planBarEl) return;
+    if (this._suppressPlanBarOnce) {
+      this._suppressPlanBarOnce = false;
+      this.planBarEl.style.display = 'none';
+      return;
+    }
+    let show = false;
+    try {
+      if (this.permissionMode === 'readonly' && !this.hub.isStreaming() && !this._sendInFlight
+          && this.hub.activeAgentId !== 'niceaigc') {
+        const ms = this.hub.sessionManager.getMessages(this.hub.activeAgentId) || [];
+        const last = ms[ms.length - 1];
+        show = !!(last && last.role === 'assistant' && last.text && last.text.trim()
+          && !last.aborted && !last.interrupted);
+      }
+    } catch (_) {}
+    this.planBarEl.style.display = show ? 'flex' : 'none';
+  }
+
+  _hidePlanBar() {
+    if (this.planBarEl) this.planBarEl.style.display = 'none';
   }
 
   resolveImageSrc(img) {
@@ -20181,9 +22064,12 @@ class PiDrawerView {
     // 1. DSH Process Banner (collapsed by default for past messages)
     const banner = document.createElement('div');
     banner.className = 'tw-dsh-process-banner collapsed';
+    const statusLine = msg.interrupted
+      ? '已中断 · 已恢复中断前过程'
+      : (msg.aborted ? `已中止，用时 ${escapeHtml(durationText)}` : `已完成，用时 ${escapeHtml(durationText)}`);
     banner.innerHTML = `
       <div class="tw-dsh-banner-header">
-        <span class="tw-dsh-banner-status-text">已完成，用时 ${escapeHtml(durationText)}</span>
+        <span class="tw-dsh-banner-status-text">${statusLine}</span>
         <span class="tw-dsh-banner-chevron">${DSH_ICONS.chevronDown}</span>
       </div>
       <div class="tw-dsh-banner-divider"></div>
@@ -20202,6 +22088,7 @@ class PiDrawerView {
     const bannerBody = banner.querySelector('.tw-dsh-banner-body');
 
     if (Array.isArray(msg.processSteps) && msg.processSteps.length > 0) {
+      let anyToolSummaries = false;
       for (const step of msg.processSteps) {
         const marker = document.createElement('div');
         marker.className = 'tw-dsh-step-marker';
@@ -20212,10 +22099,45 @@ class PiDrawerView {
         `;
         bannerBody.appendChild(marker);
 
+        // 工具步骤：逐条压缩摘要明细（read(x.c)/grep("..")），展开 banner 可见；✗ 前缀行标红
+        if (step.type === 'tool' && Array.isArray(step.toolSummaries) && step.toolSummaries.length) {
+          anyToolSummaries = true;
+          const sumEl = document.createElement('div');
+          sumEl.className = 'tw-dsh-thinking-prose';
+          for (const line of step.toolSummaries) {
+            const row = document.createElement('div');
+            row.className = 'tw-tool-detail-line' + (String(line).startsWith('✗') ? ' error' : '');
+            row.textContent = line;
+            sumEl.appendChild(row);
+          }
+          bannerBody.appendChild(sumEl);
+        }
+
         if (step.text && step.text.trim()) {
           const prose = document.createElement('div');
           prose.className = 'tw-dsh-thinking-prose';
           prose.textContent = step.text.trim();
+          bannerBody.appendChild(prose);
+        }
+      }
+      // 兼容旧数据：processSteps 无 toolSummaries 字段时，从 msg.toolCalls 合成一段合并摘要
+      if (!anyToolSummaries && Array.isArray(msg.toolCalls) && msg.toolCalls.length) {
+        const lines = msg.toolCalls.map(tc => this._summarizeToolCall(tc)).filter(Boolean);
+        if (lines.length) {
+          const prose = document.createElement('div');
+          prose.className = 'tw-dsh-thinking-prose';
+          for (const line of lines.slice(0, 5)) {
+            const row = document.createElement('div');
+            row.className = 'tw-tool-detail-line' + (String(line).startsWith('✗') ? ' error' : '');
+            row.textContent = line;
+            prose.appendChild(row);
+          }
+          if (lines.length > 5) {
+            const more = document.createElement('div');
+            more.className = 'tw-tool-detail-line';
+            more.textContent = '…';
+            prose.appendChild(more);
+          }
           bannerBody.appendChild(prose);
         }
       }
@@ -20268,6 +22190,28 @@ class PiDrawerView {
         prose.textContent = displayThinking.trim();
         bannerBody.appendChild(prose);
       }
+
+      // 旧数据无 processSteps：补一段逐工具压缩摘要（read(x.c)/grep("..")），最多 5 条；✗ 前缀行标红
+      if (hasTools) {
+        const lines = msg.toolCalls.map(tc => this._summarizeToolCall(tc)).filter(Boolean);
+        if (lines.length) {
+          const prose = document.createElement('div');
+          prose.className = 'tw-dsh-thinking-prose';
+          for (const line of lines.slice(0, 5)) {
+            const row = document.createElement('div');
+            row.className = 'tw-tool-detail-line' + (String(line).startsWith('✗') ? ' error' : '');
+            row.textContent = line;
+            prose.appendChild(row);
+          }
+          if (lines.length > 5) {
+            const more = document.createElement('div');
+            more.className = 'tw-tool-detail-line';
+            more.textContent = '…';
+            prose.appendChild(more);
+          }
+          bannerBody.appendChild(prose);
+        }
+      }
     }
 
     const hasProcess = (Array.isArray(msg.processSteps) && msg.processSteps.length > 0) ||
@@ -20291,14 +22235,12 @@ class PiDrawerView {
 
     let usageData = msg.usage || null;
     if (!usageData || !usageData.totalTokens || usageData.totalTokens <= 0) {
-      const outTok = Math.max(1, Math.round(((displayText || '').length + (displayThinking?.length || 0)) * 0.75));
-      const inTok = Math.max(120, Math.round(outTok * 1.5 + 450));
-      usageData = {
-        inputTokens: inTok,
-        outputTokens: outTok,
-        cacheReadTokens: Math.round(inTok * 0.4),
-        totalTokens: inTok + outTok
-      };
+      // 历史消息缺用量 → CJK 感知结构化兜底（绝不伪造缓存，杜绝分项>合计悖论）
+      usageData = this.estimateTurnUsageFallback({
+        text: displayText || '',
+        thinking: displayThinking || '',
+        toolCalls: msg.toolCalls || []
+      });
     }
     usageData.providerAndModel = usageData.providerAndModel || providerAndModel;
     usageData.durationText = usageData.durationText || durationText;
@@ -20422,7 +22364,7 @@ class PiDrawerView {
 
   adjustInputHeight() {
     if (!this.inputEl) return;
-    const minH = this.inputHeight || 52;
+    const minH = this.inputHeight || 46;
     if (!this.inputEl.value || !this.inputEl.value.trim()) {
       this.inputEl.style.height = `${minH}px`;
       return;
@@ -20473,7 +22415,12 @@ class PiDrawerView {
       }
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
-        this.handleSend();
+        // 流式期间：Enter=steer 插队纠偏（当前工具结束后注入）；Alt+Enter=排队待办（本轮结束后自动派发）
+        if (this.hub.isStreaming()) {
+          this.handleQueueSend(e.altKey ? 'follow_up' : 'steer');
+        } else {
+          this.handleSend();
+        }
       } else if (e.key === 'Escape') {
         if (this.isSplitPaneOpen) {
           e.preventDefault();
@@ -20490,7 +22437,7 @@ class PiDrawerView {
     // Save custom height if user drags the native corner resize handle
     this.inputEl.addEventListener('mouseup', () => {
       const currentH = this.inputEl.offsetHeight;
-      if (currentH >= 38 && Math.abs(currentH - this.inputHeight) > 2) {
+      if (currentH >= 28 && Math.abs(currentH - this.inputHeight) > 2) {
         this.saveInputHeight(currentH);
       }
     });
@@ -20523,15 +22470,37 @@ class PiDrawerView {
       }
     });
 
-    if (this.btnSend) this.btnSend.onclick = () => this.handleSend();
+    // 流式中点击发送 = Enter 插队纠偏（非流式为正常发送）
+    if (this.btnSend) this.btnSend.onclick = () => {
+      if (this.hub && typeof this.hub.isStreaming === 'function' && this.hub.isStreaming()) {
+        this.handleQueueSend('steer');
+      } else {
+        this.handleSend();
+      }
+    };
     if (this.btnAbort) this.btnAbort.onclick = () => this.handleAbort();
 
-    // Image upload button & file picker
-    if (this.btnUploadImage && this.imageFileInput) {
-      this.btnUploadImage.onclick = (e) => {
-        e.preventDefault();
-        this.imageFileInput.click();
+    // 只读方案执行条：一键切读写并发送执行指令
+    const planRunBtn = this.drawerEl ? this.drawerEl.querySelector('#twPlanBarRun') : null;
+    const planCloseBtn = this.drawerEl ? this.drawerEl.querySelector('#twPlanBarClose') : null;
+    if (planRunBtn) {
+      planRunBtn.onclick = async () => {
+        this._hidePlanBar();
+        if (this.permissionMode === 'readonly') {
+          await this.togglePermissionMode();
+        }
+        if (this.inputEl) {
+          this.inputEl.value = '请按上述方案执行';
+          this.handleSend();
+        }
       };
+    }
+    if (planCloseBtn) {
+      planCloseBtn.onclick = () => this._hidePlanBar();
+    }
+
+    // Image file picker (上传入口位于 + 菜单「图片」项；粘贴/拖拽路径不变)
+    if (this.imageFileInput) {
       this.imageFileInput.onchange = (e) => {
         if (e.target.files && e.target.files.length > 0) {
           this.handleImageFilesSelected(e.target.files);
@@ -21657,6 +23626,22 @@ class PiDrawerView {
     return el;
   }
 
+  // 向输入框插入触发符并唤出 picker：'@' 追加为新 token，'/' 须位于行首
+  _insertTriggerChar(ch) {
+    const el = this.inputEl;
+    if (!el) return;
+    el.focus();
+    if (ch === '/') {
+      if (!String(el.value || '').startsWith('/')) el.value = '/' + el.value;
+      if (typeof el.setSelectionRange === 'function') el.setSelectionRange(1, 1);
+    } else {
+      const v = String(el.value || '');
+      el.value = (!v || /\s$/.test(v)) ? v + '@' : v + ' @';
+      if (typeof el.setSelectionRange === 'function') el.setSelectionRange(el.value.length, el.value.length);
+    }
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+
   _evaluateTriggerContext() {
     const el = this.inputEl;
     if (!el) return null;
@@ -22445,7 +24430,18 @@ class PiDrawerView {
       : ((status === 'thinking' || status === 'running_tool') || !!this._sendInFlight || hubStreaming);
 
     if (isStreaming) {
-      this.btnSend.style.display = 'none';
+      // 流式中输入框有内容 → 保留发送入口（点击=Enter 插队纠偏）；无输入时仍只显示中止键
+      // 仅文本/胶囊可走 steer；附件不参与（handleQueueSend 只发送文本协议，图片留待下一轮正常发送）
+      const hasStreamInput = !!(this.inputEl && this.inputEl.value.trim().length > 0)
+        || !!(this.inputChips && this.inputChips.length);
+      this.btnSend.style.display = hasStreamInput ? 'inline-flex' : 'none';
+      this.btnSend.disabled = !hasStreamInput;
+      if (hasStreamInput) {
+        this.btnSend.classList.remove('disabled');
+        this.btnSend.title = '插队纠偏 (Enter)';
+      } else {
+        this.btnSend.classList.add('disabled');
+      }
       if (this.btnAbort) {
         this.btnAbort.style.display = 'inline-flex';
         // 复位上一次中止请求的禁用态（_sendInFlight 收尾后重新可点）
@@ -22453,6 +24449,10 @@ class PiDrawerView {
           this.btnAbort.disabled = false;
           this.btnAbort.title = '中止当前回复';
         }
+      }
+      // 流式期输入框引导：Enter 插队纠偏 / Alt+Enter 排队
+      if (this.inputEl && !(this.inputChips && this.inputChips.length)) {
+        this.inputEl.placeholder = '执行中：Enter 插队纠偏 · Alt+Enter 排队等下轮';
       }
     } else {
       if (this.btnAbort) this.btnAbort.style.display = 'none';
@@ -22471,6 +24471,11 @@ class PiDrawerView {
       } else {
         this.btnSend.classList.remove('disabled');
       }
+      this.btnSend.title = '发送 (Enter)';
+      // 非流式时恢复正常占位符（流式期被 Enter/Alt+Enter 提示覆盖）
+      if (typeof this.updateInputPlaceholder === 'function') {
+        this.updateInputPlaceholder();
+      }
     }
   }
 
@@ -22480,9 +24485,17 @@ class PiDrawerView {
     this.hub.on('turn_start', () => {
       this.lastHubError = null;
       this.removeWelcomeScreen();
+      this._hidePlanBar();
+      // 新一轮 turn（如 pi 消费排队项/steer 注入）与上一段切分：收尾入缓冲，
+      // 待随后的用户回显（addUserMessageBubble 顶部）或回合末合并落库
+      if (this.currentAssistantMessage) {
+        this.finishAssistantMessage(false, { persist: false, preserveTools: true });
+      }
       if (!this.currentAssistantMessage) {
         this.createAssistantMessageBubble();
       }
+      // 新提问回合开启：重置 Token 累加器（上一段的累加已在 finishAssistantMessage 中被消费）
+      this.turnUsageAcc = null;
     });
 
     this.hub.on('thinking_start', (data) => {
@@ -22514,15 +24527,11 @@ class PiDrawerView {
     });
 
     this.hub.on('turn_end', (d) => {
+      // 多步工具调用单提问会触发多次 turn_end：逐跳累加进 turnUsageAcc，
+      // 严禁覆盖赋值（旧缺陷：中间工具轮次 Token 被清零，只剩最后一跳）
       if (d) {
         const u = d.message?.usage || d.usage || d.turn?.usage;
-        if (u) {
-          const inputTokens = u.input || u.prompt_tokens || u.promptTokens || u.inputTokens || 0;
-          const outputTokens = u.output || u.completion_tokens || u.completionTokens || u.outputTokens || 0;
-          const cacheReadTokens = u.cacheRead || u.prompt_cache_hit_tokens || u.cacheReadTokens || 0;
-          const totalTokens = u.totalTokens || u.total_tokens || (inputTokens + outputTokens);
-          this.lastTurnUsage = { inputTokens, outputTokens, cacheReadTokens, totalTokens };
-        }
+        this._accumulateTurnUsage(u);
       }
       if (!this.hub.isStreaming()) {
         this.finishAssistantMessage();
@@ -22531,18 +24540,16 @@ class PiDrawerView {
     });
 
     this.hub.on('agent_settled', (d) => {
-      if (d && !this.lastTurnUsage) {
+      if (d && !this.lastTurnUsage && !(this.turnUsageAcc && this.turnUsageAcc.hasRealUsage)) {
         const u = d.message?.usage || d.usage;
-        if (u) {
-          const inputTokens = u.input || u.prompt_tokens || u.promptTokens || u.inputTokens || 0;
-          const outputTokens = u.output || u.completion_tokens || u.completionTokens || u.outputTokens || 0;
-          const cacheReadTokens = u.cacheRead || u.prompt_cache_hit_tokens || u.cacheReadTokens || 0;
-          const totalTokens = u.totalTokens || u.total_tokens || (inputTokens + outputTokens);
-          this.lastTurnUsage = { inputTokens, outputTokens, cacheReadTokens, totalTokens };
-        }
+        this._accumulateTurnUsage(u);
       }
-      this.finishAssistantMessage();
+      // pi/antigravity 的 abort 只 emit agent_settled（不发 aborted），靠 _runAborted 标记补识别
+      const wasAborted = this._runAborted === true;
+      this.finishAssistantMessage(wasAborted);
+      this._runAborted = false;
       this.updateSendButtonState();
+      this._updatePlanBar();
     });
 
     this.hub.on('aborted', () => {
@@ -22550,11 +24557,47 @@ class PiDrawerView {
       this.updateSendButtonState();
     });
 
+    // 流式交互队列快照（pi 原生 steer/followUp 或 hub 本地队列）→ 渲染排队胶囊条
+    this.hub.on('queue_update', (q) => this.renderQueueStrip(q));
+
+    // 中止时回收的排队内容回填输入框（pi TUI 同款行为）
+    this.hub.on('queue_cleared', (d) => {
+      const texts = [...((d && d.steering) || []), ...((d && d.followUp) || [])];
+      if (!texts.length || !this.inputEl) return;
+      const cur = this.inputEl.value.trim();
+      this.inputEl.value = cur ? `${cur}\n${texts.join('\n')}` : texts.join('\n');
+      if (typeof this.adjustInputHeight === 'function') this.adjustInputHeight();
+      this.updateSendButtonState();
+    });
+
+    // 本地队列派发（非 pi adapter）：消费回显对账项，补渲染用户气泡并持久化
+    // （addUserMessageBubble 顶部自动收尾在途 assistant 段 + 合并落库，保证存储顺序）
+    this.hub.on('follow_up_dispatched', (d) => {
+      if (!d || !d.text) return;
+      const i = (this._pendingSentWires || []).findIndex(p => this._normTxt(p.wire) === this._normTxt(d.text));
+      if (i >= 0) this._pendingSentWires.splice(i, 1);
+      this.addUserMessageBubble(d.text, null);
+    });
+
+    // pi 侧用户消息回显（message_start）：prompt/steer 本地已渲染 → 去重；
+    // 排队项被派发消费 → 渲染原文气泡并持久化
+    this.hub.on('user_message', (d) => {
+      this._onUserMessageEcho(d && d.text);
+    });
+
     this.hub.on('new_session', () => {
       if (this.currentAssistantMessage) {
         this.finishAssistantMessage();
       }
       this.messages = [];
+      this._queueSnapshot = null;
+      this._pendingSentWires = [];
+      this._assistantRunBuffer = [];
+      this._runAborted = false;
+      this._suppressPlanBarOnce = false;
+      if (this._queuedWireByPrompt) this._queuedWireByPrompt.clear();
+      this.renderQueueStrip(null);
+      this._hidePlanBar();
       if (this.messagesEl) {
         this.messagesEl.innerHTML = '';
       }
@@ -22964,6 +25007,8 @@ class PiDrawerView {
       startTime: startTime || Date.now()
     });
 
+    // 逐条明细实时可见：刚发起的调用也立刻列一行（bash(cmd)/read(path)）
+    this._renderToolStepDetails(toolStep);
     this.scrollToBottom();
   }
 
@@ -22976,6 +25021,7 @@ class PiDrawerView {
     if (toolCallRef) {
       toolCallRef.durationMs = durationMs;
       toolCallRef.isError = isError;
+      if (error) toolCallRef.error = String(error).slice(0, 300);
     }
 
     if (toolStep && toolStep.labelEl) {
@@ -22990,10 +25036,25 @@ class PiDrawerView {
         toolStep.label = summary;
       }
     }
+    // 刷新逐条明细（含失败标红 ✗ 与错误摘要）
+    this._renderToolStepDetails(toolStep);
   }
 
-  finishAssistantMessage(isAborted = false) {
-    if (!this.currentAssistantMessage) return;
+  /**
+   * 收尾当前 assistant 气泡。opts.persist!==false 时把"连续 assistant 段缓冲"合并落一条记录；
+   * opts.persist===false 仅切段入缓冲（steer/follow_up 用户消息边界），不落库。
+   * opts.preserveTools===true 保留 activeToolCards，运行中工具的 tool_end 仍能收尾旧气泡卡片。
+   */
+  finishAssistantMessage(isAborted = false, opts = {}) {
+    const persist = !opts || opts.persist !== false;
+    const preserveTools = !!(opts && opts.preserveTools);
+    if (!this.currentAssistantMessage) {
+      // 在途气泡已切走但缓冲段未落库（如 abort 时全部段均已切入缓冲）→ 兜底合并落库
+      if (persist && this._assistantRunBuffer && this._assistantRunBuffer.length) {
+        this._flushAssistantRunBuffer({ isAborted });
+      }
+      return;
+    }
     if (this._textRenderRafId) {
       cancelAnimationFrame(this._textRenderRafId);
       this._textRenderRafId = null;
@@ -23014,8 +25075,10 @@ class PiDrawerView {
       msg.bannerTimer = null;
     }
 
-    // Clear any running tools
-    this.activeToolCards.clear();
+    // 仅回合真正结束才清空工具卡索引；中间切段保留，运行中工具的 tool_end 仍能收尾旧气泡
+    if (!preserveTools) {
+      this.activeToolCards.clear();
+    }
 
     const durationMs = Date.now() - (msg.startTime || Date.now());
     const durationStr = this.formatDuration(durationMs);
@@ -23036,6 +25099,16 @@ class PiDrawerView {
     } else {
       for (let i = 0; i < msg.steps.length; i++) {
         const step = msg.steps[i];
+        // 中段切分时，仍在运行的工具保留旧气泡的 running 视觉（等 tool_end 再收尾）；
+        // 但把持久化 label 规范为完成态摘要，避免历史恢复出现永久的"正在执行..."
+        const stillRunning = !!(preserveTools && this.activeToolCards && step.type === 'tool'
+          && (step.toolCalls || []).some(tc => tc && this.activeToolCards.has(tc.toolCallId)));
+        if (stillRunning) {
+          if (step.toolCalls && step.toolCalls.length > 0) {
+            step.label = this.generateBatchToolSummary(step.toolCalls);
+          }
+          continue;
+        }
         if (step.markerEl) {
           step.markerEl.classList.remove('running');
         }
@@ -23075,8 +25148,8 @@ class PiDrawerView {
 
     } else if (isAborted) {
       // Aborted notice already added above
-    } else {
-      // Empty response fallback: Never leave a blank bubble!
+    } else if (persist) {
+      // Empty response fallback: Never leave a blank bubble!（仅回合真正结束才补错误卡；中段切段不渲染）
       msg.contentEl.style.display = 'block';
       const adapter = this.hub ? this.hub.getActiveAdapter() : null;
       const currentModel = adapter && typeof adapter.getModel === 'function' ? adapter.getModel() : { id: '', name: '' };
@@ -23102,7 +25175,7 @@ class PiDrawerView {
       if (timeSpan) timeSpan.textContent = this.formatTime(Date.now());
     }
 
-    // Token Usage computation & binding
+    // Token Usage: 取本轮真实用量（turn_end/agent_settled 提供），中段不估算，合并时汇总
     const adapter = this.hub.getActiveAdapter();
     const currentModel = typeof adapter.getModel === 'function' ? adapter.getModel() : null;
     let authorModel = (currentModel && currentModel.name) ? currentModel.name : adapter.displayName;
@@ -23112,31 +25185,14 @@ class PiDrawerView {
     }
     const providerAndModel = (adapter.displayName || adapter.name) + ' / ' + authorModel;
 
-    let usageData = this.lastTurnUsage || null;
+    const realUsage = this._drainTurnUsage() || this.lastTurnUsage || null;
     this.lastTurnUsage = null;
-
-    if (!usageData || !usageData.totalTokens || usageData.totalTokens <= 0) {
-      const outTok = Math.max(1, Math.round(((msg.rawText || '').length + (msg.thinkingText?.length || 0)) * 0.75));
-      const inTok = Math.max(120, Math.round(outTok * 1.5 + 450));
-      usageData = {
-        inputTokens: inTok,
-        outputTokens: outTok,
-        cacheReadTokens: Math.round(inTok * 0.4),
-        totalTokens: inTok + outTok
-      };
-    }
-    usageData.providerAndModel = providerAndModel;
-    usageData.durationText = durationStr;
-
-    if (msg.usageBtnEl) {
-      const usageText = msg.usageBtnEl.querySelector('.tw-dsh-usage-text');
-      if (usageText) {
-        usageText.textContent = `用量 ${this.formatTokensPill(usageData.totalTokens)}`;
-      }
-      msg.usageBtnEl.onclick = (e) => {
-        e.stopPropagation();
-        this.showTokenUsagePopover(msg.usageBtnEl, usageData);
-      };
+    if (realUsage) {
+      // 模型名与思考档位解耦落库：纯净 modelId/modelName + 独立 reasoningEffort
+      realUsage.modelId = (currentModel && currentModel.id) || null;
+      realUsage.modelName = (currentModel && currentModel.name) || authorModel;
+      realUsage.reasoningEffort = (typeof adapter.getReasoningEffort === 'function' ? adapter.getReasoningEffort() : null) || null;
+      realUsage.agentId = this.hub.activeAgentId || null;
     }
 
     // Bind action bar buttons
@@ -23155,33 +25211,157 @@ class PiDrawerView {
       };
     }
 
-
-
     const serializedSteps = (msg.steps || []).map(s => ({
       type: s.type,
       icon: s.icon,
       label: s.label,
-      text: (s.text || '').trim()
+      text: (s.text || '').trim(),
+      // 每步附带逐工具压缩摘要（read(xxx.c)/grep("...") 级），供历史恢复时展示明细
+      toolSummaries: (s.toolCalls || []).map(tc => this._summarizeToolCall(tc)).filter(Boolean)
     }));
 
-    // Persist to session manager
-    this.hub.sessionManager.addMessage(this.hub.activeAgentId, {
-      role: 'assistant',
-      text: msg.rawText,
-      toolCount: msg.toolCount,
-      toolCalls: msg.toolCalls,
-      model: authorModel,
+    // 切段快照（仅内存缓冲用，不直接序列化）
+    const segment = {
+      text: msg.rawText || '',
       thinking: msg.thinkingText || '',
-      processSteps: serializedSteps,
+      toolCalls: (msg.toolCalls || []).slice(),
+      toolCount: msg.toolCount || 0,
+      steps: serializedSteps,
+      model: authorModel,
+      providerAndModel,
+      startTime: msg.startTime || Date.now(),
+      durationMs,
+      usage: realUsage,
+      usageBtnEl: msg.usageBtnEl || null
+    };
+    // 空壳判定需忽略"仅预建的空 thinking step"（推理模型 createAssistantMessageBubble 会预建），
+    // 否则 thinking_start 后立刻 steer 会把空壳当作有效段落库并留下空白气泡
+    const hasStepContent = segment.steps.some(st => st
+      && ((st.text && st.text.trim())
+        || (Array.isArray(st.toolSummaries) && st.toolSummaries.length > 0)));
+    const segEmpty = !segment.text && !segment.thinking && !segment.toolCalls.length && !hasStepContent;
+
+    // 用量胶囊统一由 flush 绑定到该连续段最后一条气泡；中段一律隐藏，杜绝重复估算
+    if (msg.usageBtnEl) msg.usageBtnEl.style.display = 'none';
+    this.currentAssistantMessage = null;
+
+    if (!persist) {
+      if (!segEmpty) {
+        this._assistantRunBuffer.push(segment);
+      } else if (msg.wrapEl && msg.wrapEl.parentElement) {
+        // 完全空壳的中段气泡（turn_start 刚建就被切断）直接移除，不留空白残影
+        msg.wrapEl.remove();
+      }
+      this.scrollToBottom();
+      this.updateSendButtonState();
+      return;
+    }
+
+    this._assistantRunBuffer.push(segment);
+    this._flushAssistantRunBuffer({ isAborted });
+    this.scrollToBottom();
+    this.updateSendButtonState();
+  }
+
+  /**
+   * 把"连续 assistant 段缓冲"合并为一条落库记录（禁止跨用户消息合并——
+   * 用户气泡在 addUserMessageBubble 顶部触发本方法，天然形成边界）。
+   */
+  _flushAssistantRunBuffer({ isAborted = false } = {}) {
+    const buf = this._assistantRunBuffer || [];
+    if (!buf.length) return;
+    this._assistantRunBuffer = [];
+    const sm = this.hub && this.hub.sessionManager;
+    if (!sm || typeof sm.addMessage !== 'function') return;
+
+    const texts = buf.map(s => s.text).filter(t => t && t.trim());
+    const thinkings = buf.map(s => s.thinking).filter(t => t && t.trim());
+    const toolCalls = [];
+    const seenTc = new Set();
+    let toolCount = 0;
+    const steps = [];
+    let usageSum = null;
+    for (const s of buf) {
+      toolCount += s.toolCount || 0;
+      for (const tc of (s.toolCalls || [])) {
+        const k = tc.toolCallId || `${tc.toolName}:${toolCalls.length}`;
+        if (!seenTc.has(k)) { seenTc.add(k); toolCalls.push(tc); }
+      }
+      for (const st of (s.steps || [])) steps.push(st);
+      if (s.usage && s.usage.totalTokens > 0) {
+        usageSum = usageSum || {
+          inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0,
+          reasoningTokens: 0, totalTokens: 0, netBillableTokens: 0, costUsd: 0,
+          subTurns: 0, isEstimated: true
+        };
+        usageSum.inputTokens += s.usage.inputTokens || 0;
+        usageSum.outputTokens += s.usage.outputTokens || 0;
+        usageSum.cacheReadTokens += s.usage.cacheReadTokens || 0;
+        usageSum.cacheWriteTokens += s.usage.cacheWriteTokens || 0;
+        usageSum.reasoningTokens += s.usage.reasoningTokens || 0;
+        usageSum.totalTokens += s.usage.totalTokens || 0;
+        usageSum.netBillableTokens += (s.usage.netBillableTokens ?? ((s.usage.inputTokens || 0) + (s.usage.outputTokens || 0) + (s.usage.cacheWriteTokens || 0)));
+        usageSum.costUsd += s.usage.costUsd || 0;
+        usageSum.subTurns += s.usage.subTurns || 1;
+        if (s.usage.isEstimated === false) usageSum.isEstimated = false; // 含真实回传则整体视为精确
+        if (!usageSum.modelId && s.usage.modelId) usageSum.modelId = s.usage.modelId;
+        if (!usageSum.modelName && s.usage.modelName) usageSum.modelName = s.usage.modelName;
+        if (!usageSum.reasoningEffort && s.usage.reasoningEffort) usageSum.reasoningEffort = s.usage.reasoningEffort;
+        if (!usageSum.agentId && s.usage.agentId) usageSum.agentId = s.usage.agentId;
+      }
+    }
+    const text = texts.join('\n\n');
+    const thinking = thinkings.join('\n\n');
+    const durationMs = Date.now() - (buf[0].startTime || Date.now());
+    const durationStr = this.formatDuration(durationMs);
+    const lastSeg = buf[buf.length - 1];
+    const model = lastSeg.model || '';
+    const providerAndModel = lastSeg.providerAndModel || model;
+
+    let usageData = usageSum;
+    if (!usageData) {
+      // 全部段均无真实用量回传 → CJK 感知结构化兜底估算（绝不伪造缓存）
+      const smMsgs = (typeof sm.getMessages === 'function' ? sm.getMessages(this.hub.activeAgentId) : []) || [];
+      usageData = this.estimateTurnUsageFallback({
+        text, thinking, toolCalls, sessionMessages: smMsgs
+      });
+      const fbAdapter = this.hub && typeof this.hub.getActiveAdapter === 'function' ? this.hub.getActiveAdapter() : null;
+      const fbModel = fbAdapter && typeof fbAdapter.getModel === 'function' ? fbAdapter.getModel() : null;
+      usageData.modelId = (fbModel && fbModel.id) || null;
+      usageData.modelName = model || (fbModel && fbModel.name) || null;
+      usageData.reasoningEffort = (fbAdapter && typeof fbAdapter.getReasoningEffort === 'function' ? fbAdapter.getReasoningEffort() : null) || null;
+      usageData.agentId = this.hub.activeAgentId || null;
+    }
+    usageData.providerAndModel = providerAndModel;
+    usageData.durationText = durationStr;
+
+    // 合并用量绑定到该连续段最后一个气泡的胶囊；其余段保持隐藏
+    for (const s of buf) { if (s.usageBtnEl) s.usageBtnEl.style.display = 'none'; }
+    if (lastSeg.usageBtnEl) {
+      const btn = lastSeg.usageBtnEl;
+      btn.style.display = '';
+      const usageText = btn.querySelector('.tw-dsh-usage-text');
+      if (usageText) usageText.textContent = `用量 ${this.formatTokensPill(usageData.totalTokens)}`;
+      btn.onclick = (e) => {
+        e.stopPropagation();
+        this.showTokenUsagePopover(btn, usageData);
+      };
+    }
+
+    sm.addMessage(this.hub.activeAgentId, {
+      role: 'assistant',
+      text,
+      toolCount,
+      toolCalls,
+      model,
+      thinking,
+      processSteps: steps,
       duration: durationMs,
       durationText: durationStr,
       usage: usageData,
-      timestamp: Date.now()
+      timestamp: Date.now(),
+      aborted: !!isAborted
     });
-
-    this.currentAssistantMessage = null;
-    this.scrollToBottom();
-    this.updateSendButtonState();
   }
 
   async formatMessageContent(el, text) {
@@ -23265,6 +25445,176 @@ class PiDrawerView {
     return false;
   }
 
+  getFileTypeInfo(targetCandidate, fallbackText) {
+    const parse = (str) => {
+      if (!str || typeof str !== 'string') return null;
+      let clean = str.trim().replace(/^[`"']|[`"']$/g, '');
+      clean = clean.replace(/#L\d+(-L\d+)?/i, '').replace(/:\d+(?::\d+)?$/, '').trim();
+      if (!clean) return null;
+      const base = clean.split(/[/\\]/).pop().toLowerCase();
+      if (!base) return null;
+      if (base === 'makefile' || base === 'kbuild' || base === 'kconfig') {
+        return { ext: 'mk', label: 'mk', color: '#E11D48' };
+      }
+      const lastDot = base.lastIndexOf('.');
+      if (lastDot > 0 && lastDot < base.length - 1) {
+        return { ext: base.slice(lastDot + 1), label: base.slice(lastDot + 1), base };
+      }
+      return null;
+    };
+
+    const parsed = parse(targetCandidate) || parse(fallbackText);
+    const ext = parsed ? parsed.ext.toLowerCase() : '';
+
+    const EXT_MAP = {
+      'js': { label: 'js', color: '#F59E0B' },
+      'mjs': { label: 'js', color: '#F59E0B' },
+      'cjs': { label: 'js', color: '#F59E0B' },
+      'jsx': { label: 'jsx', color: '#F59E0B' },
+      'ts': { label: 'ts', color: '#3178C6' },
+      'tsx': { label: 'tsx', color: '#3178C6' },
+      'c': { label: 'c', color: '#0969DA' },
+      'h': { label: 'h', color: '#8250DF' },
+      'cpp': { label: 'cpp', color: '#0550AE' },
+      'cc': { label: 'cc', color: '#0550AE' },
+      'cxx': { label: 'c++', color: '#0550AE' },
+      'hpp': { label: 'hpp', color: '#8250DF' },
+      'dts': { label: 'dts', color: '#0D9488' },
+      'dtsi': { label: 'dtsi', color: '#0D9488' },
+      'py': { label: 'py', color: '#3572A5' },
+      'sh': { label: 'sh', color: '#16A34A' },
+      'bash': { label: 'sh', color: '#16A34A' },
+      'md': { label: 'md', color: '#64748B' },
+      'json': { label: 'json', color: '#EA580C' },
+      'html': { label: 'html', color: '#E34F26' },
+      'htm': { label: 'html', color: '#E34F26' },
+      'xml': { label: 'xml', color: '#F97316' },
+      'css': { label: 'css', color: '#7C3AED' },
+      'scss': { label: 'scss', color: '#7C3AED' },
+      'less': { label: 'less', color: '#7C3AED' },
+      'java': { label: 'java', color: '#DC2626' },
+      'go': { label: 'go', color: '#00ADD8' },
+      'rs': { label: 'rs', color: '#DEA584' },
+      'yaml': { label: 'yml', color: '#E11D48' },
+      'yml': { label: 'yml', color: '#E11D48' },
+      'mk': { label: 'mk', color: '#E11D48' },
+      'diff': { label: 'diff', color: '#0D9488' },
+      'patch': { label: 'patch', color: '#0D9488' },
+      'txt': { label: 'txt', color: '#64748B' },
+      'log': { label: 'log', color: '#64748B' },
+    };
+
+    if (EXT_MAP[ext]) {
+      return EXT_MAP[ext];
+    }
+    if (ext && ext.length <= 5) {
+      return { label: ext, color: '#64748B' };
+    }
+    return { label: 'file', color: '#64748B' };
+  }
+
+  ensurePrismGrammars() {
+    if (typeof window === 'undefined' || !window.Prism || !window.Prism.languages) return;
+    const P = window.Prism;
+
+    // DeviceTree (DTS / DTSI)
+    if (!P.languages.dts) {
+      const dts = {
+        'comment': [
+          { pattern: /\/\*[\s\S]*?\*\//, greedy: true },
+          { pattern: /\/\/.*/, greedy: true }
+        ],
+        'string': {
+          pattern: /"(?:\\.|[^"\\\r\n])*"/,
+          greedy: true
+        },
+        'directive': {
+          pattern: /#\s*(?:include|define|undef|ifdef|ifndef|if|else|elif|endif)\b.*/,
+          greedy: true,
+          alias: 'keyword'
+        },
+        'keyword': /\/(?:dts-v1|plugin|memreserve|delete-node|delete-property)\/|\b(?:model|compatible|status|reg|interrupts|interrupt-parent|phandle|linux,phandle|ranges|#address-cells|#size-cells|#interrupt-cells|clock-names|clocks)\b/,
+        'property': {
+          pattern: /(?:^|[\s;{}])([a-zA-Z0-9_,@#-]+)\s*=/m,
+          lookbehind: true,
+          alias: 'attr-name'
+        },
+        'node': {
+          pattern: /(?:^|[\s;{}])([a-zA-Z0-9_,@#-]+)(?:\s*:\s*[a-zA-Z0-9_,@#-]+)?\s*\{/m,
+          lookbehind: true,
+          alias: 'function'
+        },
+        'reference': {
+          pattern: /&[a-zA-Z0-9_-]+/,
+          alias: 'variable'
+        },
+        'number': /\b0x[0-9a-fA-F]+\b|\b\d+\b/,
+        'operator': /[=<>|&!~]/,
+        'punctuation': /[{};,:()\[\]]/
+      };
+      P.languages.dts = dts;
+      P.languages.dtsi = dts;
+      P.languages['device-tree'] = dts;
+      P.languages['devicetree'] = dts;
+    }
+
+    if (!P.languages.shell && P.languages.bash) P.languages.shell = P.languages.bash;
+    if (!P.languages.sh && P.languages.bash) P.languages.sh = P.languages.bash;
+    if (!P.languages.zsh && P.languages.bash) P.languages.zsh = P.languages.bash;
+    if (!P.languages.py && P.languages.python) P.languages.py = P.languages.python;
+    if (!P.languages.js && P.languages.javascript) P.languages.js = P.languages.javascript;
+    if (!P.languages.ts && P.languages.typescript) P.languages.ts = P.languages.typescript;
+    if (!P.languages['c++'] && P.languages.cpp) P.languages['c++'] = P.languages.cpp;
+    if (!P.languages.h && P.languages.c) P.languages.h = P.languages.c;
+    if (!P.languages.hpp && P.languages.cpp) P.languages.hpp = P.languages.cpp;
+    if (!P.languages.make && P.languages.makefile) P.languages.make = P.languages.makefile;
+    if (!P.languages.mk && P.languages.makefile) P.languages.mk = P.languages.makefile;
+    if (!P.languages.kconfig && P.languages.makefile) P.languages.kconfig = P.languages.makefile;
+  }
+
+  highlightCodeFallback(codeEl, rawLang) {
+    if (!codeEl || codeEl.querySelector('.token')) return;
+    const text = codeEl.textContent || '';
+    if (!text) return;
+    const lang = (rawLang || '').toLowerCase();
+
+    let html = escapeHtml(text);
+    const tokens = [];
+    const pushToken = (cls, content) => {
+      const id = `__TW_TOKEN_${tokens.length}__`;
+      tokens.push(`<span class="token ${cls}">${content}</span>`);
+      return id;
+    };
+
+    html = html.replace(/\/\*[\s\S]*?\*\//g, m => pushToken('comment', m));
+    html = html.replace(/\/\/.*/g, m => pushToken('comment', m));
+    if (lang === 'python' || lang === 'py' || lang === 'sh' || lang === 'bash' || lang === 'shell' || lang === 'yaml' || lang === 'yml' || lang === 'make' || lang === 'makefile') {
+      html = html.replace(/(^|[^&])#.*/gm, (m, p1) => p1 + pushToken('comment', m.slice(p1.length)));
+    }
+
+    html = html.replace(/"(?:\\.|[^"\\\r\n])*"/g, m => pushToken('string', m));
+    html = html.replace(/'(?:\\.|[^'\\\r\n])*'/g, m => pushToken('string', m));
+
+    if (lang === 'dts' || lang === 'dtsi') {
+      html = html.replace(/(^|[\s;{}])([a-zA-Z0-9_,@#-]+)(\s*=&lt;|\s*=)/g, (m, p1, p2, p3) => {
+        return p1 + pushToken('property', p2) + p3;
+      });
+    }
+
+    html = html.replace(/\b(0x[0-9a-fA-F]+|\d+(?:\.\d+)?)\b/g, m => pushToken('number', m));
+
+    const kwRegex = /\b(if|else|while|for|return|const|let|var|function|class|def|import|from|export|switch|case|break|continue|struct|enum|typedef|union|volatile|unsigned|signed|int|char|void|bool|true|false|null|undefined|none)\b/g;
+    html = html.replace(kwRegex, m => pushToken('keyword', m));
+
+    html = html.replace(/(&lt;|&gt;|===|!==|==|!=|&amp;&amp;|\|\||[-+=*/&|!~])/g, m => pushToken('operator', m));
+
+    for (let i = 0; i < tokens.length; i++) {
+      html = html.replace(`__TW_TOKEN_${i}__`, tokens[i]);
+    }
+
+    codeEl.innerHTML = html;
+  }
+
   postProcessRenderedMarkdown(containerEl) {
     if (!containerEl) return;
 
@@ -23282,12 +25632,33 @@ class PiDrawerView {
       if (isFileUri || isCodeHref || isCodeText || isInternalNote) {
         const targetCandidate = isFileUri ? href : (isCodeHref ? href : (isCodeText ? text : (a.getAttribute('data-href') || href || text)));
         a.classList.add('tw-clickable-file-link');
+        a.classList.remove('external-link'); // Remove external-link so Obsidian does not inject external icon or right padding
         a.title = `点击在右侧分屏查看: ${targetCandidate}`;
         a.onclick = (e) => {
           e.preventDefault();
           e.stopPropagation();
           this.openCodeInSplitPane(targetCandidate);
         };
+
+        if (!a.querySelector('.tw-file-type-icon')) {
+          const info = this.getFileTypeInfo(targetCandidate, text);
+          const rawDisplayText = text || (targetCandidate ? targetCandidate.split(/[/\\]/).pop() : '');
+          const displayText = rawDisplayText.replace(/^[`"']|[`"']$/g, '');
+
+          a.innerHTML = '';
+          const iconSpan = document.createElement('span');
+          iconSpan.className = `tw-file-type-icon tw-file-type-${info.label}`;
+          iconSpan.textContent = info.label;
+          iconSpan.style.color = info.color;
+
+          const nameSpan = document.createElement('span');
+          nameSpan.className = 'tw-file-name';
+          nameSpan.textContent = displayText;
+
+          a.appendChild(iconSpan);
+          a.appendChild(document.createTextNode(' '));
+          a.appendChild(nameSpan);
+        }
         return;
       }
 
@@ -23307,8 +25678,8 @@ class PiDrawerView {
 
     // 1.1 Turn inline <code> that look like file paths into clickable links
     containerEl.querySelectorAll('code').forEach(codeEl => {
-      if (codeEl.closest('pre')) return; // skip multi-line blocks
-      const codeText = (codeEl.textContent || '').trim();
+      if (codeEl.closest('pre') || codeEl.closest('a')) return; // skip multi-line blocks & already linked code
+      const codeText = (codeEl.textContent || '').trim().replace(/^[`"']|[`"']$/g, '');
       if (this.isLikelyCodeFile(codeText)) {
         codeEl.classList.add('tw-clickable-file-link');
         codeEl.title = `点击在右侧分屏打开: ${codeText}`;
@@ -23317,6 +25688,23 @@ class PiDrawerView {
           e.stopPropagation();
           this.openCodeInSplitPane(codeText);
         };
+
+        if (!codeEl.querySelector('.tw-file-type-icon')) {
+          const info = this.getFileTypeInfo(codeText);
+          codeEl.innerHTML = '';
+          const iconSpan = document.createElement('span');
+          iconSpan.className = `tw-file-type-icon tw-file-type-${info.label}`;
+          iconSpan.textContent = info.label;
+          iconSpan.style.color = info.color;
+
+          const nameSpan = document.createElement('span');
+          nameSpan.className = 'tw-file-name';
+          nameSpan.textContent = codeText;
+
+          codeEl.appendChild(iconSpan);
+          codeEl.appendChild(document.createTextNode(' '));
+          codeEl.appendChild(nameSpan);
+        }
       }
     });
 
@@ -23350,12 +25738,31 @@ class PiDrawerView {
         lang = lang.toUpperCase();
       }
 
+      // Syntax highlight via Prism with grammar extensions, or fallback tokenizer
+      this.ensurePrismGrammars();
+      const rawLang = lang.toLowerCase();
+      let highlighted = false;
+      if (codeEl && typeof window !== 'undefined' && window.Prism && typeof window.Prism.highlightElement === 'function') {
+        try {
+          if (rawLang && rawLang !== 'code' && !codeEl.classList.contains(`language-${rawLang}`)) {
+            codeEl.classList.add(`language-${rawLang}`);
+          }
+          window.Prism.highlightElement(codeEl);
+          if (codeEl.querySelector('.token')) {
+            highlighted = true;
+          }
+        } catch (_) {}
+      }
+      if (!highlighted && codeEl && !codeEl.querySelector('.token')) {
+        this.highlightCodeFallback(codeEl, rawLang);
+      }
+
       const headerBar = document.createElement('div');
       headerBar.className = 'tw-code-header-bar';
       headerBar.innerHTML = `
         <span class="tw-code-lang-tag">${escapeHtml(lang)}</span>
         <button class="tw-code-copy-btn" title="复制代码">
-          ${getIconPark('copy', 13)}
+          ${getIconPark('copy', 12)}
         </button>
       `;
 
@@ -23384,13 +25791,235 @@ class PiDrawerView {
         img.title = '左键预览大图 · 右键选择大小与复制';
       }
     });
+
+    // 5. Enhance Mermaid flowcharts & technical diagrams: default 50% scale with card surface & rich modern aesthetics
+    const isDark = document.body.classList.contains('theme-dark') || !!containerEl.closest('.theme-dark')
+      || document.body.dataset.twActiveMode === 'dark' || !!containerEl.closest('[data-tw-mode="dark"]');
+    containerEl.querySelectorAll('.block-language-mermaid, .mermaid').forEach(diagramEl => {
+      diagramEl.style.setProperty('display', 'flex', 'important');
+      diagramEl.style.setProperty('justify-content', 'flex-start', 'important');
+      diagramEl.style.setProperty('align-items', 'center', 'important');
+      diagramEl.style.setProperty('width', 'fit-content', 'important');
+      diagramEl.style.setProperty('max-width', 'min(100%, max(50%, 540px))', 'important');
+      diagramEl.style.setProperty('min-width', 'min(100%, 360px)', 'important');
+      diagramEl.style.setProperty('margin', '14px 0 14px 0', 'important');
+      diagramEl.style.setProperty('margin-left', '0', 'important');
+      diagramEl.style.setProperty('margin-right', 'auto', 'important');
+      diagramEl.style.setProperty('padding', '14px 18px', 'important');
+      diagramEl.style.setProperty('border-radius', '8px', 'important');
+      diagramEl.style.setProperty('box-sizing', 'border-box', 'important');
+      diagramEl.style.setProperty('overflow-x', 'auto', 'important');
+      diagramEl.style.setProperty('text-align', 'left', 'important');
+
+      const svg = diagramEl.querySelector('svg');
+      if (svg) {
+        svg.style.setProperty('width', '100%', 'important');
+        svg.style.setProperty('max-width', '100%', 'important');
+        svg.style.setProperty('height', 'auto', 'important');
+        svg.style.setProperty('margin', '0', 'important');
+        svg.style.setProperty('margin-left', '0', 'important');
+        svg.style.setProperty('margin-right', 'auto', 'important');
+        svg.style.setProperty('display', 'block', 'important');
+        svg.style.setProperty('background', 'transparent', 'important');
+        this._beautifyMermaidSvg(svg, isDark);
+      }
+    });
+
+    containerEl.querySelectorAll('svg[id^="mermaid-"]').forEach(svg => {
+      if (!svg.closest('.block-language-mermaid, .mermaid')) {
+        svg.style.setProperty('width', 'fit-content', 'important');
+        svg.style.setProperty('max-width', 'min(100%, max(50%, 540px))', 'important');
+        svg.style.setProperty('min-width', 'min(100%, 360px)', 'important');
+        svg.style.setProperty('height', 'auto', 'important');
+        svg.style.setProperty('margin', '14px 0 14px 0', 'important');
+        svg.style.setProperty('margin-left', '0', 'important');
+        svg.style.setProperty('margin-right', 'auto', 'important');
+        svg.style.setProperty('padding', '14px 18px', 'important');
+        svg.style.setProperty('border-radius', '8px', 'important');
+        svg.style.setProperty('box-sizing', 'border-box', 'important');
+        svg.style.setProperty('display', 'block', 'important');
+        this._beautifyMermaidSvg(svg, isDark);
+      }
+    });
   }
 
   /**
-   * Persist attached image dataUrls to local attachment directory, returning lightweight metadata { name, path, hash, size }
-   * @param {Array<any>} images 
-   * @returns {Promise<Array<any>|null>}
+   * Beautify Mermaid flowchart / diagram SVG nodes with modern rounded shapes,
+   * subtle drop-shadows, rich harmonic palette colors, refined connectors & badges.
    */
+  _beautifyMermaidSvg(svg, isDark) {
+    if (!svg) return;
+    const currentTheme = isDark ? 'dark' : 'light';
+    const currentSignature = 'v4-' + currentTheme;
+    if (svg.dataset.twBeautifiedSig === currentSignature) return;
+    svg.dataset.twBeautifiedSig = currentSignature;
+
+    // Sophisticated Engineering Palette: Muted 300-series borders, high-legibility dark slate text
+    const MERMAID_PALETTE_LIGHT = [
+      { fill: '#F0F7FF', stroke: '#93C5FD', text: '#0F172A' }, // Ocean Blue
+      { fill: '#F0FDF4', stroke: '#86EFAC', text: '#0F172A' }, // Emerald Green
+      { fill: '#FFFDF5', stroke: '#FCD34D', text: '#0F172A' }, // Amber Gold
+      { fill: '#FAF5FF', stroke: '#D8B4FE', text: '#0F172A' }, // Lavender Violet
+      { fill: '#FFF1F2', stroke: '#FDA4AF', text: '#0F172A' }, // Rose Coral
+      { fill: '#F0FDFA', stroke: '#99F6E4', text: '#0F172A' }, // Teal Cyan
+    ];
+
+    const MERMAID_PALETTE_DARK = [
+      { fill: '#1E293B', stroke: '#3B82F6', text: '#F1F5F9' }, // Blue
+      { fill: '#1E293B', stroke: '#10B981', text: '#F1F5F9' }, // Emerald
+      { fill: '#1E293B', stroke: '#F59E0B', text: '#F1F5F9' }, // Amber
+      { fill: '#1E293B', stroke: '#8B5CF6', text: '#F1F5F9' }, // Violet
+      { fill: '#1E293B', stroke: '#F43F5E', text: '#F1F5F9' }, // Rose
+      { fill: '#1E293B', stroke: '#14B8A6', text: '#F1F5F9' }, // Cyan
+    ];
+
+    const palette = isDark ? MERMAID_PALETTE_DARK : MERMAID_PALETTE_LIGHT;
+
+    // 1. Beautify nodes: rounded corners, micro drop-shadow, clean surfaces
+    const nodes = svg.querySelectorAll('g.node');
+    nodes.forEach((nodeEl, idx) => {
+      // Shape smoothing: modern rounded corners on rects
+      nodeEl.querySelectorAll('rect').forEach(rect => {
+        const curRx = rect.getAttribute('rx');
+        if (!curRx || parseFloat(curRx) < 4) {
+          rect.setAttribute('rx', '8');
+          rect.setAttribute('ry', '8');
+        }
+      });
+
+      // Micro elevation shadow
+      nodeEl.style.setProperty('filter', isDark ? 'drop-shadow(0 2px 4px rgba(0,0,0,0.35))' : 'drop-shadow(0 2px 4px rgba(15,23,42,0.04))');
+
+      // Check if decision diamond (polygon)
+      const polygon = nodeEl.querySelector('polygon');
+      const colorItem = polygon ? palette[2] : palette[idx % palette.length];
+
+      // Primary shape container
+      const shape = nodeEl.querySelector('.label-container, rect, polygon, circle, ellipse');
+      if (shape) {
+        shape.style.setProperty('fill', colorItem.fill, 'important');
+        shape.style.setProperty('stroke', colorItem.stroke, 'important');
+        shape.style.setProperty('stroke-width', '1.25px', 'important');
+      }
+
+      // Label typography & authoritative dark slate text
+      nodeEl.querySelectorAll('text, tspan, .nodeLabel, span').forEach(txt => {
+        txt.style.setProperty('fill', colorItem.text, 'important');
+        txt.style.setProperty('color', colorItem.text, 'important');
+        txt.style.setProperty('font-weight', '550', 'important');
+        txt.style.setProperty('font-size', '14px', 'important');
+        txt.style.setProperty('line-height', '1.35', 'important');
+        txt.style.setProperty('font-family', 'var(--g-font, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif)', 'important');
+      });
+    });
+
+    // 2. Refined connector lines: soft modern slate
+    svg.querySelectorAll('.flowchart-link, path.path').forEach(path => {
+      path.style.setProperty('stroke', isDark ? '#64748B' : '#94A3B8', 'important');
+      path.style.setProperty('stroke-width', '1.5px', 'important');
+      path.style.setProperty('stroke-linecap', 'round', 'important');
+      path.style.setProperty('stroke-linejoin', 'round', 'important');
+    });
+
+    // 3. Crisp arrowheads
+    svg.querySelectorAll('marker path, .arrowMarkerPath').forEach(arrow => {
+      arrow.style.setProperty('fill', isDark ? '#64748B' : '#94A3B8', 'important');
+      arrow.style.setProperty('stroke', isDark ? '#64748B' : '#94A3B8', 'important');
+      arrow.style.setProperty('stroke-width', '1px', 'important');
+      arrow.style.setProperty('stroke-linejoin', 'round', 'important');
+    });
+
+    // 4. Edge label micro badges: UNCLIPPED, natural floating tags with ZERO gray background artifacts
+    // A) Sanitize internal <style> tags: eliminate Mermaid's default .edgeLabel background-color
+    svg.querySelectorAll('style').forEach(styleEl => {
+      if (styleEl.textContent && styleEl.textContent.includes('edgeLabel')) {
+        styleEl.textContent = styleEl.textContent
+          .replace(/\.edgeLabel\s*\{[^}]*\}/g, '.edgeLabel { background: transparent !important; background-color: transparent !important; }')
+          .replace(/\.edgeLabel\s+rect\s*\{[^}]*\}/g, '.edgeLabel rect { display: none !important; fill: none !important; }');
+      }
+    });
+
+    // B) Hide / remove all background <rect> elements under edgeLabels
+    svg.querySelectorAll('g.edgeLabels rect, g.edgeLabel rect, g.label rect').forEach(r => {
+      r.style.setProperty('display', 'none', 'important');
+      r.style.setProperty('fill', 'transparent', 'important');
+      r.setAttribute('fill', 'none');
+      r.setAttribute('opacity', '0');
+    });
+
+    // C) Transparent intermediate containers: foreignObject, g.edgeLabel, g.label, div
+    svg.querySelectorAll('g.edgeLabels foreignObject, g.edgeLabel foreignObject').forEach(fo => {
+      fo.style.setProperty('overflow', 'visible', 'important');
+      fo.style.setProperty('background', 'transparent', 'important');
+      fo.style.setProperty('background-color', 'transparent', 'important');
+    });
+    svg.querySelectorAll('g.edgeLabels g.edgeLabel, g.edgeLabel, g.edgeLabels g.label, g.edgeLabels .label, g.edgeLabels foreignObject div, g.edgeLabel foreignObject div').forEach(div => {
+      div.style.setProperty('background', 'transparent', 'important');
+      div.style.setProperty('background-color', 'transparent', 'important');
+      div.style.setProperty('border', 'none', 'important');
+      div.style.setProperty('padding', '0', 'important');
+      div.style.setProperty('margin', '0', 'important');
+      div.style.setProperty('box-shadow', 'none', 'important');
+      div.style.setProperty('overflow', 'visible', 'important');
+    });
+
+    // D) Floating micro badge on the primary label span
+    svg.querySelectorAll('g.edgeLabels g.edgeLabel, g.edgeLabel').forEach(gLabel => {
+      const badge = gLabel.querySelector('span.edgeLabel') || gLabel.querySelector('foreignObject span') || gLabel.querySelector('span');
+      if (badge) {
+        badge.style.setProperty('background', isDark ? '#1E293B' : '#FFFFFF', 'important');
+        badge.style.setProperty('background-color', isDark ? '#1E293B' : '#FFFFFF', 'important');
+        badge.style.setProperty('border', isDark ? '1px solid #334155' : '1px solid #CBD5E1', 'important');
+        badge.style.setProperty('border-radius', '5px', 'important');
+        badge.style.setProperty('padding', '3px 8px', 'important');
+        badge.style.setProperty('margin', '0', 'important');
+        badge.style.setProperty('color', isDark ? '#E2E8F0' : '#334155', 'important');
+        badge.style.setProperty('font-size', '13px', 'important');
+        badge.style.setProperty('font-weight', '550', 'important');
+        badge.style.setProperty('font-family', 'var(--g-mono, monospace)', 'important');
+        badge.style.setProperty('box-shadow', isDark ? '0 1px 3px rgba(0,0,0,0.35)' : '0 1px 3px rgba(15,23,42,0.08)', 'important');
+        badge.style.setProperty('white-space', 'nowrap', 'important');
+        badge.style.setProperty('display', 'inline-flex', 'important');
+        badge.style.setProperty('align-items', 'center', 'important');
+        badge.style.setProperty('justify-content', 'center', 'important');
+        badge.style.setProperty('line-height', '1.3', 'important');
+
+        // Neutralize any inner children background/border
+        badge.querySelectorAll('*').forEach(child => {
+          child.style.setProperty('background', 'transparent', 'important');
+          child.style.setProperty('background-color', 'transparent', 'important');
+          child.style.setProperty('border', 'none', 'important');
+          child.style.setProperty('padding', '0', 'important');
+          child.style.setProperty('margin', '0', 'important');
+          child.style.setProperty('box-shadow', 'none', 'important');
+          child.style.setProperty('color', 'inherit', 'important');
+        });
+      }
+    });
+
+    // E) Handle pure SVG text mode (when foreignObject is not used)
+    svg.querySelectorAll('g.edgeLabels text, g.edgeLabel text').forEach(txt => {
+      txt.style.setProperty('fill', isDark ? '#CBD5E1' : '#334155', 'important');
+      txt.style.setProperty('font-size', '13px', 'important');
+      txt.style.setProperty('font-weight', '550', 'important');
+    });
+
+    // 5. Clusters / Subgraphs
+    svg.querySelectorAll('.cluster rect').forEach(clusterRect => {
+      clusterRect.style.setProperty('fill', isDark ? 'rgba(255, 255, 255, 0.03)' : 'rgba(255, 255, 255, 0.75)', 'important');
+      clusterRect.style.setProperty('stroke', isDark ? '#334155' : '#CBD5E1', 'important');
+      clusterRect.style.setProperty('stroke-dasharray', '4 4', 'important');
+      clusterRect.setAttribute('rx', '10');
+      clusterRect.setAttribute('ry', '10');
+    });
+    svg.querySelectorAll('.cluster-label text, .cluster > .label text, g[id^="subGraph"] > .label text').forEach(clusterTxt => {
+      clusterTxt.style.setProperty('fill', isDark ? '#94A3B8' : '#475569', 'important');
+      clusterTxt.style.setProperty('font-weight', '600', 'important');
+      clusterTxt.style.setProperty('font-size', '13px', 'important');
+      clusterTxt.style.setProperty('letter-spacing', '0.2px', 'important');
+    });
+  }
+
   async persistAttachedImages(images) {
     if (!images || !Array.isArray(images) || images.length === 0) return null;
     
@@ -23473,6 +26102,12 @@ class PiDrawerView {
   }
 
   addUserMessageBubble(userText, contextBadgeText, images = []) {
+    // 用户消息是合并边界：先把在途 assistant 段收尾入缓冲并合并落库，
+    // 保证 [assistant 连续段][user][assistant 连续段] 的存储与视觉顺序一致（禁止跨用户消息合并）
+    if (this.currentAssistantMessage) {
+      this.finishAssistantMessage(false, { persist: false, preserveTools: true });
+    }
+    this._flushAssistantRunBuffer();
     this.removeWelcomeScreen();
     const bubbleWrap = document.createElement('div');
     bubbleWrap.className = 'tw-msg-bubble-wrap user';
@@ -23538,17 +26173,18 @@ class PiDrawerView {
     this._bindUserMsgActions(bubbleWrap, msgRecord);
     this.messagesEl.appendChild(bubbleWrap);
 
-    // 异步提取图片写入附件目录，仅保存相对路径、哈希和尺寸，彻底杜绝历史文件膨胀
-    // msgRecord._removed: 回退/删除发生在持久化落地前时，阻止补写僵尸记录
+    // 用户消息同步落库：保证与前后 assistant 分段的相对顺序不受图片落盘耗时影响；
+    // 图片异步写入附件目录后就地补写轻量元数据（同一对象引用），再触发一次防抖保存。
+    const sm = this.hub.sessionManager;
+    sm.addMessage(this.hub.activeAgentId, msgRecord);
     this.persistAttachedImages(images).then(persistedImages => {
       if (msgRecord._removed) return;
       msgRecord.images = persistedImages;
-      this.hub.sessionManager.addMessage(this.hub.activeAgentId, msgRecord);
+      if (sm && typeof sm.saveSessionsDebounced === 'function') sm.saveSessionsDebounced(300);
     }).catch(err => {
       if (msgRecord._removed) return;
       console.warn('[PiDrawerView] Failed to persist attached images:', err);
       msgRecord.images = null;
-      this.hub.sessionManager.addMessage(this.hub.activeAgentId, msgRecord);
     });
 
     // 用户刚发出消息：强制回到底部开始跟随本轮流式输出
@@ -23577,7 +26213,7 @@ class PiDrawerView {
     const parts = core.split('[研发人员提问]');
     if (parts.length > 1) core = parts.slice(1).join('[研发人员提问]');
     core = core.replace(/^\n+/, '');
-    const cut = core.search(/\n\n\[(Target Codebase|OpenGrok Target Project)/);
+    const cut = core.search(/\n\n\[(Target Codebase|OpenGrok Target Project|Jira Issue Context)/);
     if (cut >= 0) core = core.slice(0, cut);
     return core;
   }
@@ -23690,57 +26326,24 @@ class PiDrawerView {
 
     if (this.currentAssistantMessage) this.currentAssistantMessage = null;
     if (this.activeToolCards) this.activeToolCards.clear();
+    // 截断点之后的未落库分段缓冲一并丢弃，防止僵尸记录回补
+    this._assistantRunBuffer = [];
     if (this.buildChatMinimap) this.buildChatMinimap();
     if (this.updateStickyQuestion) this.updateStickyQuestion();
   }
 
-  async handleSend() {
-    const adapter = this.hub.getActiveAdapter();
-    if (adapter.status === 'not_installed') {
-      return;
-    }
-    // 防重入：上一次提交（含检索等待）未落地前，忽略 Enter/点击
-    if (this._sendInFlight) return;
-
-    const text = this.inputEl.value.trim();
-    // 胶囊序列化为协议文本：命令 chip → 消息首部 '/name'，文件 chip → 尾部 '[[path]]'
-    const wireText = this._serializeChips(text);
-    const imagesToSend = [...(this.attachedImages || [])];
-    if ((!wireText && imagesToSend.length === 0) || this.hub.isStreaming()) return;
-
-    this._sendInFlight = true;
-    this._abortRequested = false;
-    this._hasAssistantMessageInTurn = false;
-    try {
-
-    if (this.currentAssistantMessage) {
-      this.finishAssistantMessage();
-    }
-
-    this.inputEl.value = '';
-    this.inputEl.style.height = `${this.inputHeight}px`;
-    this.hub.sessionManager.setDraft(this.hub.activeAgentId, '');
-    this.attachedImages = [];
-    this.renderImageAttachments();
-    this.inputChips = [];
-    this._renderInputChips();
-    this._persistChips();
-    this.updateSendButtonState();
-    this.closeTriggerPicker();
-
-    const isNiceAigc = this.hub.activeAgentId === 'niceaigc';
-    // 斜杠命令必须原样直通：Pi 的扩展命令/技能/模板分发均要求消息体 startsWith('/')，
-    // 任何前置注入（Context Meta / 工程绑定）都会破坏命令解析；后置注入会污染命令参数
-    const isSlashCommand = wireText.startsWith('/');
-    const ctxInfo = (!isNiceAigc && this.contextProvider) ? this.contextProvider.getContextBadgeInfo() : null;
-    const badgeLabel = (ctxInfo && ctxInfo.hasContext) ? `${ctxInfo.title} (${ctxInfo.module})` : null;
-
-    this.addUserMessageBubble(wireText, badgeLabel, imagesToSend);
-
-    // NiceAIGC does NOT bind to knowledge base; send clean user prompt without metadata
+  /**
+   * 上下文注入合成（同步段）：Context Meta 包裹 + 本地工程/OpenGrok/Jira 尾部注入。
+   * slash 命令与 NiceAIGC 原样直通；检索增强（异步 gatherRetrievalContext）仍留在 handleSend。
+   * handleSend 与 follow_up 排队派发共用本方法，保证注入语义一致。
+   */
+  _composeContextInjectedPrompt(wireText, isSlashCommand, isNiceAigc) {
     let fullPrompt = (!isSlashCommand && !isNiceAigc && this.contextProvider)
       ? this.contextProvider.formatPromptWithContext(wireText)
       : wireText;
+
+    const ctxInfo = (!isNiceAigc && this.contextProvider && typeof this.contextProvider.getContextBadgeInfo === 'function')
+      ? this.contextProvider.getContextBadgeInfo() : null;
 
     // 本地工程第一优先级注入 (Requirement 1 & Requirement 2)
     const isCustomLocalProj = Boolean(this.selectedLocalProject && this.selectedLocalProject.id && this.selectedLocalProject.id !== 'none');
@@ -23785,6 +26388,63 @@ class PiDrawerView {
 请调用 jira_get_issue 获取完整详情、jira_list_attachments 查看附件；如需日志/抓包分析，用 jira_download_attachment 下载到 00-Inbox/03-Quick-Note/${ji.key}/attachments/ 后分析。分析结论与产物写入 00-Inbox/03-Quick-Note/${ji.key}/ 目录。`;
     }
 
+    return fullPrompt;
+  }
+
+  async handleSend() {
+    const adapter = this.hub.getActiveAdapter();
+    if (adapter.status === 'not_installed') {
+      return;
+    }
+    // 防重入：上一次提交（含检索等待）未落地前，忽略 Enter/点击
+    if (this._sendInFlight) return;
+
+    const text = this.inputEl.value.trim();
+    // 胶囊序列化为协议文本：命令 chip → 消息首部 '/name'，文件 chip → 尾部 '[[path]]'
+    const wireText = this._serializeChips(text);
+    const imagesToSend = [...(this.attachedImages || [])];
+    if ((!wireText && imagesToSend.length === 0) || this.hub.isStreaming()) return;
+
+    this._sendInFlight = true;
+    this._abortRequested = false;
+    this._hasAssistantMessageInTurn = false;
+    this._runAborted = false;
+    this._suppressPlanBarOnce = false;
+    this._hidePlanBar();
+    // 防御：上一轮异常残留的 assistant 段先合并落库，避免跨发送串档
+    if (this._assistantRunBuffer && this._assistantRunBuffer.length) this._flushAssistantRunBuffer();
+    try {
+
+    if (this.currentAssistantMessage) {
+      this.finishAssistantMessage();
+    }
+
+    this.inputEl.value = '';
+    this.inputEl.style.height = `${this.inputHeight}px`;
+    this.hub.sessionManager.setDraft(this.hub.activeAgentId, '');
+    this.attachedImages = [];
+    this.renderImageAttachments();
+    this.inputChips = [];
+    this._renderInputChips();
+    this._persistChips();
+    this.updateSendButtonState();
+    this.closeTriggerPicker();
+
+    const isNiceAigc = this.hub.activeAgentId === 'niceaigc';
+    // 斜杠命令必须原样直通：Pi 的扩展命令/技能/模板分发均要求消息体 startsWith('/')，
+    // 任何前置注入（Context Meta / 工程绑定）都会破坏命令解析；后置注入会污染命令参数
+    const isSlashCommand = wireText.startsWith('/');
+    const ctxInfo = (!isNiceAigc && this.contextProvider) ? this.contextProvider.getContextBadgeInfo() : null;
+    const badgeLabel = (ctxInfo && ctxInfo.hasContext) ? `${ctxInfo.title} (${ctxInfo.module})` : null;
+
+    this.addUserMessageBubble(wireText, badgeLabel, imagesToSend);
+    // 登记回显对账：pi message_start(user) 回显到达时跳过重复渲染
+    this._pendingSentWires.push({ wire: wireText, optimistic: true, ts: Date.now() });
+    if (this._pendingSentWires.length > 20) this._pendingSentWires.shift();
+
+    // NiceAIGC does NOT bind to knowledge base; send clean user prompt without metadata
+    let fullPrompt = this._composeContextInjectedPrompt(wireText, isSlashCommand, isNiceAigc);
+
     // 非 Pi / Hermes / Antigravity Agent（无内置或原生 MCP vendor 工具的 Agent）此处才做插件侧前置检索注入；
     // Pi、Hermes 与 Antigravity 已通过 Extension / MCP 接入完整工具链，支持自主按需调用与执行卡片渲染
     if (wireText && !isSlashCommand && !isNiceAigc && this.hub.activeAgentId !== 'pi' && this.hub.activeAgentId !== 'hermes' && this.hub.activeAgentId !== 'antigravity') {
@@ -23806,7 +26466,9 @@ class PiDrawerView {
       // disposition='handled'：扩展命令/输入钩子已自行处理，不产生 agent run，跳过早回兜底
       const cmdHandled = res && res.data && res.data.disposition === 'handled';
       if (cmdHandled) {
-        // no-op：命令输出经扩展自身通道呈现
+        // no-op：命令输出经扩展自身通道呈现；无 message_start 回显，摘除对账登记
+        const i = this._pendingSentWires.findIndex(p => p.wire === wireText && p.optimistic);
+        if (i >= 0) this._pendingSentWires.splice(i, 1);
       } else if (res && res.success === false) {
         if (!this._hasAssistantMessageInTurn) {
           this.createAssistantMessageBubble();
@@ -23856,6 +26518,12 @@ class PiDrawerView {
       }
       return;
     }
+    // pi/antigravity 的 abort 不发 'aborted' 事件、只发 agent_settled：
+    // 置位 _runAborted 让 settled 路径给落库记录打 aborted 标记；
+    // _suppressPlanBarOnce 防止 abort 后的 settled 重新点亮只读方案条
+    this._runAborted = true;
+    this._suppressPlanBarOnce = true;
+    this._hidePlanBar();
     await this.hub.abort();
     this.updateSendButtonState();
   }
@@ -24235,6 +26903,10 @@ class PiDrawerView {
 
   loadHistorySession(sessionId) {
     const agentId = this.hub.activeAgentId;
+    // 当前会话若仍有在途气泡，先正常落库再切换，避免回复丢失
+    if (this.currentAssistantMessage) {
+      this.finishAssistantMessage();
+    }
     if (this.hub && this.hub.sessionManager) {
       this.hub.sessionManager.switchSession(agentId, sessionId);
     }
@@ -24243,6 +26915,12 @@ class PiDrawerView {
       adapter._syncSessionConversation();
     }
     this.restoreSessionMessages(agentId);
+    // 清理瞬态：旧会话的回显对账/分段缓冲/方案条不得带入新会话；
+    // _queueSnapshot 保留——它反映引擎侧真实队列，不随本地会话切换失效
+    this._pendingSentWires = [];
+    this._assistantRunBuffer = [];
+    this._runAborted = false;
+    this._hidePlanBar();
     this.closeHistoryPanel();
   }
 
@@ -24299,11 +26977,203 @@ class PiDrawerView {
     return `${tokens} tok`;
   }
 
+  /**
+   * CJK 感知 Token 估算器：汉字/全角标点 ~0.65 tok，其余字符 ~0.28 tok。
+   * 仅用于无原生 usage 回传的兜底估算，绝不凭空捏造缓存字段。
+   */
+  estimateTokensFromText(text) {
+    const s = String(text || '');
+    if (!s) return 0;
+    let cjk = 0, other = 0;
+    for (const ch of s) {
+      const c = ch.codePointAt(0);
+      if ((c >= 0x4e00 && c <= 0x9fa5) || (c >= 0x3000 && c <= 0x303f) || (c >= 0xff00 && c <= 0xffef)) cjk++;
+      else other++;
+    }
+    return Math.ceil(cjk * 0.65 + other * 0.28);
+  }
+
+  /**
+   * turn_end / agent_settled 每跳 usage 累加进 turnUsageAcc。
+   * 多步工具调用单提问会触发多次 turn_end，覆盖赋值会丢中间轮次 Token。
+   */
+  _accumulateTurnUsage(u) {
+    if (!u || typeof u !== 'object') return;
+    const inp = Math.max(0, u.input ?? u.prompt_tokens ?? u.promptTokens ?? u.inputTokens ?? 0);
+    const out = Math.max(0, u.output ?? u.completion_tokens ?? u.completionTokens ?? u.outputTokens ?? 0);
+    const cr  = Math.max(0, u.cacheRead ?? u.prompt_cache_hit_tokens ?? u.cache_read_input_tokens ?? u.cacheReadTokens ?? 0);
+    const cw  = Math.max(0, u.cacheWrite ?? u.cache_creation_input_tokens ?? u.cacheWriteTokens ?? 0);
+    const rs  = Math.max(0, u.reasoning ?? u.reasoningTokens ?? u.completion_tokens_details?.reasoning_tokens ?? 0);
+    const cost = Math.max(0, Number(u.cost?.total ?? u.costUsd ?? 0));
+    const nativeTot = Math.max(0, u.totalTokens ?? u.total_tokens ?? 0);
+    if (!(inp > 0 || out > 0 || cr > 0 || cw > 0 || nativeTot > 0)) return;
+    const acc = this.turnUsageAcc || (this.turnUsageAcc = {
+      inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0,
+      reasoningTokens: 0, nativeTotal: 0, costUsd: 0, subTurns: 0, hasRealUsage: false
+    });
+    acc.inputTokens += inp;
+    acc.outputTokens += out;
+    acc.cacheReadTokens += cr;
+    acc.cacheWriteTokens += cw;
+    acc.reasoningTokens += rs;
+    acc.nativeTotal += nativeTot;
+    acc.costUsd += cost;
+    acc.subTurns += 1;
+    acc.hasRealUsage = true;
+  }
+
+  /**
+   * 消费当前回合累加器：统一算术口径
+   *   totalTokens       = input + output + cacheRead + cacheWrite (与原生总额取大兜底)
+   *   netBillableTokens = input + output + cacheWrite (剔除低价缓存读取)
+   */
+  _drainTurnUsage() {
+    const acc = this.turnUsageAcc;
+    this.turnUsageAcc = null;
+    if (!acc || !acc.hasRealUsage) return null;
+    const inputTokens = Math.max(0, acc.inputTokens);
+    const outputTokens = Math.max(0, acc.outputTokens);
+    const cacheReadTokens = Math.max(0, acc.cacheReadTokens);
+    const cacheWriteTokens = Math.max(0, acc.cacheWriteTokens);
+    return {
+      inputTokens,
+      outputTokens,
+      cacheReadTokens,
+      cacheWriteTokens,
+      reasoningTokens: Math.max(0, acc.reasoningTokens),
+      totalTokens: Math.max(inputTokens + outputTokens + cacheReadTokens + cacheWriteTokens, acc.nativeTotal),
+      netBillableTokens: inputTokens + outputTokens + cacheWriteTokens,
+      costUsd: Math.max(0, acc.costUsd),
+      subTurns: acc.subTurns,
+      isEstimated: false
+    };
+  }
+
+  /**
+   * 无原生 usage 回传时的结构化兜底估算（CJK 感知，绝不伪造缓存）：
+   *   output = 回答正文 + 思维链 + 工具调用参数
+   *   input  = 用户 Prompt + 历史上下文链 + 工具回传 + 系统提示词基数(600) + 每步工具重放开销(120)
+   */
+  estimateTurnUsageFallback({ text = '', thinking = '', toolCalls = [], sessionMessages = [] } = {}) {
+    const calls = Array.isArray(toolCalls) ? toolCalls : [];
+    let toolArgsChars = 0, toolOutChars = 0;
+    for (const tc of calls) {
+      try { toolArgsChars += JSON.stringify(tc.args || tc.arguments || {}).length; } catch (_) {}
+      toolOutChars += String(tc.output || '').length;
+    }
+    const outputTokens = Math.max(1,
+      this.estimateTokensFromText(text) +
+      this.estimateTokensFromText(thinking) +
+      Math.ceil(toolArgsChars * 0.28));
+
+    const msgs = Array.isArray(sessionMessages) ? sessionMessages.slice(-30) : [];
+    let ctxChars = 0;
+    for (const m of msgs) {
+      ctxChars += String(m && m.text || '').length + String(m && m.thinking || '').length;
+    }
+    const inputTokens = Math.max(1, Math.ceil(
+      Math.min(ctxChars, 300000) * 0.28 +
+      toolOutChars * 0.28 +
+      calls.length * 120 +
+      600
+    ));
+    return {
+      inputTokens,
+      outputTokens,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      reasoningTokens: 0,
+      totalTokens: inputTokens + outputTokens,
+      netBillableTokens: inputTokens + outputTokens,
+      costUsd: 0,
+      subTurns: 1 + calls.length,
+      isEstimated: true
+    };
+  }
+
   formatTime(ts) {
     const d = ts ? new Date(ts) : new Date();
     const h = String(d.getHours()).padStart(2, '0');
     const m = String(d.getMinutes()).padStart(2, '0');
     return `${h}:${m}`;
+  }
+
+  /**
+   * 单个工具调用的压缩摘要（≤80 字符、去换行）：read(xxx.c) / grep("...") / bash(...) 级明细。
+   * 供历史恢复 banner 展开时展示逐步操作；未知工具回退 toolName，绝不抛错。
+   */
+  _summarizeToolCall(tc) {
+    try {
+      if (!tc || typeof tc !== 'object') return '';
+      const name = String(tc.toolName || tc.name || 'tool');
+      const lname = name.toLowerCase();
+      const args = tc.args || tc.arguments || tc.input || {};
+      const pick = (...keys) => {
+        for (const k of keys) {
+          const v = args[k];
+          if (typeof v === 'string' && v) return v;
+          if (typeof v === 'number') return String(v);
+        }
+        return '';
+      };
+      const clip = (s, n = 60) => {
+        const t = String(s || '').replace(/\s+/g, ' ').trim();
+        return t.length > n ? t.slice(0, n) + '…' : t;
+      };
+      const base = (p) => String(p || '').split(/[\\/]/).filter(Boolean).pop() || String(p || '');
+      let out = '';
+      if (/^(read|read_file|view_file|opengrok_read_file|open|cat)$/i.test(lname)) {
+        out = `read(${clip(base(pick('path', 'file_path', 'file', 'filePath', 'target', 'absPath')), 60)})`;
+      } else if (/^(grep|find|search|opengrok_search_code|glob|find_files|ls|list_dir)$/i.test(lname)) {
+        const q = pick('pattern', 'query', 'q', 'regex', 'search', 'name', 'path', 'root');
+        out = `grep("${clip(q, 50)}")`;
+      } else if (/^(bash|exec|terminal|command|run_command|shell|cmd)$/i.test(lname)) {
+        out = `bash(${clip(pick('command', 'cmd', 'script', 'input'), 55)})`;
+      } else if (/^(write|write_to_file|replace_file_content|edit|update_file|apply_patch|create_file)$/i.test(lname)) {
+        out = `edit(${clip(base(pick('path', 'file_path', 'file', 'filePath', 'target')), 55)})`;
+      } else if (/^update_plan$/i.test(lname)) {
+        out = 'plan';
+      } else {
+        const hint = tc.actionDesc || clip(pick('path', 'file_path', 'command', 'query', 'url', 'change_id', 'id'), 45);
+        out = hint ? `${name}(${clip(hint, 45)})` : name;
+      }
+      if (tc.isError) {
+        const e = clip(tc.error || '', 36);
+        out = `✗ ${out}${e ? ` — ${e}` : ''}`;
+      }
+      return out.length > 80 ? out.slice(0, 80) + '…' : out;
+    } catch (_) {
+      return String(tc && (tc.toolName || tc.name) || '');
+    }
+  }
+
+  /**
+   * 渲染工具步逐条明细（read(x.c)/bash(...)）：填进 step.proseEl（此前空置），
+   * 失败行标 error 类；title 悬停可见完整 args。实时/收尾都会调用，幂等重建。
+   */
+  _renderToolStepDetails(toolStep) {
+    try {
+      if (!toolStep || !toolStep.proseEl) return;
+      const calls = toolStep.toolCalls || [];
+      if (!calls.length) { toolStep.proseEl.style.display = 'none'; return; }
+      toolStep.proseEl.innerHTML = '';
+      for (const tc of calls) {
+        const line = this._summarizeToolCall(tc);
+        if (!line) continue;
+        const row = document.createElement('div');
+        row.className = 'tw-tool-detail-line' + (tc.isError ? ' error' : '');
+        row.textContent = line;
+        try {
+          const fullArgs = tc.args || tc.arguments || tc.input;
+          if (fullArgs) {
+            const t = JSON.stringify(fullArgs);
+            row.title = t.length > 2000 ? t.slice(0, 2000) + '…' : t;
+          }
+        } catch (_) {}
+        toolStep.proseEl.appendChild(row);
+      }
+      toolStep.proseEl.style.display = 'block';
+    } catch (_) {}
   }
 
   generateBatchToolSummary(toolCalls) {
@@ -24376,11 +27246,15 @@ class PiDrawerView {
     const inputStr = (data.inputTokens || 0).toLocaleString() + ' tok';
     const outputStr = (data.outputTokens || 0).toLocaleString() + ' tok';
     const cacheReadStr = data.cacheReadTokens ? (data.cacheReadTokens.toLocaleString() + ' tok') : null;
+    const cacheWriteStr = data.cacheWriteTokens ? (data.cacheWriteTokens.toLocaleString() + ' tok') : null;
+
+    const modelLine = escapeHtml(data.providerAndModel || '未知');
+    const effortTag = data.reasoningEffort ? ` <span style="opacity:.65;font-size:10px;">(${escapeHtml(String(data.reasoningEffort))})</span>` : '';
 
     let rowsHtml = `
       <div class="tw-token-row">
         <span class="tw-token-label">提供方 / 模型</span>
-        <span class="tw-token-val">${escapeHtml(data.providerAndModel || '未知')}</span>
+        <span class="tw-token-val">${modelLine}${effortTag}</span>
       </div>
       <div class="tw-token-row">
         <span class="tw-token-label">未缓存输入</span>
@@ -24395,6 +27269,13 @@ class PiDrawerView {
         <span class="tw-token-val">${cacheReadStr}</span>
       </div>`;
     }
+    if (cacheWriteStr) {
+      rowsHtml += `
+      <div class="tw-token-row">
+        <span class="tw-token-label">缓存写入</span>
+        <span class="tw-token-val">${cacheWriteStr}</span>
+      </div>`;
+    }
 
     rowsHtml += `
       <div class="tw-token-row">
@@ -24402,6 +27283,33 @@ class PiDrawerView {
         <span class="tw-token-val">${outputStr}</span>
       </div>
     `;
+
+    if (data.netBillableTokens > 0 && data.netBillableTokens !== data.totalTokens) {
+      rowsHtml += `
+      <div class="tw-token-row">
+        <span class="tw-token-label">净计费</span>
+        <span class="tw-token-val">${data.netBillableTokens.toLocaleString()} tok</span>
+      </div>`;
+    }
+    if (data.subTurns > 1) {
+      rowsHtml += `
+      <div class="tw-token-row">
+        <span class="tw-token-label">LLM 子回合</span>
+        <span class="tw-token-val">${data.subTurns} 次</span>
+      </div>`;
+    }
+    if (data.costUsd > 0) {
+      rowsHtml += `
+      <div class="tw-token-row">
+        <span class="tw-token-label">等效成本</span>
+        <span class="tw-token-val">~$${data.costUsd.toFixed(3)}</span>
+      </div>`;
+    }
+    rowsHtml += `
+      <div class="tw-token-row">
+        <span class="tw-token-label">数据来源</span>
+        <span class="tw-token-val">${data.isEstimated ? '估算 (未回传原生用量)' : '原生回传 (精确)'}</span>
+      </div>`;
 
     if (data.durationText) {
       rowsHtml += `
@@ -24466,6 +27374,13 @@ class PiDrawerView {
       this.hub.sessionManager.newSession(agentId);
     }
     this.currentAssistantMessage = null;
+    // 新会话瞬态复位：回显台账/排队映射/分段缓冲/中止标记不得带入下一会话
+    this._pendingSentWires = [];
+    this._assistantRunBuffer = [];
+    this._runAborted = false;
+    this._suppressPlanBarOnce = false;
+    if (this._queuedWireByPrompt) this._queuedWireByPrompt.clear();
+    this._hidePlanBar();
     if (this.messagesEl) {
       this.messagesEl.innerHTML = '';
     }
@@ -24511,7 +27426,8 @@ class PiDrawerView {
       this._minimapTargetIdx = null;
       this._minimapScrollingUntil = 0;
       this._contentBelowPending = false;
-      if (this.scrollBottomBtn) this.scrollBottomBtn.classList.remove('has-new');
+      if (this.scrollBottomBtn) this.scrollBottomBtn.classList.remove('has-new', 'visible');
+      if (this.bottomFadeEl) this.bottomFadeEl.classList.remove('visible');
       if (this._scrollRafId) {
         cancelAnimationFrame(this._scrollRafId);
         this._scrollRafId = null;
@@ -24528,9 +27444,12 @@ class PiDrawerView {
       if (this._stickToBottom === false) {
         this._contentBelowPending = true;
         if (this.scrollBottomBtn) this.scrollBottomBtn.classList.add('visible', 'has-new');
+        if (this.bottomFadeEl) this.bottomFadeEl.classList.add('visible');
         return;
       }
       this.messagesEl.scrollTop = this.messagesEl.scrollHeight;
+      if (this.bottomFadeEl) this.bottomFadeEl.classList.remove('visible');
+      if (this.scrollBottomBtn) this.scrollBottomBtn.classList.remove('visible');
     });
   }
 
@@ -24689,6 +27608,9 @@ class PiDrawerView {
   open() {
     if (this.isOpenState) return;
     this.isOpenState = true;
+    if (!(this.drawerEl && this.drawerEl.classList.contains('tw-studio-mode'))) {
+      this._normalDrawerOpen = true;
+    }
     this.drawerEl.style.display = 'flex';
     this.notifyToggle(true);
 
@@ -24716,6 +27638,7 @@ class PiDrawerView {
     if (this.drawerEl && this.drawerEl.classList.contains('tw-studio-mode')) return;
     if (!this.isOpenState) return;
     this.isOpenState = false;
+    this._normalDrawerOpen = false;
     this.drawerEl.style.display = 'none';
     this.notifyToggle(false);
   }
@@ -33991,8 +36914,6 @@ class CompanionSyncServer {
         }
       }
 
-
-
       if (req.method === 'POST' && pathname === '/api/sync-credential') {
         let body = '';
         req.on('data', chunk => {
@@ -41647,12 +44568,26 @@ class ExploreView {
 
   setSubTab(subTab) {
     if (this.activeSubTab === subTab) return;
+    const leavingAi = this.activeSubTab === 'ai';
     this.activeSubTab = subTab;
     try {
       if (typeof localStorage !== 'undefined') {
         localStorage.setItem('tabonkb-explore-subtab', subTab);
       }
     } catch (_) {}
+    // 离开 AI 子页前，先把 agentDrawer 从 aiWrap 安全迁回工作台根布局（docked 抽屉态）。
+    // 否则 render() → containerEl.empty() 会把 drawerEl 连同 aiWrap 一起从文档树摘除，
+    // 使其悬浮在 DOM 之外，直到下次回到 ai 子页才重现。
+    if (leavingAi && this.agentDrawer && typeof this.agentDrawer.mount === 'function') {
+      try {
+        const layoutEl = (this.containerEl && typeof this.containerEl.closest === 'function')
+          ? this.containerEl.closest('.tabonkb-workbench-layout')
+          : null;
+        if (layoutEl) {
+          this.agentDrawer.mount(layoutEl);
+        }
+      } catch (_) {}
+    }
     this.render();
   }
 
@@ -44441,66 +47376,11 @@ class DshWorkbenchView {
   renderRightPane(parentEl) {
     this.mainPaneEl = parentEl.createDiv({ cls: 'tw-harness-main-pane' });
 
-    // 1. 顶部 28px 极简微工具条 (相对定位供弹出菜单锚定)
-    this.toolbarEl = this.mainPaneEl.createDiv({ cls: 'tw-dsh-studio-toolbar' });
-
-    // 左侧: 状态微标 + 知识库工作区徽章
-    const leftBox = this.toolbarEl.createDiv({ cls: 'tw-dsh-studio-left' });
-
-    // 引擎状态微标 (就绪/启动中/异常/未连接)
-    this.statusBadgeEl = leftBox.createDiv({ cls: 'tw-dsh-badge tw-dsh-badge-starting' });
-    this.statusBadgeEl.createSpan({ cls: 'tw-dsh-badge-dot' });
-    this.statusBadgeText = this.statusBadgeEl.createSpan({ cls: 'tw-dsh-badge-text', text: '启动中' });
-    this.statusBadgeEl.setAttribute('title', 'DSH 守护进程状态 (点击重启)');
-    this.statusBadgeEl.onclick = () => this.handleRestart();
-
-    // 知识库默认工作区提示胶囊 (TabonKB, 点击快速复制绝对路径)
-    const vaultPath = this.app?.vault?.adapter?.basePath || 'd:\\work\\Mgmt\\TabonKB';
-    const vaultName = (vaultPath.split(/[\\/]/).filter(Boolean).pop()) || 'TabonKB';
-    const wsBadge = leftBox.createDiv({ cls: 'tw-harness-ws-badge', title: `工作区: ${vaultPath} (点击复制路径)` });
-    wsBadge.innerHTML = `
-      <span class="tw-harness-ws-icon">${getIconParkFn('database', 11)}</span>
-      <span class="tw-harness-ws-label">${escapeHtml(vaultName)}</span>
-    `;
-    wsBadge.onclick = async () => {
-      try {
-        await navigator.clipboard.writeText(vaultPath);
-        new NoticeCls('✓ 已复制知识库根路径: ' + vaultPath, 2000);
-      } catch (_) {}
-    };
-
-    // 右侧: MCP 联动状态按钮 + 刷新 + 重启 + 外部浏览器打开
-    const rightActions = this.toolbarEl.createDiv({ cls: 'tw-dsh-studio-actions' });
-
-    // 右上角 MCP 联动状态按钮 (小巧徽标按钮)
-    this.btnMcpStatus = rightActions.createEl('button', {
-      cls: 'tw-harness-mcp-status-btn',
-      title: '工程 MCP 工具联动状态 (点击展开详情)'
-    });
-    this.btnMcpStatus.innerHTML = `
-      <span class="tw-harness-mcp-dot"></span>
-      <span class="tw-harness-mcp-btn-icon">${getIconParkFn('sliders', 11)}</span>
-      <span class="tw-harness-mcp-btn-text">MCP联动</span>
-    `;
-    this.btnMcpStatus.onclick = (e) => {
-      e.stopPropagation();
-      this.toggleMcpPopover(this.btnMcpStatus);
-    };
-
-    // 刷新
-    const btnReload = rightActions.createDiv({ cls: 'tw-dsh-icon-btn', attr: { title: '刷新工作区网页' } });
-    btnReload.innerHTML = `<svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" fill="none" stroke-width="2"><path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/></svg>`;
-    btnReload.onclick = () => this.handleReload();
-
-    // 重启
-    const btnRestart = rightActions.createDiv({ cls: 'tw-dsh-icon-btn', attr: { title: '重启 DSH 引擎' } });
-    btnRestart.innerHTML = `<svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" fill="none" stroke-width="2"><path d="M18.36 6.64a9 9 0 1 1-12.73 0M12 2v10"/></svg>`;
-    btnRestart.onclick = () => this.handleRestart();
-
-    // 外部浏览器打开
-    const btnExternal = rightActions.createDiv({ cls: 'tw-dsh-icon-btn is-cta', attr: { title: '在系统默认浏览器中打开' } });
-    btnExternal.innerHTML = `<svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" fill="none" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14 21 3"/></svg>`;
-    btnExternal.onclick = () => this.handleExternal();
+    // 1. 顶部微工具条已按极简规范彻底移除（消弭视觉噪音，全面沉浸式呈现对话视窗）
+    this.toolbarEl = null;
+    this.statusBadgeEl = null;
+    this.statusBadgeText = null;
+    this.btnMcpStatus = null;
 
     // 2. 主视窗容器 (iframe + loading + error)
     this.frameWrap = this.mainPaneEl.createDiv({ cls: 'tw-dsh-studio-frame-wrap' });
@@ -44644,22 +47524,23 @@ div[data-sidebar-collapsed] div[class*="_root"][class*="_collapsed"] {
 
       // 「+」菜单工程上下文桥 (与代理层注入互为冗余, 覆盖 iframe 直达加载场景)
       let ctxScript = doc.getElementById('tabonkb-dsh-ctx-bridge');
-      if (!ctxScript) {
-        let ctxJs = '';
-        if (typeof getDshContextBridgeScript === 'function') {
-          ctxJs = getDshContextBridgeScript();
-        } else {
-          try {
-            
-            ctxJs = dshMgr.getDshContextBridgeScript ? dshMgr.getDshContextBridgeScript() : '';
-          } catch (_) {}
-        }
-        if (ctxJs) {
-          ctxScript = doc.createElement('script');
-          ctxScript.id = 'tabonkb-dsh-ctx-bridge';
-          ctxScript.textContent = ctxJs;
-          (doc.head || doc.body).appendChild(ctxScript);
-        }
+      if (ctxScript) {
+        try { ctxScript.remove(); } catch (_) {}
+      }
+      let ctxJs = '';
+      if (typeof getDshContextBridgeScript === 'function') {
+        ctxJs = getDshContextBridgeScript();
+      } else {
+        try {
+          
+          ctxJs = dshMgr.getDshContextBridgeScript ? dshMgr.getDshContextBridgeScript() : '';
+        } catch (_) {}
+      }
+      if (ctxJs) {
+        ctxScript = doc.createElement('script');
+        ctxScript.id = 'tabonkb-dsh-ctx-bridge';
+        ctxScript.textContent = ctxJs;
+        (doc.head || doc.body).appendChild(ctxScript);
       }
     } catch (_) {}
   }
@@ -44830,6 +47711,7 @@ div[data-sidebar-collapsed] div[class*="_root"][class*="_collapsed"] {
         label = proj ? `✓ 本地工程: ${proj.label || proj.project}` : '✓ 已清除本地工程';
       }
     } catch (_) {}
+    this._persistActiveContextFile();
     this.sendDshCtxState(false);
     if (label) { try { new NoticeCls(label, 1800); } catch (_) {} }
   }
@@ -44861,9 +47743,39 @@ div[data-sidebar-collapsed] div[class*="_root"][class*="_collapsed"] {
         delete process.env.TABONKB_JIRA_ISSUE_JSON;
         delete process.env.TABONKB_GERRIT_FILTER;
       } catch (_) {}
+      this._persistActiveContextFile();
       try { new NoticeCls('✓ 新对话: 上下文已重置', 1600); } catch (_) {}
     } catch (_) {}
     this.sendDshCtxState(false);
+  }
+
+  _persistActiveContextFile() {
+    try {
+      
+      
+      const basePath = this.app?.vault?.adapter?.basePath || (typeof process !== 'undefined' ? process.cwd() : '');
+      if (!basePath) return;
+      const target = path.join(basePath, '.obsidian', 'plugins', 'tabonkb-workbench', 'active-context.json');
+      const drawer = this.getAgentDrawer();
+      let lp = drawer?.selectedLocalProject;
+      let ji = drawer?.selectedJiraIssue;
+      let op = drawer?.selectedProject;
+      let gf = drawer?.selectedGerritFilter;
+      if (!drawer && typeof localStorage !== 'undefined') {
+        try { lp = JSON.parse(localStorage.getItem('tabonkb-local-selected-project') || 'null'); } catch (_) {}
+        try { ji = JSON.parse(localStorage.getItem('tabonkb-jira-selected-issue') || 'null'); } catch (_) {}
+        try { op = localStorage.getItem('tabonkb-opengrok-selected-project') || 'auto'; } catch (_) {}
+        try { gf = localStorage.getItem('tabonkb-gerrit-selected-filter') || 'all'; } catch (_) {}
+      }
+      const payload = {
+        selectedLocalProject: lp || null,
+        selectedJiraIssue: ji || null,
+        selectedProject: op || 'auto',
+        selectedGerritFilter: gf || 'all',
+        updatedAt: Date.now()
+      };
+      fs.writeFileSync(target, JSON.stringify(payload, null, 2), 'utf8');
+    } catch (_) {}
   }
 
   /**
@@ -55574,6 +58486,10 @@ class TabonKBSettingTab extends PluginSettingTab {
   constructor(app, plugin) {
     super(app, plugin);
     this.plugin = plugin;
+    this._verSvc = null;              // AgentVersionService 懒实例
+    this._verState = {};              // agentId → {phase, info, result, resultOk, logText}
+    this._verLogOpen = {};            // agentId → changelog 展开态
+    this._verContainerEl = null;      // 版本区块容器（局部重渲染）
   }
 
   _readSecretsFileCached() {
@@ -56923,11 +59839,181 @@ class TabonKBSettingTab extends PluginSettingTab {
             await this.plugin.saveSettings();
           });
       });
+
+    // =========================================================================
+    // Agent 运行环境（版本探测 · 一键更新 · 更新日志）
+    // =========================================================================
+    containerEl.createEl('h3', { text: '🧩 Agent 运行环境' });
+    containerEl.createDiv({
+      cls: 'setting-item-description',
+      text: '检测 Pi Agent 与 Antigravity CLI 的本地版本、可更新状态与版本迭代内容；更新命令仅在点击后执行。',
+    });
+    const verCard = containerEl.createDiv({ cls: 'tw-ver-card' });
+    this._verContainerEl = verCard;
+    this._renderVersionSection(verCard);
+    ['pi', 'antigravity'].forEach(id => {
+      const st = this._verState[id];
+      if (!st || st.phase === 'idle' || st.phase === 'error') this._loadAgentVersion(id);
+    });
+  }
+
+  /* ===== Agent 运行环境：渲染与交互 ===== */
+
+  _verSvcGet() {
+    if (!this._verSvc && typeof AgentVersionService === 'function') {
+      try { this._verSvc = new AgentVersionService(); } catch (e) {}
+    }
+    return this._verSvc;
+  }
+
+  _renderVersionSection(cardEl) {
+    cardEl.empty();
+    ['pi', 'antigravity'].forEach(id => this._renderAgentVerRow(cardEl, id));
+  }
+
+  _rerenderVerSection() {
+    if (this._verContainerEl && this._verContainerEl.isConnected) {
+      this._renderVersionSection(this._verContainerEl);
+    }
+  }
+
+  _renderAgentVerRow(cardEl, agentId) {
+    const st = this._verState[agentId] || (this._verState[agentId] = { phase: 'idle' });
+    const name = agentId === 'pi' ? 'Pi Agent' : 'Antigravity CLI';
+    const info = st.info || null;
+    const rowEl = cardEl.createDiv({ cls: 'tw-ver-row' });
+    const headEl = rowEl.createDiv({ cls: 'tw-au-ver-head' });
+    headEl.createSpan({ cls: 'tw-au-ver-name', text: name });
+
+    if (info && info.current) {
+      headEl.createSpan({ cls: 'tw-au-ver-cur', text: `v${info.current}` });
+      if (info.latest) {
+        headEl.createSpan({ cls: 'tw-au-ver-arr', text: '→' });
+        headEl.createSpan({ cls: 'tw-au-ver-new', text: `v${info.latest}` });
+      }
+    } else {
+      headEl.createSpan({ cls: 'tw-au-ver-cur dim', text: '—' });
+    }
+
+    if (st.phase === 'loading' || st.phase === 'idle') {
+      headEl.createEl('i', { cls: 'tw-au-ver-badge st-dim', text: '检查中…' });
+    } else if (st.phase === 'updating') {
+      headEl.createEl('i', { cls: 'tw-au-ver-badge st-upd', text: '更新中…' });
+    } else if (info && info.current) {
+      const map = {
+        latest: ['st-ok', '已是最新'],
+        update: ['st-upd', '可更新'],
+        self: ['st-self', '官方自更新'],
+        missing: ['st-dim', '未安装'],
+      };
+      const [cls, label] = map[info.status] || ['st-dim', '未知'];
+      headEl.createEl('i', { cls: `tw-au-ver-badge ${cls}`, text: label });
+    } else {
+      headEl.createEl('i', {
+        cls: 'tw-au-ver-badge st-dim',
+        text: info && info.status === 'missing' ? '未检测到' : '探测失败',
+      });
+    }
+
+    const actEl = headEl.createSpan({ cls: 'tw-au-ver-actions' });
+    const mkBtn = (label, act, title) => {
+      const b = actEl.createEl('button', { cls: 'tw-au-ver-act', text: label, attr: { type: 'button' } });
+      if (title) b.title = title;
+      b.onclick = (e) => { e.stopPropagation(); this._versionAction(agentId, act); };
+    };
+    if (st.phase === 'ready' && info && info.current) {
+      mkBtn(agentId === 'antigravity' ? '检查更新' : '一键更新', 'update', info.updateCmd || '');
+      mkBtn('更新内容', 'changelog');
+      mkBtn('刷新', 'refresh', '重新检测版本');
+    } else if (st.phase === 'error' || (info && !info.current)) {
+      mkBtn('重试', 'refresh');
+    }
+
+    if (st.result) {
+      rowEl.createDiv({ cls: `tw-au-ver-result${st.resultOk ? ' ok' : ' err'}`, text: st.result });
+    }
+    if (this._verLogOpen[agentId]) {
+      rowEl.createDiv({ cls: 'tw-au-ver-log', text: st.logText || '读取中…' });
+    }
+  }
+
+  async _loadAgentVersion(agentId, force = false) {
+    const svc = this._verSvcGet();
+    const st = this._verState[agentId] || (this._verState[agentId] = { phase: 'idle' });
+    if (!svc) { st.phase = 'error'; this._rerenderVerSection(); return; }
+    if (st.phase === 'loading' || st.phase === 'updating') return;
+    st.phase = 'loading';
+    this._rerenderVerSection();
+    try {
+      st.info = await svc.getInfo(agentId, { force });
+      st.phase = 'ready';
+    } catch (e) { st.phase = 'error'; }
+    this._rerenderVerSection();
+  }
+
+  async _runAgentUpdate(agentId) {
+    const svc = this._verSvcGet();
+    const st = this._verState[agentId] || (this._verState[agentId] = { phase: 'idle' });
+    if (!svc || st.phase === 'updating') return;
+    st.phase = 'updating';
+    st.result = null;
+    this._rerenderVerSection();
+    try {
+      const res = await svc.runUpdate(agentId);
+      st.resultOk = !!res.ok;
+      st.result = res.ok
+        ? (res.newVersion ? `已更新至 v${res.newVersion}` : '更新完成')
+        : `更新失败${res.output ? '：' + String(res.output).split('\n').pop().slice(0, 100) : ''}`;
+      st.info = await svc.getInfo(agentId, { force: true });
+      st.phase = 'ready';
+    } catch (e) {
+      st.phase = 'ready';
+      st.resultOk = false;
+      st.result = `更新异常：${e.message || e}`;
+    }
+    this._rerenderVerSection();
+  }
+
+  async _versionAction(agentId, act) {
+    if (act === 'refresh') { this._loadAgentVersion(agentId, true); return; }
+    if (act === 'update') { this._runAgentUpdate(agentId); return; }
+    if (act === 'changelog') {
+      this._verLogOpen[agentId] = !this._verLogOpen[agentId];
+      this._rerenderVerSection();
+      const st = this._verState[agentId] || (this._verState[agentId] = { phase: 'idle' });
+      if (this._verLogOpen[agentId] && !st.logText) {
+        st.logText = '读取中…';
+        const svc = this._verSvcGet();
+        try { st.logText = (svc ? await svc.getChangelog(agentId) : '') || '(暂无更新日志)'; }
+        catch (e) { st.logText = '(读取失败)'; }
+        this._rerenderVerSection();
+      }
+    }
   }
 }
 
 
 const VIEW_TYPE_WORKBENCH = "tabonkb-workbench-view";
+
+// Startup profiler: marks flushed to .startup-profile.json on view open (diagnostic, ~0 cost)
+globalThis.__twBootMark = function (label) {
+  try {
+    const w = globalThis.__twBootMarks = globalThis.__twBootMarks || { t0: globalThis.__twBootT0 || Date.now(), marks: [] };
+    if (label === 'onload:start') { w.t0 = globalThis.__twBootT0 || Date.now(); w.marks.length = 0; }
+    w.marks.push([label, Date.now() - w.t0]);
+  } catch (e) {}
+};
+globalThis.__twBootFlush = function (vaultPath) {
+  try {
+    const w = globalThis.__twBootMarks;
+    if (!w || !w.marks.length || !vaultPath) return;
+    const fs = require('fs'); const path = require('path');
+    fs.writeFileSync(
+      path.join(vaultPath, '.obsidian', 'plugins', 'tabonkb-workbench', '.startup-profile.json'),
+      JSON.stringify({ t0: new Date(w.t0).toISOString(), marks: w.marks }, null, 1)
+    );
+  } catch (e) {}
+};
 
 const MODULE_COLORS = {
   Display: '#8B5CF6',
@@ -58905,7 +61991,12 @@ class TabonKBWorkbenchView extends ItemView {
     // Home Tab Agent Usage Analytics
     this.agentUsageCardEl = null;
     this.agentUsageRange = this.getAgentUsageRange();
+    this.agentUsageMetric = this.getAgentUsageMetric();
     this._agentUsageExpanded = new Set();
+    this._auLedgerCache = null;
+    this._auDayLock = null;
+    this._auLastTrend = [];
+    this._agyQuotaCache = null; // @deprecated 额度功能已下线，字段保留置空防残留引用
 
     // Multi-Agent Hub Integration (Pi, Hermes, Gemini)
     const vaultPath = this.app?.vault?.adapter?.basePath || 'd:\\work\\Mgmt\\TabonKB';
@@ -58929,6 +62020,7 @@ class TabonKBWorkbenchView extends ItemView {
       app: this.app,
       onNodeFocus: (nodeId) => this.selectKnowledgeNode(nodeId)
     });
+    try { globalThis.__twBootMark && __twBootMark('view.ctor:end'); } catch (e) {}
   }
 
   getSavedActiveTab() {
@@ -59667,6 +62759,12 @@ class TabonKBWorkbenchView extends ItemView {
     const assetEvents = this.getKnowledgeAssetEvents();
     const tuningEvents = this.getJiraTuningEvents();
     const aiEvents = this.loadAiOplogEvents();
+    // 「AI 协同」维度合流 Agent 用量账本（跨源: 会话历史 + pi jsonl + DSH），
+    // 与 Oplog 记录并存展示——Oplog 记录代码改动，用量记录对话调机，非同源不去重
+    const aiUsageEvents = (typeof this.collectAgentUsageDailyEvents === 'function') ? this.collectAgentUsageDailyEvents() : {};
+    for (const [dk, evs] of Object.entries(aiUsageEvents)) {
+      aiEvents[dk] = (aiEvents[dk] || []).concat(evs);
+    }
 
     const now = new Date();
     const todayDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -60074,6 +63172,21 @@ class TabonKBWorkbenchView extends ItemView {
     } catch (e) {}
   }
 
+  getAgentUsageMetric() {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        const m = localStorage.getItem('tabonkb-agent-usage-metric');
+        if (m === 'tokens' || m === 'net' || m === 'tools') return m;
+      }
+    } catch (e) {}
+    return 'tokens';
+  }
+
+  saveAgentUsageMetric(m) {
+    this.agentUsageMetric = m;
+    try { if (typeof localStorage !== 'undefined') localStorage.setItem('tabonkb-agent-usage-metric', m); } catch (e) {}
+  }
+
   fmtUsageTok(n) {
     const v = Number(n) || 0;
     const trim = (num, div) => {
@@ -60085,12 +63198,270 @@ class TabonKBWorkbenchView extends ItemView {
     return String(v);
   }
 
-  collectAgentUsageStats() {
+  // 剥离模型名中的思考档位后缀 → 纯净 modelName; 'None'/null/'' 归并默认
+  normalizeModelName(raw, agentId) {
+    let name = String(raw || '').trim();
+    name = name.replace(/\s*[·•]\s*(极高推理|高推理|中推理|低推理|关闭思考|关闭|极高|高|中|低)\s*$/u, '');
+    name = name.replace(/\s*\((x?high|medium|low|max|off)\)\s*$/i, '');
+    name = name.trim();
+    if (!name || /^(none|null|undefined|未标注模型|未知)$/i.test(name)) return '默认模型';
+    // 同物理模型大小写/分隔符/展示名别名归并：key 为小写 + [._空格] 统一为 -（表内 key 同形）
+    const ALIASES = {
+      'deepseek-flash': 'DeepSeek V4 Flash',
+      'deepseek-v4-flash': 'DeepSeek V4 Flash',
+      'deepseek-v4': 'DeepSeek V4',
+      'deepseek': 'DeepSeek V4',
+      'gemini-3-8-flash': 'Gemini 3.8 Flash',
+      'gemini-3-8-flash-high': 'Gemini 3.8 Flash',
+      'gpt-6-1-sol': 'GPT-6.1 Sol',
+      'gpt-6-sol': 'GPT-6 Sol',
+      'gpt-6-astra': 'GPT-6 Astra',
+      'gpt-5-6-sol': 'GPT-5.6 Sol',
+      'gpt-5-6-luna': 'GPT-5.6 Luna',
+      'claude-sonnet-5-5': 'Claude Sonnet 5.5',
+      'claude-sonnet-5': 'Claude Sonnet 5',
+      'claude-sonnet-4-6': 'Claude Sonnet 4.6',
+      'claude-sonnet-4-5': 'Claude Sonnet 4.5',
+      'claude-opus-5-5': 'Claude Opus 5.5',
+      'glm-5-3': 'GLM-5.3',
+      'muse-spark-1-3-contributor': 'Muse Spark 1.3'
+    };
+    // provider 前缀（kiro/openrouter 等）仅在剥除后能命中别名时才剥，避免 swe-2 这类独立名被截断
+    const keyFull = name.toLowerCase().replace(/[.\s_]+/g, '-');
+    const keyStripped = keyFull.replace(/^[a-z0-9-]+\//i, '');
+    if (ALIASES[keyFull]) return ALIASES[keyFull];
+    if (ALIASES[keyStripped]) return ALIASES[keyStripped];
+    return name;
+  }
+
+  // 内置离线模型定价表 (USD / 1M Tokens)
+  _auModelPricing(modelKey) {
+    const TABLE = {
+      'deepseek-v4-flash': { in: 0.14, out: 0.28, cacheRead: 0.014, cacheWrite: 0.175 },
+      'deepseek-v4':       { in: 0.55, out: 2.19, cacheRead: 0.055, cacheWrite: 0.69 },
+      'deepseek':          { in: 0.55, out: 2.19, cacheRead: 0.055, cacheWrite: 0.69 },
+      'gpt-6.1':           { in: 1.25, out: 10.0, cacheRead: 0.125, cacheWrite: 1.56 },
+      'gpt-6':             { in: 1.25, out: 10.0, cacheRead: 0.125, cacheWrite: 1.56 },
+      'gpt-5':             { in: 1.25, out: 10.0, cacheRead: 0.125, cacheWrite: 1.56 },
+      'claude-opus':       { in: 15.0, out: 75.0, cacheRead: 1.5, cacheWrite: 18.75 },
+      'opus':              { in: 15.0, out: 75.0, cacheRead: 1.5, cacheWrite: 18.75 },
+      'claude-sonnet':     { in: 3.0, out: 15.0, cacheRead: 0.3, cacheWrite: 3.75 },
+      'sonnet':            { in: 3.0, out: 15.0, cacheRead: 0.3, cacheWrite: 3.75 },
+      'claude':            { in: 3.0, out: 15.0, cacheRead: 0.3, cacheWrite: 3.75 },
+      'gemini-3.8-flash':  { in: 0.30, out: 2.5, cacheRead: 0.03, cacheWrite: 0.375 },
+      'gemini.*flash':     { in: 0.30, out: 2.5, cacheRead: 0.03, cacheWrite: 0.375 },
+      'gemini':            { in: 1.25, out: 10.0, cacheRead: 0.125, cacheWrite: 1.56 },
+      'glm':               { in: 0.60, out: 2.2, cacheRead: 0.06, cacheWrite: 0.75 },
+      'qwen':              { in: 0.40, out: 1.2, cacheRead: 0.04, cacheWrite: 0.5 }
+    };
+    const k = String(modelKey || '').toLowerCase();
+    for (const key of Object.keys(TABLE)) {
+      if (key.includes('*')) {
+        const re = new RegExp('^' + key.replace(/\*/g, '.*') + '$');
+        if (re.test(k)) return TABLE[key];
+      } else if (k.includes(key)) return TABLE[key];
+    }
+    return { in: 1.0, out: 3.0, cacheRead: 0.1, cacheWrite: 1.25 };
+  }
+
+  _auHomeDir() {
+    try { return require('os').homedir(); } catch (e) { return process.env.USERPROFILE || ''; }
+  }
+
+  // pi 会话目录编码规则: 盘符冒号→-, 路径分隔符→-, 首尾包裹 --
+  _auPiSessionDir() {
+    try {
+      const vault = this.app?.vault?.adapter?.basePath || (process.cwd ? process.cwd() : '');
+      if (!vault) return null;
+      const enc = '--' + String(vault).replace(/:/g, '-').replace(/[\\/]/g, '-') + '--';
+      return require('path').join(this._auHomeDir(), '.pi', 'agent', 'sessions', enc);
+    } catch (e) { return null; }
+  }
+
+  // 解析单个 pi .jsonl: 按 user 消息分组为「用户回合组」，返回组级聚合记录
+  _auParsePiJsonl(fp) {
+    const groups = [];
+    try {
+      const fs = require('fs');
+      const lines = fs.readFileSync(fp, 'utf8').split('\n');
+      let cur = null;
+      for (const line of lines) {
+        const t = line.trim();
+        if (!t || !t.startsWith('{')) continue;
+        let o; try { o = JSON.parse(t); } catch (_) { continue; }
+        if (o.type !== 'message' || !o.message) continue;
+        const m = o.message;
+        const ts = o.timestamp ? Date.parse(o.timestamp) : 0;
+        if (m.role === 'user') {
+          cur = { agentId: 'pi', grpKey: fp + '|' + (o.id || ts), endTs: ts, records: [], model: null };
+          groups.push(cur);
+          continue;
+        }
+        if (m.role !== 'assistant') continue;
+        if (!cur) { cur = { agentId: 'pi', grpKey: fp + '|g0', endTs: ts, records: [], model: null }; groups.push(cur); }
+        const u = m.usage || {};
+        const inp = Math.max(0, u.input ?? u.inputTokens ?? 0);
+        const out = Math.max(0, u.output ?? u.outputTokens ?? 0);
+        const cr  = Math.max(0, u.cacheRead ?? u.cacheReadTokens ?? 0);
+        const cw  = Math.max(0, u.cacheWrite ?? u.cacheWriteTokens ?? 0);
+        if (!(inp + out + cr + cw > 0)) { if (ts) cur.endTs = ts; continue; }
+        let toolN = 0;
+        if (Array.isArray(m.content)) {
+          for (const p of m.content) { if (p && /tool_call|tool_use|toolCall/i.test(p.type || '')) toolN++; }
+        }
+        cur.records.push({
+          ts, input: inp, output: out, cacheR: cr, cacheW: cw,
+          reasoning: Math.max(0, u.reasoning ?? u.reasoningTokens ?? 0),
+          total: Math.max(inp + out + cr + cw, u.totalTokens || u.total_tokens || 0),
+          cost: Math.max(0, Number(u.cost?.total ?? 0)),
+          model: m.model || null,
+          toolN,
+          est: false
+        });
+        if (ts) cur.endTs = ts;
+      }
+    } catch (_) {}
+    return groups.filter(g => g.records.length > 0);
+  }
+
+  // 解析单个 DSH session_projcache 会话: identity.cwd 匹配当前工作区才纳入
+  _auParseDshSession(fp, vaultNorm) {
+    try {
+      const fs = require('fs');
+      const o = JSON.parse(fs.readFileSync(fp, 'utf8'));
+      const rec = o && o.record;
+      if (!rec || !rec.identity) return [];
+      const cwd = String(rec.identity.cwd || '').replace(/\\/g, '/').toLowerCase();
+      if (vaultNorm && cwd && cwd !== vaultNorm) return [];
+      const rows = rec.rows || {};
+      const tu = rows.tokenUsage && rows.tokenUsage.val && rows.tokenUsage.val.totals;
+      const ss = rows.sessionStats && rows.sessionStats.val;
+      if (!tu && !ss) return [];
+      const inp = Math.max(0, tu?.uncachedInputTokens || 0);
+      const out = Math.max(0, tu?.outputTokens || 0);
+      const cr  = Math.max(0, tu?.cacheReadTokens || 0);
+      const cw  = Math.max(0, tu?.cacheWriteTokens || 0);
+      const ts = (rows.sessionListMetadata && rows.sessionListMetadata.val && rows.sessionListMetadata.val.lastPromptAt) || rec.identity.createdAt || 0;
+      const model = rows.modelSelection && rows.modelSelection.val && rows.modelSelection.val.lastUsed && rows.modelSelection.val.lastUsed.model;
+      // 工具名 Top：从原始多帧 zstd 转录 ~/.dsh/sessions/<cwd编码>/<sid>/session.v4.jsonl.zstd 解析 tool/call
+      const sessId = require('path').basename(fp, '.json');
+      let toolMap = null;
+      const tfp = this._auDshTranscriptPath(sessId);
+      if (tfp) toolMap = this._auDshToolCounts(tfp);
+      return [{
+        agentId: 'dsh', grpKey: 'dsh|' + fp, ts,
+        input: inp, output: out, cacheR: cr, cacheW: cw,
+        reasoning: 0,
+        total: inp + out + cr + cw,
+        cost: 0, model: model || null,
+        toolN: Math.max(0, ss?.steps || 0),
+        toolMap: toolMap || null,
+        turns: Math.max(1, ss?.turns || 1),
+        durMs: Math.max(0, ss?.llmMs || 0),
+        est: false
+      }];
+    } catch (_) { return []; }
+  }
+
+  // DSH 原始转录路径: ~/.dsh/sessions/<cwd编码>/<sessionId>/session.v4.jsonl.zstd
+  _auDshTranscriptPath(sessId) {
+    try {
+      const fs = require('fs'), path = require('path');
+      const vault = this.app?.vault?.adapter?.basePath || (process.cwd ? process.cwd() : '');
+      if (!vault || !sessId) return null;
+      // DSH 目录编码与 pi 不同：盘符冒号直接删除（D:\work → D-work），非替换为 -
+      const enc = '--' + String(vault).replace(/:/g, '').replace(/[\\/]/g, '-') + '--';
+      const fp = path.join(this._auHomeDir(), '.dsh', 'sessions', enc, sessId, 'session.v4.jsonl.zstd');
+      return fs.existsSync(fp) ? fp : null;
+    } catch (_) { return null; }
+  }
+
+  // 多帧 zstd 解压 + 逐行解析 tool/call → {工具名: 次数}; Node>=22.15 内置 zstd，缺能力时优雅返回空
+  _auDshToolCounts(fp) {
+    const map = {};
+    try {
+      const fs = require('fs'), zlib = require('zlib');
+      if (typeof zlib.zstdDecompressSync !== 'function') return map;
+      const raw = fs.readFileSync(fp);
+      const MAGIC = Buffer.from([0x28, 0xb5, 0x2f, 0xfd]);
+      const offs = [0];
+      let i = 4;
+      while ((i = raw.indexOf(MAGIC, i)) > 0) { offs.push(i); i += 4; }
+      const parts = [];
+      for (let k = 0; k < offs.length; k++) {
+        const end = k + 1 < offs.length ? offs[k + 1] : raw.length;
+        try { parts.push(zlib.zstdDecompressSync(raw.slice(offs[k], end))); } catch (_) {}
+      }
+      for (const line of Buffer.concat(parts).toString('utf8').split('\n')) {
+        if (!line.includes('"tool/call"')) continue;
+        try {
+          const o = JSON.parse(line);
+          let name = o && o.data && o.data.name;
+          if (!name) continue;
+          name = String(name).replace(/^mcp__[^_]+__/, '').replace(/^mcp__/, '');
+          map[name] = (map[name] || 0) + 1;
+        } catch (_) {}
+      }
+    } catch (_) {}
+    return map;
+  }
+
+  // 跨源账本扫描: 10s 内存缓存 + 文件 mtimeMs 增量校验
+  _auLedgerScan() {
+    const cache = this._auLedgerCache || (this._auLedgerCache = { at: 0, fileMtimes: {}, records: null });
+    const now = Date.now();
+    if (cache.records && (now - cache.at) < 10000) return cache.records;
+    const out = { piGroups: [], dsh: [] };
+    try {
+      const fs = require('fs'); const path = require('path');
+      const piDir = this._auPiSessionDir();
+      if (piDir && fs.existsSync(piDir)) {
+        for (const f of fs.readdirSync(piDir)) {
+          if (!f.endsWith('.jsonl')) continue;
+          const fp = path.join(piDir, f);
+          let st; try { st = fs.statSync(fp); } catch (_) { continue; }
+          const ck = 'pi:' + fp;
+          const hit = cache.fileMtimes[ck];
+          if (hit && hit.mtime === st.mtimeMs) { out.piGroups.push(...hit.records); continue; }
+          const records = this._auParsePiJsonl(fp);
+          cache.fileMtimes[ck] = { mtime: st.mtimeMs, records };
+          out.piGroups.push(...records);
+        }
+      }
+      const vaultNorm = String(this.app?.vault?.adapter?.basePath || '').replace(/\\/g, '/').toLowerCase();
+      const dshDir = path.join(this._auHomeDir(), '.dsh', 'storages', 'session_projcache', 'sessions');
+      if (fs.existsSync(dshDir)) {
+        for (const f of fs.readdirSync(dshDir)) {
+          if (!f.endsWith('.json')) continue;
+          const fp = path.join(dshDir, f);
+          let st; try { st = fs.statSync(fp); } catch (_) { continue; }
+          const ck = 'dsh:' + fp;
+          // 转录 zstd（工具名来源）mtime 一并纳入缓存键——转录晚于 projcache 更新时不致用陈旧工具计数
+          let tm = 0;
+          try {
+            const tfp = this._auDshTranscriptPath(path.basename(f, '.json'));
+            if (tfp) tm = fs.statSync(tfp).mtimeMs;
+          } catch (_) {}
+          const mkey = Math.max(st.mtimeMs, tm);
+          const hit = cache.fileMtimes[ck];
+          if (hit && hit.mtime === mkey) { out.dsh.push(...hit.records); continue; }
+          const records = this._auParseDshSession(fp, vaultNorm);
+          cache.fileMtimes[ck] = { mtime: mkey, records };
+          out.dsh.push(...records);
+        }
+      }
+    } catch (_) {}
+    cache.at = now;
+    cache.records = out;
+    return out;
+  }
+
+  collectAgentUsageStats(rangeOverride) {
     const AGENT_NAMES = {
       pi: 'Pi Agent', antigravity: 'Antigravity', niceaigc: 'NiceAIGC',
-      codex: 'Codex', gemini: 'Gemini', hermes: 'Hermes', dsh: 'DSH'
+      codex: 'Codex', gemini: 'Gemini', hermes: 'Hermes', dsh: 'Harness'
     };
-    const range = this.agentUsageRange || 'week';
+    const range = rangeOverride || this.agentUsageRange || 'week';
     const now = Date.now();
     let startTs = 0;
     if (range === 'today') {
@@ -60101,70 +63472,261 @@ class TabonKBWorkbenchView extends ItemView {
       startTs = now - 7 * 86400000;
     }
 
+    // ── 统一归一化消费记录 ──
+    // {agentId, ts, in, out, cr, cw, reas, tot, net, cost, est, model, effort, durMs, toolN, toolNames, toolErrs, sessKey}
+    const records = [];
+    const histPiTs = [];   // 历史库中 pi 回合落库时间戳, 用于 jsonl 去重
+
+    // 数据源 A: sessionManager 内存会话 (.chat-history.json)
     const sm = this.agentHub && this.agentHub.sessionManager;
     const agentsMap = (sm && sm.agents instanceof Map) ? sm.agents : null;
-    const rows = [];
-    const totals = { tokens: 0, input: 0, output: 0, cache: 0, turns: 0, sessions: 0, tools: 0 };
-
     if (agentsMap) {
       for (const [agentId, agent] of agentsMap.entries()) {
-        const row = {
-          id: agentId,
-          name: AGENT_NAMES[agentId] || agentId,
-          tokens: 0, input: 0, output: 0, cache: 0,
-          turns: 0, sessions: 0, tools: 0,
-          models: new Map()
-        };
         for (const sess of (agent.sessions || [])) {
-          let hit = false;
           for (const m of (sess.messages || [])) {
             if (!m || m.role !== 'assistant') continue;
-            const ts = m.timestamp || 0;
-            if (ts < startTs) continue;
-            hit = true;
-            row.turns++;
-            row.tools += Array.isArray(m.toolCalls) ? m.toolCalls.length : (m.toolCount || 0);
             const u = m.usage;
-            if (u && (u.totalTokens > 0 || u.inputTokens > 0 || u.outputTokens > 0)) {
-              const inp = Math.max(0, u.inputTokens || 0);
-              const out = Math.max(0, u.outputTokens || 0);
-              const cache = Math.max(0, u.cacheReadTokens || 0);
-              const tot = Math.max(0, u.totalTokens || (inp + out + cache));
-              row.input += inp;
-              row.output += out;
-              row.cache += cache;
-              row.tokens += tot;
-              const mName = m.model || u.providerAndModel || '未标注模型';
-              const cur = row.models.get(mName) || { tokens: 0, turns: 0 };
-              cur.tokens += tot;
-              cur.turns += 1;
-              row.models.set(mName, cur);
-            }
+            if (!u || !((u.totalTokens || 0) > 0 || (u.inputTokens || 0) > 0 || (u.outputTokens || 0) > 0)) continue;
+            const ts = m.timestamp || 0;
+            if (agentId === 'pi' && ts) histPiTs.push(ts);
+            const inp = Math.max(0, u.inputTokens || 0);
+            const out = Math.max(0, u.outputTokens || 0);
+            const cr  = Math.max(0, u.cacheReadTokens || 0);
+            const cw  = Math.max(0, u.cacheWriteTokens || 0);
+            const tcs = Array.isArray(m.toolCalls) ? m.toolCalls : [];
+            records.push({
+              agentId, ts,
+              in: inp, out, cr, cw,
+              reas: Math.max(0, u.reasoningTokens || 0),
+              tot: Math.max(inp + out + cr + cw, u.totalTokens || 0),
+              net: Math.max(0, u.netBillableTokens ?? (inp + out + cw)),
+              cost: Math.max(0, u.costUsd || 0),
+              est: u.isEstimated === true,
+              model: u.modelName || m.model || u.providerAndModel || null,
+              effort: u.reasoningEffort || null,
+              durMs: Math.max(0, m.duration || 0),
+              toolN: tcs.length || (m.toolCount || 0),
+              toolNames: tcs.map(t => t.toolName || t.name || 'tool'),
+              toolErrs: tcs.filter(t => t.isError).length,
+              sessKey: agentId + '|' + (sess.id || '')
+            });
           }
-          if (hit) row.sessions++;
-        }
-        if (row.turns > 0) {
-          rows.push(row);
-          totals.tokens += row.tokens;
-          totals.input += row.input;
-          totals.output += row.output;
-          totals.cache += row.cache;
-          totals.turns += row.turns;
-          totals.sessions += row.sessions;
-          totals.tools += row.tools;
         }
       }
     }
 
-    rows.sort((a, b) => b.tokens - a.tokens);
+    // 数据源 B + C: 跨源账本 (mtime 增量缓存)
+    const ledger = this._auLedgerScan();
+    // B: pi 原生 jsonl —— 按用户回合组聚合; 与历史库重合的组整体跳过 (±15s 时间窗)
+    for (const g of (ledger.piGroups || [])) {
+      const endTs = g.endTs || 0;
+      const dup = histPiTs.some(ht => Math.abs(ht - endTs) < 15000);
+      if (dup) continue;
+      const totIn = g.records.reduce((s, r) => s + r.input, 0);
+      const totOut = g.records.reduce((s, r) => s + r.output, 0);
+      const totCr = g.records.reduce((s, r) => s + r.cacheR, 0);
+      const totCw = g.records.reduce((s, r) => s + r.cacheW, 0);
+      const totReas = g.records.reduce((s, r) => s + r.reasoning, 0);
+      const totCost = g.records.reduce((s, r) => s + r.cost, 0);
+      const toolN = g.records.reduce((s, r) => s + r.toolN, 0);
+      records.push({
+        agentId: 'pi', ts: endTs,
+        in: totIn, out: totOut, cr: totCr, cw: totCw, reas: totReas,
+        tot: Math.max(totIn + totOut + totCr + totCw, g.records.reduce((s, r) => s + r.total, 0)),
+        net: totIn + totOut + totCw,
+        cost: totCost,
+        est: false,
+        model: g.records[g.records.length - 1].model,
+        effort: null, durMs: 0,
+        toolN, toolNames: [], toolErrs: 0,
+        sessKey: 'pijsonl|' + g.grpKey
+      });
+    }
+    // C: DSH 会话聚合记录
+    for (const r of (ledger.dsh || [])) {
+      records.push({
+        agentId: 'dsh', ts: r.ts,
+        in: r.input, out: r.output, cr: r.cacheR, cw: r.cacheW,
+        reas: r.reasoning || 0,
+        tot: r.total,
+        net: r.input + r.output + r.cacheW,
+        cost: r.cost || 0,
+        est: r.est !== false,
+        model: r.model, effort: null,
+        durMs: r.durMs || 0,
+        toolN: r.toolN || 0, toolNames: [], toolErrs: 0,
+        toolMap: r.toolMap || null,
+        sessKey: r.grpKey,
+        extraTurns: Math.max(0, (r.turns || 1) - 1)
+      });
+    }
+
+    // ── 聚合引擎 ──
+    const inRange = records.filter(r => (r.ts || 0) >= startTs);
+    const prevRange = range === 'all' ? [] : records.filter(r => (r.ts || 0) < startTs && (r.ts || 0) >= (startTs - (now - startTs)));
+    const rowMap = new Map();
+    const daily = new Map();   // dateKey → {in,out,cr,tot,net,tools,turns,cost}
+    const hourly = new Map();  // hourKey → 同上 (today 视图 24h 桶)
+    const totals = {
+      tokens: 0, input: 0, output: 0, cache: 0, cacheW: 0, net: 0,
+      turns: 0, sessions: 0, tools: 0, toolErrs: 0,
+      costUsd: 0, savedByCacheUsd: 0, durMs: 0, durN: 0,
+      exactTok: 0, estTok: 0
+    };
+    const sessSet = new Set();
+
+    const dayKeyOf = (ts) => {
+      const d = new Date(ts);
+      return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    };
+    const hourKeyOf = (ts) => {
+      const d = new Date(ts);
+      return dayKeyOf(ts) + 'T' + String(d.getHours()).padStart(2, '0');
+    };
+
+    for (const r of inRange) {
+      let row = rowMap.get(r.agentId);
+      if (!row) {
+        row = {
+          id: r.agentId, name: AGENT_NAMES[r.agentId] || r.agentId,
+          tokens: 0, input: 0, output: 0, cache: 0, cacheW: 0, net: 0,
+          turns: 0, sessions: 0, tools: 0, toolErrs: 0,
+          costUsd: 0, savedUsd: 0, durMs: 0, durN: 0,
+          exactTok: 0, estTok: 0,
+          models: new Map(), toolsTop: new Map(), _sess: new Set()
+        };
+        rowMap.set(r.agentId, row);
+      }
+      const price = this._auModelPricing(r.model);
+      const costUsd = r.cost > 0 ? r.cost : (r.in * price.in + r.out * price.out + r.cr * price.cacheRead + r.cw * price.cacheWrite) / 1e6;
+      const savedUsd = Math.max(0, (r.cr / 1e6) * (price.in - price.cacheRead));
+      const turns = 1 + (r.extraTurns || 0);
+      row.turns += turns;
+      row.tools += r.toolN;
+      row.toolErrs += r.toolErrs;
+      row.input += r.in; row.output += r.out; row.cache += r.cr; row.cacheW += r.cw;
+      row.tokens += r.tot; row.net += r.net;
+      row.costUsd += costUsd; row.savedUsd += savedUsd;
+      // 单轮耗时 >5min 的挂起异常值封顶计入，避免个别僵尸会话拉偏平均耗时
+      const durCapped = Math.min(r.durMs, 300000);
+      if (durCapped > 0) { row.durMs += durCapped; row.durN += turns; }
+      if (r.est) row.estTok += r.tot; else row.exactTok += r.tot;
+      if (r.sessKey && !row._sess.has(r.sessKey)) { row._sess.add(r.sessKey); row.sessions++; sessSet.add(r.sessKey); }
+      const mName = this.normalizeModelName(r.model, r.agentId);
+      const mc = row.models.get(mName) || { tokens: 0, turns: 0, in: 0, out: 0, cr: 0, effort: r.effort || null, est: r.est };
+      mc.tokens += r.tot; mc.turns += turns;
+      mc.in += r.in; mc.out += r.out; mc.cr += r.cr;
+      row.models.set(mName, mc);
+      for (const tn of r.toolNames) row.toolsTop.set(tn, (row.toolsTop.get(tn) || 0) + 1);
+      if (r.toolMap) for (const [tn, c] of Object.entries(r.toolMap)) row.toolsTop.set(tn, (row.toolsTop.get(tn) || 0) + c);
+
+      totals.tokens += r.tot; totals.input += r.in; totals.output += r.out;
+      totals.cache += r.cr; totals.cacheW += r.cw; totals.net += r.net;
+      totals.turns += turns; totals.tools += r.toolN; totals.toolErrs += r.toolErrs;
+      totals.costUsd += costUsd; totals.savedByCacheUsd += savedUsd;
+      if (durCapped > 0) { totals.durMs += durCapped; totals.durN += turns; }
+      if (r.est) totals.estTok += r.tot; else totals.exactTok += r.tot;
+
+      const dk = r.ts ? dayKeyOf(r.ts) : null;
+      if (dk) {
+        const d = daily.get(dk) || { in: 0, out: 0, cr: 0, tot: 0, net: 0, tools: 0, turns: 0, cost: 0 };
+        d.in += r.in; d.out += r.out; d.cr += r.cr; d.tot += r.tot; d.net += r.net; d.tools += r.toolN;
+        d.turns += turns; d.cost += costUsd;
+        daily.set(dk, d);
+      }
+      const hk2 = r.ts ? hourKeyOf(r.ts) : null;
+      if (hk2) {
+        const hb = hourly.get(hk2) || { in: 0, out: 0, cr: 0, tot: 0, net: 0, tools: 0, turns: 0, cost: 0 };
+        hb.in += r.in; hb.out += r.out; hb.cr += r.cr; hb.tot += r.tot; hb.net += r.net; hb.tools += r.toolN;
+        hb.turns += turns; hb.cost += costUsd;
+        hourly.set(hk2, hb);
+      }
+    }
+    totals.sessions = sessSet.size;
+
+    const rows = Array.from(rowMap.values());
     for (const r of rows) {
       r.modelList = Array.from(r.models.entries())
-        .map(([name, v]) => ({ name, tokens: v.tokens, turns: v.turns }))
+        .map(([name, v]) => ({ name, tokens: v.tokens, turns: v.turns, effort: v.effort, est: v.est, in: v.in, out: v.out, cr: v.cr }))
         .sort((a, b) => b.tokens - a.tokens);
+      r.toolList = Array.from(r.toolsTop.entries())
+        .map(([name, n]) => ({ name, n }))
+        .sort((a, b) => b.n - a.n).slice(0, 6);
       r.segSum = Math.max(1, r.input + r.output + r.cache);
+      r.hitRate = (r.input + r.cache + r.cacheW) > 0 ? r.cache / (r.input + r.cache + r.cacheW) : 0;
+      r.avgDurS = r.durN > 0 ? r.durMs / r.durN / 1000 : 0;
+      r.toolOkRate = r.tools > 0 ? (r.tools - r.toolErrs) / r.tools : null;
+      delete r._sess; delete r.models; delete r.toolsTop;
     }
-    const maxTokens = rows.length ? Math.max(1, rows[0].tokens) : 1;
-    return { rows, totals, maxTokens, range };
+    const metric = this.agentUsageMetric || 'tokens';
+    const metricOf = (r) => metric === 'net' ? r.net : metric === 'tools' ? r.tools : r.tokens;
+    rows.sort((a, b) => metricOf(b) - metricOf(a));
+    const maxMetric = rows.length ? Math.max(1, metricOf(rows[0])) : 1;
+
+    // 环比 (同窗口长度上一周期, range=all 时无意义置 null)
+    let momPct = null;
+    if (range !== 'all') {
+      const prevTok = prevRange.reduce((s, r) => s + r.tot, 0);
+      if (prevTok > 0) momPct = (totals.tokens - prevTok) / prevTok * 100;
+    }
+
+    // 趋势桶序列: today→24h 小时桶 / week→7 日桶 / all→30 日桶
+    const trend = [];
+    if (range === 'today') {
+      for (let h = 23; h >= 0; h--) {
+        const dt = new Date(now - h * 3600000);
+        const hk = dayKeyOf(dt.getTime()) + 'T' + String(dt.getHours()).padStart(2, '0');
+        const acc = hourly.get(hk) || { in: 0, out: 0, cr: 0, tot: 0, net: 0, tools: 0, turns: 0, cost: 0 };
+        trend.push({ key: hk, label: String(dt.getHours()).padStart(2, '0') + ':00', ...acc });
+      }
+    } else {
+      const days = range === 'week' ? 7 : 30;
+      for (let i = days - 1; i >= 0; i--) {
+        const dt = new Date(now - i * 86400000);
+        const dk = dayKeyOf(dt.getTime());
+        const acc = daily.get(dk) || { in: 0, out: 0, cr: 0, tot: 0, net: 0, tools: 0, turns: 0, cost: 0 };
+        trend.push({ key: dk, label: (dt.getMonth() + 1) + '/' + dt.getDate(), ...acc });
+      }
+    }
+
+    const cacheDenom = totals.input + totals.cache + totals.cacheW;
+    const kpis = {
+      tokens: totals.tokens,
+      net: totals.net,
+      inOutRatio: totals.output > 0 ? (totals.input / totals.output) : null,
+      hitRate: cacheDenom > 0 ? totals.cache / cacheDenom : 0,
+      cacheRead: totals.cache,
+      savedUsd: totals.savedByCacheUsd,
+      turns: totals.turns,
+      sessions: totals.sessions,
+      avgDurS: totals.durN > 0 ? totals.durMs / totals.durN / 1000 : 0,
+      tools: totals.tools,
+      toolOkRate: totals.tools > 0 ? (totals.tools - totals.toolErrs) / totals.tools : null,
+      toolsPerTurn: totals.turns > 0 ? totals.tools / totals.turns : 0
+    };
+
+    return { rows, totals, kpis, trend, daily, maxMetric, metric, range, momPct };
+  }
+
+  // 热力图「AI 协同」维度数据源: 按日聚合的 Agent 对话事件
+  collectAgentUsageDailyEvents() {
+    try {
+      const stats = this.collectAgentUsageStats('all');
+      const out = {};
+      for (const [dk, d] of (stats.daily || new Map()).entries()) {
+        if (!d.tot) continue;
+        out[dk] = [{
+          type: 'ai',
+          date: dk,
+          time: '',
+          level: 'L1',
+          action: 'agent-usage',
+          title: `Agent 对话 ${this.fmtUsageTok(d.tot)} tok`,
+          detail: `输入 ${this.fmtUsageTok(d.in)} · 输出 ${this.fmtUsageTok(d.out)} · 缓存 ${this.fmtUsageTok(d.cr)}`
+        }];
+      }
+      return out;
+    } catch (e) { return {}; }
   }
 
   renderAgentUsageCard(parentEl) {
@@ -60175,6 +63737,7 @@ class TabonKBWorkbenchView extends ItemView {
       this._agentUsageBound = true;
       const schedule = () => {
         if (this.agentUsageCardEl && this.agentUsageCardEl.isConnected) {
+          if (this._auLedgerCache) this._auLedgerCache.at = 0; // 回合结束强制作废账本缓存
           setTimeout(() => this.updateAgentUsageCard(), 400);
         }
       };
@@ -60183,56 +63746,218 @@ class TabonKBWorkbenchView extends ItemView {
     }
   }
 
+  // 耗时格式化: >=60s → "1m 12s / 轮"; <60s → "24.5s / 轮"
+  _auFmtDur(s) {
+    if (!(s > 0)) return '';
+    if (s >= 60) return `${Math.floor(s / 60)}m ${Math.round(s % 60)}s / 轮`;
+    return `${s.toFixed(1)}s / 轮`;
+  }
+
+  // 每日趋势: 三色堆叠柱(输入/输出/缓存读) + HTML 数值标签 + HTML x 轴 + 峰值摘要
+  // —— 杜绝 SVG <text> 随容器拉伸变形; 图表容器由 CSS 锁定高度
+  _auTrendChart(trend, metric) {
+    if (!trend || !trend.length) return '';
+    const W = 220, H = 84, HMAX = H - 4;
+    const valOf = (b) => metric === 'net' ? b.net : metric === 'tools' ? b.tools : b.tot;
+    const maxV = Math.max(1, ...trend.map(valOf));
+    const step = W / trend.length;
+    const bw = Math.min(16, Math.max(3, step * 0.6));
+    let bars = '', vals = '';
+    let peak = null, peakV = 0;
+    const labelAll = trend.length <= 12; // >12 桶只标 ≥40% 峰值柱，避免 30 日重叠
+    trend.forEach((b, i) => {
+      const v = valOf(b);
+      if (v > peakV) { peakV = v; peak = b; }
+      const x = i * step + (step - bw) / 2;
+      const tip = `${b.label} · ${metric === 'tools' ? v + ' 次工具' : this.fmtUsageTok(v) + ' tok'}\n输入 ${this.fmtUsageTok(b.in)} · 输出 ${this.fmtUsageTok(b.out)} · 缓存 ${this.fmtUsageTok(b.cr)}`;
+      let hTot = 0;
+      if (metric === 'tools') {
+        const h = v > 0 ? Math.max(2, (v / maxV) * HMAX) : 0;
+        hTot = h;
+        if (h > 0) bars += `<rect x="${x.toFixed(1)}" y="${(H - h).toFixed(1)}" width="${bw.toFixed(1)}" height="${h.toFixed(1)}" rx="1.5" fill="#8B5CF6" opacity=".75"><title>${escapeHtml(tip)}</title></rect>`;
+      } else {
+        // 自底向上堆叠: 输入(蓝) → 输出(绿) → 缓存读(紫)
+        const segs = [
+          { h: Math.max(0, (b.in / maxV) * HMAX), fill: 'var(--g-blue, #2563EB)', op: '.9' },
+          { h: Math.max(0, (b.out / maxV) * HMAX), fill: 'var(--g-green, #10B981)', op: '.9' },
+          { h: Math.max(0, (b.cr / maxV) * HMAX), fill: 'rgba(139,92,246,0.45)', op: '1' }
+        ];
+        hTot = segs[0].h + segs[1].h + segs[2].h;
+        if (hTot > 0) {
+          let y = H;
+          for (const s of segs) {
+            if (s.h <= 0.5) continue;
+            y -= s.h;
+            bars += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${s.h.toFixed(1)}" fill="${s.fill}" opacity="${s.op}"><title>${escapeHtml(tip)}</title></rect>`;
+          }
+        }
+      }
+      if (v > 0 && (labelAll || v >= maxV * 0.4)) {
+        vals += `<span class="tw-au-chart-val" style="left:${(((x + bw / 2) / W) * 100).toFixed(1)}%;bottom:${Math.min(96, ((hTot + 3) / H) * 100).toFixed(0)}%">${this.fmtUsageTok(v)}</span>`;
+      }
+    });
+    const mid = Math.floor((trend.length - 1) / 2);
+    const xaxis = `<div class="tw-au-chart-xaxis"><span>${escapeHtml(trend[0].label)}</span><span>${escapeHtml(trend[mid].label)}</span><span>${escapeHtml(trend[trend.length - 1].label)}</span></div>`;
+    const peakHtml = peak ? `<div class="tw-au-chart-peak">峰值 ${escapeHtml(peak.label)} · ${this.fmtUsageTok(peakV)}${metric === 'tools' ? ' 次' : ' tok'}</div>` : '';
+    // 每列一条全高透明热区（覆盖柱体与空白），承接 hover/click 浮窗定位
+    let cols = '';
+    trend.forEach((b, i) => {
+      cols += `<span class="tw-au-day-col${this._auDayLock === i ? ' locked' : ''}" data-i="${i}" title="${escapeHtml(b.label)}"></span>`;
+    });
+    return `<div class="tw-au-daily-chart"><svg class="tw-au-trend-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${bars}</svg><div class="tw-au-day-cols">${cols}</div>${vals}<div class="tw-trend-tooltip tw-au-day-popover" hidden></div></div>${xaxis}${peakHtml}`;
+  }
+
+  _auHideDayPopover() {
+    const p = this.agentUsageCardEl && this.agentUsageCardEl.querySelector('.tw-au-day-popover');
+    if (p) p.hidden = true;
+    this.agentUsageCardEl && this.agentUsageCardEl.querySelectorAll('.tw-au-day-col.locked').forEach(c => c.classList.remove('locked'));
+    if (this._auDayLock != null) this._auDayLock = null;
+  }
+
+  // 日柱详情浮窗：缓存/输入/输出三色构成 + 占比 + 当日交互页脚；靠右列向左弹
+  _auShowDayPopover(i) {
+    const chart = this.agentUsageCardEl && this.agentUsageCardEl.querySelector('.tw-au-daily-chart');
+    const pop = chart && chart.querySelector('.tw-au-day-popover');
+    const b = (this._auLastTrend || [])[i];
+    if (!pop || !b) return;
+    const fmt = (n) => this.fmtUsageTok(n);
+    const segSum = Math.max(1, (b.in || 0) + (b.out || 0) + (b.cr || 0));
+    const pct = (v) => '(' + ((v / segSum) * 100).toFixed(1) + '%)';
+    let head;
+    if (String(b.key).indexOf('T') >= 0) {
+      head = `${escapeHtml(b.label)} 时段`;
+    } else {
+      const wd = '日一二三四五六'[new Date(String(b.key) + 'T00:00:00').getDay()];
+      head = `${escapeHtml(String(b.key))}（周${wd}）`;
+    }
+    const totLine = this.agentUsageMetric === 'tools' ? `${b.tools || 0} 次工具` : `共 ${fmt(b.tot)} tok`;
+    pop.innerHTML = `
+      <div class="tw-tt-header">${head} · ${totLine}</div>
+      <div class="tw-tt-row"><span class="tw-tt-indicator" style="background:#8B5CF6"></span><span class="tw-tt-label">缓存读取:</span><span class="tw-tt-val">${fmt(b.cr)} <small>${pct(b.cr)}</small></span></div>
+      <div class="tw-tt-row"><span class="tw-tt-indicator" style="background:#2563EB"></span><span class="tw-tt-label">未缓存输入:</span><span class="tw-tt-val">${fmt(b.in)} <small>${pct(b.in)}</small></span></div>
+      <div class="tw-tt-row"><span class="tw-tt-indicator" style="background:#10B981"></span><span class="tw-tt-label">模型输出:</span><span class="tw-tt-val">${fmt(b.out)} <small>${pct(b.out)}</small></span></div>
+      <div class="tw-tt-row tw-tt-footer-row"><span class="tw-tt-label">当日交互</span><span class="tw-tt-val">${b.turns || 0} 轮 · ${b.tools || 0} 工具${(b.cost || 0) > 0.001 ? ' · ~$' + b.cost.toFixed(2) : ''}</span></div>`;
+    const n = Math.max(1, (this._auLastTrend || []).length);
+    const frac = (i + 0.5) / n;
+    if (frac > 0.55) {
+      pop.style.left = 'auto';
+      pop.style.right = `calc(${((1 - frac) * 100).toFixed(1)}% + 12px)`;
+    } else {
+      pop.style.right = 'auto';
+      pop.style.left = `calc(${(frac * 100).toFixed(1)}% + 12px)`;
+    }
+    pop.style.top = '2px';
+    pop.hidden = false;
+  }
+
   updateAgentUsageCard() {
     if (!this.agentUsageCardEl) return;
     const stats = this.collectAgentUsageStats();
     const range = stats.range;
+    const metric = stats.metric;
     const fmt = (n) => this.fmtUsageTok(n);
     const full = (n) => (Number(n) || 0).toLocaleString();
+    const k = stats.kpis, t = stats.totals;
 
-    let bodyHtml = '';
+    // ── 层1: 标题 + 周期摘要 + 指标切换 + 周期选择 + 刷新 ──
+    const rangeLabel = { today: '今日', week: '近7天', all: '全部' }[range] || range;
+    const momHtml = stats.momPct != null
+      ? ` · 环比 <b class="${stats.momPct >= 0 ? 'tw-au-up' : 'tw-au-down'}">${stats.momPct >= 0 ? '+' : ''}${stats.momPct.toFixed(0)}%</b>` : '';
+    const metricSeg = `
+      <div class="tw-au-metric-seg" role="tablist">
+        <button type="button" class="tw-au-metric-btn${metric === 'tokens' ? ' active' : ''}" data-m="tokens">总Token</button>
+        <button type="button" class="tw-au-metric-btn${metric === 'net' ? ' active' : ''}" data-m="net">净计费</button>
+        <button type="button" class="tw-au-metric-btn${metric === 'tools' ? ' active' : ''}" data-m="tools">工具</button>
+      </div>`;
+
+    // ── 层2: 四格 KPI（图标徽章 + 大数字 + 左标签右微胶囊）──
+    const hitPct = (k.hitRate * 100).toFixed(1);
+    const okPct = k.toolOkRate == null ? '—' : (k.toolOkRate * 100).toFixed(1) + '%';
+    const ic = (n) => { try { return getIconPark(n, 12); } catch (e) { return ''; } };
+    const kpiHtml = `
+      <div class="tw-au-kpis">
+        <div class="tw-au-kpi">
+          <div class="tw-au-kpi-head"><span class="tw-au-kpi-label">总消耗 Token</span><i class="tw-au-kpi-ic ic-blue">${ic('database')}</i></div>
+          <b class="tw-au-kpi-val">${fmt(k.tokens)}<i> tok</i></b>
+          <span class="tw-au-kpi-sub"><span class="lab">净计费 ${fmt(k.net)}</span>${k.inOutRatio != null ? `<span class="tw-au-sub-pill p-blue">入/出 ${k.inOutRatio.toFixed(1)}:1</span>` : ''}</span></div>
+        <div class="tw-au-kpi">
+          <div class="tw-au-kpi-head"><span class="tw-au-kpi-label">缓存命中与降本</span><i class="tw-au-kpi-ic ic-purple">${ic('pie')}</i></div>
+          <b class="tw-au-kpi-val">${hitPct}<i>%</i></b>
+          <span class="tw-au-kpi-sub"><span class="lab">缓存读 ${fmt(k.cacheRead)}</span><span class="tw-au-sub-pill p-green">省 ~$${k.savedUsd.toFixed(1)}</span></span></div>
+        <div class="tw-au-kpi">
+          <div class="tw-au-kpi-head"><span class="tw-au-kpi-label">对话轮次与时效</span><i class="tw-au-kpi-ic ic-cyan">${ic('time')}</i></div>
+          <b class="tw-au-kpi-val">${k.turns}<i> 轮</i></b>
+          <span class="tw-au-kpi-sub"><span class="lab">${k.sessions} 会话</span>${k.avgDurS > 0 ? `<span class="tw-au-sub-pill p-slate">均耗 ${this._auFmtDur(k.avgDurS).replace(' / 轮', '/轮')}</span>` : ''}</span></div>
+        <div class="tw-au-kpi">
+          <div class="tw-au-kpi-head"><span class="tw-au-kpi-label">工具调用与成功率</span><i class="tw-au-kpi-ic ic-orange">${ic('tool')}</i></div>
+          <b class="tw-au-kpi-val">${full(k.tools)}<i> 次</i></b>
+          <span class="tw-au-kpi-sub"><span class="lab">${k.toolsPerTurn.toFixed(1)} 次/轮</span>${k.toolOkRate != null ? `<span class="tw-au-sub-pill p-green">成功率 ${okPct}</span>` : ''}</span></div>
+      </div>`;
+
+    // ── 层3: 左趋势 SVG + 右效能排行矩阵 ──
+    let mainHtml = '';
     if (stats.rows.length === 0) {
-      bodyHtml = '<div class="tw-au-empty">该周期暂无用量记录</div>';
+      mainHtml = '<div class="tw-au-empty">该周期暂无用量记录</div>';
     } else {
+      this._auLastTrend = stats.trend || [];
+      const trendHtml = `<div class="tw-au-trend"><div class="tw-au-trend-title">每日用量趋势<span class="tw-au-mini-legend"><i class="lg-in"></i>输入<i class="lg-out"></i>输出<i class="lg-cr"></i>缓存</span></div>${this._auTrendChart(stats.trend, metric)}</div>`;
+      const metricOf = (r) => metric === 'net' ? r.net : metric === 'tools' ? r.tools : r.tokens;
       const rowsHtml = stats.rows.map((r) => {
         const wIn = (r.input / r.segSum) * 100;
         const wOut = (r.output / r.segSum) * 100;
         const wCache = Math.max(0, 100 - wIn - wOut);
-        const barW = r.tokens > 0 ? Math.max(2, (r.tokens / stats.maxTokens) * 100) : 0;
+        const mv = metricOf(r);
+        const barW = mv > 0 ? Math.max(2, (mv / stats.maxMetric) * 100) : 0;
         const segsHtml = r.tokens > 0 ? `<span class="tw-au-seg tw-au-seg-in" style="width:${wIn.toFixed(1)}%"></span><span class="tw-au-seg tw-au-seg-out" style="width:${wOut.toFixed(1)}%"></span><span class="tw-au-seg tw-au-seg-cache" style="width:${wCache.toFixed(1)}%"></span>` : '';
         const expanded = this._agentUsageExpanded.has(r.id);
-        const tip = `输入 ${full(r.input)} · 输出 ${full(r.output)} · 缓存 ${full(r.cache)}`;
-        const modelsHtml = expanded ? (r.modelList.length ? r.modelList.map(m =>
-          `<div class="tw-au-model-line"><span class="tw-au-model-name">${escapeHtml(m.name)}</span><span>${fmt(m.tokens)} tok · ${m.turns}轮</span></div>`
-        ).join('') : '<div class="tw-au-model-line"><span class="tw-au-model-name">无模型用量记录</span><span>—</span></div>') : '';
         let icon = '';
         try { icon = getAgentBrandSvg(r.id, 12); } catch (e) {}
+        let expandHtml = '';
+        if (expanded) {
+          const modelRows = r.modelList.length ? r.modelList.map(m => {
+            const mw = r.modelList[0].tokens > 0 ? Math.max(3, m.tokens / r.modelList[0].tokens * 100) : 0;
+            const perTurn = m.turns > 0 ? fmt(Math.round(m.tokens / m.turns)) : '—';
+            const mSum = Math.max(1, (m.in || 0) + (m.out || 0) + (m.cr || 0));
+            const wI = ((m.in || 0) / mSum) * 100;
+            const wO = ((m.out || 0) / mSum) * 100;
+            const wC = Math.max(0, 100 - wI - wO);
+            return `<div class="tw-au-model-line"><span class="tw-au-model-name">${escapeHtml(m.name)}${m.effort ? `<i class="tw-au-effort">${escapeHtml(m.effort)}</i>` : ''}</span><span class="tw-au-model-bar-wrap"><span class="tw-au-mbar" style="width:${mw.toFixed(0)}%"><i class="in" style="width:${wI.toFixed(1)}%"></i><i class="out" style="width:${wO.toFixed(1)}%"></i><i class="cache" style="width:${wC.toFixed(1)}%"></i></span></span><span class="tw-au-model-meta"><b class="mm-tok">${fmt(m.tokens)}</b><i class="mm-per">${perTurn}/轮</i><i class="mm-turns">${m.turns}轮</i></span></div>`;
+          }).join('') : '<div class="tw-au-model-line"><span class="tw-au-model-name">无模型用量记录</span><span>—</span></div>';
+          expandHtml = `<div class="tw-au-expand">${modelRows}</div>`;
+        }
+        const tip = `输入 ${full(r.input)} · 输出 ${full(r.output)} · 缓存 ${full(r.cache)}${r.costUsd > 0.001 ? ' · ~$' + r.costUsd.toFixed(2) : ''}`;
         return `
           <div class="tw-au-row${expanded ? ' expanded' : ''}" data-agent="${r.id}" title="${escapeHtml(tip)}">
-            <span class="tw-au-name">${icon}<span>${escapeHtml(r.name)}</span></span>
-            <div class="tw-au-bar-wrap"><div class="tw-au-bar" style="width:${barW.toFixed(1)}%">${segsHtml}</div></div>
-            <span class="tw-au-meta"><b>${fmt(r.tokens)}</b> tok · ${r.turns}轮 · ${r.sessions}会话<span class="tw-au-caret">›</span></span>
-            <div class="tw-au-models">${modelsHtml}</div>
+            <div class="tw-au-row-main">
+              <span class="tw-au-name">${icon}<span>${escapeHtml(r.name)}</span></span>
+              <div class="tw-au-bar-wrap"><div class="tw-au-bar" style="width:${barW.toFixed(1)}%">${segsHtml}</div></div>
+              <span class="tw-au-meta"><b>${fmt(mv)}</b>${metric === 'tools' ? ' 次' : ' tok'} · ${r.turns}轮<span class="tw-au-caret">›</span></span>
+            </div>
+            ${expandHtml}
           </div>`;
       }).join('');
-      bodyHtml = `<div class="tw-au-rows">${rowsHtml}</div>`;
+      mainHtml = `<div class="tw-au-main">${trendHtml}<div class="tw-au-rank">${rowsHtml}</div></div>`;
     }
 
-    const t = stats.totals;
+    // ── 层4: 页脚合计 + 精确度占比 + 等效成本 + 图例 ──
+    const totalTok = Math.max(1, t.exactTok + t.estTok);
+    const exactPct = Math.round(t.exactTok / totalTok * 100);
     const footerHtml = `
       <div class="tw-au-footer">
-        <span class="tw-au-total">合计 <b>${fmt(t.tokens)}</b> tok · ${t.turns}轮 · ${t.sessions}会话${t.tools ? ` · ${t.tools}工具` : ''}</span>
+        <span class="tw-au-total">合计 <b>${fmt(t.tokens)}</b> tok <i class="tw-au-acc2">精确 ${exactPct}% / 估算 ${100 - exactPct}%</i>${t.costUsd > 0.001 ? ` · 等效 ~$${t.costUsd.toFixed(2)}` : ''}</span>
         <span class="tw-au-legend">
-          <span><i class="tw-au-dot" style="background:var(--g-blue,#2563EB)"></i>输入 ${fmt(t.input)}</span>
+          <span><i class="tw-au-dot" style="background:var(--g-blue,#2563EB)"></i>未缓存输入 ${fmt(t.input)}</span>
           <span><i class="tw-au-dot" style="background:var(--g-green,#10B981)"></i>输出 ${fmt(t.output)}</span>
-          <span><i class="tw-au-dot" style="background:#8B5CF6"></i>缓存 ${fmt(t.cache)}</span>
+          <span><i class="tw-au-dot tw-au-dot-hatch" style="background:#8B5CF6"></i>缓存读 ${fmt(t.cache)}</span>
         </span>
       </div>`;
 
     this.agentUsageCardEl.innerHTML = `
       <div class="tw-card-header tw-au-header">
-        <span>Agent 用量</span>
+        <span>Agent 用量与效能看板</span>
+        <span class="tw-au-period">${rangeLabel}累计 <b>${fmt(t.tokens)}</b> tok${momHtml}</span>
         <div class="tw-trend-controls-right">
+          ${metricSeg}
           <select class="tw-trend-range-select tw-au-range-select" title="切换统计周期">
             <option value="today" ${range === 'today' ? 'selected' : ''}>今日</option>
             <option value="week" ${range === 'week' ? 'selected' : ''}>近7天</option>
@@ -60241,7 +63966,8 @@ class TabonKBWorkbenchView extends ItemView {
           <button class="tw-trend-refresh-btn" id="btnRefreshAgentUsage" title="刷新用量统计">${getIconPark('refresh', 12)}</button>
         </div>
       </div>
-      ${bodyHtml}
+      ${kpiHtml}
+      ${mainHtml}
       ${stats.rows.length ? footerHtml : ''}
     `;
 
@@ -60253,13 +63979,42 @@ class TabonKBWorkbenchView extends ItemView {
       };
     }
 
+    this.agentUsageCardEl.querySelectorAll('.tw-au-metric-btn').forEach(el => {
+      el.onclick = () => {
+        this.saveAgentUsageMetric(el.dataset.m);
+        this.updateAgentUsageCard();
+      };
+    });
+
     const refreshBtn = this.agentUsageCardEl.querySelector('#btnRefreshAgentUsage');
     if (refreshBtn) {
       refreshBtn.onclick = () => {
         refreshBtn.classList.add('spinning');
+        if (this._auLedgerCache) this._auLedgerCache.at = 0;
+        // 额度功能已下线，手动刷新仅重建统计数据
         this.updateAgentUsageCard();
         setTimeout(() => refreshBtn.classList.remove('spinning'), 500);
       };
+    }
+
+    // 趋势日柱: hover 即览 / click 锁定; 点击空白或再次点击取消锁定
+    this.agentUsageCardEl.querySelectorAll('.tw-au-day-col').forEach(col => {
+      const i = +col.dataset.i;
+      col.onmouseenter = () => { if (this._auDayLock == null) this._auShowDayPopover(i); };
+      col.onmouseleave = () => { if (this._auDayLock == null) this._auHideDayPopover(); };
+      col.onclick = (e) => {
+        e.stopPropagation();
+        this._auDayLock = (this._auDayLock === i) ? null : i;
+        this.agentUsageCardEl.querySelectorAll('.tw-au-day-col.locked').forEach(c => c.classList.remove('locked'));
+        if (this._auDayLock == null) { this._auHideDayPopover(); }
+        else { col.classList.add('locked'); this._auShowDayPopover(i); }
+      };
+    });
+    if (!this._auDocBound) {
+      this._auDocBound = true;
+      document.addEventListener('click', (e) => {
+        if (this._auDayLock != null && !(e.target && e.target.closest && e.target.closest('.tw-au-daily-chart'))) this._auHideDayPopover();
+      }, true);
     }
 
     this.agentUsageCardEl.querySelectorAll('.tw-au-row').forEach(el => {
@@ -60326,26 +64081,48 @@ class TabonKBWorkbenchView extends ItemView {
 
   async onOpen() {
     try {
+      globalThis.__twBootMark && __twBootMark('onOpen:start');
       this.setupCustomHeader();
       this.render();
+      globalThis.__twBootMark && __twBootMark('onOpen:first-render');
     } catch (err) {
       console.error('[TabonKB Workbench] Initial render failed:', err);
     }
 
-    this.loadVaultDocs().then(() => {
-      try {
-        this.render();
-      } catch (err) {
-        console.error('[TabonKB Workbench] Post-scan render failed:', err);
-        try { wkTopoWriteLog(this.app.vault.adapter.basePath, 'POSTSCAN-RENDER: ' + (err && err.stack || err)); } catch (e) {}
-      }
-    }).catch(err => {
-      console.error('[TabonKB Workbench] Vault scan failed:', err);
+    // 文档扫描让给空闲期: 首渲染已呈现工作台骨架, 与 Obsidian 冷启动索引争主线程
+    // 毫无意义——空闲再扫, 扫完增量渲染 (数据晚到零点几秒, 可交互性大幅提前)
+    const _scheduleScan = (typeof requestIdleCallback === 'function')
+      ? (fn) => requestIdleCallback(fn, { timeout: 1200 })
+      : (fn) => setTimeout(fn, 300);
+    _scheduleScan(() => {
+      this.loadVaultDocs().then(() => {
+        try {
+          this.render();
+        } catch (err) {
+          console.error('[TabonKB Workbench] Post-scan render failed:', err);
+          try { wkTopoWriteLog(this.app.vault.adapter.basePath, 'POSTSCAN-RENDER: ' + (err && err.stack || err)); } catch (e) {}
+        }
+        globalThis.__twBootMark && __twBootMark('onOpen:postscan-render');
+        globalThis.__twBootFlush && __twBootFlush(this.app?.vault?.adapter?.basePath);
+      }).catch(err => {
+        console.error('[TabonKB Workbench] Vault scan failed:', err);
+        globalThis.__twBootFlush && __twBootFlush(this.app?.vault?.adapter?.basePath);
+      });
     });
   }
 
   async refreshVaultDocs() {
     await this.loadVaultDocs();
+    // Agent 任务流式执行中 / 发送中 / 非首页时跳过全量 render()：vault create/modify/delete
+    // 与 metadataCache.resolved 事件在 Agent 写文件或附件落盘时高频触发，整页重建会销毁
+    // 正在流式渲染的会话 DOM（在途气泡被清空后由后续流事件触发空泡重新计时）。
+    // 数据 (realDocs/graphData) 已由 loadVaultDocs 更新，仅跳过界面重绘。
+    const hubBusy = !!(this.agentHub && typeof this.agentHub.isStreaming === 'function' && this.agentHub.isStreaming());
+    const drawerBusy = !!(this.agentDrawer && (this.agentDrawer._sendInFlight === true ||
+      (this.agentDrawer.hub && typeof this.agentDrawer.hub.isStreaming === 'function' && this.agentDrawer.hub.isStreaming())));
+    if (hubBusy || drawerBusy || this.activeTab !== 'home') {
+      return;
+    }
     try {
       this.render();
     } catch (err) {
@@ -60388,9 +64165,22 @@ class TabonKBWorkbenchView extends ItemView {
       try { this._homeTrendResizeObs.disconnect(); } catch (e) {}
       this._homeTrendResizeObs = null;
     }
+    try {
+      const remainingLeaves = this.app?.workspace?.getLeavesOfType?.(VIEW_TYPE_WORKBENCH) || [];
+      if (remainingLeaves.length <= 1) {
+        if (typeof document !== 'undefined' && document.body) {
+          document.body.classList.remove('tw-workbench-active', 'tw-has-workbench');
+          const sb = document.querySelector('.status-bar');
+          if (sb) sb.style.removeProperty('display');
+        }
+      }
+    } catch (_) {}
   }
 
   async loadVaultDocs() {
+    // 并发闸: 索引期 vault 事件风暴会排队触发全量扫描, 在飞时直接复用本次结果
+    if (this._docsInFlight) return;
+    this._docsInFlight = true;
     this.isLoadingDocs = true;
     try {
       const vault = this.app?.vault;
@@ -60426,7 +64216,9 @@ class TabonKBWorkbenchView extends ItemView {
 
           let fileContent = '';
           try {
-            if (typeof vault.cachedRead === 'function') {
+            // 仅当 frontmatter 缺摘要时才全文读取——此前无条件 cachedRead 每个文件，
+            // 冷启动与 Obsidian 索引器抢盘是启动卡顿主因
+            if (typeof vault.cachedRead === 'function' && !summary) {
               fileContent = await vault.cachedRead(file);
               if (!summary) {
                 let body = fileContent;
@@ -60517,6 +64309,7 @@ class TabonKBWorkbenchView extends ItemView {
       console.error('[TabonKB Workbench] Error in loadVaultDocs:', err);
     } finally {
       this.isLoadingDocs = false;
+      this._docsInFlight = false;
     }
   }
 
@@ -60590,6 +64383,13 @@ class TabonKBWorkbenchView extends ItemView {
       container.empty();
       this._harnessMounted = false; // 整体重建后旧挂载标记必然失效
       container.addClass('tabonkb-workbench-container', 'with-drawer');
+      try {
+        if (typeof document !== 'undefined' && document.body) {
+          document.body.classList.add('tw-workbench-active', 'tw-has-workbench');
+          const sb = document.querySelector('.status-bar');
+          if (sb) sb.style.setProperty('display', 'none', 'important');
+        }
+      } catch (_) {}
       const activePlugin = this.plugin || (this.app?.plugins?.plugins?.['tabonkb-workbench']);
       const curTheme = (activePlugin && activePlugin.settings && activePlugin.settings.workbenchTheme) || 'fresh';
       if (typeof TabonKBThemeEngine !== 'undefined' && activePlugin) {
@@ -60634,7 +64434,11 @@ class TabonKBWorkbenchView extends ItemView {
       const mainPanel = layout.createDiv({ cls: 'tabonkb-workbench-main' });
 
       // 3. Mount Pi Agent Hub Drawer into layout (docked on right across all tabs)
-      this.agentDrawer.mount(layout);
+      // 探索页 ai 子页由 renderExploreTab → renderAiSubView 挂载到 aiWrap (studio 全宽)，
+      // 此处跳过，避免同一次 render() 内先普通模式挂载又立刻搬到 studio 容器造成二次挂载
+      if (!(this.activeTab === 'explore' && this.getExploreSubTab() === 'ai')) {
+        this.agentDrawer.mount(layout);
+      }
 
       // 4. Render Context-Aware Top Bar.
       // Explore owns its own sub-navigation and search surface, so the global
@@ -61364,16 +65168,20 @@ class TabonKBWorkbenchView extends ItemView {
       getConfig: () => this.settings?.vendorPortals || DEFAULT_SETTINGS.vendorPortals
     });
 
-    this.exploreView = new ExploreView({
-      app: this.app,
-      vendorService: vendorService,
-      agentDrawer: this.agentDrawer,
-      agentHub: this.agentHub,
-      onOpenSettings: () => {
-        this.app.setting?.open?.();
-        this.app.setting?.openTabById?.('tabonkb-workbench');
-      }
-    });
+    // 复用 ExploreView 实例：保留 liveSearchResults / selectedSources / expandedCardIds 等
+    // 内存态，切页回来时不再因缓存为空触发 executeInSituSearch() 重发官网检索请求
+    if (!this.exploreView) {
+      this.exploreView = new ExploreView({
+        app: this.app,
+        vendorService: vendorService,
+        agentDrawer: this.agentDrawer,
+        agentHub: this.agentHub,
+        onOpenSettings: () => {
+          this.app.setting?.open?.();
+          this.app.setting?.openTabById?.('tabonkb-workbench');
+        }
+      });
+    }
 
     // Restore keyword BEFORE mount so renderSearchSubView sees it and auto-triggers live search
     if (this.keyword && this.exploreView.activeSubTab === 'search') {
@@ -62376,7 +66184,9 @@ var TW_BRAND_ICON_OK = false;
 
 module.exports = class TabonKBWorkbenchPlugin extends Plugin {
   async onload() {
+    try { globalThis.__twBootMark && __twBootMark('onload:start'); } catch (e) {}
     await this.loadSettings();
+    try { globalThis.__twBootMark && __twBootMark('onload:settings+theme'); } catch (e) {}
     this.applyWorkbenchTheme(this.settings.workbenchTheme);
 
     this.jiraService = new JiraService({
@@ -62403,6 +66213,7 @@ module.exports = class TabonKBWorkbenchPlugin extends Plugin {
       app: this.app,
       getNiceaigcConfig: () => this.settings.niceaigc || DEFAULT_SETTINGS.niceaigc
     });
+    try { globalThis.__twBootMark && __twBootMark('onload:services+hub'); } catch (e) {}
 
     // Companion Sync Server for Chrome / Edge Extension (127.0.0.1:28123)
     this.companionServer = new CompanionSyncServer({ plugin: this, port: 28123 });
@@ -62410,6 +66221,7 @@ module.exports = class TabonKBWorkbenchPlugin extends Plugin {
 
     this.drawioBroker = new DrawioBroker({ vaultBasePath: vaultPath });
     this.drawioBroker.start();
+    try { globalThis.__twBootMark && __twBootMark('onload:servers'); } catch (e) {}
 
     // DSH Daemon Manager
     if (this.settings?.dsh?.enabled !== false && typeof DshDaemonManager !== 'undefined') {
@@ -62423,6 +66235,7 @@ module.exports = class TabonKBWorkbenchPlugin extends Plugin {
         this.dshDaemon.start().catch((e) => console.warn('[TabonKB] DSH Daemon auto-start failed:', e));
       }
     }
+    try { globalThis.__twBootMark && __twBootMark('onload:dsh'); } catch (e) {}
 
     this.addSettingTab(new TabonKBSettingTab(this.app, this));
 
@@ -62442,13 +66255,20 @@ module.exports = class TabonKBWorkbenchPlugin extends Plugin {
       );
     }
 
+    // 冷启动索引期 create/modify/resolved 会对每个文件连发——350ms 尾触发防抖，
+    // 整轮索引合并为一次 loadVaultDocs；loadVaultDocs 内部另有 in-flight 闸防重入
+    let _rwTimer = null;
     const refreshWorkbench = () => {
-      const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_WORKBENCH);
-      leaves.forEach(leaf => {
-        if (leaf.view && typeof leaf.view.refreshVaultDocs === 'function') {
-          leaf.view.refreshVaultDocs();
-        }
-      });
+      if (_rwTimer) clearTimeout(_rwTimer);
+      _rwTimer = setTimeout(() => {
+        _rwTimer = null;
+        const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_WORKBENCH);
+        leaves.forEach(leaf => {
+          if (leaf.view && typeof leaf.view.refreshVaultDocs === 'function') {
+            leaf.view.refreshVaultDocs();
+          }
+        });
+      }, 350);
     };
 
     this.registerEvent(this.app.vault.on('create', refreshWorkbench));
@@ -62469,6 +66289,35 @@ module.exports = class TabonKBWorkbenchPlugin extends Plugin {
         });
       }
     }));
+
+    const syncWorkbenchStatusBar = () => {
+      try {
+        const activeLeaf = this.app?.workspace?.activeLeaf;
+        const isWorkbenchActive = activeLeaf?.view?.getViewType?.() === VIEW_TYPE_WORKBENCH;
+        const leaves = this.app?.workspace?.getLeavesOfType?.(VIEW_TYPE_WORKBENCH) || [];
+        const hasWorkbench = leaves.length > 0;
+        if (typeof document !== 'undefined' && document.body) {
+          const shouldHide = isWorkbenchActive || hasWorkbench;
+          document.body.classList.toggle('tw-workbench-active', shouldHide);
+          document.body.classList.toggle('tw-has-workbench', hasWorkbench);
+          const sb = document.querySelector('.status-bar');
+          if (sb) {
+            if (shouldHide) {
+              sb.style.setProperty('display', 'none', 'important');
+            } else {
+              sb.style.removeProperty('display');
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('[TabonKB Workbench] syncWorkbenchStatusBar error:', err);
+      }
+    };
+
+    this.registerEvent(this.app.workspace.on('active-leaf-change', syncWorkbenchStatusBar));
+    this.registerEvent(this.app.workspace.on('layout-change', syncWorkbenchStatusBar));
+    setTimeout(syncWorkbenchStatusBar, 100);
+    setTimeout(syncWorkbenchStatusBar, 500);
 
     // Add ribbon icon on left navigation bar
     // 图标注册失败不得拖垮插件加载: 捕获后回退内置图标
@@ -62527,7 +66376,7 @@ module.exports = class TabonKBWorkbenchPlugin extends Plugin {
       this.applyWorkbenchTheme(this.settings?.workbenchTheme);
     }));
 
-
+    try { globalThis.__twBootMark && __twBootMark('onload:end'); } catch (e) {}
   }
 
   async getSecret(secretName) {
@@ -62692,6 +66541,13 @@ module.exports = class TabonKBWorkbenchPlugin extends Plugin {
     if (this.dshDaemon) {
       this.dshDaemon.destroy();
     }
+    try {
+      if (typeof document !== 'undefined' && document.body) {
+        document.body.classList.remove('tw-workbench-active', 'tw-has-workbench');
+        const sb = document.querySelector('.status-bar');
+        if (sb) sb.style.removeProperty('display');
+      }
+    } catch (_) {}
   }
 
   async activateView() {

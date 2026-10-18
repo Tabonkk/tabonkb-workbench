@@ -3286,6 +3286,26 @@ function escapeAttr(str) {
 
 const VIEW_TYPE_WORKBENCH = "tabonkb-workbench-view";
 
+// Startup profiler: marks flushed to .startup-profile.json on view open (diagnostic, ~0 cost)
+globalThis.__twBootMark = function (label) {
+  try {
+    const w = globalThis.__twBootMarks = globalThis.__twBootMarks || { t0: globalThis.__twBootT0 || Date.now(), marks: [] };
+    if (label === 'onload:start') { w.t0 = globalThis.__twBootT0 || Date.now(); w.marks.length = 0; }
+    w.marks.push([label, Date.now() - w.t0]);
+  } catch (e) {}
+};
+globalThis.__twBootFlush = function (vaultPath) {
+  try {
+    const w = globalThis.__twBootMarks;
+    if (!w || !w.marks.length || !vaultPath) return;
+    const fs = require('fs'); const path = require('path');
+    fs.writeFileSync(
+      path.join(vaultPath, '.obsidian', 'plugins', 'tabonkb-workbench', '.startup-profile.json'),
+      JSON.stringify({ t0: new Date(w.t0).toISOString(), marks: w.marks }, null, 1)
+    );
+  } catch (e) {}
+};
+
 const MODULE_COLORS = {
   Display: '#8B5CF6',
   Camera: '#10B981',
@@ -5305,26 +5325,48 @@ class TabonKBWorkbenchView extends ItemView {
 
   async onOpen() {
     try {
+      globalThis.__twBootMark && __twBootMark('onOpen:start');
       this.setupCustomHeader();
       this.render();
+      globalThis.__twBootMark && __twBootMark('onOpen:first-render');
     } catch (err) {
       console.error('[TabonKB Workbench] Initial render failed:', err);
     }
 
-    this.loadVaultDocs().then(() => {
-      try {
-        this.render();
-      } catch (err) {
-        console.error('[TabonKB Workbench] Post-scan render failed:', err);
-        try { wkTopoWriteLog(this.app.vault.adapter.basePath, 'POSTSCAN-RENDER: ' + (err && err.stack || err)); } catch (e) {}
-      }
-    }).catch(err => {
-      console.error('[TabonKB Workbench] Vault scan failed:', err);
+    // 文档扫描让给空闲期: 首渲染已呈现工作台骨架, 与 Obsidian 冷启动索引争主线程
+    // 毫无意义——空闲再扫, 扫完增量渲染 (数据晚到零点几秒, 可交互性大幅提前)
+    const _scheduleScan = (typeof requestIdleCallback === 'function')
+      ? (fn) => requestIdleCallback(fn, { timeout: 1200 })
+      : (fn) => setTimeout(fn, 300);
+    _scheduleScan(() => {
+      this.loadVaultDocs().then(() => {
+        try {
+          this.render();
+        } catch (err) {
+          console.error('[TabonKB Workbench] Post-scan render failed:', err);
+          try { wkTopoWriteLog(this.app.vault.adapter.basePath, 'POSTSCAN-RENDER: ' + (err && err.stack || err)); } catch (e) {}
+        }
+        globalThis.__twBootMark && __twBootMark('onOpen:postscan-render');
+        globalThis.__twBootFlush && __twBootFlush(this.app?.vault?.adapter?.basePath);
+      }).catch(err => {
+        console.error('[TabonKB Workbench] Vault scan failed:', err);
+        globalThis.__twBootFlush && __twBootFlush(this.app?.vault?.adapter?.basePath);
+      });
     });
   }
 
   async refreshVaultDocs() {
     await this.loadVaultDocs();
+    // Agent 任务流式执行中 / 发送中 / 非首页时跳过全量 render()：vault create/modify/delete
+    // 与 metadataCache.resolved 事件在 Agent 写文件或附件落盘时高频触发，整页重建会销毁
+    // 正在流式渲染的会话 DOM（在途气泡被清空后由后续流事件触发空泡重新计时）。
+    // 数据 (realDocs/graphData) 已由 loadVaultDocs 更新，仅跳过界面重绘。
+    const hubBusy = !!(this.agentHub && typeof this.agentHub.isStreaming === 'function' && this.agentHub.isStreaming());
+    const drawerBusy = !!(this.agentDrawer && (this.agentDrawer._sendInFlight === true ||
+      (this.agentDrawer.hub && typeof this.agentDrawer.hub.isStreaming === 'function' && this.agentDrawer.hub.isStreaming())));
+    if (hubBusy || drawerBusy || this.activeTab !== 'home') {
+      return;
+    }
     try {
       this.render();
     } catch (err) {
@@ -5339,6 +5381,9 @@ class TabonKBWorkbenchView extends ItemView {
   }
 
   async loadVaultDocs() {
+    // 并发闸: 索引期 vault 事件风暴会排队触发全量扫描, 在飞时直接复用本次结果
+    if (this._docsInFlight) return;
+    this._docsInFlight = true;
     this.isLoadingDocs = true;
     try {
       const vault = this.app?.vault;
@@ -5374,7 +5419,9 @@ class TabonKBWorkbenchView extends ItemView {
 
           let fileContent = '';
           try {
-            if (typeof vault.cachedRead === 'function') {
+            // 仅当 frontmatter 缺摘要时才全文读取——此前无条件 cachedRead 每个文件，
+            // 冷启动与 Obsidian 索引器抢盘是启动卡顿主因
+            if (typeof vault.cachedRead === 'function' && !summary) {
               fileContent = await vault.cachedRead(file);
               if (!summary) {
                 let body = fileContent;
@@ -5465,6 +5512,7 @@ class TabonKBWorkbenchView extends ItemView {
       console.error('[TabonKB Workbench] Error in loadVaultDocs:', err);
     } finally {
       this.isLoadingDocs = false;
+      this._docsInFlight = false;
     }
   }
 

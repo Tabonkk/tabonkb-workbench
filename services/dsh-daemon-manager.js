@@ -670,48 +670,97 @@ function getDshFileBridgeScript() {
 function getDshContextBridgeScript() {
   return `
 (function () {
-  if (window._twxCtxBridgeInstalled) return;
+  if (window._twxCtxBridgeCleanup) {
+    try { window._twxCtxBridgeCleanup(); } catch (_) {}
+  }
   window._twxCtxBridgeInstalled = true;
 
   var CSS = [
-    '.twx-ctx-block{padding:2px 0;}',
-    '.twx-sep{height:1px;background:rgba(128,128,128,.18);margin:4px 10px;}',
-    '.twx-glabel{padding:3px 12px 2px;font-size:10px;font-weight:600;letter-spacing:.4px;color:#8b949e;}',
-    '.twx-item{display:flex;align-items:center;gap:8px;padding:6px 10px;margin:0 4px;border-radius:6px;font-size:12px;cursor:pointer;color:inherit;}',
-    '.twx-item:hover{background:rgba(128,128,128,.12);}',
-    '.twx-dot{width:7px;height:7px;border-radius:50%;flex:0 0 auto;}',
-    '.twx-name{font-weight:500;}',
-    '.twx-val{margin-left:auto;font-size:10.5px;color:#8b949e;max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}',
-    '.twx-arrow{color:#8b949e;font-size:11px;margin-left:2px;}',
-    '.twx-panel{position:fixed;z-index:2147483000;width:262px;max-height:min(340px,calc(100vh - 40px));display:flex;flex-direction:column;border-radius:10px;overflow:hidden;font-family:inherit;font-size:12px;color:inherit;',
-    'background:var(--ds-background-secondary,Canvas);border:1px solid rgba(128,128,128,.25);box-shadow:0 12px 32px -4px rgba(0,0,0,.28);backdrop-filter:blur(20px) saturate(180%);-webkit-backdrop-filter:blur(20px) saturate(180%);}',
-    '.twx-p-search{display:flex;align-items:center;gap:6px;padding:7px 10px;border-bottom:1px solid rgba(128,128,128,.16);}',
-    '.twx-p-search input{flex:1;min-width:0;border:0;outline:0;background:transparent;font-size:11.5px;color:inherit;}',
-    '.twx-p-nav{display:flex;align-items:center;gap:8px;padding:5px 10px;border-bottom:1px solid rgba(128,128,128,.14);font-size:11px;}',
-    '.twx-back{cursor:pointer;color:#8b949e;padding:1px 4px;border-radius:4px;white-space:nowrap;}',
-    '.twx-back:hover{background:rgba(128,128,128,.14);color:inherit;}',
-    '.twx-nav-title{flex:1;min-width:0;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}',
-    '.twx-p-list{overflow-y:auto;padding:4px;flex:1;}',
-    '.twx-opt{display:flex;align-items:center;gap:7px;padding:6px 8px;border-radius:6px;cursor:pointer;font-size:11.5px;}',
-    '.twx-opt:hover{background:rgba(128,128,128,.12);}',
-    '.twx-opt.on{background:rgba(37,99,235,.14);}',
+    '._3e4SsG_item,.twx-item{transition:background-color .12s ease,color .12s ease!important;}',
+    // 分组标题：统一与原生 _3e4SsG_sectionTitle 样式，两端对齐带极简范围提示
+    '._3e4SsG_sectionTitle,.twx-sec-title{display:flex!important;align-items:center!important;justify-content:space-between!important;min-height:22px!important;padding:5px 8px 3px!important;font-size:11px!important;font-weight:500!important;line-height:16px!important;letter-spacing:.2px!important;color:var(--dsw-alias-label-tertiary,#8b949e)!important;background:transparent!important;user-select:none!important;box-sizing:border-box!important;}',
+    '._3e4SsG_sectionTitle:not(:first-child),.twx-sec-title{border-top:.5px solid rgba(128,128,128,.12)!important;margin-top:4px!important;padding-top:5px!important;}',
+    '.twx-sec-name{font-weight:600!important;color:inherit!important;}',
+    // 滚动微角标：提示当前显示子项范围，支持点击与滚轮交互
+    '.twx-sec-badge{display:inline-flex!important;align-items:center!important;font-size:9.5px!important;font-weight:500!important;font-family:ui-monospace,SFMono-Regular,Menlo,monospace!important;color:var(--dsw-alias-label-tertiary,#9ca3af)!important;background:rgba(128,128,128,.08)!important;padding:1px 5px!important;border-radius:4px!important;cursor:pointer!important;transition:all .12s ease!important;}',
+    '.twx-sec-badge:hover{background:rgba(128,128,128,.18)!important;color:var(--dsw-alias-label-primary,#111827)!important;}',
+    // 上下文分组子项按钮：完全复刻原生 _3e4SsG_item 尺寸与状态（不设 !important，确保可被隐藏规则覆盖）
+    '.twx-item{display:flex;align-items:center;gap:7px;width:100%;min-height:34px;height:34px;padding:6px 8px;margin:0;box-sizing:border-box;border:none;border-radius:var(--dsw-radius-md,6px);background:transparent;cursor:pointer;font-size:13px;line-height:20px;color:var(--dsw-alias-label-primary,#111827);text-align:left;}',
+    '.twx-item:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(128,128,128,.08))!important;}',
+    '.twx-dot{width:7px!important;height:7px!important;border-radius:50%!important;flex:0 0 auto!important;}',
+    '.twx-name{font-weight:500!important;color:inherit!important;overflow:hidden!important;text-overflow:ellipsis!important;white-space:nowrap!important;flex:0 0 auto!important;}',
+    '.twx-val{margin-left:auto!important;font-size:12px!important;color:var(--dsw-alias-label-tertiary,#8b949e)!important;max-width:120px!important;overflow:hidden!important;text-overflow:ellipsis!important;white-space:nowrap!important;text-align:right!important;}',
+    '.twx-arrow{color:var(--dsw-alias-label-tertiary,#9ca3af)!important;font-size:12px!important;margin-left:2px!important;flex:0 0 auto!important;}',
+    // 菜单容器外廓约束：固定紧凑高度 ~280px，彻底消除外层冗余纵向滚动条，充足 headroom 避免高 DPI 截断
+    '._3e4SsG_viewport,[role="listbox"]{overflow-y:hidden!important;overflow-x:hidden!important;max-height:none!important;}',
+    '.twx-plus-menu{background:rgba(255,255,255,.97)!important;backdrop-filter:blur(28px) saturate(180%)!important;-webkit-backdrop-filter:blur(28px) saturate(180%)!important;max-height:380px!important;}',
+    '.twx-panel{position:fixed;z-index:2147483000;width:280px;max-height:min(380px,calc(100vh - 40px));display:flex;flex-direction:column;border-radius:12px;overflow:hidden;font-family:inherit;font-size:12px;color:var(--dsw-alias-label-primary,#111827);background:rgba(255,255,255,.97)!important;border:1px solid var(--dsw-alias-border-secondary,rgba(0,0,0,.08));box-shadow:0 16px 36px -4px rgba(0,0,0,.14),0 0 1px 1px rgba(0,0,0,.04);backdrop-filter:blur(28px) saturate(180%);-webkit-backdrop-filter:blur(28px) saturate(180%);}',
+    '.twx-p-search{display:flex;align-items:center;padding:7px 8px 5px;}',
+    '.twx-search-box{display:flex;align-items:center;gap:6px;width:100%;padding:5px 9px;border-radius:7px;background:rgba(128,128,128,.06);border:1px solid rgba(128,128,128,.12);transition:border-color .15s ease,background-color .15s ease,box-shadow .15s ease;}',
+    '.twx-search-box:focus-within{border-color:rgba(16,185,129,.45);background:rgba(128,128,128,.1);box-shadow:0 0 0 2px rgba(16,185,129,.12);}',
+    '.twx-search-ic{color:#8b949e;flex:none;opacity:.8;}',
+    '.twx-search-box input{flex:1;min-width:0;border:0!important;outline:0!important;box-shadow:none!important;background:transparent;font-size:12px;color:inherit;font-family:inherit;line-height:18px;}',
+    '.twx-search-box input::placeholder{color:var(--dsw-alias-label-tertiary,#9ca3af);opacity:.75;}',
+    '.twx-p-nav{display:flex;align-items:center;gap:6px;padding:6px 10px;border-bottom:1px solid rgba(128,128,128,.08);font-size:11.5px;color:var(--dsw-alias-label-primary,#111827);}',
+    '.twx-back{display:inline-flex;align-items:center;gap:4px;cursor:pointer;color:var(--dsw-alias-label-secondary,#64748b);font-weight:500;padding:2px 6px;border-radius:5px;font-style:normal;transition:all .12s ease;user-select:none;}',
+    '.twx-back:hover{color:var(--dsw-alias-label-primary,#0f172a);background:rgba(128,128,128,.08);}',
+    '.twx-back i,.twx-back span{font-style:normal!important;font-family:inherit;}',
+    '.twx-nav-title{flex:1;min-width:0;font-weight:500;font-size:12px;color:var(--dsw-alias-label-primary,#111827);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:ui-monospace,SFMono-Regular,Menlo,monospace,inherit;}',
+    '.twx-p-list{overflow-y:auto;padding:3px 2px 5px;flex:1;}',
+    '.twx-p-list::-webkit-scrollbar{width:5px;}',
+    '.twx-p-list::-webkit-scrollbar-thumb{background:rgba(128,128,128,.2);border-radius:3px;}',
+    '.twx-opt{display:flex;align-items:center;gap:7px;padding:6px 9px;margin:1px 4px;border-radius:7px;cursor:pointer;font-size:12px;transition:background-color .12s ease;}',
+    '.twx-opt:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(128,128,128,.08));}',
+    '.twx-opt.on{background:rgba(37,99,235,.08);}',
     '.twx-opt .t-main{min-width:0;flex:1;}',
-    '.twx-opt .t-name{display:block;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}',
-    '.twx-opt .t-desc{display:block;font-size:10px;color:#8b949e;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}',
-    '.twx-opt .t-check{color:#10B981;font-size:11px;flex:0 0 auto;}',
-    '.twx-tag{display:inline-block;margin-left:5px;padding:0 5px;border-radius:5px;font-size:9.5px;font-weight:500;background:rgba(128,128,128,.14);color:#8b949e;vertical-align:1px;}',
-    '.twx-arr{color:#8b949e;font-size:11px;flex:0 0 auto;}',
-    '.twx-cur{display:flex;align-items:center;gap:7px;margin:0 0 5px;padding:7px 9px;border-radius:7px;border-left:2px solid #10B981;background:rgba(16,185,129,.08);font-size:11.5px;}',
-    '.twx-cur-ic{color:#10B981;font-size:12px;flex:0 0 auto;}',
-    '.twx-cur .t-name{color:#10B981;font-weight:600;}',
-    '.twx-cur-x{flex:0 0 auto;margin-left:auto;background:transparent;border:0;cursor:pointer;color:#94A3B8;padding:2px 5px;font-size:10.5px;border-radius:4px;}',
-    '.twx-cur-x:hover{background:rgba(128,128,128,.14);color:inherit;}',
+    '.twx-opt .t-name{display:block;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:1.35;color:var(--dsw-alias-label-primary,#111827);}',
+    '.twx-opt .t-desc{display:block;font-size:11px;color:var(--dsw-alias-label-secondary,#6b7280);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:1.3;margin-top:2px;}',
+    '.twx-opt .t-check{color:#10B981;font-size:11px;flex:0 0 auto;display:inline-flex;align-items:center;}',
+    '.twx-tag{display:inline-block;margin-left:6px;padding:1px 5px;border-radius:4px;font-size:10px;font-weight:500;background:rgba(128,128,128,.1);color:var(--dsw-alias-label-secondary,#6b7280);vertical-align:middle;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;}',
+    '.twx-arr{color:#9ca3af;font-size:11px;flex:0 0 auto;display:inline-flex;align-items:center;}',
+    '.twx-cur{position:relative;display:flex;flex-direction:column;gap:3px;margin:4px 6px 6px;padding:6px 26px 6px 8px;border-radius:8px;background:rgba(16,185,129,.05);border:1px solid rgba(16,185,129,.2);font-size:11.5px;}',
+    '.twx-cur-top{display:flex;align-items:center;gap:5px;min-width:0;}',
+    '.twx-cur-badge{display:inline-flex;align-items:center;gap:3px;padding:1px 5px;border-radius:4px;font-size:10px;font-weight:600;color:#059669;background:rgba(16,185,129,.12);flex:none;}',
+    '.twx-cur-name{font-size:12px;font-weight:600;color:var(--dsw-alias-label-primary,#111827);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0;}',
+    '.twx-cur-desc{font-size:11px;color:var(--dsw-alias-label-secondary,#6b7280);line-height:1.35;padding-left:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}',
+    '.twx-cur-clear-btn{position:absolute;top:6px;right:6px;width:18px;height:18px;display:inline-flex;align-items:center;justify-content:center;padding:0;margin:0;border:none;outline:none;background:transparent;border-radius:4px;cursor:pointer;color:var(--dsw-alias-label-secondary,#9ca3af);transition:color .12s ease,background-color .12s ease,transform .1s ease;}',
+    '.twx-cur-clear-btn:hover{color:#ef4444;background:rgba(239,68,68,.12);}',
+    '.twx-cur-clear-btn:active{transform:scale(0.92);}',
     '.twx-srv{padding:5px 8px 2px;font-size:10px;font-weight:600;color:#8b949e;}',
     '.twx-gbtn{display:block;margin:6px auto 2px;padding:3px 10px;font-size:10.5px;border-radius:6px;border:1px solid rgba(128,128,128,.3);background:transparent;color:inherit;cursor:pointer;}',
     '.twx-gbtn:hover{background:rgba(128,128,128,.12);}',
     '.twx-loading,.twx-empty{padding:16px;text-align:center;font-size:11px;color:#8b949e;}',
-    '.twx-chips{display:inline-flex;align-items:center;gap:4px;margin-left:4px;}',
-    '.twx-chip .t-x:hover{opacity:1 !important;}'
+    '.twx-chips{display:inline-flex;align-items:center;gap:2px;margin-left:2px;vertical-align:middle;flex:none;}',
+    '.twx-chip{display:inline-flex;align-items:center;gap:4px;height:28px;padding:0 6px;margin:0;border-radius:var(--dsw-radius-sm,6px);border:none;outline:none;background:transparent;color:var(--dsw-alias-label-secondary,var(--dsw-text-secondary,var(--ds-text-secondary,#515154)));font-family:inherit;font-size:13px;font-weight:500;line-height:20px;cursor:pointer;box-sizing:border-box;max-width:180px;white-space:nowrap;user-select:none;transform:translateZ(0);transition:background-color .12s ease,color .12s ease;}',
+    '.twx-chip:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(128,128,128,.08));color:var(--dsw-alias-label-primary,var(--ds-text-primary,#111827));}',
+    '.twx-chip:focus-visible{outline:2px solid var(--dsw-alias-border-focus,#2563eb);outline-offset:1px;}',
+    '@media (prefers-color-scheme:dark){.twx-panel,.twx-plus-menu{background:rgba(26,26,30,.97)!important;border-color:rgba(255,255,255,.1);box-shadow:0 16px 36px -4px rgba(0,0,0,.45),0 0 1px 1px rgba(255,255,255,.06);color:#f3f4f6;}.twx-item{color:#f3f4f6!important;}.twx-sec-badge{color:#9ca3af!important;background:rgba(255,255,255,.08)!important;}.twx-sec-badge:hover{color:#f3f4f6!important;background:rgba(255,255,255,.16)!important;}.twx-search-box{background:rgba(255,255,255,.05);border-color:rgba(255,255,255,.1);}.twx-search-box:focus-within{background:rgba(255,255,255,.08);border-color:rgba(52,211,153,.5);box-shadow:0 0 0 2px rgba(16,185,129,.2);}.twx-p-nav{border-color:rgba(255,255,255,.08);color:#f3f4f6;}.twx-back{color:#94a3b8;}.twx-back:hover{color:#f8fafc;background:rgba(255,255,255,.08);}.twx-nav-title{color:#f3f4f6;}.twx-cur{background:rgba(16,185,129,.08);border-color:rgba(16,185,129,.25);}.twx-cur-badge{color:#34d399;background:rgba(16,185,129,.16);}.twx-cur-name{color:#f3f4f6;}.twx-cur-desc{color:#9ca3af;}.twx-cur-clear-btn{color:#9ca3af;background:transparent;border:none;}.twx-cur-clear-btn:hover{color:#f87171;background:rgba(239,68,68,.18);}.twx-opt:hover{background:rgba(255,255,255,.06);}.twx-opt .t-name{color:#f3f4f6;}.twx-opt .t-desc{color:#9ca3af;}.twx-chip{color:var(--dsw-alias-label-secondary,var(--dsw-text-secondary,var(--ds-text-secondary,#9ca3af)));}.twx-chip:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(255,255,255,.08));color:var(--dsw-alias-label-primary,var(--ds-text-primary,#f3f4f6));}}',
+    '.dark .twx-panel,[data-theme="dark"] .twx-panel,.dark .twx-plus-menu,[data-theme="dark"] .twx-plus-menu{background:rgba(26,26,30,.97)!important;border-color:rgba(255,255,255,.1);box-shadow:0 16px 36px -4px rgba(0,0,0,.45),0 0 1px 1px rgba(255,255,255,.06);color:#f3f4f6;}',
+    '.dark .twx-item,[data-theme="dark"] .twx-item{color:#f3f4f6!important;}',
+    '.dark .twx-sec-badge,[data-theme="dark"] .twx-sec-badge{color:#9ca3af!important;background:rgba(255,255,255,.08)!important;}',
+    '.dark .twx-sec-badge:hover,[data-theme="dark"] .twx-sec-badge:hover{color:#f3f4f6!important;background:rgba(255,255,255,.16)!important;}',
+    '.dark .twx-search-box,[data-theme="dark"] .twx-search-box{background:rgba(255,255,255,.05);border-color:rgba(255,255,255,.1);}',
+    '.dark .twx-search-box:focus-within,[data-theme="dark"] .twx-search-box:focus-within{background:rgba(255,255,255,.08);border-color:rgba(52,211,153,.5);box-shadow:0 0 0 2px rgba(16,185,129,.2);}',
+    '.dark .twx-p-nav,[data-theme="dark"] .twx-p-nav{border-color:rgba(255,255,255,.08);color:#f3f4f6;}',
+    '.dark .twx-back,[data-theme="dark"] .twx-back{color:#94a3b8;}',
+    '.dark .twx-back:hover,[data-theme="dark"] .twx-back:hover{color:#f8fafc;background:rgba(255,255,255,.08);}',
+    '.dark .twx-nav-title,[data-theme="dark"] .twx-nav-title{color:#f3f4f6;}',
+    '.dark .twx-cur,[data-theme="dark"] .twx-cur{background:rgba(16,185,129,.08);border-color:rgba(16,185,129,.25);}',
+    '.dark .twx-cur-badge,[data-theme="dark"] .twx-cur-badge{color:#34d399;background:rgba(16,185,129,.16);}',
+    '.dark .twx-cur-name,[data-theme="dark"] .twx-cur-name{color:#f3f4f6;}',
+    '.dark .twx-cur-desc,[data-theme="dark"] .twx-cur-desc{color:#9ca3af;}',
+    '.dark .twx-cur-clear-btn,[data-theme="dark"] .twx-cur-clear-btn{color:#9ca3af;background:transparent;border:none;}',
+    '.dark .twx-cur-clear-btn:hover,[data-theme="dark"] .twx-cur-clear-btn:hover{color:#f87171;background:rgba(239,68,68,.18);}',
+    '.dark .twx-opt:hover,[data-theme="dark"] .twx-opt:hover{background:rgba(255,255,255,.06);}',
+    '.dark .twx-opt .t-name,[data-theme="dark"] .twx-opt .t-name{color:#f3f4f6;}',
+    '.dark .twx-opt .t-desc,[data-theme="dark"] .twx-opt .t-desc{color:#9ca3af;}',
+    '.dark .twx-chip,[data-theme="dark"] .twx-chip{color:var(--dsw-alias-label-secondary,var(--dsw-text-secondary,var(--ds-text-secondary,#9ca3af)));}',
+    '.dark .twx-chip:hover,[data-theme="dark"] .twx-chip:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(255,255,255,.08));color:var(--dsw-alias-label-primary,var(--ds-text-primary,#f3f4f6));}',
+    '.twx-chip-icon{flex:none;display:inline-flex;align-items:center;justify-content:center;color:currentColor;}',
+    '.twx-chip-icon svg{width:14px;height:14px;display:block;}',
+    '.twx-chip-label{text-overflow:ellipsis;white-space:nowrap;min-width:0;overflow:hidden;}',
+    // 终极隐藏兜底（位于样式表最末尾，保证最高层叠权重，彻底消除 ghost 占位空白）
+    '[data-twx-hidden="true"],.twx-item[data-twx-hidden="true"],._3e4SsG_item[data-twx-hidden="true"],button[data-twx-hidden="true"]{display:none!important;height:0!important;min-height:0!important;max-height:0!important;padding:0!important;margin:0!important;border:none!important;opacity:0!important;overflow:hidden!important;pointer-events:none!important;visibility:hidden!important;}'
   ].join('\\n');
 
   var styleEl = document.createElement('style');
@@ -745,6 +794,13 @@ function getDshContextBridgeScript() {
     { key: 'localproj', name: '本地工程', color: '#F59E0B' }
   ];
   var GERRIT_LABELS = { all: '全部', open: '开放中', merged: '已合入', mine: '我提交', reviewing: '待我审' };
+  // 胶囊小图标 (14×14 规范, stroke=currentColor 跟随主题文字色): 项目=文件夹 / Jira=工单 / OpenGrok=代码 / Gerrit=代码评审
+  var CHIP_ICONS = {
+    localproj: '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3.5h3.6l1.4 1.8h6a1 1 0 0 1 1 1v6.2a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1V4.5a1 1 0 0 1 1-1z"/></svg>',
+    jira: '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="2" width="11" height="12" rx="1.5"/><path d="M5 5.2h6M5 8h6M5 10.8h3.8"/></svg>',
+    opengrok: '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4.5 1.8 8 5 11.5M11 4.5 14.2 8 11 11.5"/></svg>',
+    gerrit: '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><circle cx="4.5" cy="4" r="1.8"/><circle cx="4.5" cy="12" r="1.8"/><circle cx="11.5" cy="8" r="1.8"/><path d="M4.5 5.8v4.4M6.2 11.5c2.3-.3 3.8-1.5 4.3-2.3"/></svg>'
+  };
 
   var ctxState = { values: {}, lists: { jira: [], localproj: [] } };
   var menuEl = null;
@@ -755,6 +811,67 @@ function getDshContextBridgeScript() {
   // 本地工程四级递进导航状态 (与自研抽屉 localProjNavState 同构):
   // servers(服务器) > workspaces(总代码路径) > platforms(CPU平台) > projects(机型)
   var lpNav = { step: 'servers', serverId: null, workspaceName: null, platform: null };
+
+  // 「添加」「指令」「上下文」三组统一 2 行限高窗口与独立平滑滚轮/点击步进
+  var groupOffsets = { add: 0, cmd: 0, ctx: 0 };
+  var groupItems = { add: [], cmd: [], ctx: [] };
+
+  function updateGroupVisibility(grp) {
+    var items = groupItems[grp] || [];
+    var off = groupOffsets[grp] || 0;
+    for (var i = 0; i < items.length; i++) {
+      var item = items[i];
+      if (!item) continue;
+      if (i >= off && i <= off + 1) {
+        item.removeAttribute('data-twx-hidden');
+        item.style.removeProperty('display');
+        item.style.removeProperty('height');
+        item.style.removeProperty('min-height');
+        item.style.removeProperty('padding');
+        item.style.removeProperty('margin');
+        item.style.removeProperty('visibility');
+      } else {
+        item.setAttribute('data-twx-hidden', 'true');
+        item.style.setProperty('display', 'none', 'important');
+        item.style.setProperty('height', '0px', 'important');
+        item.style.setProperty('min-height', '0px', 'important');
+        item.style.setProperty('padding', '0px', 'important');
+        item.style.setProperty('margin', '0px', 'important');
+        item.style.setProperty('visibility', 'hidden', 'important');
+      }
+    }
+    if (menuEl) {
+      var badge = menuEl.querySelector('[data-twx-badge="' + grp + '"]');
+      if (badge && items.length > 0) {
+        var start = Math.min(off + 1, items.length);
+        var end = Math.min(off + 2, items.length);
+        badge.textContent = start + '-' + end + '/' + items.length;
+      }
+      var lb = menuEl.querySelector('[role="listbox"]') || menuEl.querySelector('._3e4SsG_viewport') || menuEl;
+      if (lb && lb.scrollTop > 0) lb.scrollTop = 0;
+    }
+  }
+
+  function setupGroupBadges(titleEl, grp, labelText) {
+    if (!titleEl) return;
+    titleEl.setAttribute('data-twx-title-grp', grp);
+    var badge = titleEl.querySelector('.twx-sec-badge');
+    if (!badge) {
+      titleEl.innerHTML = '<span class="twx-sec-name">' + esc(labelText) + '</span>' +
+        '<span class="twx-sec-badge" data-twx-badge="' + grp + '" title="滚轮滑动或点击切换">' +
+        (groupOffsets[grp] + 1) + '-' + (groupOffsets[grp] + 2) + '/4</span>';
+      badge = titleEl.querySelector('.twx-sec-badge');
+      if (badge) {
+        badge.onclick = function (e) {
+          e.stopPropagation();
+          var items = groupItems[grp] || [];
+          var maxOff = Math.max(0, items.length - 2);
+          groupOffsets[grp] = groupOffsets[grp] >= maxOff ? 0 : maxOff;
+          updateGroupVisibility(grp);
+        };
+      }
+    }
+  }
 
   function esc(s) {
     return String(s == null ? '' : s)
@@ -837,28 +954,134 @@ function getDshContextBridgeScript() {
     return best;
   }
 
+  function isDarkTheme() {
+    return document.documentElement.classList.contains('dark') ||
+      document.documentElement.getAttribute('data-theme') === 'dark' ||
+      document.body.classList.contains('dark') ||
+      (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+  }
+
+  function applyMenuOpacity(m) {
+    if (!m || m.nodeType !== 1) return;
+    if (m.dataset.twxStyled === 'true') return;
+    m.dataset.twxStyled = 'true';
+    m.classList.add('twx-plus-menu');
+    var bg = isDarkTheme() ? 'rgba(26, 26, 30, 0.97)' : 'rgba(255, 255, 255, 0.97)';
+    m.style.setProperty('background', bg, 'important');
+    m.style.setProperty('backdrop-filter', 'blur(28px) saturate(180%)', 'important');
+    m.style.setProperty('-webkit-backdrop-filter', 'blur(28px) saturate(180%)', 'important');
+  }
+
   function onMenuFound(menu) {
-    if (menu !== menuEl) { menuEl = menu; injectGroup(menu); }
-    else if (!menuEl.querySelector('.twx-ctx-block')) injectGroup(menuEl);
-    else refreshVals();
+    if (menu !== menuEl) {
+      menuEl = menu;
+      groupOffsets.add = 0;
+      groupOffsets.cmd = 0;
+      groupOffsets.ctx = 0;
+      applyMenuOpacity(menu);
+      injectGroup(menu);
+    } else if (!menuEl.querySelector('.twx-sec-title')) {
+      applyMenuOpacity(menuEl);
+      injectGroup(menuEl);
+    } else {
+      applyMenuOpacity(menuEl);
+      refreshVals();
+    }
     askHost();
   }
 
   function injectGroup(menu) {
-    if (menu.querySelector('.twx-ctx-block')) return;
-    var blk = document.createElement('div');
-    blk.className = 'twx-ctx-block';
-    var html = '<div class="twx-sep"></div><div class="twx-glabel">上下文</div>';
-    for (var i = 0; i < ROWS.length; i++) {
-      var r = ROWS[i];
-      html += '<div class="twx-item" data-k="' + r.key + '">' +
-        '<span class="twx-dot" style="background:' + r.color + '"></span>' +
-        '<span class="twx-name">' + r.name + '</span>' +
-        '<span class="twx-val">' + esc(valLabel(r.key)) + '</span>' +
-        '<span class="twx-arrow">›</span></div>';
+    applyMenuOpacity(menu);
+    var listbox = menu.querySelector('[role="listbox"]') || menu.querySelector('._3e4SsG_viewport') || menu;
+    if (!listbox) return;
+
+    // 清理历史旧版残留容器
+    var legacyGroup = listbox.querySelector('.twx-ctx-group');
+    if (legacyGroup) { try { legacyGroup.remove(); } catch (_) {} }
+    var legacyBlock = listbox.querySelector('.twx-ctx-block');
+    if (legacyBlock) { try { legacyBlock.remove(); } catch (_) {} }
+
+    // 1. 扫描 listbox 内部的原生子项，按标题分类到 add 和 cmd
+    var children = Array.from(listbox.children);
+    var currentGroup = 'add';
+    var addItems = [];
+    var cmdItems = [];
+    var addTitle = null;
+    var cmdTitle = null;
+
+    for (var i = 0; i < children.length; i++) {
+      var child = children[i];
+      if (child.classList && child.classList.contains('twx-sec-title')) continue;
+      if (child.classList && child.classList.contains('twx-item')) continue;
+
+      var text = (child.innerText || '').trim();
+      var isTitle = child.getAttribute('role') === 'presentation' ||
+        (child.classList && child.classList.contains('_3e4SsG_sectionTitle')) ||
+        text === '添加' || text.startsWith('添加') ||
+        text === '指令' || text.startsWith('指令');
+
+      if (isTitle) {
+        if (text.indexOf('添加') !== -1 || (!addTitle && text.indexOf('指令') === -1)) {
+          currentGroup = 'add';
+          addTitle = child;
+          setupGroupBadges(child, 'add', '添加');
+        } else if (text.indexOf('指令') !== -1 || addTitle) {
+          currentGroup = 'cmd';
+          cmdTitle = child;
+          setupGroupBadges(child, 'cmd', '指令');
+        }
+      } else if (child.tagName === 'BUTTON' || (child.getAttribute && child.getAttribute('role') === 'option')) {
+        child.setAttribute('data-twx-grp', currentGroup);
+        if (currentGroup === 'add') {
+          child.setAttribute('data-twx-idx', String(addItems.length));
+          addItems.push(child);
+        } else {
+          child.setAttribute('data-twx-idx', String(cmdItems.length));
+          cmdItems.push(child);
+        }
+      }
     }
-    blk.innerHTML = html;
-    menu.appendChild(blk);
+
+    groupItems.add = addItems;
+    groupItems.cmd = cmdItems;
+
+    // 2. 注入第三组：上下文 (结构与前两组完全对称同源)
+    var ctxTitle = listbox.querySelector('.twx-sec-title[data-twx-title-grp="ctx"]');
+    if (!ctxTitle) {
+      ctxTitle = document.createElement('div');
+      ctxTitle.className = '_3e4SsG_sectionTitle twx-sec-title';
+      ctxTitle.setAttribute('role', 'presentation');
+      setupGroupBadges(ctxTitle, 'ctx', '上下文');
+      listbox.appendChild(ctxTitle);
+
+      var ctxItems = [];
+      for (var j = 0; j < ROWS.length; j++) {
+        var r = ROWS[j];
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.setAttribute('role', 'option');
+        btn.className = '_3e4SsG_item twx-item';
+        btn.setAttribute('data-twx-grp', 'ctx');
+        btn.setAttribute('data-twx-idx', String(j));
+        btn.setAttribute('data-k', r.key);
+        btn.innerHTML =
+          '<span class="twx-dot" style="background:' + r.color + '"></span>' +
+          '<span class="_3e4SsG_itemName twx-name">' + r.name + '</span>' +
+          '<span class="_3e4SsG_itemDescription twx-val">' + esc(valLabel(r.key)) + '</span>' +
+          '<span class="twx-arrow">›</span>';
+        listbox.appendChild(btn);
+        ctxItems.push(btn);
+      }
+      groupItems.ctx = ctxItems;
+    } else {
+      var ctxEls = listbox.querySelectorAll('.twx-item[data-twx-grp="ctx"]');
+      groupItems.ctx = Array.from(ctxEls);
+    }
+
+    // 3. 初始只展示各组前 2 项
+    updateGroupVisibility('add');
+    updateGroupVisibility('cmd');
+    updateGroupVisibility('ctx');
   }
 
   // ---- 级联选项面板 (自有 DOM, 非 React 托管) ----
@@ -870,27 +1093,47 @@ function getDshContextBridgeScript() {
     lpNav = { step: 'servers', serverId: null, workspaceName: null, platform: null };
     var itemR = itemEl.getBoundingClientRect();
     var menuR = (menuEl && menuEl.isConnected) ? menuEl.getBoundingClientRect() : itemR;
-    var w = 262;
-    var left = itemR.right - 6; // 6px 微重叠, 消除父子浮窗裂隙
-    if (left + w > window.innerWidth - 8) {
-      left = menuR.left - w + 6; // 视口右侧不足时向左翻转
+    var w = 280;
+    var isChip = itemEl && itemEl.classList && itemEl.classList.contains('twx-chip');
+    var left, bottomPx;
+    if (isChip) {
+      left = itemR.left;
+      if (left + w > window.innerWidth - 8) {
+        left = Math.max(8, window.innerWidth - w - 8);
+      }
+      bottomPx = window.innerHeight - itemR.top + 6;
+    } else {
+      left = itemR.right - 6; // 6px 微重叠, 消除父子浮窗裂隙
+      if (left + w > window.innerWidth - 8) {
+        left = menuR.left - w + 6; // 视口右侧不足时向左翻转
+      }
+      bottomPx = window.innerHeight - menuR.bottom;
     }
     panelEl = document.createElement('div');
     panelEl.className = 'twx-panel';
     panelEl.style.left = Math.max(8, left) + 'px';
-    // 底端与「+」菜单底边对齐, 向上生长, 杜绝探出窗口下缘
-    var bottomPx = window.innerHeight - menuR.bottom;
     panelEl.style.bottom = Math.max(8, bottomPx) + 'px';
     panelEl.innerHTML =
-      '<div class="twx-p-search" style="display:none;"><input type="text" placeholder="搜索..." /></div>' +
-      '<div class="twx-p-nav" style="display:none;"><span class="twx-back" data-act="back">‹ <i></i></span><span class="twx-nav-title"></span></div>' +
+      '<div class="twx-p-search" style="display:none;"><div class="twx-search-box">' +
+        '<svg class="twx-search-ic" width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="6.5" cy="6.5" r="4.5"/><path d="M10 10l4.5 4.5"/></svg>' +
+        '<input type="text" placeholder="搜索..." spellcheck="false" autocomplete="off" />' +
+      '</div></div>' +
+      '<div class="twx-p-nav" style="display:none;"><span class="twx-back" data-act="back"><svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3.5L5.5 8 10 12.5"/></svg><span></span></span><span class="twx-nav-title"></span></div>' +
       '<div class="twx-p-list"><div class="twx-loading">加载中…</div></div>';
     document.body.appendChild(panelEl);
-    // 面板内委托点击: 选项选择 / 递进下钻 / 回退 / 清除绑定
+    // 阻止面板内任何指针与鼠标事件冒泡至 document，防止触发 DSH 原生外点关闭逻辑造成左侧主菜单消失
+    var stopEvt = function (e) { e.stopPropagation(); };
+    panelEl.addEventListener('pointerdown', stopEvt, true);
+    panelEl.addEventListener('pointerdown', stopEvt, false);
+    panelEl.addEventListener('mousedown', stopEvt, true);
+    panelEl.addEventListener('mousedown', stopEvt, false);
+    panelEl.addEventListener('pointerup', stopEvt, false);
+    panelEl.addEventListener('mouseup', stopEvt, false);
+
     panelEl.onclick = function (e) {
+      e.stopPropagation();
       var t = e.target && e.target.closest ? e.target.closest('[data-act],[data-p]') : null;
       if (!t) return;
-      e.stopPropagation();
       handlePanelAction(t);
     };
     if (key === 'jira' || key === 'localproj') {
@@ -958,7 +1201,8 @@ function getDshContextBridgeScript() {
     if (!nav) return;
     if (!title) { nav.style.display = 'none'; return; }
     nav.style.display = 'flex';
-    nav.querySelector('.twx-back i').textContent = backText;
+    var labelEl = nav.querySelector('.twx-back span') || nav.querySelector('.twx-back i');
+    if (labelEl) labelEl.textContent = backText || '返回';
     nav.querySelector('.twx-nav-title').textContent = title;
   }
 
@@ -975,7 +1219,7 @@ function getDshContextBridgeScript() {
     return '<div class="twx-opt' + (on ? ' on' : '') + '" data-p="' + encodeURIComponent(JSON.stringify(payload)) + '">' +
       '<span class="t-main"><span class="t-name">' + esc(name) + '</span>' +
       (desc ? '<span class="t-desc">' + esc(desc) + '</span>' : '') +
-      '</span>' + (on ? '<span class="t-check">✓</span>' : '') + '</div>';
+      '</span>' + (on ? '<span class="t-check"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 8.5l3 3 6-6"/></svg></span>' : '') + '</div>';
   }
 
   function drillRow(act, val, name, tag, desc) {
@@ -983,14 +1227,20 @@ function getDshContextBridgeScript() {
       '<span class="t-main"><span class="t-name">' + esc(name) +
       (tag ? '<span class="twx-tag">' + esc(tag) + '</span>' : '') + '</span>' +
       (desc ? '<span class="t-desc">' + esc(desc) + '</span>' : '') +
-      '</span><span class="twx-arr">›</span></div>';
+      '</span><span class="twx-arr"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3.5l4.5 4.5L6 12.5"/></svg></span></div>';
   }
 
   function curCard(name, desc, clearAct) {
-    return '<div class="twx-cur"><span class="twx-cur-ic">✓</span>' +
-      '<span class="t-main"><span class="t-name">已选: ' + esc(name) + '</span>' +
-      (desc ? '<span class="t-desc">' + esc(desc) + '</span>' : '') + '</span>' +
-      '<button type="button" class="twx-cur-x" data-act="' + clearAct + '">清除</button></div>';
+    return '<div class="twx-cur">' +
+      '<button type="button" class="twx-cur-clear-btn" data-act="' + clearAct + '" title="清除当前绑定" aria-label="清除当前绑定">' +
+        '<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M3 3l10 10M13 3L3 13"/></svg>' +
+      '</button>' +
+      '<div class="twx-cur-top">' +
+        '<span class="twx-cur-badge"><svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5l3 3 7-7"/></svg>已选</span>' +
+        '<span class="twx-cur-name" title="' + esc(name) + '">' + esc(name) + '</span>' +
+      '</div>' +
+      (desc ? '<div class="twx-cur-desc" title="' + esc(desc) + '">' + esc(desc) + '</div>' : '') +
+    '</div>';
   }
 
   function emptyWithGlobal(msg) {
@@ -1065,12 +1315,13 @@ function getDshContextBridgeScript() {
       var gcount = 0;
       for (var g = 0; g < projs.length && gcount < 50; g++) {
         var gp = projs[g];
-        var hay = ((gp.project || '') + ' ' + (gp.platform || '') + ' ' + (gp.workspaceName || '') + ' ' + (gp.label || '') + ' ' + (gp.serverId || '')).toLowerCase();
+        var srvIp = gp.serverIp || (smap[gp.serverId] && smap[gp.serverId].ip) || (gp.serverId ? ('192.168.1.' + gp.serverId) : '');
+        var hay = ((gp.project || '') + ' ' + (gp.platform || '') + ' ' + (gp.workspaceName || '') + ' ' + (gp.label || '') + ' ' + srvIp + ' ' + (gp.serverId || '')).toLowerCase();
         if (hay.indexOf(q) === -1) continue;
         ghtml += '<div class="twx-opt' + (isSel('localproj', gp) ? ' on' : '') + '" data-p="' + encodeURIComponent(JSON.stringify({ k: 'localproj', v: gp })) + '">' +
-          '<span class="t-main"><span class="t-name">' + esc(gp.project) + '<span class="twx-tag">' + esc(gp.platform || '') + '</span><span class="twx-tag">' + esc(gp.serverId) + '服</span></span>' +
-          '<span class="t-desc">' + esc(gp.serverId) + '服 › ' + esc(gp.workspaceName) + '</span></span>' +
-          (isSel('localproj', gp) ? '<span class="t-check">✓</span>' : '') + '</div>';
+          '<span class="t-main"><span class="t-name">' + esc(gp.project) + '<span class="twx-tag">' + esc(gp.platform || '') + '</span>' + (srvIp ? ('<span class="twx-tag">' + esc(srvIp) + '</span>') : '') + '</span>' +
+          '<span class="t-desc">' + (srvIp ? (esc(srvIp) + ' › ') : '') + esc(gp.workspaceName) + '</span></span>' +
+          (isSel('localproj', gp) ? '<span class="t-check"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 8.5l3 3 6-6"/></svg></span>' : '') + '</div>';
         gcount++;
       }
       return ghtml || '<div class="twx-empty">未匹配到包含 "' + esc(q) + '" 的本地工程</div>';
@@ -1081,10 +1332,11 @@ function getDshContextBridgeScript() {
       setNavHeader('', '');
       var html = '';
       if (cur && cur.id) {
-        html += curCard(cur.label || cur.project, (cur.workspaceName || '') + ' · ' + (cur.platform || '') + ' · ' + (cur.serverId || '') + '服', 'clear-lp');
+        var curIp = cur.serverIp || (smap[cur.serverId] && smap[cur.serverId].ip) || (cur.serverId ? ('192.168.1.' + cur.serverId) : '');
+        html += curCard(cur.label || cur.project, (cur.workspaceName || '') + ' · ' + (cur.platform || '') + (curIp ? (' · ' + curIp) : ''), 'clear-lp');
       } else {
         html += '<div class="twx-opt" data-act="clear-lp" style="opacity:.9;">' +
-          '<span class="t-main"><span class="t-name">未指定 (默认)</span><span class="t-desc">不绑定特定工程与机型</span></span><span class="t-check">✓</span></div>';
+          '<span class="t-main"><span class="t-name">未指定 (默认)</span><span class="t-desc">不绑定特定工程与机型</span></span><span class="t-check"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 8.5l3 3 6-6"/></svg></span></div>';
       }
       for (var s = 0; s < sorder.length; s++) {
         var sv = smap[sorder[s]];
@@ -1104,7 +1356,7 @@ function getDshContextBridgeScript() {
 
     // Level 2: 总代码路径
     if (lpNav.step === 'workspaces') {
-      setNavHeader('服务器', (srv2.name || srv2.id) + ' (' + srv2.worder.length + '套代码)');
+      setNavHeader('返回', srv2.ip || srv2.name || srv2.id);
       var html2 = '';
       for (var w2 = 0; w2 < srv2.worder.length; w2++) {
         var wsName = srv2.worder[w2];
@@ -1132,8 +1384,8 @@ function getDshContextBridgeScript() {
 
     // Level 3: CPU 平台
     if (lpNav.step === 'platforms') {
-      var wsShort = (lpNav.workspaceName || '').split('/').pop();
-      setNavHeader('代码路径', wsShort + ' (' + ws3.porder.length + '个平台)');
+      var wsShort = (lpNav.workspaceName || '').split('/').pop() || lpNav.workspaceName;
+      setNavHeader('返回', wsShort);
       var html3 = '';
       for (var p3 = 0; p3 < ws3.porder.length; p3++) {
         var platKey = ws3.porder[p3];
@@ -1143,7 +1395,8 @@ function getDshContextBridgeScript() {
           if (!pmatch) continue;
         }
         var isCurPlat = cur && cur.serverId === lpNav.serverId && cur.workspaceName === lpNav.workspaceName && cur.platform === platKey;
-        html3 += drillRow('plat', platKey, platKey, pl3.projects.length + '款机型', lpNav.serverId + '服 › ' + lpNav.workspaceName + (isCurPlat ? ' · 当前' : ''));
+        var srvIp3 = srv2.ip || (lpNav.serverId ? ('192.168.1.' + lpNav.serverId) : '');
+        html3 += drillRow('plat', platKey, platKey, pl3.projects.length + '款机型', (srvIp3 ? (srvIp3 + ' › ') : '') + lpNav.workspaceName + (isCurPlat ? ' · 当前' : ''));
       }
       return html3 || emptyWithGlobal('当前代码路径未匹配到包含 "' + esc(q) + '" 的平台');
     }
@@ -1152,7 +1405,7 @@ function getDshContextBridgeScript() {
     if (!pl4) { lpNav = { step: 'platforms', serverId: lpNav.serverId, workspaceName: lpNav.workspaceName, platform: null }; return renderLocalproj(q); }
 
     // Level 4: 机型 SKU
-    setNavHeader(lpNav.platform + '平台', lpNav.platform + ' (' + pl4.projects.length + '款机型)');
+    setNavHeader('返回', lpNav.platform);
     var html4 = '';
     for (var p4 = 0; p4 < pl4.projects.length; p4++) {
       var pj = pl4.projects[p4];
@@ -1163,85 +1416,100 @@ function getDshContextBridgeScript() {
       html4 += '<div class="twx-opt' + (isSel('localproj', pj) ? ' on' : '') + '" data-p="' + encodeURIComponent(JSON.stringify({ k: 'localproj', v: pj })) + '">' +
         '<span class="t-main"><span class="t-name">' + esc(pj.project) + '<span class="twx-tag">' + esc(pj.platform || '') + '</span></span>' +
         '<span class="t-desc">' + esc(pj.priDriverRel || '') + '</span></span>' +
-        (isSel('localproj', pj) ? '<span class="t-check">✓</span>' : '') + '</div>';
+        (isSel('localproj', pj) ? '<span class="t-check"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 8.5l3 3 6-6"/></svg></span>' : '') + '</div>';
     }
     return html4 || emptyWithGlobal('当前平台未匹配到包含 "' + esc(q) + '" 的机型');
   }
 
   // ---- 输入区上下文胶囊: 克隆「完全权限」胶囊样式, 紧跟其后插入同一工具栏行 ----
+  function insideOverlay(el) {
+    // 判定候选是否落在某个浮层内 (权限下拉菜单 / 「+」菜单等):
+    // 祖先 textContent 含权限选项文案, 或祖先本身命中「+」菜单特征
+    var n = el;
+    for (var d = 0; n && d < 12; n = n.parentElement, d++) {
+      var t = n.textContent;
+      if (t && t.length < 300 && (t.indexOf('仅可查看') !== -1 || t.indexOf('工作区内修改') !== -1)) return true;
+      if (d > 0 && looksLikeAttachMenu(n)) return true;
+    }
+    return false;
+  }
+
+  var cachedPermAnchor = null;
   function findPermPill() {
-    // 底部区域含「权限/permission」短文本的最内层元素, 向上爬到胶囊容器 (宽<220px 高<48px)
-    var all = document.querySelectorAll('body *');
-    var cand = null;
-    for (var i = 0; i < all.length; i++) {
-      var el = all[i];
+    if (cachedPermAnchor && cachedPermAnchor.pill && cachedPermAnchor.pill.isConnected) {
+      return cachedPermAnchor;
+    }
+    // 底部工具栏上含「权限/permission/full access」短文本的按钮元素;
+    // 仅扫描 button 元素，杜绝 querySelectorAll('body *') 引发的全量同步重排与慢速闪烁
+    var buttons = document.querySelectorAll('button');
+    var cand = null, bestTop = -1;
+    for (var i = 0; i < buttons.length; i++) {
+      var el = buttons[i];
       if (el.closest && (el.closest('.twx-chips') || el.closest('.twx-panel'))) continue;
-      var t = el.innerText;
+      var t = el.textContent;
       if (!t) continue;
       t = t.trim();
-      if (t.length > 12 || !/(权限|permission)/i.test(t)) continue;
+      if (t.length > 20 || !/(权限|permission|full\s*access|read\s*only|workspace\s*write)/i.test(t)) continue;
       var r = el.getBoundingClientRect();
-      if (r.width < 30 || r.top < window.innerHeight * 0.5 || r.top > window.innerHeight) continue;
-      cand = el;
+      if (r.width < 30 || r.top < window.innerHeight * 0.4 || r.top > window.innerHeight) continue;
+      if (insideOverlay(el)) continue;
+      if (r.top > bestTop) { bestTop = r.top; cand = el; }
     }
     if (!cand) return null;
     var pill = cand;
     while (pill.parentElement) {
       var pr = pill.parentElement.getBoundingClientRect();
-      var pt = (pill.parentElement.innerText || '').trim();
-      if (pt.length <= 12 && /(权限|permission)/i.test(pt) && pr.width < 220 && pr.height < 48) {
+      var pt = (pill.parentElement.textContent || '').trim();
+      if (pt.length <= 20 && /(权限|permission|full\s*access|read\s*only|workspace\s*write)/i.test(pt) && pr.width < 220 && pr.height < 48) {
         pill = pill.parentElement;
       } else break;
     }
-    return pill;
+    cachedPermAnchor = { pill: pill, textEl: cand };
+    return cachedPermAnchor;
   }
 
   function updateCtxChips() {
     var v = ctxState.values || {};
     var defs = [];
-    if (v.localproj && v.localproj.id) defs.push({ k: 'localproj', label: v.localproj.label || v.localproj.project, color: '#F59E0B' });
-    if (v.jira && v.jira.key) defs.push({ k: 'jira', label: v.jira.key, color: '#0EA5E9' });
-    if (v.opengrok && v.opengrok !== 'auto') defs.push({ k: 'opengrok', label: v.opengrok, color: '#10B981' });
-    if (v.gerrit && v.gerrit !== 'all') defs.push({ k: 'gerrit', label: (GERRIT_LABELS[v.gerrit] || v.gerrit), color: '#6366F1' });
+    if (v.localproj && v.localproj.id) defs.push({ k: 'localproj', label: v.localproj.label || v.localproj.project, tip: '本地工程: ' + (v.localproj.workspaceName || '') + ' · ' + (v.localproj.platform || '') });
+    if (v.jira && v.jira.key) defs.push({ k: 'jira', label: v.jira.key, tip: 'Jira: ' + (v.jira.summary || '') });
+    if (v.opengrok && v.opengrok !== 'auto') defs.push({ k: 'opengrok', label: v.opengrok, tip: 'OpenGrok: ' + v.opengrok });
+    if (v.gerrit && v.gerrit !== 'all') defs.push({ k: 'gerrit', label: (GERRIT_LABELS[v.gerrit] || v.gerrit), tip: 'Gerrit 过滤: ' + (GERRIT_LABELS[v.gerrit] || v.gerrit) });
 
-    var pill = defs.length ? findPermPill() : null;
-    if (!defs.length || !pill) {
+    var anchor = defs.length ? findPermPill() : null;
+    if (!defs.length || !anchor) {
       if (chipsEl) { try { chipsEl.remove(); } catch (_) {} chipsEl = null; }
       return;
     }
+    var pill = anchor.pill;
     if (!chipsEl) {
       chipsEl = document.createElement('span');
       chipsEl.className = 'twx-chips';
       chipsEl.onclick = function (e) {
-        var x = e.target && e.target.closest ? e.target.closest('.t-x') : null;
-        if (!x) return;
-        e.stopPropagation();
-        var k = x.getAttribute('data-k');
-        var def = { opengrok: 'auto', gerrit: 'all', jira: null, localproj: null };
-        postSet(k, def[k] === undefined ? null : def[k]);
+        var btn = e.target && e.target.closest ? e.target.closest('.twx-chip') : null;
+        if (!btn) return;
+        var k = btn.getAttribute('data-k');
+        if (k) {
+          e.stopPropagation();
+          openPanel(k, btn);
+        }
       };
     }
-    // 紧跟权限胶囊插入 (React 重渲染位移时自动纠正)
+    // 紧跟权限胶囊插入同一工具栏行 (React 重渲染位移时自动纠正)
     if (!chipsEl.isConnected || chipsEl.previousElementSibling !== pill) {
       try { pill.insertAdjacentElement('afterend', chipsEl); } catch (_) { return; }
     }
-    // 逐像素克隆权限胶囊外观: 字体/颜色/背景/圆角/内边距/行高/高度
-    var cs = getComputedStyle(pill);
-    var chipCss = 'display:inline-flex;align-items:center;gap:4px;white-space:nowrap;cursor:default;box-sizing:border-box;' +
-      'font-size:' + cs.fontSize + ';font-family:' + cs.fontFamily + ';font-weight:' + cs.fontWeight + ';' +
-      'color:' + cs.color + ';background:' + cs.backgroundColor + ';border:' + cs.border + ';' +
-      'border-radius:' + cs.borderRadius + ';line-height:' + cs.lineHeight + ';' +
-      'padding:' + cs.paddingTop + ' ' + cs.paddingRight + ';' +
-      'max-width:140px;overflow:hidden;';
     var html = '';
     for (var i = 0; i < defs.length; i++) {
       var d = defs[i];
-      html += '<span class="twx-chip" style="' + chipCss + '">' +
-        '<span class="t-dot" style="background:' + d.color + ';width:6px;height:6px;border-radius:50%;flex:0 0 auto;"></span>' +
-        '<span style="overflow:hidden;text-overflow:ellipsis;">' + esc(d.label) + '</span>' +
-        '<span class="t-x" data-k="' + d.k + '" style="cursor:pointer;opacity:.55;margin-left:1px;">✕</span></span>';
+      html += '<button type="button" class="twx-chip" data-k="' + d.k + '" title="' + esc(d.tip || d.label) + '">' +
+        '<span class="twx-chip-icon">' + (CHIP_ICONS[d.k] || '') + '</span>' +
+        '<span class="twx-chip-label">' + esc(d.label) + '</span></button>';
     }
-    chipsEl.innerHTML = html;
+    if (chipsEl._lastHtml !== html) {
+      chipsEl._lastHtml = html;
+      chipsEl.innerHTML = html;
+    }
   }
 
   window.addEventListener('resize', updateCtxChips);
@@ -1285,21 +1553,141 @@ function getDshContextBridgeScript() {
     lastHref = location.href;
   } catch (_) {}
 
-  // 面板外点击自然退出
-  document.addEventListener('click', function (e) {
+  // 核心守卫：在 window 捕获阶段拦截指针与键盘事件。
+  // 若事件目标位于自研级联面板 .twx-panel 内，立即终止事件传播 (stopImmediatePropagation)，
+  // 阻止该事件到达 document 捕获阶段，从而彻底杜绝 DSH 原生 MenuView 中
+  // document.addEventListener("pointerdown", onPointerDown, true)
+  // 因判定 target 不在原生菜单内而触发 onDismiss() 导致左侧「+」主菜单被错误销毁的 Bug。
+  function onWindowPointerDown(e) {
+    if (panelEl && panelEl.contains(e.target)) {
+      e.stopImmediatePropagation();
+      if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) {
+        try { e.target.focus(); } catch (_) {}
+      }
+    }
+  }
+  window.addEventListener('pointerdown', onWindowPointerDown, true);
+
+  // 键盘 Escape 键优先关闭级联面板并阻止向上冒泡至 DSH 原生菜单
+  function onWindowKeyDown(e) {
+    if (e.key === 'Escape' && panelEl) {
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+      closePanel();
+    }
+  }
+  window.addEventListener('keydown', onWindowKeyDown, true);
+
+  // 面板外点击自然退出 (双重侦听 pointerdown 与 click，保证与 DSH 原生菜单关闭无缝同步)
+  function onOutsideDismiss(e) {
     if (!panelEl) return;
     if (panelEl.contains(e.target)) return;
     var t = e.target;
-    if (t && t.closest && t.closest('.twx-item')) return;
+    if (t && t.closest && (t.closest('.twx-item') || t.closest('.twx-chip') || t.closest('.twx-panel'))) return;
     closePanel();
-  }, true);
+  }
+  document.addEventListener('pointerdown', onOutsideDismiss, true);
+  document.addEventListener('click', onOutsideDismiss, true);
 
   // 委托绑定注入行的点击 (React 重渲染后仍有效)
+  document.addEventListener('pointerdown', function (e) {
+    var it = e.target && e.target.closest ? e.target.closest('.twx-item') : null;
+    if (it) e.stopPropagation();
+  }, true);
+
   document.addEventListener('click', function (e) {
     var it = e.target && e.target.closest ? e.target.closest('.twx-item') : null;
     if (!it) return;
     e.stopPropagation();
     openPanel(it.getAttribute('data-k'), it);
+  }, true);
+
+  // 鼠标滚轮滑动：悬停在任意分组区域（标题或子项）时，滑动下拉/上滑展示该组其他子项
+  var wheelAccum = { add: 0, cmd: 0, ctx: 0 };
+  var lastWheelStep = 0;
+
+  document.addEventListener('wheel', function (e) {
+    if (!menuEl || !menuEl.isConnected) return;
+    var target = e.target;
+    if (!target) return;
+    if (!menuEl.contains(target)) return;
+
+    var grp = null;
+    var itemEl = target.closest('[data-twx-grp]');
+    if (itemEl) {
+      grp = itemEl.getAttribute('data-twx-grp');
+    } else {
+      var titleEl = target.closest('._3e4SsG_sectionTitle, .twx-sec-title');
+      if (titleEl && titleEl.getAttribute('data-twx-title-grp')) {
+        grp = titleEl.getAttribute('data-twx-title-grp');
+      }
+    }
+    // 鼠标位于分组标题、子项间隙或菜单内边距时，基于 clientY 命中最近的分组
+    if (!grp && menuEl) {
+      var titles = menuEl.querySelectorAll('[data-twx-title-grp]');
+      for (var ti = titles.length - 1; ti >= 0; ti--) {
+        var tr = titles[ti].getBoundingClientRect();
+        if (e.clientY >= tr.top - 2) {
+          grp = titles[ti].getAttribute('data-twx-title-grp');
+          break;
+        }
+      }
+      if (!grp) grp = 'add';
+    }
+    if (!grp) return;
+
+    var items = groupItems[grp] || [];
+    var maxOff = Math.max(0, items.length - 2);
+    if (maxOff <= 0) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+
+    var lb = menuEl.querySelector('[role="listbox"]') || menuEl.querySelector('._3e4SsG_viewport') || menuEl;
+    if (lb && lb.scrollTop > 0) lb.scrollTop = 0;
+
+    var now = Date.now();
+    wheelAccum[grp] += e.deltaY;
+
+    if (Math.abs(wheelAccum[grp]) >= 20 && (now - lastWheelStep > 40)) {
+      lastWheelStep = now;
+      if (wheelAccum[grp] > 0) {
+        if (groupOffsets[grp] < maxOff) {
+          groupOffsets[grp]++;
+          updateGroupVisibility(grp);
+        }
+      } else {
+        if (groupOffsets[grp] > 0) {
+          groupOffsets[grp]--;
+          updateGroupVisibility(grp);
+        }
+      }
+      wheelAccum[grp] = 0;
+    }
+  }, { passive: false });
+
+  // 键盘方向键联动：如果高亮项超出当前可见的 2 项，自动调整 offset 滚动使其可见
+  document.addEventListener('keydown', function (e) {
+    if (!menuEl || !menuEl.isConnected) return;
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+    setTimeout(function () {
+      if (!menuEl) return;
+      var activeEl = menuEl.querySelector('._3e4SsG_item._3e4SsG_active, [role="option"][aria-selected="true"]');
+      if (!activeEl) return;
+      var grp = activeEl.getAttribute('data-twx-grp');
+      var idxStr = activeEl.getAttribute('data-twx-idx');
+      if (!grp || idxStr == null) return;
+      var idx = parseInt(idxStr, 10);
+      var cur = groupOffsets[grp] || 0;
+      if (idx < cur) {
+        groupOffsets[grp] = idx;
+        updateGroupVisibility(grp);
+      } else if (idx > cur + 1) {
+        groupOffsets[grp] = idx - 1;
+        updateGroupVisibility(grp);
+      }
+    }, 20);
   }, true);
 
   var scanQueued = false;
@@ -1312,14 +1700,20 @@ function getDshContextBridgeScript() {
       scanQueued = false;
       var roots = pendingRoots; pendingRoots = [];
       try {
-        for (var i = 0; i < roots.length; i++) {
-          var menu = pickMenu(roots[i]);
-          if (menu) { onMenuFound(menu); break; }
+        if (!menuEl || !menuEl.isConnected) {
+          for (var i = 0; i < roots.length; i++) {
+            var menu = pickMenu(roots[i]);
+            if (menu) { onMenuFound(menu); break; }
+          }
         }
         // 菜单被 React 卸载/重渲染时仅释放锚点：级联面板驻留至用户选择或外点，
         // 避免点击面板选项触发 DSH 菜单外点关闭时连带销毁面板
-        if (menuEl && !menuEl.isConnected) { menuEl = null; }
-        else if (menuEl && !menuEl.querySelector('.twx-ctx-block')) injectGroup(menuEl);
+        if (menuEl && !menuEl.isConnected) {
+          menuEl = null;
+        } else if (menuEl) {
+          var unmapped = menuEl.querySelector('button._3e4SsG_item:not([data-twx-grp])');
+          if (!menuEl.querySelector('.twx-sec-title') || unmapped) injectGroup(menuEl);
+        }
         updateCtxChips();
       } catch (_) {}
     }, 40);
@@ -1329,13 +1723,40 @@ function getDshContextBridgeScript() {
     try {
       for (var i = 0; i < muts.length; i++) {
         var m = muts[i];
-        if (m.type === 'attributes') { scheduleScan(m.target); continue; }
+        var tgt = m.target;
+        if (!tgt || tgt.nodeType !== 1) continue;
+
+        // 1. 彻底跳过自研面板、胶囊及注入项内部变动
+        if (tgt.closest && (tgt.closest('.twx-chips') || tgt.closest('.twx-panel') || tgt.closest('.twx-sec-title') || tgt.closest('.twx-item') || tgt.closest('.twx-plus-menu'))) continue;
+
+        // 2. 彻底跳过原生 Tooltip、气泡、发送/停止按钮区域 (杜绝悬停发送图标导致的全页面慢速重排与闪烁)
+        if (tgt.getAttribute && (tgt.getAttribute('role') === 'tooltip' || tgt.getAttribute('data-portal') === 'true')) continue;
+        if (tgt.closest && tgt.closest('[role="tooltip"], [class*="tooltip"], [class*="bubble"]')) continue;
+        if (tgt.closest && tgt.closest('button[class*="send"], button[class*="stop"], button[aria-label*="发送"], button[aria-label*="终止"], button[aria-label*="Stop"], [class*="_send"]')) continue;
+
+        // 3. 属性变动过滤
+        if (m.type === 'attributes') {
+          var aname = m.attributeName;
+          if (aname && aname.indexOf('twx') !== -1) continue;
+          if (aname === 'class' || aname === 'style') {
+            // 忽略消息气泡流、输入框内部的样式/光标变动
+            if (tgt.closest && tgt.closest('[class*="Message"], [class*="scrollBody"], pre, code, textarea, input')) continue;
+          }
+          scheduleScan(tgt);
+          continue;
+        }
+
+        // 4. 节点新增过滤
         var adds = m.addedNodes;
         for (var j = 0; j < adds.length; j++) {
-          if (adds[j] && adds[j].nodeType === 1) scheduleScan(adds[j]);
+          var an = adds[j];
+          if (an && an.nodeType === 1) {
+            if (an.closest && (an.closest('.twx-chips') || an.closest('.twx-panel') || an.closest('.twx-sec-title') || an.closest('.twx-item') || an.closest('.twx-plus-menu') || an.closest('[role="tooltip"]'))) continue;
+            scheduleScan(an);
+          }
         }
         // 子树内结构变化时, 复查已注入块是否被 React 覆盖
-        if (menuEl && m.target && menuEl.contains && menuEl.contains(m.target)) scheduleScan(null);
+        if (menuEl && tgt && menuEl.contains && menuEl.contains(tgt)) scheduleScan(null);
       }
     } catch (_) {}
   });
@@ -1345,6 +1766,18 @@ function getDshContextBridgeScript() {
     attributes: true,
     attributeFilter: ['class', 'style', 'hidden']
   });
+
+  window._twxCtxBridgeCleanup = function () {
+    try { mo.disconnect(); } catch (_) {}
+    window.removeEventListener('pointerdown', onWindowPointerDown, true);
+    window.removeEventListener('keydown', onWindowKeyDown, true);
+    document.removeEventListener('pointerdown', onOutsideDismiss, true);
+    document.removeEventListener('click', onOutsideDismiss, true);
+    window.removeEventListener('resize', updateCtxChips);
+    if (panelEl) { try { panelEl.remove(); } catch (_) {} }
+    if (chipsEl) { try { chipsEl.remove(); } catch (_) {} }
+    if (styleEl) { try { styleEl.remove(); } catch (_) {} }
+  };
 
   askHost();
   setTimeout(askHost, 800);

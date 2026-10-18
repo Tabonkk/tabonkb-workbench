@@ -408,66 +408,11 @@ class DshWorkbenchView {
   renderRightPane(parentEl) {
     this.mainPaneEl = parentEl.createDiv({ cls: 'tw-harness-main-pane' });
 
-    // 1. 顶部 28px 极简微工具条 (相对定位供弹出菜单锚定)
-    this.toolbarEl = this.mainPaneEl.createDiv({ cls: 'tw-dsh-studio-toolbar' });
-
-    // 左侧: 状态微标 + 知识库工作区徽章
-    const leftBox = this.toolbarEl.createDiv({ cls: 'tw-dsh-studio-left' });
-
-    // 引擎状态微标 (就绪/启动中/异常/未连接)
-    this.statusBadgeEl = leftBox.createDiv({ cls: 'tw-dsh-badge tw-dsh-badge-starting' });
-    this.statusBadgeEl.createSpan({ cls: 'tw-dsh-badge-dot' });
-    this.statusBadgeText = this.statusBadgeEl.createSpan({ cls: 'tw-dsh-badge-text', text: '启动中' });
-    this.statusBadgeEl.setAttribute('title', 'DSH 守护进程状态 (点击重启)');
-    this.statusBadgeEl.onclick = () => this.handleRestart();
-
-    // 知识库默认工作区提示胶囊 (TabonKB, 点击快速复制绝对路径)
-    const vaultPath = this.app?.vault?.adapter?.basePath || 'd:\\work\\Mgmt\\TabonKB';
-    const vaultName = (vaultPath.split(/[\\/]/).filter(Boolean).pop()) || 'TabonKB';
-    const wsBadge = leftBox.createDiv({ cls: 'tw-harness-ws-badge', title: `工作区: ${vaultPath} (点击复制路径)` });
-    wsBadge.innerHTML = `
-      <span class="tw-harness-ws-icon">${getIconParkFn('database', 11)}</span>
-      <span class="tw-harness-ws-label">${escapeHtml(vaultName)}</span>
-    `;
-    wsBadge.onclick = async () => {
-      try {
-        await navigator.clipboard.writeText(vaultPath);
-        new NoticeCls('✓ 已复制知识库根路径: ' + vaultPath, 2000);
-      } catch (_) {}
-    };
-
-    // 右侧: MCP 联动状态按钮 + 刷新 + 重启 + 外部浏览器打开
-    const rightActions = this.toolbarEl.createDiv({ cls: 'tw-dsh-studio-actions' });
-
-    // 右上角 MCP 联动状态按钮 (小巧徽标按钮)
-    this.btnMcpStatus = rightActions.createEl('button', {
-      cls: 'tw-harness-mcp-status-btn',
-      title: '工程 MCP 工具联动状态 (点击展开详情)'
-    });
-    this.btnMcpStatus.innerHTML = `
-      <span class="tw-harness-mcp-dot"></span>
-      <span class="tw-harness-mcp-btn-icon">${getIconParkFn('sliders', 11)}</span>
-      <span class="tw-harness-mcp-btn-text">MCP联动</span>
-    `;
-    this.btnMcpStatus.onclick = (e) => {
-      e.stopPropagation();
-      this.toggleMcpPopover(this.btnMcpStatus);
-    };
-
-    // 刷新
-    const btnReload = rightActions.createDiv({ cls: 'tw-dsh-icon-btn', attr: { title: '刷新工作区网页' } });
-    btnReload.innerHTML = `<svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" fill="none" stroke-width="2"><path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/></svg>`;
-    btnReload.onclick = () => this.handleReload();
-
-    // 重启
-    const btnRestart = rightActions.createDiv({ cls: 'tw-dsh-icon-btn', attr: { title: '重启 DSH 引擎' } });
-    btnRestart.innerHTML = `<svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" fill="none" stroke-width="2"><path d="M18.36 6.64a9 9 0 1 1-12.73 0M12 2v10"/></svg>`;
-    btnRestart.onclick = () => this.handleRestart();
-
-    // 外部浏览器打开
-    const btnExternal = rightActions.createDiv({ cls: 'tw-dsh-icon-btn is-cta', attr: { title: '在系统默认浏览器中打开' } });
-    btnExternal.innerHTML = `<svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" fill="none" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14 21 3"/></svg>`;
-    btnExternal.onclick = () => this.handleExternal();
+    // 1. 顶部微工具条已按极简规范彻底移除（消弭视觉噪音，全面沉浸式呈现对话视窗）
+    this.toolbarEl = null;
+    this.statusBadgeEl = null;
+    this.statusBadgeText = null;
+    this.btnMcpStatus = null;
 
     // 2. 主视窗容器 (iframe + loading + error)
     this.frameWrap = this.mainPaneEl.createDiv({ cls: 'tw-dsh-studio-frame-wrap' });
@@ -611,22 +556,23 @@ div[data-sidebar-collapsed] div[class*="_root"][class*="_collapsed"] {
 
       // 「+」菜单工程上下文桥 (与代理层注入互为冗余, 覆盖 iframe 直达加载场景)
       let ctxScript = doc.getElementById('tabonkb-dsh-ctx-bridge');
-      if (!ctxScript) {
-        let ctxJs = '';
-        if (typeof getDshContextBridgeScript === 'function') {
-          ctxJs = getDshContextBridgeScript();
-        } else {
-          try {
-            const dshMgr = require('../services/dsh-daemon-manager.js');
-            ctxJs = dshMgr.getDshContextBridgeScript ? dshMgr.getDshContextBridgeScript() : '';
-          } catch (_) {}
-        }
-        if (ctxJs) {
-          ctxScript = doc.createElement('script');
-          ctxScript.id = 'tabonkb-dsh-ctx-bridge';
-          ctxScript.textContent = ctxJs;
-          (doc.head || doc.body).appendChild(ctxScript);
-        }
+      if (ctxScript) {
+        try { ctxScript.remove(); } catch (_) {}
+      }
+      let ctxJs = '';
+      if (typeof getDshContextBridgeScript === 'function') {
+        ctxJs = getDshContextBridgeScript();
+      } else {
+        try {
+          const dshMgr = require('../services/dsh-daemon-manager.js');
+          ctxJs = dshMgr.getDshContextBridgeScript ? dshMgr.getDshContextBridgeScript() : '';
+        } catch (_) {}
+      }
+      if (ctxJs) {
+        ctxScript = doc.createElement('script');
+        ctxScript.id = 'tabonkb-dsh-ctx-bridge';
+        ctxScript.textContent = ctxJs;
+        (doc.head || doc.body).appendChild(ctxScript);
       }
     } catch (_) {}
   }
@@ -797,6 +743,7 @@ div[data-sidebar-collapsed] div[class*="_root"][class*="_collapsed"] {
         label = proj ? `✓ 本地工程: ${proj.label || proj.project}` : '✓ 已清除本地工程';
       }
     } catch (_) {}
+    this._persistActiveContextFile();
     this.sendDshCtxState(false);
     if (label) { try { new NoticeCls(label, 1800); } catch (_) {} }
   }
@@ -828,9 +775,39 @@ div[data-sidebar-collapsed] div[class*="_root"][class*="_collapsed"] {
         delete process.env.TABONKB_JIRA_ISSUE_JSON;
         delete process.env.TABONKB_GERRIT_FILTER;
       } catch (_) {}
+      this._persistActiveContextFile();
       try { new NoticeCls('✓ 新对话: 上下文已重置', 1600); } catch (_) {}
     } catch (_) {}
     this.sendDshCtxState(false);
+  }
+
+  _persistActiveContextFile() {
+    try {
+      const fs = require('fs');
+      const path = require('path');
+      const basePath = this.app?.vault?.adapter?.basePath || (typeof process !== 'undefined' ? process.cwd() : '');
+      if (!basePath) return;
+      const target = path.join(basePath, '.obsidian', 'plugins', 'tabonkb-workbench', 'active-context.json');
+      const drawer = this.getAgentDrawer();
+      let lp = drawer?.selectedLocalProject;
+      let ji = drawer?.selectedJiraIssue;
+      let op = drawer?.selectedProject;
+      let gf = drawer?.selectedGerritFilter;
+      if (!drawer && typeof localStorage !== 'undefined') {
+        try { lp = JSON.parse(localStorage.getItem('tabonkb-local-selected-project') || 'null'); } catch (_) {}
+        try { ji = JSON.parse(localStorage.getItem('tabonkb-jira-selected-issue') || 'null'); } catch (_) {}
+        try { op = localStorage.getItem('tabonkb-opengrok-selected-project') || 'auto'; } catch (_) {}
+        try { gf = localStorage.getItem('tabonkb-gerrit-selected-filter') || 'all'; } catch (_) {}
+      }
+      const payload = {
+        selectedLocalProject: lp || null,
+        selectedJiraIssue: ji || null,
+        selectedProject: op || 'auto',
+        selectedGerritFilter: gf || 'all',
+        updatedAt: Date.now()
+      };
+      fs.writeFileSync(target, JSON.stringify(payload, null, 2), 'utf8');
+    } catch (_) {}
   }
 
   /**

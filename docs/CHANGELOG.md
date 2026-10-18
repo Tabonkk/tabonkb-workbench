@@ -1,3 +1,421 @@
+## [1.6.0] - 2026-10-18
+### Released
+- **正式发布 TabonKB 研发工作台 V1.6.0 里程碑版本**：
+  - **涉及文件**：
+    - `manifest.json`（版本由 1.5.0 升级至 1.6.0）
+    - `services/agent-version-service.js`（新增 Agent 版本管理服务：支持 Pi 与 Antigravity CLI 版本探测、增量更新日志解析与执行式安全升级）
+    - `pi-drawer-view.js` / `styles.css` / `ui/iconpark.js`（1. Mermaid 工业级视觉美学重塑：6 色现代低饱和调色盘、微浮空投影圆角卡片、蓝图微点阵画布、纯白微胶囊连线文字、14px/13px 高清晰度字号阶梯；2. 代码框与技术文字极简美学：代码框紧凑微缩、#A31515 极简酒红行内技术参数、DTS/DTSI 丰富高亮引擎；3. 流控与韧性：流式中 Steer 即时转向与 Follow-up 队列平滑调度、断流异常标记与转录自动恢复、代码文件类型图标与极简链接、底部白系大透明度渐变羽化过渡）
+    - `components/dsh-workbench-view.js` / `services/dsh-daemon-manager.js`（DeepSeek Harness「+」菜单四级递进工程上下文桥接、毛玻璃无缝级联浮窗、window 捕获阻断、无缝三组并列滑动、内联权限盾牌与工程上下文胶囊同构）
+    - `build.py` / `main.js`（修复转义警告，模块化集成打包编译）
+    - `docs/test_runner.js`（全量 392 项自动化单元测试 100% 全绿）
+  - **问题背景**：阶段性功能迭代与体验打磨全面完成，涵盖极简美学重构、会话流控韧性、用量精准统计与生态工具深度集成，发布正式里程碑版本并推送至远程仓库。
+  - **核心修改逻辑**：
+    1. **极致简约与工业级美学**：彻底根除视觉噪音，全域落地现代技术调色盘、微网格蓝图画布与高清晰度字号，技术卡片纯粹自然；
+    2. **会话流控与高韧性架构**：Steer 实时转向、Follow-up 队列管理、会话中断容灾与 Agent 自更新服务全面就绪；
+    3. **生态无缝融合**：Monaco 离线代码检视、DeepSeek Harness 四级工程上下文、Agent 用量效能看板深度打通。
+  - **验证状态**：`py build.py` 打包通过；`node -c main.js` 语法验证通过；全量 392 项自动化单元测试 100% 全绿 PASS。
+  - **执行 Agent**：Antigravity
+
+## [1.5.22] - 2026-10-18
+### Fixed & Enhanced
+- **Mermaid 流程图字号清晰度全面升级：节点文本升级至 14px、连线徽章升级至 13px、容器避免过度缩放**：
+  - **涉及文件**：
+    - `styles.css`（1. 节点标签文本由 11.5px 提升至 14px（`line-height: 1.35`），使文字在节点矩形盒内充实居中且高度易读；2. 连线文字微徽章（`edgeLabel`）字号由 11px 提升至 13px，内距调整为 `3px 8px`（`line-height: 1.3`），确保寄存器、公式等代码标记清晰呈现；3. 流程图卡片容器 `max-width` 升级为 `min(100%, max(50%, 540px))`，既满足大屏“改小一半”的节制美感，又避免常规宽度窗口下 SVG 被暴力缩放导致字号变小）
+    - `pi-drawer-view.js`（1. `_beautifyMermaidSvg` 节点文本 `font-size` 统一升级至 14px，子图标题提升至 13px 并精确作用于标题节点，彻底杜绝子图遍历污染子孙节点的字体；2. 连线浮动胶囊 `span.edgeLabel` 与纯 SVG text 模式升级至 13px 搭配 3px 8px 紧凑内距；3. 签名升级至 `v4-${currentTheme}`，保证旧图表即时生效）
+    - `docs/test_runner.js`（扩展 MockEl 选择器支持层级与直接子代父级递归校验；Suite 25 新增 MERMAID-08 与 MERMAID-09 针对 13px 与 14px 字号自动化断言，全量 392 项单元测试 100% 全绿）
+    - `main.js`（`build.py` 重新编译验证）
+  - **问题背景**：用户反馈“字体太小了”，原 11px / 11.5px 字号在流程图缩放下呈现过小，且节点内部留白冗余。
+  - **核心修改逻辑**：
+    1. **字号阶梯升级**：节点正文 14px + 连线说明 13px，兼顾视觉层级与极高清晰度；
+    2. **缩放防夹**：优化容器宽度弹性，防止窄视口下 SVG 整体萎缩压低实际渲染字号。
+  - **验证状态**：`python build.py` 打包通过；`node -c main.js` 语法验证通过；全量 392 项单元测试 100% 全绿 PASS。
+  - **执行 Agent**：Antigravity
+
+## [1.5.21] - 2026-10-18
+### Fixed & Refined
+- **Mermaid 连线文字全层级灰底色块与遮罩彻底根除、悬浮纯白微胶囊居中对齐重塑**：
+  - **涉及文件**：
+    - `styles.css`（1. 彻底隐藏 Mermaid/dagre-d3 生成的遗留背景 rect（`display: none !important; fill: transparent !important; opacity: 0 !important;`），消灭外层灰色长条底板；2. `foreignObject`、`div`、`g.label` 等中间包裹层一律强制透明；3. 顶层 `span.edgeLabel` 升级为 100% 不透明的现代纯白微胶囊（`#FFFFFF`，暗色模式 `#1E293B`），搭配 5px 圆角、2px 7px 紧凑内距、11px/550 字体与 `display: inline-flex` 垂直居中；4. 彻底重置 `span.edgeLabel *` 内部所有子元素背景为 transparent，消灭文字内部的灰色底衬条纹）
+    - `pi-drawer-view.js`（1. `_beautifyMermaidSvg` 动态清洗 SVG 内嵌 `<style>` 样式表，剔除 Mermaid 默认 `.edgeLabel { background-color: #ededed; }` 污染；2. 显式隐藏所有 `g.edgeLabels rect`；3. 中间层设透明；4. 精准识别顶层 badge 赋予纯白胶囊并消除子元素背景；5. 升级 beautify 签名为 `v3-${currentTheme}`，保障所有图表即时重载应用）
+    - `docs/test_runner.js`（新增 Suite 25: MERMAID-EDGELABEL 包含 7 项自动化断言，扩展 MockEl 基础库支持通用选择器与 `style.setProperty`，全量 390 项测试全绿）
+    - `main.js`（`build.py` 重新编译验证）
+  - **问题背景**：用户最新截图反馈流程图连线文字依旧存在瑕疵——`Qmax = 50000 (5000mAh)` 等标签仍残留外层灰矩形底色块与文字内嵌灰底条纹，上下不对称。
+  - **核心修改逻辑**：
+    1. **双通道根除多层灰底残留**：CSS 穿透与 JS DOM 遍历双管齐下，全量消除 legacy `<rect>`、中间 `div` 以及 Mermaid 内嵌 `<style>` 注入的 `#ededed` / `#f1f1f2` 灰底污染；
+    2. **纯粹单层微胶囊**：仅保留最外层 `span.edgeLabel` 纯白微徽章，文字垂直居中，消除留白与变形。
+  - **验证状态**：`python build.py` 打包通过；`node -c main.js` 语法验证通过；全量 390 项单元测试 100% 全绿 PASS。
+  - **执行 Agent**：Antigravity
+
+## [1.5.20] - 2026-10-18
+### Fixed & Refined
+- **Mermaid 流程图深度重构与高级感打磨：修复连线文字压扁遮挡瑕疵、优化连接线条质感、重塑底板蓝图微网格与高级低饱和调色盘**：
+  - **涉及文件**：
+    - `styles.css`（1. 修复连线文字（`edgeLabel`）挤压与遮挡瑕疵：移除父级 `<g>` 上的非法内边距与边框，为 `foreignObject` 启用 `overflow: visible`，内部 `span.edgeLabel` 升级为 10.5px 精致浮动微徽章与 0.96 高透明度背景，彻底根除挤成竖条与灰色大色块遮挡；2. 优化连接线观感：线条由生硬粗黑改用 1.5px 柔和板岩灰 `#94A3B8`（圆角线帽与平滑拐角），箭头比例缩小并圆角贴合；3. 重构卡片底板：由生硬死板的单一灰泥色升级为工程蓝图微点阵画布（`#FAFAFC` + 14px 细致圆点微网格 + 10px 圆角与柔光双层投影）；4. 重塑节点调色盘：告别彩虹糖式刺眼纯色与彩色正文，统一节点文字为权威深板岩黑 `#0F172A`，边框采用优雅低饱和度的 300 系轻量色彩体系）
+    - `pi-drawer-view.js`（升级 `_beautifyMermaidSvg`：精确隔离 `foreignObject` 溢出属性，消除连线文字包裹异常，应用高级工程调色盘与圆角柔化）
+    - `main.js`（`build.py` 重新编译验证）
+  - **问题背景**：用户截图标注 5 处连线文字挤压变形、大色块遮挡缺陷，并反馈“线条也需要优化下（观感太低级了），背景颜色也优化下（颜色感觉太低级了）”。
+  - **核心修改逻辑**：
+    1. **消除连线文字盒模型缺陷**：规范 SVG 与 foreignObject 边界，彻底根除内边距溢出导致的文字折行挤压；
+    2. **工程级质感重塑**：线条降噪（#94A3B8）、底板蓝图化（点阵微网格）、文字统一深色（#0F172A）、色块柔化，全方位提升现代工业级美学质感。
+  - **验证状态**：`python build.py` 打包通过；`node -c main.js` 语法验证通过；全量 383 项单元测试 100% 全绿 PASS。
+  - **执行 Agent**：Antigravity
+
+## [1.5.19] - 2026-10-18
+### Fixed
+- **「Agent 用量看板」排行行精简化：DSH 品牌图标纠正 + 精确度徽标/字段标识列移除**：
+  - **涉及文件**：
+    - `ui/iconpark.js`（`detectModelBrand` 新增 `lower === 'dsh' || lower.includes('harness')` → `'deepseek'` 命中，修复 Harness 行此前落到 `openai` 兜底图标）
+    - `build.py`（1) Agent 显示名 `Harness (DSH)` → `Harness`；2) 移除行内 `accBadge`（`精确`/`混合`/`估` 三态徽标）与模型行 `m.est` 徽标；3) 移除 `命中%`/`N工具` 两列 `.tw-au-stat` 字段标识列（数值仍在 title tooltip 与 KPI 卡中可查）；行网格由 5 列收敛为 `名称 | 进度条 | 数值` 3 列）
+    - `styles.css`（`.tw-au-row-main` 网格 `96-132px | 1fr | 52px | 52px | auto` → `96-132px | 1fr | auto`，与 `.tw-au-model-line` 子表同构 3 列对齐；删除死样式 `.tw-au-stat`、`.tw-au-acc`、`.tw-au-acc-exact/-est/-mix` 及 860px 媒体查询中对应隐藏规则）
+    - `main.js`（`build.py` 重新编译生成）
+  - **问题背景**：用户截图反馈 3 项精简需求：①Harness 行图标用错（显示 OpenAI 兜底而非 DeepSeek 鲸鱼）且名字不应带 `(DSH)` 后缀；②`精确`/`混合`/`估` 徽标为视觉噪音；③`N工具`/`N%命中` 字段标识列冗余。
+  - **验证状态**：`python build.py` 零警告；`node -c main.js` 通过；产物断言 `dsh:'Harness'`、零 `tw-au-acc*/tw-au-stat` 残留、`detectModelBrand('dsh')→deepseek` 且 SVG 含 `tw-brand-deepseek`；全量 383 项单元测试 100% 全绿 PASS。
+  - **执行 Agent**：Devin (SWE-2 Max)
+
+## [1.5.18] - 2026-10-18
+### Fixed & Enhanced
+- **Mermaid 流程图视觉美学全面重塑：落地 6 色现代技术调色盘、卡片圆角化、微阴影浮空层级与精致连接线/徽章**：
+  - **涉及文件**：
+    - `styles.css`（1. 引入 6 色现代高质感技术调色盘循环系统：蓝色起止、翠绿执行、琥珀决策、紫罗兰核心、珊瑚红异常与青绿接口，节点文字 600 字重与背景色高度对比；2. 判定菱形 `polygon` 强制琥珀金色；3. 矩形节点默认直角升级为 8px 柔滑圆角与 `filter: drop-shadow(0 2px 4px rgba(15,23,42,0.05))` 2.5D 轻盈浮空感，悬停轻升反馈；4. 连接线升级为 1.75px 现代板岩灰 `#64748B` 与同色箭头；5. 连线文字 `edgeLabel` 升级为 4px 圆角微徽章；6. 子图 `cluster` 升级为 10px 半透微圆角与发丝虚线；7. 双主题自适应深浅色高品质调色盘）
+    - `pi-drawer-view.js`（新增 `_beautifyMermaidSvg(svg, isDark)` 增强引擎：动态遍历注入节点 `rx=8/ry=8` 现代平滑圆角、微浮空投影、双主题 6 色循环与判定菱形色彩映射、连接线/箭头/连线微徽章/子图样式，彻底消灭生硬死板的默认流程图）
+    - `main.js`（`build.py` 重新编译验证）
+  - **问题背景**：用户反馈“flowchart 图显示有没有办法显得好看一点？ 色彩丰富一点 图形好看点的”，要求彻底改善流程图默认灰暗呆板的视觉效果。
+  - **核心修改逻辑**：
+    1. **CSS + JS 双通道美化**：CSS 与后处理器协同，从“图形（8px大圆角、微浮空投影）”、“色彩（6色语义调色盘）”、“连线（板岩灰+微徽章）”三大维度系统性提升 Mermaid 流程图的现代 UI 质感；
+    2. **深浅模式自动适配**：浅色模式下呈现清爽莫兰迪/Tailwind 质感，暗色模式下呈现低饱和度夜间柔光视觉。
+  - **验证状态**：`python build.py` 打包通过；`node -c main.js` 语法验证通过；全量 383 项单元测试 100% 全绿 PASS。
+  - **执行 Agent**：Antigravity
+
+## [1.5.17] - 2026-10-18
+### Fixed & Enhanced
+- **流程图与代码框卡片底色由近乎纯白升级为舒适微灰，增强视觉质感与边界辨识度**：
+  - **涉及文件**：
+    - `styles.css`（1. Mermaid 流程图卡片容器 `.block-language-mermaid` / `.mermaid` / `svg[id^="mermaid-"]` 底色由受主题变量影响易退化为纯白的 `var(--g-m3, #F8FAFC)` 明确升级为优雅舒适的微微灰 `#F0F2F5 !important;`，微边框采用 `#E2E8F0`，暗色模式使用 `#161B22` 与 `#30363D` 边框；2. 代码框 `.tw-msg-content pre` / `pre.tw-code-block` 浅色底色同步调整为 `#F0F2F5 !important;`，与 `#F1F5F9` 顶栏及 `#E2E8F0` 边框构成浑然一体的轻量微灰卡片体系）
+    - `pi-drawer-view.js`（在 `postProcessRenderedMarkdown` 中对 Mermaid 流程图内部 SVG 设置 `background: transparent !important;`，杜绝任何内嵌默认白底对微灰卡片的遮盖污染）
+    - `main.js`（`build.py` 重新编译验证）
+  - **问题背景**：用户反馈“底色纯白不太好看，微微灰看看”，指出现有流程图与代码框底色过浅/近乎纯白，在正文衬底上对比度不足、质感单一。
+  - **核心修改逻辑**：
+    1. **告别纯白，引入舒适微灰**：统一将技术卡片（流程图、代码框）浅色底色定义为 `#F0F2F5`，在纯白正文消息气泡中形成轻柔、克制但清晰可辨的微灰技术卡片层级；
+    2. **SVG 内层透明化**：强制 Mermaid SVG 背景透明，使流程图各节点与连接线纯净依附于微灰卡片之上。
+  - **验证状态**：`python build.py` 打包通过；`node -c main.js` 语法验证通过；全量 383 项单元测试 100% 全绿 PASS。
+  - **执行 Agent**：Antigravity
+
+## [1.5.16] - 2026-10-18
+### Fixed & Enhanced
+- **图表与图片对齐方式改为靠左对齐，去除居中摆放**：
+  - **涉及文件**：
+    - `styles.css`（1. Mermaid 流程图卡片容器 `.block-language-mermaid` / `.mermaid` / `svg[id^="mermaid-"]` 彻底移除居中对齐，改为 `justify-content: flex-start !important; margin: 14px 0 !important; margin-left: 0 !important; margin-right: auto !important; text-align: left !important;`，子 SVG 设置 `margin: 0 !important; margin-left: 0 !important;` 严格贴左；2. Markdown 插入图片 `.tw-msg-content img` / `.image-embed` / `.internal-embed` 补充 `margin-left: 0 !important; margin-right: auto !important; text-align: left !important;`，保障消息内所有图表与图片一致性靠左排列）
+    - `pi-drawer-view.js`（动态后处理逻辑同步将居中样式调整为靠左对齐 `margin: 14px 0 14px 0; margin-left: 0; justify-content: flex-start`）
+    - `main.js`（`build.py` 重新编译验证）
+  - **问题背景**：用户反馈指示“图片靠左显示，不要居中”，要求流程图卡片与正文内容左侧边界整齐贴合。
+  - **核心修改逻辑**：
+    1. **去居中靠左排版**：消除 `auto` 左右外边距与 `justify-content: center`，设为 `margin-left: 0` 与 `margin-right: auto`，让图表紧密贴合左侧基准线；
+    2. **全域图文一致性**：流程图与 Markdown 图片统一靠左规范，视觉层次更规整自然。
+  - **验证状态**：`python build.py` 打包通过；`node -c main.js` 语法验证通过；全量 383 项单元测试 100% 全绿 PASS。
+  - **执行 Agent**：Antigravity
+
+## [1.5.15] - 2026-10-18
+### Fixed & Enhanced
+- **Mermaid 流程图增加卡片底色衬底与精致外框线**：
+  - **涉及文件**：
+    - `styles.css`（将 Mermaid 流程图容器 `.block-language-mermaid` / `.mermaid` / `svg[id^="mermaid-"]` 升级为具备底色与外框的精致卡片：浅色模式下应用极淡灰底 `var(--g-m3, #F8FAFC) !important;`、细腻 1px 边框 `1px solid var(--g-edge2, #E2E8F0) !important;`、8px 圆角及微阴影，内部赋予 `14px 18px` 舒适内呼吸间距；暗色模式下应用 `#0D1117 !important;` 与 `#30363D` 边框，图表元素与外框和谐包裹、层次分明）
+    - `pi-drawer-view.js`（后处理流程中同步对动态渲染的流程图注入外框、底色及安全边距，确保即使存在延迟异步加载的 SVG 也 100% 具备卡片外框与底色包裹）
+    - `main.js`（`build.py` 重新编译验证）
+  - **问题背景**：用户在要求将流程图改小一半后，进一步要求“同时加一个底色和外框”，增强图表边界感与卡片质感。
+  - **核心修改逻辑**：
+    1. **卡片化包裹**：在 50% 居中尺寸基础上，添加统一的微底衬 `--g-m3` 与 1px 精致描边 `--g-edge2`；
+    2. **内容贴合与自适应**：容器使用 `width: fit-content; max-width: 50%`，使外框紧致包裹内容而不空旷，双主题自适应深浅色底框。
+  - **验证状态**：`python build.py` 打包通过；`node -c main.js` 语法验证通过；全量 383 项单元测试 100% 全绿 PASS。
+  - **执行 Agent**：Antigravity
+
+## [1.5.14] - 2026-10-18
+### Fixed & Enhanced
+- **Mermaid 流程图与技术流向图显示尺寸收敛改小一半，居中精致紧凑呈现**：
+  - **涉及文件**：
+    - `styles.css`（新增 `.block-language-mermaid`、`.mermaid` 与 `svg[id^="mermaid-"]` 容器与 SVG 规则：1. 容器设为居中弹性布局 `display: flex !important; justify-content: center !important; margin: 14px auto !important;`；2. SVG 尺寸设为 `width: 50% !important; max-width: 50% !important; min-width: min(100%, 340px) !important; height: auto !important;`，将过度膨胀铺满屏幕的流程图整体视觉尺寸紧凑压缩 50%，并在窄屏下提供 340px 防过度缩微保底，彻底根除大面积卡片与巨幅留白）
+    - `pi-drawer-view.js`（在 `postProcessRenderedMarkdown` 中新增第 5 步针对 Mermaid 流程图与技术流向图的自适应尺寸收缩处理器，异步渲染就绪后立即注入 50% 尺寸与居中样式）
+    - `main.js`（`build.py` 重新编译验证）
+  - **问题背景**：用户截屏反馈消息中的流程图（如设备树与算法切换流向图）显示尺寸过大，盒子与间距铺满整屏，严重挤占阅读空间，要求“改小一半”。
+  - **核心修改逻辑**：
+    1. **CSS + JS 双通道收缩**：将 Mermaid 流程图的宽度由原本默认的 100% 满宽限制为 50%，`height: auto` 保持纵横比同步缩半，视觉面积缩小为原本的 25%；
+    2. **居中紧凑美学**：图表水平居中对齐，节点文字回落至 11~12px 标准文档字号，既紧凑美观又清晰易读。
+  - **验证状态**：`python build.py` 打包通过；`node -c main.js` 语法验证通过；全量 383 项单元测试 100% 全绿 PASS。
+  - **执行 Agent**：Antigravity
+
+## [1.5.13] - 2026-10-18
+### Removed
+- **下线「Antigravity 额度」第 5 格 KPI 卡与全部额度获取链路**：
+  - **涉及文件**：
+    - `build.py`（整段移除 `_auAgo`/`_auQuotaLoad`/`_auMaybeFetchQuota`/`_auFindWinpty`/`_auExecAgyQuota`/`_auTuiQuotaProbe`/`_auParseAgyUsageText`/`_auQuotaWinFromObj`/`_auParseAgyQuota`/`_auQuotaCardHtml` 共 10 个方法约 310 行；`updateAgentUsageCard` 移除 `_auMaybeFetchQuota(false)` 调用与 `${this._auQuotaCardHtml()}` 卡位，KPI 条回退 4 卡；手动刷新按钮移除 `_auMaybeFetchQuota(true)`；构造器 `_agyQuota*` 三字段保留置空防残留引用；`getIconPark/getAgentBrandSvg` 其余用途不受影响）
+    - `providers/antigravity-adapter.js`（移除 `quota_info`/`quotaInfo`/`quota_buckets` 流事件被动捕获分发与 `_captureQuotaInfo` 归一化写缓存方法，handleEvent 顶部额度分支删除）
+    - `styles.css`（删除 `.tw-au-qlabel-brand`/`.tw-au-qtime`/`.tw-au-qstate`/`.tw-au-qhint`/`.tw-au-qrow`/`.tw-au-qlab`/`.tw-au-qbar`/`.tw-au-qpct`/`.tw-au-qreset`/`.tw-au-quser`/`.tw-au-qplan` 全部额度卡样式约 96 行；`.tw-au-kpis` 网格 `repeat(5)`→`repeat(4)` 回四列）
+    - `main.js`（`build.py` 重新编译生成）
+  - **问题背景**：/usage TUI 驱动方案虽实测可用（11.4s 拿到真实额度+账号），但用户评估后决定不再需要该功能，要求整体移除。
+  - **核心修改逻辑**：功能整体下线而非隐藏——删除全部 spawn/解析/缓存/渲染代码与样式，杜绝无意义的 agy 进程拉起与 3min 节流计时器；localStorage 残留键 `tabonkb-agy-quota-cache` 自然老化无害，不再读写。
+  - **验证状态**：`python build.py` 编译零警告；`node -c main.js` 与 `node -c providers/antigravity-adapter.js` 通过；残留 grep 扫描确认无 `quota/_agy/tw-au-q*` 活引用；全量 383 项单元测试 100% 全绿 PASS。
+  - **执行 Agent**：Devin (SWE-2 Max)
+
+## [1.5.12] - 2026-10-18
+### Fixed & Enhanced
+- **消息中行内代码与参数彻底移除底衬颜色，呈现纯粹轻盈的 #A31515 极简技术文字风格**：
+  - **涉及文件**：
+    - `styles.css`（1. 将 AI 对话消息中的行内代码与技术参数 `.tw-msg-content code` / `.tw-drawer-messages code` / `.tw-explore-ai-pane code` / `.tw-inline-code` 的 `background` 彻底设为 `none !important;`，同步移除浅色模式下的柔光底色与暗色模式下的底色；2. 将内边距从胶囊式的 `2px 6.5px` 精简收敛为文字式的 `0 2px !important;`，外边距设为 `0 1px !important;`，`border-radius: 0 !important;`，彻底消除原胶囊底衬留下的多余空白，使 `#A31515` 参数文字与正文自然流式衔接；3. 同步重置基础行内代码规则的 `background: none !important; border: none !important;` 确保全场景无底色渲染）
+    - `main.js`（`build.py` 重新编译验证）
+  - **问题背景**：用户反馈指示将行内参数与图示文字的“底衬的颜色 去掉”，要求纯字高亮、不带任何底色背景。
+  - **核心修改逻辑**：
+    1. **去底留色**：完全移除 `background: rgba(...)` 底色，将背景彻底透明化（`background: none !important`）；
+    2. **间距紧凑自然**：同步将内边距从 6.5px 缩减至 2px，消除无底衬时的悬空留白，保留 `#A31515` 经典酒红字体色号，排版清爽透亮。
+  - **验证状态**：`python build.py` 打包通过；`node -c main.js` 语法验证通过；全量 383 项单元测试 100% 全绿 PASS。
+  - **执行 Agent**：Antigravity
+
+## [1.5.11] - 2026-10-18
+### Fixed & Enhanced
+- **Antigravity `/usage` TUI 额度面板真实接入 + 账号显示**：
+  - **涉及文件**：
+    - `build.py`（1) 新增 `_auFindWinpty()`：依次探测 `C:\Program Files\Git\usr\bin\winpty.exe`、`Program Files (x86)`、`%ProgramFiles%\Git`、PATH 兜底，结果缓存于 `_agyWinptyPath`；2) 新增 `_auTuiQuotaProbe()`：`spawn(winpty, ['-Xallow-non-tty','agy'])` 伪终端驱动 TUI——5.5s 键入 `/usage\r`、9.5s/11s 两次 `PgDn`(`\x1b[6~`)翻页抓全部模型组、700ms 轮询解析、检测到页脚 `Within each group/individual tier` 即提前收敛 kill，16s 硬超时兜底；3) 新增 `_auParseAgyUsageText()`：四层 ANSI 剥离（CSI/OSC/charset/单字符）→ `Account:` 邮箱 + `(Google AI Pro)` 括号方案 + `<GROUP> MODELS` 分组切段（右侧 `(?![A-Z])` 防误配，滚动重绘同组名去重）→ 段内 300 字符窗口按 `Five Hour/Weekly/下一 MODELS 头/Within each group` 关键词截断 → 段内取**最后一个** `%` 命中（多帧 append 末位即最新帧）防半帧残留，且优先匹配进度条结尾 `]/█/░` 锚定的百分比 → reset 取其后 90 字符内首个 `Refreshes in`；4) `_auExecAgyQuota()` 双通道：TUI 路径优先（真实数据），落空再走 quota/usage/status 六候选子命令探测链；5) 跨组聚合取「剩余最少」为瓶颈约束值；6) `updateAgentUsageCard` 额度卡新增 `tw-au-quser` 账号行（邮箱 + `tw-au-qplan` 紫色订阅方案微标），无数据态回显 `account` 辅助排障）
+    - `styles.css`（新增 `.tw-au-quser` Inter 600 账号行 + `.tw-au-qplan` 紫色 8.5px 微胶囊及暗色适配 `#C4B5FD`）
+    - `main.js`（`build.py` 重新编译生成）
+  - **问题背景**：用户截图证实 `agy` 的 `/usage` 交互面板可展示「Models & Quota」（Account 邮箱、`GEMINI MODELS`/`CLAUDE AND GPT MODELS` 分组的 Weekly/Five Hour Limit Remaining 百分比与 `Refreshes in` 重置倒计时），并要求额度卡增加用户名显示。此前结论「agy 无非交互额度命令」仍成立——`/usage` 是 TUI slash 命令而非 CLI 子命令，但可通过 winpty 伪终端自动键入驱动。
+  - **核心修改逻辑**：见上方涉及文件逐条；关键坑——①TUI 冷启动+登录握手需 ~5s，总预算 16s（非 8s）；②滚动重绘把多帧文本顺序 append 且列间交错（`higCLAUDE AND GPT MODELSgroup:`），组头正则去行首锚定、段截断按关键词、百分比取末位 + 进度条锚定四道防御；③`Refreshes` 必须绑在最后一个 `%` 之后取，否则串到下一组的重置值。
+  - **验证状态**：`python build.py` 零警告；`node -c main.js` 通过；**真实端到端**：Node `spawn(winpty)` 驱动 TUI 实测 11.4s 提前收敛，命中 `account=tabontkk@gmail.com`、Gemini 周 78.7%(146h46m)/5h 83.1%(3h33m)、Claude&GPT 双 100%(`Quota available`→reset 空串)；文件 dump 解析双组 + `Google AI Pro` 全中；节流回归——4 次 `_auMaybeFetchQuota` 调用（含 manual）仅 1 次 spawn，账号随 entry 写入 `tabonkb-agy-quota-cache`；全量 383 项单元测试 100% 全绿 PASS。
+  - **执行 Agent**：Devin (SWE-2 Max)
+
+## [1.5.10] - 2026-10-18
+### Fixed & Enhanced
+- **消息中行内代码与图示参数色号升级为 #A31515 经典酒红微胶囊**：
+  - **涉及文件**：
+    - `styles.css`（将 AI 消息内容区行内代码 `.tw-msg-content code` / `.tw-drawer-messages code` / `.tw-explore-ai-pane code` / `.tw-inline-code` 的文本颜色正式更新为 `#A31515 !important`，并同步将微底衬底色调谐为匹配的极柔暗红柔光 `rgba(163, 21, 21, 0.06) !important`；暗色模式下自适应匹配经典珊瑚浅红 `#FFA198 !important` 与 `rgba(255, 123, 114, 0.14) !important`，保持 `border: none !important; box-shadow: none !important;` 极致简约无框外观，完全隔离代码/文件链接）
+    - `main.js`（`build.py` 重新编译验证）
+  - **问题背景**：用户截屏反馈指示将消息中的图示文字（行内代码参数、设备树属性键值、寄存器等）及其同类元素的色号统一定制调整为 `#A31515`。
+  - **核心修改逻辑**：
+    1. **精准定位与色系升级**：将所有行内代码及其同类技术参数的文本颜色由原来的 `#0969DA` 切换为 `#A31515`；
+    2. **柔和底色呼应**：底色同步由蓝调柔光调整为高通透的 `rgba(163, 21, 21, 0.06)`，彻底避免蓝底与红字冲突，在浅色主题下呈现优雅的文档质感；
+    3. **无缝隔离与无框设计**：严格保持 `:not(.tw-clickable-file-link)` 排除规则，不影响文件链接胶囊；继续保持零外框线纯净轻底设计。
+  - **验证状态**：`python build.py` 打包通过；`node -c main.js` 语法验证通过；全量 383 项单元测试 100% 全绿 PASS。
+  - **执行 Agent**：Antigravity
+
+## [1.5.9] - 2026-10-18
+### Fixed & Enhanced
+- **「Agent 用量与效能看板」字体排版重塑、趋势图毛玻璃浮窗、Antigravity 额度栏与冗余胶囊清理**：
+  - **涉及文件**：
+    - `build.py`（1) 彻底删除展开面板 Top6 工具胶囊渲染代码（`toolChips`/`tw-au-toolchip` 拼接），展开区仅剩模型消耗明细；2) KPI 条升级为 5 卡：每卡含 `tw-au-kpi-head`（11.5px 标题 + 14px 彩色图标徽章）+ 20px Inter/tabular-nums 大数字 + 「左标签 + 右微胶囊」副标题（入/出比、省 $、均耗、成功率四色 pill）；3) 新增 `tw-au-qrow` Antigravity 额度卡（小时/周双进度条、消耗比例动态变色 <70% 蓝 /70-90% 琥珀 />90% 红、重置微标、更新时间戳）；4) `fetchAntigravityQuota` 链路：`_auMaybeFetchQuota` 严格节流（自动路径 180s TTL 零 spawn、手动刷新 30s 最小间隔、in-flight Promise 复用、localStorage `tabonkb-agy-quota-cache` 持久化）、`_auExecAgyQuota` 六候选探测链（execFile 8s 超时 windowsHide）、`_auParseAgyQuota` 双模解析（JSON remainingFraction/usedPct 递归归一 + 文本 hourly/weekly 百分比正则不区分先后语序、整行提取 reset 倒计时）；5) 趋势图新增 `.tw-au-day-col` 全高透明热区 + `.tw-au-day-popover` 毛玻璃浮窗（复用 `.tw-trend-tooltip`）：hover 即览、click 锁定、文档外点解除，三色构成占比 + 当日交互页脚（轮次/工具/成本），列位置 >55% 自动向左弹出防溢出；6) 趋势标题栏内嵌三色微图例 `tw-au-mini-legend`；7) 日/时聚合桶补 `turns`/`cost` 字段，today 视图改 hourly Map O(1) 查表；8) 模型行右栏重构为 `mm-tok` 粗体总数 + `mm-per` 灰底胶囊单轮均值 + `mm-turns` 轮次三小列）
+    - `providers/antigravity-adapter.js`（`handleEvent` 顶部接入 `quota_info`/`quotaInfo`/`quota_buckets` 事件被动捕获 → `_captureQuotaInfo` 归一化为 `{hourly,weekly}` 窗口写入 localStorage 缓存并 `emit('quota')`，未来版本或会话内流事件零成本命中额度数据，无需 spawn）
+    - `styles.css`（三层字体体系落地：大数字 `Inter/Segoe UI Variable Display + tabular-nums + -0.02em`、中文标签 `PingFang SC/Microsoft YaHei UI` 系、模型名 `JetBrains Mono/Cascadia Code` 11.5px/500；`tw-au-kpi-ic` 四色图标徽章、`tw-au-sub-pill` 蓝/绿/石板灰微胶囊、`.tw-au-row` 卡片化 7px/10px + 透明边 + `.expanded` 态 `--g-m2` 底纹描边使子表与父行成整体、`tw-au-day-cols/col/locked` 热区、`tw-au-qbar` 三色进度条、`.tw-au-kpis` 5 列网格 + 1180px→3 列 / 860px→2 列降级；移除已废弃 `.tw-au-toolchips/.tw-au-toolchip` 样式）
+    - `main.js`（`build.py` 重新编译生成）
+  - **问题背景**：①展开面板底部工具调用胶囊（read×40/pwsh×36 等）用户明确不需要；②全卡片裸 `monospace` 导致中文回退宋体等宽、KPI 副标题毫无层次的单调灰字；③趋势柱三色无图例、无 hover/click 详情说明；④需求新增 Antigravity 小时/周额度监控且严守 3 分钟节流。
+  - **核心修改逻辑**：见上方涉及文件逐条；额度侧**实测结论**：本机 agy 1.4.x 无 `quota/usage/status` 非交互子命令（`unexpected argument`，quota 仅存在于 TUI 语言服务器 `GetUserQuotaSummary`/`quota_info` 协议），因此实现为「探测链 graceful 降级 + localStorage 跨进程缓存 + stream 事件被动捕获」三通道——本机当前显示「未检测到额度接口 · 3min 自动重试」，未来版本或 TUI 流事件一旦暴露即自动点亮真实数据。
+  - **验证状态**：`python build.py` 编译零警告；`node -c main.js` 通过；实测——文本 `16% used` 与 JSON `remainingFraction:0.84` 双模解析均归一为 `{usedPct:16,remainingPct:84,resetText:'3h 42m'}`、探测链 6 候选优雅返回 null、两次 `_auMaybeFetchQuota` 仅首轮 spawn（in-flight 复用）、额度卡三态（同步中/无接口/双行进度条）渲染正确、日柱浮窗 4 行 + 左右弹位 + 星期页脚正确；全量 383 项单元测试 100% 全绿 PASS。
+  - **执行 Agent**：Devin (SWE-2 Max)
+
+## [1.5.9] - 2026-10-18
+### Fixed & Enhanced
+- **行内关键字外框线去除、代码框顶栏紧凑微缩与多语言丰富语法高亮引擎落地**：
+  - **涉及文件**：
+    - `styles.css`（1) 行内代码胶囊（`code:not(pre code)`）去除 1px 描边与阴影（`border: none !important; box-shadow: none !important;`），升级为高质感轻盈纯色微底胶囊；2) 代码块顶栏高度由 32px 收缩至 24px，复制按钮由 24×24px 缩微至 20×20px，顶部留白由 40px 精简至 30px（`padding: 30px 14px 10px 14px`），彻底消除大片空白；3) 语法高亮调色盘大幅扩充与鲜活化：字符串翡翠绿（#0A8242/#7EE787）、数值蓝宝（#0969DA/#79C0FF）、属性海蓝（#0550AE/#79C0FF）、变量琥珀金（#D97706/#FFA657）、操作符珊瑚红（#CF222E/#FF7B72）、预处理指令暖橙（#E36209））
+    - `pi-drawer-view.js`（1) 新增 `ensurePrismGrammars()` 注入 DeviceTree (`dts`/`dtsi`/`devicetree`) 核心词法解析器，支持属性名、节点、引用、数字、注释、指令的精准识别；补齐 shell/bash/sh/py/ts/c++/kconfig 别名链；2) 新增 `highlightCodeFallback()` 正则语法高亮兜底引擎，在 Prism 缺省或未命中时主动对注释、字符串、数值、属性与操作符进行着色，确保代码字体绝无死黑；3) 代码块复制图标适配 12px 紧凑规格）
+    - `main.js`（`build.py` 重新编译生成）
+  - **问题背景**：用户截屏反馈 3 项细节体验问题：1. 图示行内关键字（如 `g-q-max`）带有外框线显得累赘；2. 代码块顶栏（语言标签与复制栏）高度过大，下方留白过多；3. 代码框内部字体颜色单一（DTS 等嵌入式代码全黑），缺乏鲜明的语法着色。
+  - **核心修改逻辑**：
+    1. **去线留底**：去除行内代码的外描边，保留通透的纯色柔光底衬，视觉轻盈贴合正文；
+    2. **空间紧凑化**：顶栏压缩至 24px、内边距压缩至 30px，垂直高度节省 10px，使代码内容紧凑饱满；
+    3. **语法双保险与丰富调色盘**：注册专属 DTS/DTSI 词法语法树并搭配 fallback 正则着色引擎，同时引入多饱和度高对比度 IDE 语法色阶，使属性、数字、注释、操作符清晰可辨。
+  - **验证状态**：`python build.py` 重新打包；`node -c main.js` 语法验证通过；全量 383 项单元测试 100% 全绿 PASS。
+  - **执行 Agent**：Antigravity
+
+## [1.5.8] - 2026-10-18
+### Fixed & Enhanced
+- **彻底根除文件名双重外框缺陷，全面对齐 Antigravity 极简风格（语言类型标识+文件名，零底色零外框）**：
+  - **涉及文件**：
+    - `pi-drawer-view.js`（1) 新增 `getFileTypeInfo(targetCandidate, fallbackText)` 映射引擎，根据文件后缀（`.c`, `.h`, `.js`, `.py`, `.dtsi`, `Makefile` 等 30+ 种扩展名）提取标准小写类型标签与其专属语言标识色（如 `js` 对应琥珀橙 `#F59E0B`、`c` 对应经典蓝 `#0969DA`、`h` 对应紫罗兰 `#8250DF`、`dtsi` 对应设备树青 `#0D9488`、`py` 对应蛇语蓝 `#3572A5` 等）；2) 重构 `postProcessRenderedMarkdown`：对所有命中的代码文件与笔记链接（`<a>` 及独立 `<code>`），清空原有嵌套结构，原子化注入 `<span class="tw-file-type-icon">` 与 `<span class="tw-file-name">`，彻底消除原有 `<a>` 与 `<code>` 嵌套导致的“两个外框”与多重边框挤压缺陷；3) 保留点击分屏直达源码逻辑与悬停提示）
+    - `styles.css`（1) 彻底清空 `.tw-clickable-file-link` 的 `background`、`border`、`box-shadow` 与内边距，设为 `background: none !important; border: none !important;`，彻底满足“不需要底色、不需要外框”的极致简约美学；2) 嵌套 `code` 强制透明无边框，并在行内代码规则中增加 `:not(.tw-clickable-file-link *)` 彻底阻断蓝宝石胶囊规则污染；3) 新增 `.tw-file-type-icon` 与 `.tw-file-name` 极简排版规则，悬停下划线反馈，1:1 对齐 Antigravity 交互质感）
+    - `main.js`（`build.py` 重新编译生成）
+  - **问题背景**：用户截屏反馈文件名存在两个外框（外层紫框 + 内层蓝框，因 `<a>` 与 `<code>` 双重盒模型嵌套且各自带有边框与底色造成），视觉厚重不雅观。要求参考 Antigravity 实际样式（图2），采用“类型图标+文件名，不需要底色”的极简呈现。
+  - **核心修改逻辑**：
+    1. **DOM 结构重构**：在 markdown 后处理中将 `<a><code>filename</code></a>` 重构为 `<a class="tw-clickable-file-link"><span class="tw-file-type-icon">ext</span> <span class="tw-file-name">filename</span></a>`，内部不再包含任何 `<code>` 标签，从源头消灭双重外框；
+    2. **纯粹无框无底色**：链接与文件名全部继承无底色无边框，悬停优雅展示下划线与主题蓝高亮；
+    3. **丰富且克制的语义色彩**：小写文件类型标识（如 `js`, `c`, `dtsi`）按语言代表色高亮，兼顾 Antigravity 极简风格与高可辨识度。
+  - **验证状态**：`python build.py` 打包通过；`node -c main.js` 语法验证通过；全量 383 项自动化单元测试 100% 全绿 PASS。
+  - **执行 Agent**：Antigravity
+
+## [1.5.7] - 2026-10-18
+### Fixed & Enhanced
+- **代码文件链接右侧多余间隙根除与 AI 回复多色调技术文档调色盘升级**：
+  - **涉及文件**：
+    - `pi-drawer-view.js`（当识别出代码文件或笔记链接 `tw-clickable-file-link` 时，显式调用 `a.classList.remove('external-link')`，彻底阻断 Obsidian 默认向内部代码/文件链接注入 `.external-link` 外链跳转背景图标与右侧强制填充）
+    - `styles.css`（1) 彻底移除原为防重叠设置的 `padding-right: 22px !important`，统合 `a.tw-clickable-file-link` 与 `code.tw-clickable-file-link` 为左右严格对称的 `padding: 2px 7px !important; padding-right: 7px !important; background-image: none !important;`，彻底根除文件名右侧冗余空格；2) 升级技术调色盘告别单调灰阶：代码文件采用紫罗兰技术胶囊（`#8250DF`，暗色 `#D2A8FF`）；行内变量/寄存器/参数采用蓝宝石技术胶囊（`#0969DA`，暗色 `#79C0FF`）；无序列表符号升级为皇家蓝（`#2563EB`）；数学公式（KaTeX）升级为数学蓝（`#0550AE` / `#79C0FF`）；水平分割线 `<hr>` 升级为两端双向淡出的细腻渐变；代码块语言标识高亮主题蓝）
+    - `main.js`（`build.py` 重新编译生成）
+  - **问题背景**：用户截屏反馈：1. 对话内容全灰阶展示略显单调；2. 代码文件名（如 `mtk_battery_algo.c:745`）末尾右侧出现多余的 16~22px 空白。根本原因在于此前为避免外部跳转图标压字加大了右内边距，而内部代码文件链接已隐藏图标，导致原本预留给图标的空间变成了悬空的留白。
+  - **核心修改逻辑**：
+    1. **解耦外链类名与精准对称内距**：在 AST 处理流程中主动剥除内部代码链接的 `.external-link` 类名，并在样式表中显式限定左右对称 7px 内边距（`padding: 2px 7px !important`），确保文件名胶囊紧凑包裹文字、彻底消灭右侧多余空格；
+    2. **专业技术文档多层色彩演进**：构建主次分明的技术色彩语义体系——紫罗兰专属标识可点击打开分屏检视的代码文件与行号；蓝宝石专属标定行内寄存器/参数变量与配置键；皇家蓝点亮列表引导阅读节奏；细腻渐变替代生硬实心分割条，兼顾专业、护眼与灵动美感。
+  - **验证状态**：`python build.py` 重新打包；`node -c main.js` 语法验证通过；全量 383 项单元测试 100% 全绿 PASS。
+  - **执行 Agent**：Antigravity
+
+## [1.5.6] - 2026-10-18
+### Fixed & Enhanced
+- **「Agent 用量与效能看板」6 项视觉与数据细节定点精修**：
+  - **涉及文件**：
+    - `build.py`（1) 右上角口径切换按钮类名统一为 `button.tw-au-metric-btn` + `data-m`；2) `normalizeModelName` 别名表扩容并改为双向 key 归一化（`. _ 空格` → `-`），合并 `deepseek-flash`/`DeepSeek V4 Flash`、`kiro/` 前缀与 pi 原生 kebab id（`claude-sonnet-5-5`→`Claude Sonnet 5.5` 等 17 条）；3) `_auParseDshSession` 新增 `~/.dsh/sessions/<enc>/session.v4.jsonl.zstd` zstd 多帧转录解析，提取 `tool/call` 事件的 `data.name` 写入 `toolMap` 并纳入缓存 mtime 键；4) 聚合引擎向记录与模型行透传 `toolMap`/`in`/`out`/`cr` 分项；5) `_auTrendChart` 重写为三色堆叠柱（输入蓝/输出绿/缓存读紫）+ HTML 独立 x 轴 + 峰值摘要，SVG 内零 `<text>`；6) 单轮耗时 `>300s` 封顶 + `_auFmtDur`（`>=60s` → `Xm YYs / 轮`））
+    - `styles.css`（1) `button.tw-au-metric-btn` 未选中态透明 + 选中态 `--g-blue` 柔和胶囊高亮白字，抵御 `button:not(.clickable-icon)` 污染；2) `.tw-au-daily-chart` 锁高 110~120px、`.tw-au-chart-xaxis/-val/-peak` 新样式；3) `.tw-au-main` 改 `align-items: start` 防左侧随展开拉伸；4) `.tw-au-model-line` 对齐父级行网格（名称列 ~132px + 满宽 `.tw-au-mbar` 三段条）；5) `.tw-au-expand` 内边距对齐 `.tw-au-row` 使子条起点与父条严格重合）
+    - `main.js`（`build.py` 重新编译生成）
+  - **问题背景**：看板上线后截图暴露 6 处缺陷：①「总Token」选中态被 Obsidian 全局按钮样式染成黑块文字不可见；②左侧趋势 SVG 随右侧展开纵向拉伸导致 `<text>` 日期变成条形码且只有单色柱；③模型子列表名称与进度条之间出现大段断层空白且子条未与父条对齐；④ DSH 统计出 81+ 工具但展开无工具胶囊行（`session_projcache` 仅存汇总数无工具名）；⑤ `deepseek-flash` 与 `DeepSeek V4 Flash` 同物理模型两行显示；⑥ 平均耗时被挂起会话拉到 174s 且秒数不直观。
+  - **核心修改逻辑**：
+    1. **按钮污染防御**：`button.tw-au-metric-btn` 全量 `!important` 覆盖 Obsidian `button:not(.clickable-icon)` 全局样式；
+    2. **图表防变形重构**：SVG `viewBox` 内彻底移除 `<text>`，x 轴日期与峰值摘要改用普通 HTML（10px monospace），`.tw-au-daily-chart` 锁高 + `.tw-au-main` 顶部对齐双保险；
+    3. **三段堆叠统一**：趋势柱与模型微缩条统一为 `输入(蓝)+输出(绿)+缓存读(紫)` 三段，子条网格列宽对齐父级进度条起点；
+    4. **DSH 工具名补齐**：定位 `~/.dsh/sessions/--<cwd>--/<sessId>/session.v4.jsonl.zstd`（目录编码为盘符去冒号），`zlib.zstdDecompressSync` 按 4 字节 magic 拆帧解析 `tool/call` 事件 `data.name`，转录 mtime 并入增量缓存键；
+    5. **耗时异常防御**：单轮 `duration > 300000ms` 封顶 + 分钟级格式化。
+  - **验证状态**：`python build.py` 编译零警告；`node -c main.js` 通过；真实数据实测——别名归并 7/7 PASS、DSH Top6 工具真实回传（pwsh×163/read×130/edit×60）、Pi 模型列表统一 Title Case、趋势 HTML 结构含堆叠三色/x轴/峰值且无 `<text>`、耗时 87.2s→`1m 27s / 轮`；全量 383 项单元测试 100% 全绿 PASS。
+  - **执行 Agent**：Devin (SWE-2 Max)
+
+## [1.5.5] - 2026-10-18
+### Enhanced & Fixed
+- **AI 助手回复排版全面对齐 Antigravity 技术文档风格与底部柔和虚化升级**：
+  - **涉及文件**：
+    - `styles.css`（全面优化消息排版与底部过渡：1) 提升助手正文基线至 13.5px / 1.68 行高，适配现代无衬线抗锯齿字体栈与高对比度中性文字色；2) 规范 h1-h6 标题层级与呼吸外边距；3) 段落间距规范为 10px，列表左缩进 20px、顶层项 10px 间隙、消除 li 内部段落双重空白；4) 行内代码规范为 0.88em / 2px 6px / 5px 圆角中性浅灰胶囊；5) 代码块升级为 8px 圆角卡片，32px 顶栏高度，11px 大写半粗体语言标签，24×24px 极简无框复制按钮，代码顶部 40px 内边距预留 8px 呼吸空隙；6) 语法高亮全量对齐 GitHub/Antigravity 调色盘；7) 重构 `.tw-chat-bottom-fade` 宽度对齐输入卡，引入 40px 双向羽化蒙版，48px 纵向平滑 5 阶渐变，最大不透明度收缩至 0.85，暗色绑定 `--g-canvas`，消息区底部内边距扩大至 24px 杜绝贴底内容遮挡）
+    - `pi-drawer-view.js`（在 `postProcessRenderedMarkdown` 中针对未标记的代码块增加 Prism 语法高亮安全兜底）
+    - `main.js`（`build.py` 重新编译生成）
+  - **问题背景**：用户提供 Antigravity 实际样式截图，要求对当前自研 Agent 对话界面的 AI 回复内容进行视觉优化，重点调整排版（字体层级、段落间距、列表缩进、行内代码、代码块样式、语法高亮及复制按钮），呈现专业技术文档风格；同时优化消息与底部输入框之间的柔和渐隐过渡，避免出现明显的遮罩边界或内容截断。
+  - **核心修改逻辑**：
+    1. **正文与标题层级规范**：正文统一 13.5px / 1.68，h1-h3 (16/15/14px, 650~700字重) 搭配 14~18px 段前距，层次鲜明；
+    2. **列表与段落舒缓节奏**：有序列表与无序列表缩进 20px，顶层条目间隙 10px，二级子列表项 5~6px，段落 10px 间距，消除双重边距；
+    3. **行内代码与代码块卡片化**：行内代码 0.88em 浅灰微边框胶囊；代码块 8px 圆角、32px 顶栏、11px 语言标签、24px 极简复制按钮，代码区 padding 40px 16px 14px；
+    4. **语法高亮精准对齐**：属性/关键字鲜明深红(#CF222E/#FF7B72)、函数紫(#8250DF/#D2A8FF)、字符串深蓝(#0A3069/#A5D6FF)、数值蓝(#0550AE/#79C0FF)、!important 琥珀金(#DF631C/#FFA657)、注释斜体灰(#6E7781/#8B949E)；
+    5. **双向羽化与防截断兜底**：过渡带全宽 + 40px 蒙版水平羽化消融 + 48px 纵向渐变，视口底部内边距提至 24px，贴底透明，向上滚动平滑弥散。
+  - **验证状态**：`python build.py` 重新打包；`node -c main.js` 语法验证通过；全量 383 项单元测试 100% 全绿 PASS。
+  - **执行 Agent**：Antigravity
+
+## [1.5.4] - 2026-10-18
+### Fixed
+- **代码与文件链接胶囊彻底杜绝外部/分屏 `↗` 图标与文本重叠缺陷**：
+  - **涉及文件**：
+    - `pi-drawer-view.js`（在 `postProcessRenderedMarkdown` 中针对 `<code>` 处理增加 `codeEl.closest('a')` 防御守卫，避免嵌套在链接中的行内代码被重复绑定点击事件与样式污染）
+    - `styles.css`（全面规范代码与文件链接胶囊视觉排版：1) `a.external-link.tw-clickable-file-link` 分配 `padding-right: 22px !important;`，外链/分屏图标精准固定于 `background-position: right 5px center !important; background-size: 11px 11px !important;`，在文字尾部与图标之间形成稳固的 6~8px 安全呼吸间距，彻底消除重叠；2) 嵌套在 `<a>` 内部的 `<code>` 标签全部设为透明底色与无边框（`background: transparent !important; border: none !important;`），杜绝双重盒模型与多重边框冲突；3) 为普通 `.external-link` 保障 18px 安全右内边距防撞保护；4) 完美适配亮色与暗色模式单体胶囊质感）
+    - `main.js`（`build.py` 重新编译生成）
+  - **问题背景**：用户截屏反馈在 Agent 对话界面中，文件/代码链接（如 `[`pri_project/.../cust_charger.dtsi`](file:///...)`）末尾处的外部分屏跳转图标（`↗`）直接覆盖叠压在文件名末尾字符（如 `cust_charger.dtsi` 的 `si`）上，视觉严重重叠遮挡。
+  - **核心修改逻辑**：
+    1. **专属右侧呼吸内边距防御**：针对带有外部/分屏跳转图标的 `a.external-link.tw-clickable-file-link`，重写右侧内边距为 `padding-right: 22px !important`，并约束背景图标 `background-position: right 5px center`，使文字终点与图标起点稳定留出 6px 间隙；
+    2. **消除内外双重盒模型挤压**：将 `a.tw-clickable-file-link > code` 彻底透明化并移除外层 padding，将边框与背景统合在外层 `<a>` 单一胶囊上；
+    3. **AST 级代码守卫**：`pi-drawer-view.js` 避免为已处于 `<a>` 内部的 `<code>` 重复附加 `.tw-clickable-file-link` 类名与跳转监听，杜绝样式层叠错乱。
+  - **验证状态**：`python build.py` 重新编译成功；`node -c main.js` 语法验证通过；全量 383 项自动化单元测试 100% 全绿 PASS。
+  - **执行 Agent**：Antigravity
+
+## [1.5.3] - 2026-10-17
+### Enhanced & Fixed
+- **虚化过渡带彻底根除转角两端突出“支脚”缺陷，全面升级为通透轻量大透明度渐变与双向羽化**：
+  - **涉及文件**：
+    - `styles.css`（重构 `.tw-chat-bottom-fade`：1) 宽度收敛至平坦顶边范围 `calc(min(952px, 100% - 16px) - 36px)`，两侧内缩 18px 彻底规避卡片圆角下坠区域；2) 引入双向蒙版线性羽化 `mask-image: linear-gradient(to right, transparent 0%, black 28px, black calc(100% - 28px), transparent 100%)`，使左右两端在到达边缘前自然消融至 0% 不透明度，从几何与光学双重维度彻底消除“两只脚”硬切凸起；3) 高度从 30px 提升至 48px，渐变坡度大幅放缓，底部最大不透明度收缩至 0.65，透明度大幅提升且更柔和；4) `.tw-scroll-bottom-btn` 对应调整至 `bottom: 10px` 正中悬浮）
+    - `main.js`（`build.py` 重新编译生成）
+  - **问题背景**：用户截屏反馈当前过渡带依然不够舒服，尤其卡片左上和右上两端出现突兀的矩形突出“两只脚”。根本原因在于输入框卡片存在 18px 圆角，外缘 18px 范围内顶边向下弯曲；而此前遮罩层宽度与卡片外框全等且底部直角，导致两端平底凸出在圆角外侧悬空，形成硬角与色差。
+  - **核心修改逻辑**：
+    1. **几何避让输入框圆角**：将过渡层宽度精准限定在卡片平坦顶边区域（`calc(min(952px, 100% - 16px) - 36px)`），物理上不再延伸覆盖卡片向下弧弯的 18px 转角；
+    2. **两端蒙版平滑消融羽化**：通过 `mask-image` 为左右两端各赋予 28px 的水平渐变消融，使遮罩层在接近两端时已完全透明无痕，彻底杜绝任何生硬边缘或“支脚”残留；
+    3. **舒缓纵向高通透渐变曲线**：将遮罩高度提升至 48px，底部最大不透明度仅为 0.65（全区域保持 35%~100% 极高通透度），告别狭窄截断感，呈现如轻盈薄雾般的纵深呼吸感；
+    4. **悬浮回底圆钮居中对齐**：回底圆钮定位于 `bottom: 10px; left: 50%`，与 48px 柔光带和谐交融。
+  - **验证状态**：`python build.py` 编译成功；`node -c main.js` 语法验证通过；全量 383 项单元测试 100% 全绿 PASS。
+  - **执行 Agent**：Antigravity
+
+## [1.5.2] - 2026-10-17
+### Added & Enhanced
+- **发送框上方虚化渐变过渡带与中央悬浮回底圆钮（1:1 复刻 DSH 滚动视觉体验）**：
+  - **涉及文件**：
+    - `ui/iconpark.js`（扩充 `arrow-down` 标准垂直向下箭头矢量路径，对齐单色细线规范）
+    - `pi-drawer-view.js`（在 `messagesViewport` 中挂载 `this.bottomFadeEl`，绑定滚动监听根据 `d > 24` 动态切换 `.visible` 类，并在回底与 `scrollToBottom` 时自动隐藏；更新 `this.scrollBottomBtn` 采用 `arrow-down` 图标）
+    - `styles.css`（全面对齐白系大透明度虚化设计：1) 弃用带灰蓝偏色的主题底色与左右生硬截断的 mask-image，转为采用通透纯白半透明多阶渐变 `linear-gradient(to bottom, rgba(255,255,255,0) 0%, rgba(255,255,255,0.2) 25%, rgba(255,255,255,0.48) 60%, rgba(255,255,255,0.72) 100%)`，使最大不透明度仅为 0.72，透明度显著增大、通透轻盈；2) 引入 `border-radius: var(--in-r, 18px) var(--in-r, 18px) 0 0` 与卡片顶边大圆角同心顺滑无缝契合，彻底根除边角色差与生硬竖切线；3) 默认 `opacity: 0` 保证贴底时文字 100% 清晰；`.tw-scroll-bottom-btn` 精确定位于卡片正上方居中 `bottom: 8px; left: 50%`）
+    - `main.js`（`build.py` 编译生成）
+  - **问题背景**：用户反馈边角两个位置的过渡依然不够自然，并给出指导思路：“底色用的不好，应该用白色的虚化过度，而且过度的透明度可以大一点”。此前版本因使用了带灰蓝偏色的主题变量且用 mask-image 在两端 40px 硬挖空，导致卡片边角出现突兀的分界与斑驳。
+  - **核心修改逻辑**：
+    1. **纯白通透轻量半透明渐变（加大透明度）**：全面采用 `rgba(255,255,255, ...)` 纯白系渐变，底部最大不透明度收敛至 0.72（整体透明度大幅提高至 28%~100%），配合 `backdrop-filter: blur(4px)`，与输入框卡片的白色表面实现同色系轻雾弥散，彻底消除色差与生硬分界；
+    2. **卡片圆角同心顺滑无缝契合**：移除左右 40px 的粗暴截断蒙版，转为使用 `border-radius: var(--in-r, 18px) var(--in-r, 18px) 0 0`，与输入框卡片的顶角大圆角完美同轴贴合，边角过渡极致顺滑；
+    3. **滚动感知按需显隐**：遮罩层默认 `opacity: 0`，仅在向上回看滚动（`d > 24px`）时平滑淡入，贴底时自动隐藏，保持底端最后一行元信息 100% 原始清晰可读；
+    4. **正中悬浮回底圆钮对齐**：`.tw-scroll-bottom-btn` 微调至 `bottom: 8px !important`，正中悬浮半压在 30px 过渡带上，与参考图完全对齐；
+  - **验证状态**：`python build.py` 打包成功；`node -c main.js` 语法验证通过；全量 383 项单元测试 100% 全绿 PASS。
+  - **执行 Agent**：Antigravity
+
+## [1.5.1] - 2026-10-17
+### Fixed
+- **根除工作台底部空置状态栏引起的死白横条与布局截断缺陷（JS + CSS 双通道强固方案）**：
+  - **涉及文件**：
+    - `build.py`（在 `TabonKBWorkbenchPlugin.onload` 注册 `active-leaf-change` 与 `layout-change` 监听，动态切换 `tw-workbench-active` 类并直接对 `.status-bar` DOM 设 `display: none !important`；在 `onunload` 与 `TabonKBWorkbenchView.onClose` 中优雅还原；在 `render()` 中实时强制贴底）
+    - `styles.css`（扩充状态栏隐藏选择器覆盖 `body.tw-workbench-active`、`body.tw-has-workbench`、`body:has(.tabonkb-workbench-container)`、`body:has([data-type="tabonkb-workbench-view"])`；修复 `.tw-workbench-stage.tw-stage-fullbleed` 尺寸穿透；添加全局同色变量兜底）
+    - `ui/theme-engine.js`（在 `applyTokensToElement` 中向 `document.body.style` 广播 `--g-canvas`、`--status-bar-background` 与 `--status-bar-border-color`）
+    - `main.js`（`build.py` 编译生成）
+  - **问题背景**：用户反馈工作台视图底部出现一部分空白/突兀断层，并截图标注红框区域。经底层排查，Obsidian 原生应用容器底部的状态栏（`.status-bar`，高度 26px）在纯 CSS `:has()` 匹配下可能因未激活伪类或特定 DOM 层级未被完全隐藏，导致出现 26px 空置横条并挤压工作台；且亮色主题下回退为纯白 `#FFFFFF`，在莫兰迪底色下形成刺眼断层。
+  - **核心修改逻辑**：
+    1. **JS 运行时主动隐藏**：在插件主类 `TabonKBWorkbenchPlugin` 中接入工作区生命周期，只要工作台叶子存在或处于激活态，立即向 `document.body` 注入 `tw-workbench-active` / `tw-has-workbench`，并通过 DOM API 直接为 `.status-bar` 设置 `display: none !important`，杜绝任何 CSS 伪类不匹配或层叠顺序失灵问题；
+    2. **CSS 多重选择器防御**：在 `styles.css` 中以 `body.tw-workbench-active .status-bar` 与多维 `:has()` 选择器双保险声明 `display: none !important`，并统一 `.tw-workbench-stage.tw-stage-fullbleed` 满高无边距规则；
+    3. **全局同色兜底**：在 `ui/theme-engine.js` 切换主题时，将 `--g-canvas` 实时广播到 `document.body.style`，并给 `.status-bar` 设置主题画布同色兜底，彻底根除任何环境下的死白现象。
+  - **验证状态**：`python build.py` 打包成功；`node -c main.js` 语法校验通过；全量 383 项单元测试全绿通过。
+  - **执行 Agent**：Antigravity
+
+### Changed
+- **AI 助手发送框底部左侧控件群 1:1 复刻 DSH 极简美学设计**：
+  - **涉及文件**：
+    - `ui/iconpark.js`（新增 `shield` 中心垂直线单色线性盾牌矢量图标）
+    - `pi-drawer-view.js`（重构完全权限盾牌图标、13px 字体规范、10px 折叠箭头，上下文胶囊按钮化并移除尾部删除按钮，直连下钻面板与右键清除，更新占位符）
+    - `styles.css`（全面对齐 DSH 设计规范：`+` 按钮 28px 圆形纯净浅灰底，移除红点，权限与工程上下文胶囊无边框、无彩底、统一 13px/500/20px 行高与中性灰度）
+    - `build.py`（打包编译流水线）
+    - `main.js`（`build.py` 生成）
+  - **问题背景**：用户对比参考图（DSH 发送框）与当前工作台 AI 助手发送框，指出红框内组件视觉风格严重割裂：
+    1) `+` 操作按钮原为圆角矩形且被绿色彩色角标污染；
+    2) 权限控件误用铅笔图标，外层有生硬的描边框与浅底，字体尺寸过小（11px/600）且为纯黑，与 DSH 原生 13px 灰字中性风脱节；
+    3) 工程上下文胶囊（如 `03-mtk-ww/K90`）采用高对比度琥珀橙色底色、橙色边框、橙色文字与显式叉号（`×`），尺寸矮小（20px），视觉噪音极大，破坏极致简约美学。
+  - **核心修改逻辑**：
+    1. **图标库单色矢量扩充**：在 `ui/iconpark.js` 中新增与 DSH 1:1 对齐的 `shield` 安全盾牌矢量路径（中分竖线线性轮廓）；
+    2. **完全权限控件重构**：图标切换为 `shield`（13px），字体升级为 DSH 令牌规范 `13px` / `500` / `20px` 行高，文本颜色统合为中性灰度 `var(--dsw-alias-label-secondary, #515154)`（暗色 `#9CA3AF`），去除边框与背景底色，悬停呈现温和半透明灰底；
+    3. **工程上下文胶囊对齐**：彻底去除橙色彩底（`#B45309`/橙色背景）与描边框，与「完全权限」统合为同一字体大小（13px/500）、高度（28px）与灰色调；移除多余的叉号（`×`）组件，升级为语义化 `<button type="button" class="tw-sctx-chip">`，左键直接呼出对应维度的级联毛玻璃选择面板，右键便捷一键解绑，大幅降低视觉噪音；
+    4. **「+」按钮圆净极简**：样式升级为 28px 正圆形浅灰底钮（`border-radius: 50%`，浅灰底 `rgba(0, 0, 0, 0.04)` / 悬停 `0.08`），强行隐藏 `.tw-options-badge-dot` 消除光点干扰；
+    5. **输入框占位符对齐**：同步更新输入框默认 placeholder 为 `发消息或创建任务，/ 调用指令，@ 文件或对话`，实现全维度质感复刻。
+  - **验证状态**：`python build.py` 打包成功；`node -c main.js` 语法验证通过；亮色/暗色主题无缝自适应。
+  - **执行 Agent**：Antigravity
+
+### Added
+- **Pi Agent 1.3.0 MCP 服务自动挂载（方案 A 全局注册）**：
+  - **涉及文件**：
+    - `pi-agent-bridge.js`（新增 `ensurePiMcpServers()` 函数与 MCP shared 模块导入）
+    - `build.py`（更新打包流水线纳入新增代码）
+    - `main.js`（`build.py` 生成）
+  - **问题背景**：Pi Agent 升级到 1.3.0 后已内置完整 MCP 支持（stdio + HTTP + OAuth），但工作台未给 Pi 注册 TabonKB 的 5 大 MCP 服务（`tabonkb-weknora` 知识库检索、`tabonkb-vendor` 芯片原厂资料、`tabonkb-gerrit` 代码审查、`tabonkb-opengrok` 源码搜索、`tabonkb-drawio` 图表操作），导致 Pi 无法直接调用工作区专有工具，而 Antigravity/DSH/Hermes 已完成挂载。
+  - **核心修改逻辑**：
+    1. 在 `pi-agent-bridge.js` 开头导入 5 个 MCP shared 模块（`weknora-mcp-shared.js` / `vendor-mcp-shared.js` / `gerrit-mcp-shared.js` / `opengrok-mcp-shared.js` / `drawio-mcp-shared.js`）；
+    2. 新增 `ensurePiMcpServers(vaultBasePath)` 函数：读取 `~/.pi/agent/mcp.json`（Pi 全局 MCP 配置），幂等写入 5 个 stdio server，每个 server 包含 `command`（node.exe）、`args`（脚本路径）、`env`（环境变量：`TABONKB_VAULT_PATH`/`TABONKB_VAULT_NAME` + 各服务专有凭据）、`description`（工具用途说明，注入 Pi system prompt）；
+    3. 在 `PiAgentBridge.start()` 开头调用 `ensurePiMcpServers(this.vaultBasePath)`（捕获异常不阻塞启动）；
+    4. 配置写入 `~/.pi/agent/mcp.json` 后，Pi 会话启动时自动加载 5 个 MCP server，通过 `pi mcp list` 可验证状态。
+  - **验证状态**：`python build.py` 打包成功；`node -c main.js` 语法验证通过；配置逻辑参照 `antigravity-adapter.js:ensureAgyMcpServers()` 成熟实现，环境变量透传与 Hermes/Antigravity 同源；待工作台实际启动一次 Pi 会话后，配置将自动写入 `~/.pi/agent/mcp.json`，届时可通过 `pi mcp list` 验证 5 个 server 连接状态，并在会话中测试工具调用（如询问 "查一下 MT6789 USB 眼图标准" 观察是否触发 `tabonkb-vendor` 或 `tabonkb-weknora`）。
+  - **执行 Agent**：Claude (Anthropic)
+
+### Added
+- **DSH Web 专属技能落地与工程上下文实时持久化 (`tabonkb-dev-context`)**：
+  - **涉及文件**：
+    - `.dsh/skills/tabonkb-dev-context/SKILL.md`（新增 DSH Web 专属驱动研发预设分析技能包）
+    - `.dsh/skills/tabonkb-dev-context/scripts/get-context.js`（新增伴生探测脚本）
+    - `.dsh/skills/tabonkb-dev-context/references/rules.md`（新增三层穿透与单编红线速查）
+    - `.obsidian/plugins/tabonkb-workbench/active-context.json`（新增持久化上下文共享数据）
+    - `.obsidian/plugins/tabonkb-workbench/pi-drawer-view.js`（新增 `_persistActiveContextFile()` 实时落盘）
+    - `.obsidian/plugins/tabonkb-workbench/components/dsh-workbench-view.js`（新增上下文重置与切换时持久化）
+  - **问题背景**：用户在 DSH Web（模式 A 嵌入式 UI）中提问时，直接走 DSH 前端绕过了自研抽屉的 `handleSend()` 提示词组装流水线；且多进程下子进程无法直读父进程环境变量。
+  - **核心修改逻辑**：
+    1. 落地 Directory-Bundle 技能 `.dsh/skills/tabonkb-dev-context/`，依托 DSH 原生 `@deepseek-ai/dsh-skill-filesystem` 和 `@deepseek-ai/dsh-tool-skill`，支持用户通过 `/tabonkb-dev-context` 或模型自主意图加载；
+    2. 配备 `get-context.js` 伴生脚本，运行即输出三层穿透路径（Tier 2 客制化 > Tier 1 公共差分 > Tier 0 原厂基线）、修改红线、Jira 取证规约及机型专属单编构建脚本；
+    3. 工作台在 `saveLocalProject`、`saveJiraIssue`、`saveProject`、`saveGerritFilter` 中增加 `_persistActiveContextFile()`，将状态落入磁盘 `active-context.json`，解决父子进程环境无法热感知痛点。
+  - **验证状态**：全量 363 项单元测试 100% 通过；`py -3 build.py` 打包成功；`node -c main.js` 语法验证通过；`node .dsh/skills/tabonkb-dev-context/scripts/get-context.js` 实测通过（无参/参数/模糊匹配均正常）。
+  - **执行 Agent**：Antigravity
+
+### Changed
+- **「Agent 用量」全链路精准统计与效能看板重构**：
+  - **涉及文件**：`build.py`（聚合引擎 + 看板渲染 + 热力图合流）、`pi-drawer-view.js`（回合累加器 + CJK 估算器）、`providers/antigravity-adapter.js`、`providers/niceaigc-adapter.js`（结构化 usage 回传）、`agent-session-manager.js`（历史假数据清洗迁移）、`styles.css`（四层看板令牌化样式）。
+  - **数据失真根治**：
+    1. Pi 多步工具调用 `turn_end` 覆盖缺陷 → 新增 `turnUsageAcc` 逐跳累加器（`turn_start` 重置 / `_drainTurnUsage()` 在 `finishAssistantMessage` 消费），中间工具轮次 Token 不再丢失；统一口径 `totalTokens = in + out + cacheRead + cacheWrite`、`netBillableTokens = in + out + cacheWrite`；
+    2. 假估算公式（`in=max(120,out*1.5+450)`、`cache=in*0.4`）→ CJK 感知估算器 `estimateTokensFromText`（汉字/全角 0.65、其余 0.28 tok/char）+ `estimateTurnUsageFallback`（正文+思维链+工具参数为输出，上下文链+工具回传+600 基数为输入），**绝不伪造缓存**，显式标记 `isEstimated: true`；
+    3. Antigravity/NiceAIGC 适配器新增 `_buildTurnUsage`/`_buildTurnUsageEstimate`：优先透传原生 metadata usage（`isEstimated:false`），无原生时按本轮真实载荷（prompt+多步工具交互+思维链+正文，图片 255tok/张）估算，经 `turn_end` 回传；
+    4. `modelId`/`modelName`/`reasoningEffort` 解耦落库 + `normalizeModelName()` 剥离「· 高推理」等后缀归并同名模型；内置 `MODEL_PRICING` 离线定价表（DeepSeek/GPT-6/Claude/Gemini/GLM/Qwen + 默认档）计算 `costUsd` 与 `savedByCacheUsd`；
+    5. `loadSessions()` 自动检测并清洗历史假记录（命中旧公式特征 → 归零伪缓存、按真实文本重估、标 `isEstimated`+`migratedFakeUsage`），根治 `输入+输出+缓存 > 合计`；
+    6. `collectAgentUsageStats()` 三源合流：`.chat-history.json` 内存会话 + `~/.pi/agent/sessions/<cwd编码>/*.jsonl` 原生 usage（按用户回合分组、±15s 时间窗去重、保留 `cacheWrite`/`cost`）+ `~/.dsh/storages/session_projcache/sessions/*.json`（`identity.cwd` 过滤当前工作区）；10s 内存缓存 + `mtimeMs` 增量校验，杜绝全量同步扫描阻塞主线程；
+    7. `calculateHeatmapData()` 合流 `collectAgentUsageDailyEvents()` 的按日 Agent 交互至「AI 协同」维度。
+  - **看板 UI**：四层高密度布局——头部（周期累计+环比+`总Token|净计费|工具`指标切换+周期选择+刷新）、四格 KPI（总消耗/缓存命中与降本/轮次时效/工具成功率）、主分析区（左 26% 原生内联 SVG 每日趋势柱图带悬停明细，右 74% Agent 效能排行矩阵：精确/估徽标+三段堆叠条+命中率+工具数+点击展开模型细分与 Top6 工具胶囊）、页脚（合计+精确/估算占比+等效成本+图例）；窄屏自动单列降级，全部走 `styles.css` 动态主题令牌。
+  - **验证状态**：`py build.py` 打包成功、`node -c main.js` 通过；真实数据实测——Pi 合流 60.7M tok（原生精确 99.96%）、DSH 13 个本工作区会话 27.1M、Antigravity/NiceAIGC 兜底标记估算；66 条历史假记录自动迁移清洗，`分项≤合计` 校验通过；多步 turn_end 累加（subTurns/成本/缓存写）与 CJK 估算器单测全过；二次扫描 4ms（mtime 缓存命中）；全量 383 项单元测试 100% 通过。
+  - **执行 Agent**：Devin
+
 ## [1.5.0] - 2026-10-16
 ### Added
 - **首页新增 Agent 用量额度统计栏**：
@@ -19,6 +437,11 @@
   - **新对话自动重置**：桥脚本侦测「新对话/新建对话/New Chat」按钮点击与路由回根路径两种信号 → `tabonkb-dsh-new-chat` → 宿主 `resetDshCtxSelections()` 将四项恢复默认（auto/全部/解绑/解绑）并清空 env，向 iframe 回推状态刷新徽标与胶囊；
   - **驱动开发助手预设更新**：`tabonkb-dev` persona 新增「七、会话工程上下文（「+」菜单绑定参数）」一节，说明 `TABONKB_LOCAL_PROJECT_JSON` 最高优先级事实源三级路径规则（项目专属 > 公共差分 > 原厂基线只读）、`OPENGROK_DEFAULT_PROJECT` 检索圈定、`TABONKB_JIRA_ISSUE_JSON` 工单取证链、`TABONKB_GERRIT_FILTER` 查询范围；选择落盘时同步写入这四项 env，daemon 重启后随环境变量传导至 MCP 工具链；
   - **上下文胶囊位置修正**：`.twx-chips` 由悬浮于输入框上方改为内联进 composer 底部工具栏、紧跟「完全权限」胶囊右侧 —— `findPermPill()` 定位最内层权限文本并向上爬至胶囊容器（宽<220px/高<48px 界定），`insertAdjacentElement('afterend')` 插入同一 flex 行；外观逐像素克隆该胶囊 computed style（字号/字重/颜色/背景/边框/圆角/行高/内边距），React 重渲染丢失时 MutationObserver 自动回插。
+  - **胶囊误插权限下拉菜单修复 + 图标化/去 ×**：
+    - 上一轮 `findPermPill()` 未区分工具栏胶囊与**展开中的权限下拉项**（仅可查看/工作区内修改/完全权限），当权限菜单开启时胶囊被 `afterend` 插进下拉浮层、字符混入权限控件；现新增 `insideOverlay()` 排除一切浮层内候选（祖先文本含权限选项文案或命中「+」菜单特征即弃），并对剩余候选取 `rect.top` 最大者锁定工具栏胶囊；
+    - 字体错位修复：原先从胶囊容器克隆字号字重，与标签文字元素实际渲染存在偏差；现拆分为**文字属性克隆自标签元素**（font-size/family/weight/color/line-height）、**盒型属性克隆自容器**（background/border/radius/padding），与「完全权限」严格同字体同字号；
+    - 语义图标替代彩色圆点：新增 `CHIP_ICONS` 内联 SVG 集（本地工程=文件夹、Jira=工单表单、OpenGrok=`</>` 代码、Gerrit=评审分支），stroke=currentColor 按类别着色，悬停 title 展示上下文明细；
+    - 移除胶囊上的 `✕` 清除按钮（`.t-x` 元素与样式一并删除），解除绑定改由「+」菜单面板顶部「已选」卡的清除入口承担，胶囊转为纯状态指示。
 
 ### Changed
 - **导航栏（Nav Rail）token 化重构：修复类名错配，统一 44 套皮肤观感**（选中态/悬停态 + Logo + 底部区）：
@@ -34,11 +457,188 @@
   - 移除导航按钮的原生 `title`（`build.py` 的 `renderNavRail` 改用 `attr: { 'aria-label': ... }`）：原先系统 Tooltip 与自绘 `.tw-nav-label` 同时出现、互相打架；无障碍语义由 `aria-label` 保留。
   - 悬停底色由中性灰 `--g-fill` 改为**强调色微洗** `color-mix(in srgb, var(--nav-on-fg, var(--g-blue)) 12%, transparent)`，并**取消图标 1.06 缩放**（此前缩放观感跳动）；选中项悬停改为加深自身 tint 而非混入强调色。
   - 提示浮窗重做：圆角 7px、实心 `--g-label` 底 + `--g-canvas` 字、1px 高光描边、`--pop-sh` 投影、左侧 7px 旋转方块作指示箭头，并在悬停后延迟 70ms 淡入（避免划过即闪）。
+- **DSH 智能工作台彻底移除顶部冗余微工具条（全面沉浸式对话舞台）**：
+  - **问题背景**：用户反馈 DSH 会话视窗顶部的栏位（包含状态徽标、工作区胶囊、MCP 联动按钮与控制小图标）视觉冗余，要求彻底删除；
+  - **核心修改**：
+    1. 在 `components/dsh-workbench-view.js` 的 `renderRightPane()` 中彻底移除 `this.toolbarEl` 及其子元素的 DOM 创建，置空属性防解构异常；
+    2. 在 `styles.css` 中配置 `.tw-dsh-studio-toolbar { display: none !important; }` 双重兜底；
+    3. `this.frameWrap` 与 `iframe` 100% 接管垂直舞台空间，彻底消弭视觉噪音；
+  - **涉及文件**：`.obsidian/plugins/tabonkb-workbench/components/dsh-workbench-view.js`, `.obsidian/plugins/tabonkb-workbench/styles.css`
+  - **执行 Agent**：Antigravity
+  - **验证状态**：全量 294 项单测全绿，`py build.py` 成功生成 `main.js`，`node -c` 语法检查通过，Companion API `28123` 端口热重载生效。
 - **顶栏极简优化与主题入口收敛**：
   - 移除顶部搜索框右侧的主题选择按钮（`#btnTopThemeLibrary`），保留 Agent Hub 机器人入口，减少视觉干扰；
   - 工作台 44 套主题库统一归集至左侧导航栏底部的「主题」原生按钮，快捷指令（`open-tabonkb-theme-library`）自动对齐左侧导航主题锚点。
+- **AI 助手对话框：主题 token 化 + DSH 式居中阅读列（阶段 1+2）**：
+  - **问题背景**：用户反馈 ① 对话框的主题与背景跟工作台整体不搭；② 对话框横向范围过大（1440 窗口下正文行宽约 1300px），希望参考 DSH 的对话布局。
+  - **根因（只读核查）**：
+    1. `.tw-explore-ai-pane .tw-drawer-content/header/messages/footer` 统一铺了 `--background-primary` 实色底，直接盖住工作台 canvas 渐变与毛玻璃；`.tw-explore-container` 还有 fresh 专属的 `rgba(255,255,255,0.72)` 白底；
+    2. footer / input-card / 代码块 / 行内码 / 表格存在大量硬编码 slate 灰（`#0F172A` / `#1E293B` / `#F8FAFC` / `#0D1117` / `#CBD5E1` / `#E5E7EB`）；
+    3. fresh 皮肤另有一整套约 35 条抽屉专属硬编码配色，只有 fresh 好看，其余 43 套回落灰阶；
+    4. studio 模式将抽屉设为 `width:100%`，正文只有 20px padding 且助手气泡 `width:100%`，缺少任何 measure 约束（DSH 用 `min(920px, 100% - 48px)` 居中）。
+  - **核心修改**：
+    1. **规则级裁剪**：以规则为单位移除 35 条 `.tw-theme-fresh .tw-drawer-*/tw-msg-*/代码/表格` 硬编码规则；2 条混合选择器保留其中的通用部分，避免误伤其它组件；
+    2. **背景透明化**：`explore-container` / `explore-stage-body` / `explore-ai-pane` 及其 content/header/messages/footer 全部 `background: transparent`，工作台 canvas 与壁纸直接透出；同时覆盖 fresh 的 explore 白底；
+    3. **侧边抽屉保留单层玻璃**：`background: var(--g-m1)` + `backdrop-filter: var(--g-b2)` + `1px var(--g-sep)` + token 投影，与导航轨同族（默认宽度 420px 不变）；
+    4. **改用工作台输入令牌**：输入卡 `--in-bg / --in-bd / --in-r / --in-sh`，聚焦 `--in-fc-bd / --in-fc`；header 46px 且 padding 与阅读列对齐；footer 去分隔线、透明；
+    5. **DSH 式居中阅读列**：新增 `--tw-chat-measure: min(920px, calc(100% - 48px))` 与 `--tw-chat-gutter: 24px`，messages 用 `padding-inline: max(gutter, (100% - measure)/2)` 形成居中列（不改 DOM、不动既有 `contain`/滚动优化）；composer 同宽居中；`max-width:700px` 时 gutter 12px、measure `100% - 24px`；
+    6. **气泡与富文本 token 化**：user 气泡 `--sk-tint` + `--g-edge2`，assistant 透明；代码块 `--g-m3/--g-edge2`、行内码 `--g-fill/--g-edge`、表格/过程框/历史面板/welcome/示例 chip 全部走主题令牌；
+    7. **补齐此前完全缺失的样式**：`.tw-antigravity-send-btn`、`.tw-antigravity-abort-btn`（此前是裸浏览器按钮）、`.tw-hint-text`、`.tw-tool-desc`、`.tw-tool-timer`。
+  - **涉及文件**：`.obsidian/plugins/tabonkb-workbench/styles.css`、`main.js`（重新打包）、`docs/CHANGELOG.md`
+  - **验证状态**：`py -3 build.py` 通过、`node -c main.js` 通过；浏览器探针（真实 styles.css + 真实 theme-engine）实测 —— explore 容器/AI 面板/content/header/messages/footer **全部透明**；正文列宽 **920px**、左右 padding **212px**；assistant 与 composer **左缘 x=293 完全对齐**（宽度均 920）；窄屏 430 下 gutter 12、composer 与正文同宽且 dx=0；侧边抽屉玻璃 `rgba(255,255,255,0.46)` + `blur(30px)` + 1px 描边；发送按钮 30×30 已上色；fresh / neon(dark) / coral / gruvbox-dark(dark) 四皮肤下 AI 面板与 footer 均透明、列宽恒为 920；v3 首页/探索回归、导航栏专项、主题库专项全部 PASS，零页面报错。
+  - **执行 Agent**：OpenCode (AI)
+- **AI 助手对话框 Stage 3：DSH 式会话细节 + 清理顶栏主题按钮死代码**：
+  - **会话头更薄更安静**：高度 46px → 44px，标题 12.5px，状态点缩至 6px 且隐藏文字（仅保留 `title` 语义），去掉视觉噪音；
+  - **消息节奏**：消息间距 18px → 22px；assistant 段落下边距 10px、正文行高 1.72，user 气泡上下留白收紧，长对话阅读更连贯；
+  - **工具调用/思考框降噪**：过程区头部改透明底 + 1px `--g-sep` 发丝线；工具卡改为单一扁平表面（`color-mix(--g-m2 60%)` + `--g-edge2`，去掉嵌套阴影），完成态对勾使用 `--g-green`；
+  - **composer 工具栏**：去掉内部横线，快捷键提示降为 10px `--g-label-3`，发送/中止按钮间距 6px；
+  - **欢迎区与上下文胶囊**：welcome 标题/描述改为 token 字号与颜色，示例 chip 内边距收紧；`.tw-ctx-capsule` 统一为胶囊（999px）+ `--g-fill`，激活态 `--sk-tint`；
+  - **代码块**：顶部留白 34px → 30px，视觉更紧凑；
+  - **清理死代码**：顶栏主题按钮已被「顶栏极简优化与主题入口收敛」移除，删除 `.tw-top-theme-btn` / `.tw-top-theme-dot` / `.tw-top-theme-name` 三组失效规则（保留 `.tw-agent-selector-wrap`，抽屉仍在使用）。
+  - **涉及文件**：`.obsidian/plugins/tabonkb-workbench/styles.css`、`main.js`（重新打包）、`docs/CHANGELOG.md`
+  - **验证状态**：`py -3 build.py` + `node -c main.js` 通过；探针实测 header 44px、gap 22px、assistant 行高 23.22px（1.72）、工具卡 `rgba(255,255,255,0.64)` 且 `box-shadow: none`、过程头 1px 发丝线、快捷键 10px、上下文胶囊 999px；对话框主题（v6）、首页/探索（v3）、导航栏专项、主题库专项四套回归全部 PASS，零报错。
+  - **执行 Agent**：OpenCode (AI)
+- **AI 助手发送框 DSH 化（方案 A）**：
+  - **问题背景**：用户要求发送框参考 DSH 的发送框优化；核查发现 send box 被 4 层规则叠加（基础 10px 圆角 → 探索页 16px → 输入令牌 → 旧 fresh 硬编码），控件尺寸/圆角不统一（`+` 28/r6、模型 pill r5、中止/发送 28 圆形，fresh 下又变 32），并残留 `rgba(0,0,0,.04)`、`#E2E8F0`、`#2563EB`、`#1E293B` 等硬编码色；宽度为 920（DSH 为 952）。
+  - **核心修改**：
+    1. **规则收敛**：按规则级裁剪移除 18 条 fresh/探索页发送框硬编码规则，并对 5 条混合选择器只删 fresh 部分；删除上一轮误加的 `.tw-antigravity-send-btn/-abort-btn` 死代码（真实类为 `.tw-card-send-btn` / `.tw-card-abort-btn`）；
+    2. **卡片规格（DSH 对齐）**：`width: min(952px, 100% - 16px)`（比 920 正文列两侧各宽 16px）；`border-radius: var(--in-r, calc(var(--g-r2) + 8px))`（glass/fresh/gruvbox 18px、coral 13px、neon/swiss 按皮肤保持 0 直角）；`padding: 12px 14px 10px`；内部 `gap: 8px`；表面 `--in-bg` + `--in-bd` + `--in-sh` + `--g-spec` 内高光，玻璃皮肤叠加 `--g-b2`；
+    3. **单行工具条**：去掉内部横线与多余上边距，工具栏统一 30px 高；`+` 28×28/r8 幽灵钮；模型 pill 28 高/r999/`--g-fill`/最大 160px 省略；发送 30px 圆形（`--bp-bg`）；中止 30px 圆形（`--g-red` 14% 底 + 35% 边）；
+    4. **状态令牌化**：聚焦 `--in-fc-bd` + 3px `--sk-tint` 环；禁用 `--g-fill` + `--g-label-3`；拖拽层 `color-mix(--g-m2 92%)` + 虚线 `--g-blue`；plan-bar / attachments / chips / queue 统一为 24px 胶囊、6px 间距、去分隔线；
+    5. **输入区**：textarea 13px / 1.65、最小 44、最大 200；placeholder 去掉重复的「(Enter 发送)」；拖拽把手移入卡片顶部，悬停才显示 16×3 指示条。
+  - **涉及文件**：`.obsidian/plugins/tabonkb-workbench/styles.css`、`pi-drawer-view.js`（仅 placeholder 文案）、`main.js`（重新打包）、`docs/CHANGELOG.md`
+  - **验证状态**：`py -3 build.py` + `node -c main.js` 通过；探针实测 —— 卡片 952×107、圆角按皮肤（glass 18 / fresh 18 / coral 13 / neon 0）、padding 12/14/10、gap 8；工具栏 border-top 0、30px；textarea 13px/21.45px/44–200；`+` 28×28 r8；pill 28h r999 max160；send 30×30 r999 已上色；abort 30×30 r999；禁用态 `rgba(118,118,128,.1)` + `--g-label-3`；窄屏 430 下卡片 = 容器 − 16；fresh / neon(dark) / coral / gruvbox-dark 四皮肤宽度恒 952 且表面正常。对话框（v6）、发送框（A）、阶段 3、首页/探索（v3）、导航栏、主题库六套回归全部 PASS，零报错。
+  - **执行 Agent**：OpenCode (AI)
 
 ### Fixed
+- **DeepSeek Harness 级联选项面板悬停背景闪烁、下钻左侧主菜单消失及悬停发送图标全页慢速闪烁综合修复**：
+  - **问题背景**：用户反馈 3 项交互缺陷：
+    1. 图一：鼠标放在级联选项面板（`.twx-opt`，如“62 服务器”、“31 服务器”）上面，背景会出现快速闪烁；
+    2. 图二：点击进入下一级选项后（如点击 62 服务器下钻至 workspaces），左边的主菜单大框（`+` 菜单）消失不见；
+    3. 图三：鼠标放在发送图标（右下角紫色圆形发送/终止按钮）上，整个页面会出现慢速闪烁；
+  - **根因剖析与核心修复**：
+    1. **修复图一（悬停选项背景快速闪烁）**：
+       - *根因*：`applyMenuOpacity(m)` 在每次 `scheduleScan` 时无条件重复执行 `m.style.setProperty('background', ...)` 与 `backdrop-filter`。由于修改了 `menuEl` 的 `style` 属性，触发了 `MutationObserver` 的属性监听，导致 `mo` -> `scheduleScan` -> `applyMenuOpacity` -> `mo` 陷入 40ms/25FPS 的无限循环，频繁使 Chromium 的 Backdrop Filter 渲染图层与缓存失效，肉眼呈现为背景快速闪烁；
+       - *修复*：在 `applyMenuOpacity` 中增加 `dataset.twxStyled` 状态守卫，已修饰过的菜单严禁重复写 style，彻底终结 40ms 循环；
+    2. **修复图二（点击服务器等下钻导致左侧主菜单消失）**：
+       - *根因（深入反编译 `@deepseek-ai/dsh-client-ui-input-trigger` 源码查明）*：DSH 原生在 `MenuView` 组件挂载时，在 **`document`** 上注册了捕获阶段监听器：
+         ```javascript
+         const onPointerDown = (ev) => {
+           if (!(ev.target instanceof Node)) return;
+           if (listRef.current?.contains(ev.target)) return;
+           if ((listRef.current?.closest("[data-composer-card]"))?.contains(ev.target)) return;
+           onDismiss();
+         };
+         document.addEventListener("pointerdown", onPointerDown, true);
+         ```
+         根据 W3C DOM 事件分发规范，事件在捕获阶段严格遵循 `window` ➔ `document` ➔ `<html>` ➔ `<body>` ➔ `panelEl` ➔ `target` 的遍历顺序。
+         由于自研级联面板 `.twx-panel` 挂载在 `document.body` 上，并未位于 `listRef.current` 或 `[data-composer-card]` 内部，当用户点击“62 服务器”等下钻按钮时：
+         浏览器首先执行 `document` 的捕获监听器，此时 DSH 判定目标不在其内部，**立即调用 `onDismiss()` 强行卸载了左侧主菜单 `menuEl`**；
+         而此前在 `panelEl` 上挂载的 `stopPropagation()` 处于 DOM 链末端，在捕获阶段触发顺序晚于 `document`，根本无法阻止已在 `document` 上触发的 `onDismiss()`；
+       - *修复*：
+         a) **在 DOM 捕获链顶端（`window`）建立防线**：在 `window` 上以 `useCapture = true` 注册 `pointerdown` 监听。当检测到 `e.target` 位于 `.twx-panel` 内部时，立即执行 `e.stopImmediatePropagation()`，在事件抵达 `document` 之前彻底阻断其向下传播，DSH 的 `onDismiss()` 永不被触发，左侧大框稳定驻留；
+         b) **输入与交互保障**：搜索框输入获得原生聚焦，点击项 `click` 事件正常派发并在面板内完成四级递进（服务器 ➔ 总代码路径 ➔ CPU 平台 ➔ 机型）；
+         c) **键盘 Escape 优先关闭级联面板**：在 `window` 上捕获 `Escape` 键，当 `panelEl` 打开时优先关闭面板并阻止事件穿透至主菜单；
+         d) **桥脚本幂等与热更新保障**：建立 `window._twxCtxBridgeCleanup()` 清理钩子，在 `dsh-workbench-view.js` 中重新注入时先卸载旧监听器与 DOM，彻底消除 iframe 旧代码驻留；
+    3. **修复图三（悬停发送图标全页慢速闪烁）**：
+       - *根因*：当鼠标悬停在发送/终止按钮上时，DSH 渲染浮动提示气泡 Tooltip 并修改按钮 hover 样式。全局 `mo` 未过滤 Tooltip 节点，频繁触发 `scheduleScan`。而 `scheduleScan` 中的 `findPermPill()` 原实现执行了高开销的 `document.querySelectorAll('body *')` 并遍历读取每个节点的 `innerText` 与 `getBoundingClientRect()`，强制触发全文档同步排版（Forced Synchronous Layout / Reflow），引发 Floating-UI 重定位循环，形成慢速全页重绘抖动；
+       - *修复*：
+         a) `findPermPill()` 引入 `cachedPermAnchor` 缓存，仅当锚点丢失时才检索，且限制仅扫描 `button` 元素并以不触发重排的 `textContent` 替代 `innerText`，扫描开销归零；
+         b) `mo` 全面过滤 `[role="tooltip"]`、`[class*="bubble"]`、发送按钮区域与正文/代码块微小样式变动，彻底杜绝悬停引起的无谓全局扫描；
+  - **涉及文件**：`.obsidian/plugins/tabonkb-workbench/services/dsh-daemon-manager.js`
+  - **执行 Agent**：Antigravity
+  - **验证状态**：全量 294 项单测 100% 通过，`py build.py` 编译成功，`node -c` 语法检查零错误，Companion API `28123` 端口热重载即时生效。
+- **DeepSeek Harness「+」菜单上下文滑动后隐藏项 Ghost 占位空白与底部裁剪缺陷修复**：
+  - **问题背景**：用户反馈在「+」菜单中滑动「上下文」分组后出现异常（截图显示「上下文」标题与 Gerrit 之间出现约 46px 巨大空白区域，且紧随其后的 Jira 工单被底部截断半截）；
+  - **根因剖析**：
+    1. CSS 层叠冲突：此前 `.twx-item` 带有 `display: flex !important; min-height: 34px !important; height: 34px !important; padding: 6px 8px !important;`，由于它声明在样式表中较后位置，导致即使子项被标记为 `data-twx-hidden="true"`，其 `display: none !important;` 与高度清零属性仍被 `.twx-item` 的 `!important` 覆盖。隐藏项仅获得了 `opacity: 0; visibility: hidden;`，但依然占据 46px 实体高度，沦为一个完全透明的“幽灵占位块”（Ghost block）；
+    2. 累积高度超限：幽灵占位块推挤后续正常项（Gerrit / Jira），使整卡高度超出原设定的 `max-height: 320px` 边界，导致位于卡片底部的 Jira 工单被直接裁切；
+  - **核心修复**：
+    1. **清除 `.twx-item` 属性上的 `!important` 污染**：使子项的基础高度与 flex 布局能够被隐藏规则正常接管；
+    2. **终极隐藏规则提权与末尾兜底**：在 `CSS` 数组最末尾注入最高特异性选择器 `[data-twx-hidden="true"],.twx-item[data-twx-hidden="true"],._3e4SsG_item[data-twx-hidden="true"],button[data-twx-hidden="true"]`，并在 `updateGroupVisibility()` 中通过 Element 内联样式 `item.style.setProperty('display', 'none', 'important')` 双保险清零高度、内边距与外边距，彻底消灭幽灵占位；
+    3. **自适应 Headroom 宽限**：将 `.twx-plus-menu` `max-height` 扩展至 `380px !important`，提供充足弹性空间，杜绝高 DPI / 缩放场景下的底部切边；
+    4. **滚轮坐标命中增强与原生 scrollTop 零漂移保障**：滚轮监听新增 `clientY` 分组判定回退，并在每次滑动或显示更新时强制复位 `listbox.scrollTop = 0`，防止原生容器微幅抖动；
+  - **涉及文件**：`.obsidian/plugins/tabonkb-workbench/services/dsh-daemon-manager.js`
+  - **执行 Agent**：Antigravity
+  - **验证状态**：全量 294 项单元测试 PASS，`build.py` 编译与 `node -c` 语法检查通过，Companion API `28123` 端口热重载生效。
+- **DeepSeek Harness「+」主菜单彻底重构为「添加 / 指令 / 上下文」真三组并列体系与 2 项对称视口（数据属性驱动无损切换与独立滚轮滑动）**：
+  - **问题背景**：用户指出修改“不符合设计预期”并上传现场截图。排查实测 DOM 查明根因：DSH 原生菜单（`MenuView`）在 `div[role="listbox"]` 内部将标题（`_3e4SsG_sectionTitle`）与按钮（`button._3e4SsG_item`）直接以扁平兄弟节点渲染，不存在原生的 `[data-menu-group]` 标签。之前 CSS 仅命中了我们注入的第三组「上下文」，导致「添加」展开 4 项、「指令」展开 4 项，仅「上下文」被限高为 2 项并出现突兀滚动条与白底横条，严重割裂且整卡高度超过 360px；
+  - **核心修复**：
+    1. **真实扁平 DOM 架构解析与三组统一识别**：在 `injectGroup` 中直接扫描 `div[role="listbox"]` 的直接子节点序列，按标题（`添加`、`指令`）精准分类出原生 `add`（文件、目标、计划、反馈）与 `cmd`（压缩、权限、模型、下载日志），并同构注入第三组 `ctx` 标题（`_3e4SsG_sectionTitle twx-sec-title`）与 4 个完全复刻原生规范的子项按钮（`_3e4SsG_item twx-item`）；
+    2. **数据属性驱动的 2 项限高视口（`[data-twx-hidden="true"]`）**：彻底规避直接包装 `<div>` 导致 React 18 reconciliation 节点类型不匹配（tag mismatch）与 `onHover` 重新挂载产生的严重闪烁问题；通过无侵入的 `data-twx-hidden="true"` 控制子项显示/隐藏，React 仅更新自身属性而不会触碰外部自定义 data 属性，实现 100% 免闪烁、零 DOM 层级冲突；
+    3. **三组默认严格只显 2 项**：打开时 `groupOffsets = { add: 0, cmd: 0, ctx: 0 }`，三组默认均仅展示前 2 个子项（「添加」展示文件/目标，「指令」展示压缩/权限，「上下文」展示 OpenGrok/Gerrit）；整卡高度稳定收敛至 ~278px，三组视觉高度与权重完全对称；
+    4. **鼠标悬停选定区域独立滑动下拉**：全局 `wheel` 侦测精准识别鼠标悬停的所属分组（支持标题或任意子项区域定位），滑动滚轮下拉平滑递进 `groupOffsets[grp]`，实时切换至下一对子项（如目标/计划、计划/反馈），阻断外层视口滚动；
+    5. **极简微角标与键盘联动**：各分组标题右侧渲染极简 monospace 标签 `1-2/4`（点击即切换上下半区）；挂载 `keydown` 方向键联动，当用户上下键高亮超出可见 2 项时自动随动滚动；
+    6. **纯净无缝质感**：移除突兀白底横条，统一使用 0.5px 极细分隔线；`div[role="listbox"]` 外廓 `overflow: hidden`，彻底消除所有冗余滚动条与外层白边。
+  - **执行 Agent**：Antigravity
+  - **验证状态**：294 项全量单测全绿，`py build.py` 成功生成 `main.js`，`node -c` 语法检查零错误，Companion API `28123` 端口热重载即时生效。
+- **DeepSeek Harness 「+」主菜单重构为单一卡片三组并列体系（添加/指令/上下文）并支持默认 2 项限高与悬停独立滚轮滑动**：
+  - **问题背景**：用户反馈一级弹出菜单不应割裂成上下两大部分（上方原生「添加+指令」白卡片，下方外挂独立的「上下文」卡片）；且菜单项全量铺开时纵向过长挤占屏幕，导致下方「指令」被截断。建议统一划分为「添加」、「指令」、「上下文」三大并列分组，默认各仅显示 2 个子项，当鼠标悬停在指定分组位置时，通过滑动滚轮下拉查看该组剩余子项。
+  - **核心修复**：
+    1. **消除双层卡片割裂，彻底合一**：重构注入逻辑，`blk` 改为标准 `<section role="group" data-menu-group="" class="twx-ctx-group">`，直接注入至原生两组（`[data-menu-group]`）的共同父容器（`.viewport`）中；移除对 `m.parentElement` 的冗余背景注入与双层卡片边框阴影，使「添加」、「指令」、「上下文」作为 3 个同级 `<section>` 完美融入同一张毛玻璃浮层卡片；
+    2. **三组默认统一限高 2 子项（92px 精准视口）**：针对 `[data-menu-group]` 容器应用 `max-height: 92px !important; overflow-y: auto !important;`（标题 22px + 2 项 68px + 2px 留白），默认状态下三组均精确展示前 2 个子项（「添加」展示文件/目标，「指令」展示压缩/权限，「上下文」展示 OpenGrok/Gerrit）；总高度仅 ~280px，卡片精简紧凑，绝不超出视口或产生整卡截断；
+    3. **分组独立平滑滚动与滚轮精准捕获**：
+       - `[data-menu-group]` 样式配置 `overscroll-behavior: contain !important; scroll-behavior: smooth !important;` 与 3px 极简微胶囊滚动条（轨道透明，悬停加深）；
+       - 标题 `[data-menu-group-heading]` 设定 `position: sticky; top: 0; z-index: 10;` 及不透明底色，下滚时吸顶并优雅遮罩上滚子项；
+       - 全局挂载非被动式（`passive: false`）`wheel` 滚轮委托：当鼠标悬停在任一 `[data-menu-group]` 上滑动滚轮时，优先且平滑驱动当前分组自身 `scrollTop += e.deltaY` 并 `e.stopPropagation()`，彻底隔绝外层容器抖动；
+       - 每次打开菜单自动重置所有分组 `scrollTop = 0`，确保永远保持默认 2 项的整洁起始态。
+  - **执行 Agent**：Antigravity
+  - **验证状态**：288 项全量单测 PASS，build.py 编译成功，node -c 校验通过，Obsidian Companion API 热重载生效。
+- **DeepSeek Harness 「+」菜单与二级配置浮窗背景透明度极简化（不透明度提升至 97%）彻底阻断底层长对话穿透重叠**：
+  - **问题背景**：用户反馈在长对话/大量数据报文流经时，点击「+」呼出一级菜单与二级级联配置面板（本地工程/Jira 等），由于原背景仅有 ~82% 不透明度（18% 透明度），底层的电池规格、长串对话文本从毛玻璃浮窗底层明显穿透出来，与浮窗内选项和文字产生重叠交错，严重干扰阅读。
+  - **核心修复**：
+    1. **静态 CSS 规则多选择器穿透提权**：在 `getDshContextBridgeScript()` 的内置样式表中，将浅色模式下 `.twx-panel`、`div:has(> .twx-ctx-block)`、`div:has(> * > .twx-ctx-block)` 以及 `.twx-plus-menu` 的背景由 `rgba(255,255,255,.82)` 提升为 `rgba(255, 255, 255, .97) !important;`；暗色模式下由 `rgba(28,28,32,.85)` 提升为 `rgba(26, 26, 30, .97) !important;`；
+    2. **高斯模糊与饱和度提效**：`backdrop-filter` 统一提升至 `blur(28px) saturate(180%) !important;`，在保持 3% 微弱透光环境融合感的同时，将透入的光线彻底弥散为纯净背景光，彻底滤除底层文字笔画轮廓；
+    3. **JS 动态节点注入通道双重保障**：新增 `applyMenuOpacity(m)` 辅助函数，在 `pickMenu` 发现目标或 React 重新渲染注入时，为原生菜单节点及绝对定位父容器动态打上 `.twx-plus-menu` 类名并以 JS 内联方式赋上 `!important` 97% 不透明底色，确保无论 DSH 内部 DOM 树如何动态重建，底色始终压实。
+  - **执行 Agent**：Antigravity
+  - **验证状态**：288 项全量单测 PASS，build.py 编译成功，node -c 校验通过，Obsidian Companion API 热重载生效。
+- **DeepSeek Harness 上下文二级选择浮窗面包屑导航栏字体正常化、色彩调和与文案极致精简**：
+  - **问题背景**：用户反馈二级浮窗下钻进入代码路径或平台时，顶栏导航区（`< 服务器  62 服务器 (18 套代码)`）视觉与文案体验欠佳：1) 返回按钮使用了 `<i>` 标签，导致在非英文字体下呈现为扭曲的斜体（Italic），且使用了突兀的电光蓝高饱和度硬编码；2) 导航栏同时出现两次“服务器”，文案啰嗦重复，且带有冗余的说明性括号后缀（如“18 套代码”），在 280px 紧凑浮窗内挤占横向空间。
+  - **核心修复**：
+    1. **文案极致精简与去冗余**：移除“服务器”双重堆叠与“xx套代码/xx个平台”多余解释，返回按钮精简为统一标准的 `‹ 返回`；标题直显当前下钻层级的核心上下文（第二层直接显示 IP 如 `192.168.1.62`、第三层显示代码目录如 `01`、第四层显示平台如 `mt6789`），信息密度克制干净；
+    2. **字体与排版正常化**：将 `<i>` 标签彻底替换为 `<span>`，并通过 `.twx-back i, .twx-back span { font-style: normal !important; }` 根治斜体缺陷；标题字体降为轻盈的 500 字重，IP 优先使用等宽字体族回退（`ui-monospace, SFMono-Regular, Menlo`），严谨工整；
+    3. **色彩融入暗亮双模体系**：返回按钮告别刺眼高蓝，采用中性次要色（浅色 `#64748b`、深色 `#94a3b8`），悬停时呈现轻柔圆角微底色（`rgba(128,128,128,0.08)`）；标题对齐主文本色（浅色 `#111827`、深色 `#f3f4f6`），整体与毛玻璃界面浑然一体。
+  - **执行 Agent**：Antigravity
+  - **验证状态**：288 项全量单测 PASS，build.py 编译成功，Obsidian 热重载生效。
+- **DeepSeek Harness 上下文二级选择浮窗搜索框通透化、真实 IP 展示与右上角无框「✕」清除按钮极简化**：
+  - **问题背景**：用户反馈二级浮窗（本地工程/Jira）三处细节体验不协调：1) 搜索框获取焦点时背景变为刺眼纯白（95% 不透明），破坏毛玻璃整体感，且外发光仍为粗糙高亮蓝；2) 本地工程元数据中「62服」表述口语化、生硬且指意不明；3) 「清除」操作为带边框带文字的冗余方块按钮，与卡片极简美学脱节且摆放位置不协调。
+  - **核心修复**：
+    1. **搜索框全态通透毛玻璃化**：移除 `:focus-within` 下死白实心背景，改用浅色 `rgba(128,128,128,0.1)` / 暗色 `rgba(255,255,255,0.08)` 高透轻底，配合淡雅薄荷绿焦点光晕（`box-shadow: 0 0 0 2px rgba(16,185,129,0.12)`）与微柔边框，聚焦时面板毛玻璃质感浑然一体；
+    2. **工程服务器全面升级为直显真实 IP**：彻底替换全局搜索标签、首层已选卡片及平台下钻列表中的「xx服」文案，动态提取绑定的真实 IP 地址（如 `192.168.1.62` / `192.168.1.31`），格式升级为 `01 · mt6789 · 192.168.1.62`；同步更新 `local-project-service.js` 的 `shortDesc`；
+    3. **无框纯图标「✕」清除按钮与右上角极简锚定**：移除 `<span>清除</span>` 冗余文字与按键边框，清除入口转为 18×18px 极简无框矢量单色叉号；采用绝对定位锚定在「已选」卡片右上角（`top: 6px; right: 6px;`），与顶行首部的「已选」徽标和标题严格同轴垂直居中；卡片内边距右侧增加保护间距（`padding-right: 26px`），悬停呈现淡雅危险红轻圆底，完全符合极简交互规范。
+  - **执行 Agent**：Antigravity
+  - **验证状态**：288 项全量单测 PASS，build.py 编译成功，Obsidian 热重载生效。
+- **DeepSeek Harness 底部上下文胶囊鼠标悬停背景闪烁根除**：
+  - **问题背景**：用户反馈当鼠标悬停在底部上下文胶囊（如 `01/A300H`）上时，下方的背景会出现高频闪烁（Flicker）。
+  - **根因分析**：
+    1. **DOM 节点高频重建与 Hover 态丢失**：`scheduleScan()` 每次由 DOM 变动触发时都会无条件执行 `chipsEl.innerHTML = html`。当鼠标指针悬停在胶囊上时，旧 `<button>` 节点被销毁并重建，导致浏览器的 `:hover` 伪类丢失并重新触发，形成 25Hz 高频闪烁；
+    2. **MutationObserver 递归重入**：`MutationObserver` 未过滤自身注入的 `.twx-chips` / `.twx-panel` / `.twx-ctx-block` 节点的微突变，悬停触发属性/Tooltip 变动导致 observer 误捕获并再次调度 `scheduleScan`，陷入重渲染死循环；
+    3. **布局重排抖动**：`.twx-chips` 缺少 `flex: none` 与硬件加速，DOM 重建过程中短暂宽度波动引发工具栏容器回流抖动。
+  - **核心修复**：
+    1. **HTML 缓存对比阻断无意义重绘**：在 `updateCtxChips()` 中增加 `if (chipsEl._lastHtml !== html)` 守卫，仅当绑定内容真实变化时才写入 `innerHTML`；内容不变时保持 DOM 树与 Hover 态绝对稳定；
+    2. **过滤内部突变打破事件闭环**：在 `MutationObserver` 顶层增加 `if (tgt.closest && (tgt.closest('.twx-chips') || tgt.closest('.twx-panel') || tgt.closest('.twx-ctx-block'))) continue;`，彻底隔绝组件内部悬停与状态变化触发扫描；
+    3. **硬件加速隔离层**：`.twx-chips` 增加 `flex: none` 锁定布局尺寸，`.twx-chip` 增加 `transform: translateZ(0)` 独立复合图层，彻底杜绝悬停背景重绘渗透。
+  - **执行 Agent**：Antigravity
+  - **验证状态**：262 项全量单测 PASS，build.py 编译成功，Obsidian 热重载生效。
+- **DeepSeek Harness 上下文二级选择浮窗背景、排版与「清除」按钮主题深度对齐**：
+  - **问题背景**：用户反馈二级配置浮窗（本地工程/Jira）视觉体验不佳：1) 浮窗背景为纯死白（`Canvas`），缺少 DSH 父级菜单的半透明毛玻璃质感，阴影沉重且边框生硬；2) 搜索框获取焦点时出现系统默认刺眼蓝框；3) 「已选」卡片排版混乱，工程名与详情参数堆叠在一行挤占空间导致末尾字符被折断分行（如“服”字被挤到下一行）；4) 「清除」按钮为粗糙的灰色小块，风格与主题严重脱节。
+  - **核心修复**：
+    1. **半透明毛玻璃面板（Frosted Glass Acrylic）**：浮窗背景重构为 `background: var(--dsw-alias-panel-bg, rgba(255, 255, 255, 0.82))` 叠加 `backdrop-filter: blur(24px) saturate(180%)`，配合圆角 12px、微柔边框与多层环境柔和弥散阴影，与 DSH 原生主菜单 1:1 融为一体；面板宽度由 262px 舒展至 280px；
+    2. **搜索输入框胶囊化与消除蓝框**：新增 `.twx-search-box` 胶囊容器，内置 13px 单色搜索 SVG 图标，输入框彻底置空 `border/outline/box-shadow`，聚焦时由外层胶囊提供优雅的柔蓝光晕（`box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15)`）；
+    3. **「已选」卡片双行结构化排版**：顶行左侧呈现绿色「已选」徽标与加粗高亮工程/工单标题，右侧并列「清除」操作项；底行整行舒展展示所在服务器、平台及代码路径等元数据，行首缩进对齐，彻底消除文字挤断与换行杂乱；
+    4. **「清除」操作按钮主题化重塑**：淘汰灰色生硬小块，升级为极简内联交互胶囊按钮，配以 10px 细线 SVG 叉号与“清除”文字；常态呈现低对比度次级中性色，悬停时平滑渐变至低饱和度警示红底（`rgba(239, 68, 68, 0.08)`）与红字，交互语义明确且自然融入 DSH 界面风格；
+    5. **矢量图标与暗色模式深度适配**：下钻箭头 `›`、单选勾选 `✓`、返回按钮 `‹` 全部重构为 12~13px 细线单色 SVG；全面适配 `@media (prefers-color-scheme: dark)` 与 `.dark` 主题。
+  - **执行 Agent**：Antigravity
+  - **验证状态**：262 项全量单测 PASS，build.py 编译成功，Obsidian 热重载验证。
+- **DeepSeek Harness 底部工具栏上下文胶囊视觉一致性对齐与交互打磨**：
+  - **问题背景**：输入框底栏工程上下文胶囊（`05-UW/GP801H`、`SPE123-199`）文字颜色为纯黑（`rgb(29, 29, 31)`），与工具栏其他次要文字（如「[盾牌] 完全权限 ∨」灰字 `rgb(81, 81, 84)`）严重脱节；且原先采用黄色/蓝色彩色内联图标，尺寸仅为 11×11px，风格如 Emoji，与 DSH 原生 14×14 单色线性矢量图标完全不协调；胶囊为不可点击静态 span。
+  - **核心修复**：
+    1. **色彩与字体规范对齐**：移除 `updateCtxChips()` 中粗糙的 `getComputedStyle(cand)` 动态计算（此前抓到外层未设色节点退化为默认纯黑），转由 CSS 声明原生 DSH 设计令牌 `color: var(--dsw-alias-label-secondary, var(--dsw-text-secondary, var(--ds-text-secondary, #515154)))` 与 `font-family: inherit; font-size: 13px; font-weight: 500; line-height: 20px;`；暗色模式自动回退 `#9ca3af`；悬停背景与文字高亮 `var(--dsw-alias-interactive-bg-hover)` 与 `var(--dsw-alias-label-primary)`，与「完全权限」触发器达到 100% 视觉契合；
+    2. **图标单色线性化**：将 `CHIP_ICONS`（本地工程/Jira/OpenGrok/Gerrit）全量规范化为 14×14 像素单色线性矢量 SVG（`stroke: currentColor`，`fill: none`，`stroke-width: 1.3`），彻底去除彩色硬编码；
+    3. **可点击交互闭环**：胶囊元素升级为标准 `<button type="button" class="twx-chip">`，增加手型光标与点击事件委托，点击胶囊可直接在其正上方（+6px）呼出对应维度的毛玻璃级联配置/切换面板；
+    4. **权限胶囊定位增强**：`findPermPill()` 增加 `button` 容器向上捕捉与多语言正则（`/(权限|permission|full\s*access|read\s*only|workspace\s*write)/i`），确保精准插入工具栏同一行。
+  - **执行 Agent**：Antigravity
+  - **验证状态**：单测 262 项全绿，build.py 编译通过，Obsidian 热重载生效。
 - **左侧导航栏双层悬停浮窗重叠冲突根除**：
   - **根因**：Obsidian 内置 Tooltip Manager 会抓取带有 `aria-label` 的 DOM 节点并生成底层长条黑色原生浮窗，与工作台自研纯 CSS 悬停气泡 `.tw-nav-label` 重叠遮挡；
   - **修复**：从 `build.py` 的导航按钮组（tabs、`btnTheme`、`btnSettings`）中彻底移除 `aria-label` 属性，彻底消除底层长条黑框。
@@ -104,6 +704,26 @@
   - 实测结果: 针对具体改动的功能验证结论
 - **执行角色**: Antigravity / <Agent Role>
 ```
+
+### [2026-10-17 16:30] refactor(agent-usage): 「Agent 用量」全链路精准统计与四层效能看板重构（B-20261017-USAGE-DASH-01）
+- **变更类型**: `refactor` | `fix` | `feat`
+- **涉及文件**:
+  - `build.py`（`collectAgentUsageStats` 三源合流聚合引擎、`renderAgentUsageCard`/`updateAgentUsageCard`/`_auTrendSvg` 四层看板渲染、`collectAgentUsageDailyEvents` 热力图合流、`normalizeModelName`/`_auModelPricing`/`_auLedgerScan`/`_auParsePiJsonl`/`_auParseDshSession` 账本管线）
+  - `pi-drawer-view.js`（`turnUsageAcc` 逐跳累加器、`_accumulateTurnUsage`/`_drainTurnUsage`、`estimateTokensFromText`/`estimateTurnUsageFallback` CJK 估算器、落库 `modelId/modelName/reasoningEffort` 解耦、用量浮窗扩展字段）
+  - `providers/antigravity-adapter.js`（`_turnUsageTrack` 载荷跟踪 + `_buildTurnUsage` 原生/估算结构化回传）
+  - `providers/niceaigc-adapter.js`（SSE metadata 原生 token 捕获 + `_buildTurnUsageEstimate` 兜底估算）
+  - `agent-session-manager.js`（`_migrateLegacyFakeUsage` 历史假公式记录自动清洗迁移）
+  - `styles.css`（`.tw-au-*` 四层看板样式全量重写：KPI 格/趋势 SVG/排行矩阵/展开明细/页脚图例 + 窄屏降级）
+- **问题与背景**: 首页「Agent 用量」存在 6 项数据失真——Pi 多步工具调用 `turn_end` 覆盖丢中间轮次 Token；假估算公式凭空捏造 40% 缓存且 `in+out+cache>total`；Antigravity/NiceAIGC 依赖同源假估算；模型名与思考档位混存致模型行重复；历史假数据持续污染统计；Pi 原生 `.jsonl` 与 DSH 会话账本未纳管；热力图「AI 协同」维度缺失真实 Agent 活动。UI 侧三段横条列表信息密度低、无趋势/环比/成本/精确度维度。
+- **核心修改逻辑**:
+  1. 采集层：`turn_start` 重置 `turnUsageAcc`，`turn_end`/`agent_settled` 逐跳 `_accumulateTurnUsage`（兼容 `input/prompt_tokens/inputTokens`、`cacheRead/prompt_cache_hit_tokens`、`cacheWrite`、`reasoning`、`cost.total` 全别名），`finishAssistantMessage` 经 `_drainTurnUsage` 统一口径落库（`totalTokens=分项合计`、`netBillableTokens`、原生 `costUsd`、`subTurns`、`isEstimated:false`）；无原生回传走 `estimateTurnUsageFallback`（正文+思维链+工具参数估输出、上下文链+工具回传+600 基数估输入、缓存严格置 0、`isEstimated:true`）；Antigravity/NiceAIGC 适配器透传原生 metadata 或按本轮真实载荷估算并经 `turn_end` 回传结构化 usage；
+  2. 数据层：`loadSessions` 检测旧假公式特征记录并迁移清洗（缓存归零、按真实内容重估、标记迁移）；`collectAgentUsageStats` 合流会话历史 + Pi 原生 jsonl（cwd 编码目录、用户回合分组、±15s 去重、原生 cacheWrite/cost）+ DSH session_projcache（`identity.cwd` 过滤），10s 内存缓存 + `mtimeMs` 增量校验零阻塞；
+  3. 展示层：四层看板——头部指标切换/环比/周期/刷新，KPI 四格，左趋势 SVG + 右排行矩阵（精确/估徽标、堆叠条、命中率、展开模型/Top6 工具），页脚合计+精确度占比+等效成本+图例；
+  4. 热力图：`calculateHeatmapData` 并入按日 Agent 用量事件至「AI 协同」维度。
+- **构建与验证**:
+  - 打包命令: `python build.py` ✓ | 语法校验: `node -c main.js` ✓（`pi-drawer-view.js`/两适配器/`agent-session-manager.js` 单独 `node -c` 均通过）
+  - 实测结果: 真实数据合流——Pi 60.7M tok（原生精确 57.3M + 历史真实记录回归 exact）、DSH 13 会话 27.1M（cwd 过滤正确）、Antigravity 511k/NiceAIGC 9.6k 标估；66 条历史假记录迁移、`分项≤合计` 通过；多步 turn_end 累加单测 8/8 通过（subTurns=3、成本累计、缓存写保留）；账本二次扫描 4ms（mtime 命中）；全量 383 项测试套件 100% 通过。
+- **执行角色**: Devin
 
 ### [2026-10-16 14:00] feat(release): 发布 TabonKB Workbench v1.5.0 整体架构与功能迭代
 - **变更类型**: `feat` | `refactor`
@@ -5239,3 +5859,399 @@
   - `node docs/test_runner.js` 新增 Suite 22 单测，262 项全量 PASS；
   - Companion Server `reload-plugin` 热重载生效。
 - **执行 Agent**：Antigravity
+
+### [2026-10-16 15:30] fix(drawer-mount): 页签切换/文件变动重绘导致在途 Agent 任务气泡消失、流事件触发空泡从 1 秒重新计时——DOM 复用挂载 + 同域 4 缺陷根治
+- **时间与类型**：2026-10-16 15:30（上海时区），fix。
+- **涉及文件**：
+  - `pi-drawer-view.js`
+  - `build.py`
+  - `main.js.bak`
+  - `components/explore-view.js`
+  - `styles.css`
+  - `docs/test_runner.js`
+  - `main.js`（build.py 重新打包生成）
+  - `docs/CHANGELOG.md`
+- **问题背景**：用户实测在 Agent 任务执行中切换工作台页签（或 Agent 写文件/附件落盘触发 vault `create/modify/delete`/`resolved` 事件驱动 `refreshVaultDocs`→`render()`）后，正在流式渲染的对话气泡瞬间消失（观感「任务断开」），随后出现全新「正在处理...，用时 1秒」空泡从头计时（观感「重新执行」），且完成后落库的消息为 `thinking=''`、steps 空壳的半截残缺数据。
+- **根因分析**：
+  1. `setActiveTab()`→`render()`→`container.empty()` 销毁整棵 DOM，随后 `agentDrawer.mount()` **无条件** `buildDom()` 新建 `messagesEl`——在途气泡节点连同 `currentAssistantMessage`、`activeToolCards`、`bannerTimer` 一并被 GC；`restoreSessionMessages()` 又无条件将其置 null 且只恢复已落库消息（在途回复仅 `finishAssistantMessage` 才写库）；
+  2. 底层 CLI 子进程从未中断（切页链路上无任何 `abort/stop/switchAgent` 调用），下一个 `thinking_delta`/`text_delta`/`tool_start` 到达时发现 msg 为 null → `createAssistantMessageBubble()` 新建 `startTime=Date.now()` 的空泡 → 视觉即"任务断开+重新执行"；切页前启动工具的 `tool_end` 因 `activeToolCards` 已清空而静默丢弃。
+- **核心修改逻辑**：
+  1. **`mount()` 改 DOM 复用 + 宿主形态/显隐状态机**（`pi-drawer-view.js`）：`drawerEl` 已存在时直接 `parentEl.appendChild` 复用（不再 `buildDom`），`messagesEl`/`currentAssistantMessage`/`activeToolCards`/banner 计时器/滚动位置/输入内容 100% 保留；仅首次构建、或消息区确为空且无在途回复/非流式时才 `restoreSessionMessages()`；按宿主 `.tw-explore-ai-pane` 判定 studio 全宽内嵌 vs 普通右侧抽屉形态，新增 `this._normalDrawerOpen` 专记普通页真实开合态（与 studio 强制开解耦），`open()/close()` 在非 studio 时同步维护——根治从探索页切回普通页 `isOpenState` 残留 `true` 导致首次点击顶栏机器人按钮 `toggle()` 空转的既有缺陷；
+  2. **`buildDom()` 内 5 处 `document.addEventListener` 泄漏封堵**：新增 `this._docEventsAbort`（buildDom 入口先 abort 旧信号再新建），Agent 选择器 click、模型浮窗 click+keydown、选项浮窗 click+keydown 全部挂 `{ signal }`，杜绝每次 mount 泄漏 5 个全局 handler；
+  3. **消除探索页单次 `render()` 二次挂载**（`build.py`）：`activeTab==='explore' && getExploreSubTab()==='ai'` 时跳过 `layout` 挂载，交由 `renderAiSubView` 直接挂 aiWrap；
+  4. **`ExploreView` 实例复用**（`build.py` `renderExploreTab`）：`this.exploreView` 已存在则复用实例仅 `mount(stage)`，保留 `liveSearchResults`/`selectedSources`/`expandedCardIds` 内存态，切页回来不再因缓存为空触发 `executeInSituSearch()` 重发官网检索；
+  5. **`setSubTab` 离开 ai 子页安全迁移**（`components/explore-view.js`）：切到 search/notion 前先把 `agentDrawer` 挂回 `.tabonkb-workbench-layout`（docked 态），避免 `containerEl.empty()` 把 `drawerEl` 悬浮出文档树；
+  6. **`refreshVaultDocs()` 流式守卫**（`main.js.bak`）：`agentHub.isStreaming()` 或 `agentDrawer._sendInFlight` 为真、或当前非 home 页签时仅更新 `realDocs`/`graphData` 数据跳过全量 `render()`，杜绝 Agent 写文件/图片附件落盘引发界面重建；
+  7. **幽灵吸顶条修复**（`styles.css`）：删除 21558 行块内 `.tw-sticky-question` 无条件 `display: flex !important`（与 4059 行默认 `display:none` + `.visible` 态冲突），根治无吸顶提问时消息区左上角常驻「蓝竖线 + 空白横条」。
+- **验证状态**：
+  - `py build.py` 重新打包通过；
+  - `node -c main.js` / `node -c pi-drawer-view.js` / `node -c components/explore-view.js` / `node -c main.js.bak`(转存校验) 全部通过；
+  - `node docs/test_runner.js` **288/288 全量 PASS**：新增 Suite 23（DRAWER-MOUNT-01/02/03）26 项断言——场景 A 模拟 `turn_start→thinking_delta→tool_start` 流式中连续 `explore→home→tasks→explore` 四次 `mount()`，断言 drawerEl 同一引用复用、`currentAssistantMessage`/`activeToolCards` 不丢、`sessionManager` 最终恰好落库 1 条含完整思考链+工具记录+正文的 assistant 消息；场景 B 断言 studio↔普通宿主形态切换、`_normalDrawerOpen` 状态机与首次 `toggle()` 不空转；场景 C 断言 `_docEventsAbort` 信号挂载恰好 5 个 document 监听、二次 buildDom 旧信号全部 abort，以及 `.tw-sticky-question` 无条件 flex 已移除。
+- **执行 Agent**：Devin。
+
+### [2026-10-16 16:47] fix(drawer-restore): 孤儿回合中断提示标记——插件热重载/进程被杀导致在途回复未落库时，恢复后消息末尾渲染极简分隔条
+- **类型**：fix
+- **涉及文件**：`pi-drawer-view.js`、`styles.css`、`docs/test_runner.js`、`main.js`（重新打包）
+- **问题背景**：15:51 发送的 Pi 任务在 15:55 被插件热重载中断（并行会话改动 `dsh-daemon-manager.js` 触发 Companion API 重载，整个插件 JS 上下文销毁，Pi CLI 子进程被 SIGTERM 终止）；Pi 侧 transcript `01a143b1.jsonl` 在 15:55:27 戛然而止（半截 toolResult，无 `agent_end`）。由于在途 assistant 消息只在回合结束 `finishAssistantMessage()` 时才落库，`.chat-history.json` 该会话仅存 user 一条；重载后 `restoreSessionMessages` 恢复出的消息区只剩孤零零的提问，下方空空一片，无任何提示。
+- **核心修改逻辑**（不改任何执行逻辑，仅恢复时检测+渲染）：
+  1. `pi-drawer-view.js` 新增 `_renderInterruptHintIfOrphaned(messages)`：在 `restoreSessionMessages()` 渲染完历史消息后判定"孤儿回合"——末条为未应答的 `user`，或完全空壳的 `assistant`（`text`/`thinking`/`toolCalls` 皆空且 `processSteps` 全空壳），则在消息区末尾追加 `<div class="tw-interrupt-marker"><span>上次回复已中断</span></div>`；
+  2. 三重防误标守卫：`currentAssistantMessage` / `_sendInFlight` / `hub.isStreaming()` 任一成立即跳过，流式进行中绝不误标；
+  3. 标记为纯 DOM 层元素，不写入 `sessionManager`，下次 `restoreSessionMessages` 先 `innerHTML=''` 重建不残留重复；
+  4. `styles.css` 新增 `.tw-interrupt-marker`：左右细发线夹置中小字（`--text-faint`/`--background-modifier-border` 主题令牌），极简低视觉权重、明暗主题自适应。
+- **遗留评估**：`onunload`/`onClose` 目前只销毁 `agentBridge`，`agentHub` 各 adapter 的桥进程不在 unload 路径——补齐为可选的卫生性清理（`agentHub.destroy()` 一行调用，`bridge.destroy()` 已有 `process.killed` 幂等守卫），可防孤儿 CLI 进程累积；经评估副作用极小，按用户要求本次未改动，留待需要时实施。
+- **验证状态**：
+  - `node docs/test_runner.js` **294/294 全量 PASS**：新增 DRAWER-MOUNT-04 场景 6 项断言——①末条为未应答 user 的会话恢复后渲染标记且位于列表末尾；②空壳 assistant 尾部同样触发标记；③正常收尾会话不误标；④`isStreaming` 进行中不误标；⑤标记不落库。
+  - `py build.py` 重新打包通过（`main.js` 已含 `_renderInterruptHintIfOrphaned`）；
+  - `node -c main.js` / `node -c pi-drawer-view.js` 语法校验通过。
+- **执行 Agent**：Devin。
+
+### [2026-10-16 17:35] feat(agent-stream): 流式交互升级——steer 插队纠偏 / follow_up 排队待办 / pi .jsonl 孤儿回合恢复 / 只读方案执行条
+- **类型**：feat
+- **涉及文件**：`pi-agent-bridge.js`、`providers/pi-adapter.js`、`agent-hub.js`、`pi-drawer-view.js`、`styles.css`、`docs/test_runner.js`、`main.js`（重新打包）
+- **需求背景**：对照 `pi-agent-desktop` 源码级复盘后确认——①pi RPC 协议原生支持 `steer`/`follow_up`/`clear_queue` 命令与 `queue_update`/`message_start` 事件全量转发，但工作台此前完全未接，流式期间输入框被锁死，用户想到补充信息只能中止重跑；②15:55 热重载中断事故中 pi 侧 `.jsonl` 已实时落盘 57 条 thinking/toolCall/toolResult 记录，工作台 `.chat-history.json` 却只在回合结束才落库，恢复后一片空白；③只读模式下 Agent 产出方案后缺少「一键转执行」闭环。
+- **核心修改逻辑**：
+  1. **P0-插队纠偏**（`pi-drawer-view.js` `handleQueueSend` + `bindInputEvents`）：流式期间 `Enter` = steer 插队（乐观渲染用户气泡 + `_pendingSentWires` 回显对账登记），`Alt+Enter` = follow_up 排队（仅入队不渲染气泡）；`pi-agent-bridge.js` 新增 `steer()`/`followUp()`/`clearQueue()`/`removeQueuedMessage()`（单项移除=清空+按序重投）RPC 透传，`handleRpcMessage` 新增 `queue_update` 快照与 `message_start`(role=user) 回显转发；
+  2. **排队胶囊条**：输入卡内 `#twQueueStrip` 由 `queue_update` 事件驱动渲染 `插队`/`排队` 胶囊 + `✕` 单项移除；pi 原生队列快照直读（`queue_update` 广播），非 pi adapter 走 `AgentHub` 本地队列（`_localFollowUpQueue` + `agent_settled` 自动派发 + `follow_up_dispatched` 事件补渲染气泡）；`abort()` 时 bridge 主动 `clear_queue` 并通过 `queue_cleared` 事件把未消费文本回填输入框（pi abort 本身不清队列，残留项会污染下次运行）；`_onUserMessageEcho` 用 `_pendingSentWires` 对账本做发送↔回显去重（含 10min 过期清理与展开型命令 FIFO 兜底）；
+  3. **P1-孤儿回合恢复**（`_tryRecoverPiInterruptedTurn`/`_parsePiSessionTail`/`_resolvePiSessionFile`）：恢复时检测到未应答 user 尾消息且 activeAgentId==='pi' → 定位 `.jsonl` 会话文件（bridge `_getSavedSessionFile` 优先，回落 localStorage 映射+cwd 校验），文本对齐校验后把 user 之后累积的 thinking/toolCall/toolResult/text 重建为带 `interrupted:true` 标记的 assistant 消息落库并渲染（Banner 显示「已中断 · 已恢复中断前过程」），中断标记续列其后；
+  4. **P1-只读方案执行条**（`#twPlanBar`）：`permissionMode==='readonly'` 且回合落定且有正文 → 输入卡上方浮现极简条「只读模式已生成方案 [▶ 执行] [✕]」，点击即 `togglePermissionMode()` 切读写并自动发送「请按上述方案执行」；发送/新回合/切权限/新会话/切 Agent 自动隐藏；
+  5. **流式占位提示**：`updateSendButtonState` 流式分支下输入框 placeholder 显示「执行中：Enter 插队纠偏 · Alt+Enter 排队等下轮」，落定后恢复常规占位符；
+  6. `styles.css` 新增 `.tw-queue-strip`/`.tw-queue-chip`/`.tw-plan-bar` 系列：全走主题令牌、低对比度、≤11.5px 小字号，符合极简规范。
+- **验证状态**：
+  - `node docs/test_runner.js` **334/334 全量 PASS**：新增 Suite 24 共 40 项断言——STREAM-01 steer 插队（气泡乐观渲染+回显去重+账本消费）、STREAM-02 follow_up 排队（不渲染气泡→胶囊条→✕取消→回显补渲染落库）、STREAM-03 abort 队列回收回填输入框+正常 prompt 回显去重、STREAM-04 真实 `AgentHub` 本地队列（入队快照/settled 派发/单项取消/abort 清空/原生 adapter 旁路）、RECOVER-01 .jsonl 恢复（thinking 链+toolCall 输出+正文重建+标记气泡）、RECOVER-02 会话文件不匹配不误恢复、PLAN-01/02 执行条浮现与读写切换、STREAM-05 流式占位提示；
+  - `py build.py` 重新打包通过（`main.js` 已含全部新逻辑）；
+  - `node -c main.js` / `pi-drawer-view.js` / `pi-agent-bridge.js` / `agent-hub.js` / `providers/pi-adapter.js` 语法校验全部通过。
+- **执行 Agent**：Devin。
+
+### [2026-10-17 10:13] fix(agent-stream): 对话界面 7 项缺陷修复——切 Agent 误派队/排队丢上下文/气泡收尾/流式发送键/PlanBar 与中止落库
+
+- **问题背景**：17:35 流式交互升级遗留 7 个真实缺陷——①`switchAgent` 在 `activeAgentId` 翻转前 `await prevAdapter.abort()`，此时 `isCurrentActive()` 仍为 true，settled 触发本地队列把消息派给正在被杀的旧 adapter；②本地队列与 pi `follow_up` 派发均发裸文本，丢失 Context Meta/本地工程/OpenGrok/Jira 注入；③steer/follow_up 派发时旧 assistant 气泡未收尾，后续内容灌回 DOM 位置在上方的旧气泡；④流式期 `btnSend` 隐藏，鼠标用户写完纠偏只能点中止；⑤`loadHistorySession` 未清回显台账/PlanBar，旧会话迟到回显串台；⑥恢复的工具步骤仅"已读取文件"粗粒度汇总；⑦PlanBar 仅凭全局 readonly 判定（NiceAIGC 无权限概念也弹、abort 后 settled 重新点亮），且 `aborted`/`interrupted` 未入序列化白名单，重载即丢。
+- **核心修改**：
+  1. **派发抑制（`agent-hub.js`）**：新增 `_suppressFollowUpDispatch`；`switchAgent` 在 `prevAdapter.abort()` 前先清 `_localFollowUpQueue` 并广播快照，置位抑制（try/finally 复位）；`abort()` 同款抑制；`_dispatchLocalFollowUp` 三重守卫（抑制位 + `adapter!==getActiveAdapter()` + 空队），本地队列项存 `{text,prompt}`、派发发 `prompt`、事件带 `{text,prompt,agentId}`；`followUp(text,{prompt})` 原生 adapter 直发注入后 prompt；
+  2. **上下文注入统一（`pi-drawer-view.js`）**：`handleSend` 同步注入段原样抽为 `_composeContextInjectedPrompt(wireText,isSlash,isNiceAigc)`（slash/NiceAIGC 不注入、检索回退随调用点重算）；`handleQueueSend` 排队走 `hub.followUp(wireText,{prompt})`、steer 保持原文；`_queuedWireByPrompt` Map 按引擎快照对账——胶囊显示用户原文而非注入包裹、`✕` 仍按引擎原文取消；`_extractUserTextFromWire` 补 `Jira Issue Context` 截断；
+  3. **A方案分段落库**：`_assistantRunBuffer` 缓冲连续 assistant 段；`finishAssistantMessage(isAborted,{persist,preserveTools})` 新增视觉收尾不持久化分支；`addUserMessageBubble` 顶部"切当前段+flush"保证 `[a1][user][a2]` 落库顺序（禁止跨用户消息合并）；`turn_start` 边界切段、空段自动移除防空泡；中间段 `preserveTools` 保住运行中工具卡；usage 各段真实值求和绑到连续段末泡、其余段隐藏，全空时才估算一次；
+  4. **流式发送键**：`isStreaming` 且有输入/图片/胶囊时 `btnSend` 保持可见可用（title=插队纠偏），onclick 分流 `handleQueueSend('steer')`/`handleSend()`；无输入仍隐藏，abort 键常驻；
+  5. **瞬态清理**：`loadHistorySession`/`switchAgent`/`restoreSessionMessages`/`new_session`/`_truncateConversationFrom` 统一清 `_pendingSentWires`/`_queuedWireByPrompt`/`_assistantRunBuffer`/`_runAborted`/`_suppressPlanBarOnce` 并隐藏 PlanBar；历史切换前先把在途段落库；
+  6. **工具明细**：`_summarizeToolCall` 输出 `read(x.c)`/`grep("…")`/`bash(…)`/`edit(…)` 式 ≤80 字符单行摘要；实时与 `.jsonl` 恢复路径 step 均带 `toolSummaries`；`renderPastAssistantMessage` 在 banner 展开区逐行渲染明细，旧数据无 `toolSummaries` 时按 `msg.toolCalls` 合并兜底（≤5 条+…）；
+  7. **PlanBar 守卫+落库**：`_updatePlanBar` 增加 `activeAgentId!=='niceaigc'` + `!aborted && !interrupted` + `_suppressPlanBarOnce` 三重守卫；`handleAbort` 在 `hub.abort()` 前置位 `_runAborted`/`_suppressPlanBarOnce`（pi/antigravity abort 只发 `agent_settled` 不发 `aborted`）；落库新增 `aborted` 字段，`serializeSessions` 白名单补 `aborted`/`interrupted`；历史状态行区分「已完成/已中止/已中断已恢复」。
+- **改动文件**：`agent-hub.js`、`pi-drawer-view.js`、`agent-session-manager.js`、`docs/test_runner.js`
+- **验证状态**：
+  - `node docs/test_runner.js` **363/363 全量 PASS**：Suite 24 新增 29 项断言——STREAM-08 流式发送键可见/分流 steer、STREAM-09 抑制位+陈旧 adapter 不派发+注入派发、STREAM-10 pi follow_up 注入+胶囊显示原文+回显对账、STREAM-11 `toolSummaries` 落库+旧数据兜底渲染、PLAN-03 历史切换清瞬态、PLAN-04 abort 落库 `aborted:true`+PlanBar 抑制、PLAN-05 NiceAIGC 只读不弹、SESS-01 白名单往返；
+  - `py build.py` 重新打包通过（`main.js` 已含全部新逻辑）；`node -c main.js` 语法校验通过。
+- **执行 Agent**：Devin。
+
+### [2026-10-17 11:05] fix(agent-stream): 复核补丁——推理模型空壳气泡 / 流式仅附件假发送键 / 新会话瞬态残留
+
+- **问题背景**：
+  1. `finishAssistantMessage` 的 `segEmpty` 把推理模型 `createAssistantMessageBubble` 预建的空 thinking step 当作有效内容——`thinking_start` 后立即 steer 时会保留空白 assistant 气泡，并落一条近空 assistant 记录；
+  2. `updateSendButtonState` 把 `attachedImages` 计入流式可发送条件，但 `handleQueueSend` 只发送文本协议，仅附图时发送键可见可点却无任何动作；
+  3. `handleNewSession` 未清理 `_pendingSentWires` / `_queuedWireByPrompt`（UI 的 `hub.on('new_session')` 实际是死监听，`pi-adapter` 未转发 bridge 的 `new_session`），与上一版 CHANGELOG 的清理描述不符。
+- **核心修改**：
+  1. `segEmpty` 改为忽略空 step：仅当 step 有 `text` 或 `toolSummaries` 非空才算有效内容；空壳中段气泡在切分时直接移除，不再产生空白气泡/近空记录；
+  2. 流式 `hasStreamInput` 去掉 `attachedImages`，仅文本/胶囊触发发送键（图片留待本轮结束后的正常发送）；
+  3. `handleNewSession` 补充清空回显台账、队列原文映射、分段缓冲、`_runAborted`/`_suppressPlanBarOnce` 并隐藏 PlanBar。
+- **改动文件**：`pi-drawer-view.js`、`docs/test_runner.js`
+- **验证状态**：
+  - `node docs/test_runner.js` **372/372 全量 PASS**（新增 STREAM-08 仅附件隐藏、STREAM-12 推理空壳不落库、STREAM-13 新会话瞬态清理）；
+  - `py build.py` 重新打包成功（本机 `python` Store 别名返回 9009，改用 `py`/Python 3.14）；`node -c main.js` 语法校验通过。
+- **执行 Agent**：OpenCode。
+
+### [2026-10-17 11:20] fix(agent-stream): 复核补丁 2——中段切分工具卡过早完成 / 用户消息异步落库顺序竞态
+
+- **问题背景**：
+  1. `finishAssistantMessage` 在中段切分时统一移除工具 step 的 `running` 类并改写为完成态 label，导致仍在执行中的工具在旧气泡里短暂显示"已完成/已读取文件"；
+  2. `addUserMessageBubble` 原先在图片持久化 Promise 完成之后才 `addMessage`，图片落盘较慢且本轮迅速结束时，可能出现 `[assistant1][assistant2][user]` 的时间线错序。
+- **核心修改**：
+  1. 中段切分（`preserveTools=true`）时，若工具仍在 `activeToolCards` 中，保留旧气泡的 `running` 视觉与"正在执行"文案，等 `tool_end` 再收尾；仅把持久化 label 规范为完成态摘要，避免历史恢复出现永久"正在执行..."；
+  2. 用户消息改为同步 `addMessage` 落库，保证与前后 assistant 分段的相对顺序稳定；图片异步写入附件目录后就地补写轻量元数据（同一对象引用），并触发一次防抖保存。
+- **改动文件**：`pi-drawer-view.js`、`docs/test_runner.js`
+- **验证状态**：
+  - `node docs/test_runner.js` **377/377 全量 PASS**（新增 STREAM-14 运行中工具跨切段保留 running / 持久化 label 规范化、STREAM-15 用户消息同步落库）；
+  - `py build.py` 重新打包成功；`node -c main.js` 语法校验通过。
+- **执行 Agent**：OpenCode。
+
+### [2026-10-17 11:40] feat(agent-stream): 工具过程逐条明细可视化——展开 banner 可见每次调用的命令/文件/检索词
+
+- **问题背景**：过程 banner 展开后只见「执行了命令」「已调用工具」等聚合标签（`generateBatchToolSummary` 按类别合并），用户无法知晓到底跑了哪条命令、读了哪个文件；实时工具步的 `proseEl` 明细容器自创建起始终 `display:none` 空置（此前仅在历史恢复路径复用了 `toolSummaries`）。
+- **核心修改**：
+  1. `_renderToolStepDetails(toolStep)`：把该步全部 `toolCalls` 逐条渲染为 `.tw-tool-detail-line` 明细行（`bash(cd xx && grep …)`/`read(mtk_charger.c)`/`grep("shutdown")`，≤80 字符截断），填入 `proseEl` 并显示；`title` 悬停放完整 `args` JSON（≤2000 字符截断）；
+  2. `handleToolStart`/`handleToolEnd` 接线：调用发起即刻列行（运行中可见正在执行的命令），`tool_end` 幂等刷新；`toolCallRef.error` 截断 300 字符留存；
+  3. `_summarizeToolCall` 失败调用输出 `✗ 摘要 — 错误` 前缀——落库 `toolSummaries` 天然携带失败标记，历史恢复同源显示；
+  4. `renderPastAssistantMessage` 两处明细渲染（`toolSummaries` 明细 + 旧数据 `toolCalls` 兜底）统一改 `.tw-tool-detail-line` 结构，`✗` 前缀行自动标红；
+  5. `styles.css` 新增 `.tw-tool-detail-line`（12px muted 明细行）与 `.error` 标红（`--text-error` 令牌）。
+- **改动文件**：`pi-drawer-view.js`、`styles.css`、`docs/test_runner.js`
+- **验证状态**：
+  - `node docs/test_runner.js` **383/383 全量 PASS**（新增 STREAM-16 共 5 项断言：流式即时列行/`bash(cmd)` 形态/title 全参/失败标红+错误摘要/落库 `✗` 标记）；
+  - `py build.py` 重新打包成功；`node -c main.js` 语法校验通过。
+- **执行 Agent**：Devin。
+
+### [2026-10-17 12:02] style(agent-stream): Agent 选择下拉降透——popover 令牌背景 + 毛玻璃
+
+- **问题背景**：抽屉头部 Agent 选择下拉在 fresh/glass 皮肤下透出下层消息文本难以辨认——主题引擎把 `--background-primary` 桥接为 `--g-m2`（fresh 下 `rgba(255,255,255,0.78)`），而 `.tw-agent-dropdown-menu` 直接消费该变量导致 78% 半透明。
+- **核心修改**：`.tw-agent-dropdown-menu` 背景改走 popover 令牌链 `var(--pop-bg, var(--g-m4, var(--background-primary)))`（fresh=`0.95`/glass=`0.78`+强模糊），并加 `backdrop-filter: var(--g-b4, blur(20px) saturate(160%))`；`.theme-dark` 变体同样改令牌链（暗色皮肤自带各自 pop-bg）。与 `.tw-popover-menu`/`.tw-model-dropdown` 同款观感，跨 44 套皮肤一致。
+- **改动文件**：`styles.css`
+- **验证状态**：`py build.py` 打包成功（令牌链已内联 main.js）；`node -c main.js` 通过；纯样式改动，383 项单测不受影响。
+- **执行 Agent**：Devin。
+
+### [2026-10-17 12:15] style(agent-brand): Antigravity 图标换为官方 mark
+
+- **问题背景**：Antigravity CLI 在选择器按钮/下拉项中使用的是自绘「圆环+上升箭头」渐变图标，与 Google Antigravity 官方品牌不符，辨识度低。
+- **核心修改**：`ui/iconpark.js` `getOfficialModelSvg('antigravity')` 替换为官方 mark——蝴蝶结/沙漏剪影（官方 mask 路径，`viewBox 16×15`）+ 内部黄 #FBBC04 / 红 #FC413D / 绿 #00B95C / 蓝 #3186FF 四色柔光斑；官方 SVG 的 11 个 `feGaussianBlur` 滤镜以 `clipPath` 剪影 + 径向渐变光斑等效还原，16px 下观感一致且无滤镜渲染开销；`getAgentBrandSvg` 全调用点（选择器按钮/下拉项/顶栏/adapter 元信息）同源生效。
+- **改动文件**：`ui/iconpark.js`
+- **验证状态**：`node -c ui/iconpark.js` 通过；`py build.py` 打包成功（main.js 已含新 SVG）；`node -c main.js` 通过；`node docs/test_runner.js` 383/383 PASS。
+- **执行 Agent**：Devin。
+
+### [2026-10-17 12:30] style(agent-stream): 吸顶提问浮条改居中胶囊——消除中段留白、宽度对齐对话列
+
+- **问题背景**：吸顶提问条（`.tw-sticky-question`）为 `left:0/right:0/width:100%` 全宽横条，比 920px 居中阅读列更宽；短提问时右半段大面积空白，观感冗余。
+- **核心修改**：三层规则统一改为「居中浮胶囊」——`left:50% + translateX(-50%)` 居中于阅读列轴线；`width:auto` 随内容收缩（消除中段留白），`max-width: var(--tw-chat-measure, calc(100% - 24px))` 封顶与对话列同宽（超长仍省略号截断，悬停可展开换行）；底边单边框改全周边框 + `border-radius:999px` 胶囊形。涉及基础块、`--g-*` 令牌化块、fresh 皮肤块及其暗色变体共 4 处。
+- **改动文件**：`styles.css`
+- **验证状态**：`py build.py` 打包成功；`node -c main.js` 通过；`node docs/test_runner.js` 383/383 PASS。
+- **执行 Agent**：Devin。
+
+### [2026-10-17 13:20] refactor(agent-composer): 发送框对齐 DSH 布局——+ 聚合菜单 / 权限胶囊内联 / 上下文胶囊入工具栏
+
+- **问题背景**：输入卡工具栏图标分散（模型胶囊+图片+⚙ 选项），上下文绑定以独立悬浮行漂浮在卡片上方占位冗余；权限切换埋在 header 徽章；placeholder 拼接 agent+模型+工程过长。
+- **核心修改**：
+  1. **+ 聚合菜单**（DSH 同款）：⚙ 按钮图标改 `plus`，原选项弹层重组为三组——「添加」（图片附件→唤起文件选择；文件→插入 `@` 唤出引用 picker）、「指令」（插入 `/` 唤出指令 picker）、「上下文」（原 OpenGrok/Gerrit/Jira/本地工程 4 项与级联面板原样保留）；`twBtnUploadImage` 移除，`imageFileInput` onchange 解耦独立绑定。
+  2. **权限胶囊**：header 的 `twDrawerPermBadge` 移除，工具栏左侧新增 `tw-perm-pill`（图标+「完全权限/只读」+⌄），点击弹出 `tw-perm-popover` 两选浮层；新增 `setPermissionMode(mode)`，`togglePermissionMode` 委托之；只读态琥珀色警示；与 + 菜单互斥开合，外部点击/Esc 复用既有 document 级处理器（监听数仍为 5）。
+  3. **上下文胶囊内联**：`tw-session-ctx` 从卡片上方移入 toolbar-left（权限胶囊之后），单行横向滚动、窄栏收缩；渲染与解除逻辑零改动。
+  4. **模型胶囊右移**：`tw-card-model-wrap` 整组挪至 toolbar-right（发送键左侧，DSH 同款）；`.tw-model-popover` 锚定改 `right:0` 防右溢出；推理档位弹层为 JS 坐标定位不受影响。
+  5. **placeholder 精简**：`向 {agent}({model})[{ctx}] 提问...` → `发消息或创建任务，/ 指令，@ 文件 (Enter 发送)`；流式期提示、chips 态不变。
+- **改动文件**：`pi-drawer-view.js`、`styles.css`、`ui/iconpark.js`（新增 plus/at-sign/slash）、`docs/test_runner.js`（DRAWER-STATE-01 断言更新）
+- **验证状态**：`py build.py` 打包成功；`node -c main.js` 通过；`node docs/test_runner.js` 383/383 PASS。
+- **执行 Agent**：Devin。
+
+### [2026-10-17 14:05] fix(agent-stream): 吸顶提问条定宽贴顶改造 + pi-agent-bridge MCP require 路径修复
+
+- **问题背景**：① 吸顶提问条宽度随内容收缩且 `top:48px` 依赖 header 高度魔数，与消息视口顶边存在留白；② `pi-agent-bridge.js` 新增的 `ensurePiMcpServers` 将 `providers/` 子目录的 `require('../mcp/*-shared.js')` 写法原样复制到插件根目录文件，模块解析到插件目录之外，`node docs/test_runner.js` 直接 MODULE_NOT_FOUND 崩溃。
+- **核心修改**：
+  1. **消息视口包裹层**：DOM 新增 `.tw-messages-viewport`（`position:relative; flex:1; min-height:0`），将 `messagesEl`/`scrollBottomBtn`/`stickyHeaderEl` 移入其中——sticky 条的定位上下文从含 header 的 `.tw-drawer-content` 变为纯消息视口，`top:0` 即视口顶边，彻底消除对 48px header 魔数的依赖（含回底按钮顺带从抽屉底锚定改为消息区底锚定，更符合 DSH 语义）；
+  2. **定宽贴顶**：`.tw-sticky-question` 宽度固定 `var(--tw-chat-measure)`（与阅读列完全一致，不再随内容收缩）、`top:0` 贴齐视口顶边、去顶边线、圆角改 `0 0 12px 12px` 垂条形态；基础块/fresh 皮肤块/令牌化块三层规则同步。
+  3. **require 路径**：`pi-agent-bridge.js` 的 5 个 MCP shared 模块引用 `../mcp/` → `./mcp/`（文件位于插件根目录，非 providers 子目录）。
+- **改动文件**：`pi-drawer-view.js`、`styles.css`、`pi-agent-bridge.js`
+- **验证状态**：`node -e "require('./pi-agent-bridge.js')"` 加载通过；`py build.py` 打包成功；`node -c main.js` 通过；`node docs/test_runner.js` 383/383 PASS。
+- **执行 Agent**：Devin。
+
+### [2026-10-17 14:40] fix(agent-composer): + 菜单点击无响应修复 + 菜单视觉对齐 DSH
+
+- **问题背景**：① 点击 `+` 按钮菜单完全不显示——根因是上一轮给 `.tw-card-toolbar-left` 加的 `overflow:hidden`（为上下文胶囊横向滚动兜底）把绝对定位的 `tw-options-popover`/`tw-perm-popover` 从布局树整层裁剪，弹层实际已 display:flex 但被裁到不可见；② `+` 按钮与菜单项视觉与 DSH 不一致（方形钮、彩色图标、无英文副标签）。
+- **核心修改**：
+  1. **裁剪根因**：移除 `.tw-card-toolbar-left` 的 `overflow:hidden`（保留 `min-width:0` 收缩约束；胶囊行由 `.tw-session-ctx` 自身 `overflow-x:auto` 兜底）——`+` 菜单与权限弹层恢复可见；
+  2. **DSH 视觉对齐**：`.tw-card-options-btn` 方形→`border-radius:50%` 圆形描边钮（DSH + 图标形态）；菜单项改 `icon + 中文名 + 英文灰标签(.tw-opt-item-en) + 右侧短描述` 版式（图片 image/文件 ref/指令 cmd）；`添加/指令`项图标去彩色改统一 `--text-muted` 灰（上下文 4 项保留彩色点与 DSH 一致）；`.tw-opt-item-icon` 默认色补 muted 基底；`.tw-options-popover` 宽 210→232px 容纳右侧描述。
+- **改动文件**：`styles.css`、`pi-drawer-view.js`
+- **验证状态**：`py build.py` 打包成功；`node -c main.js` 通过；`node docs/test_runner.js` 383/383 PASS。
+- **执行 Agent**：Devin。
+
+### [2026-10-17 15:00] style(agent-composer): 工具栏控件二次对齐参考图——裸字形 + 钮 / 实心圆钮 + ↑ 发送图标
+
+- **问题背景**：`+` 按钮为描边圆钮与参考图裸加号不符；发送键为线框纸飞机图标与参考图实心紫圆钮+白色↑不符。
+- **核心修改**：
+  1. **+ 按钮裸字形化**：`.tw-card-options-btn` 去边框去底色（`border:none; background:transparent`），muted 灰加号，悬停仅出浅色底（`rgba(0,0,0,.06)`），不再位移/变色；暗色同构。
+  2. **发送图标**：`twBtnSend` 图标 `send`(纸飞机) → `arrow-up`(↑)，与既有实心圆钮组合为参考图同款「紫圆白箭」发送键；禁态灰底维持不变。
+  3. 上下文胶囊类型色彩编码（local 琥珀/Jira 蓝/OpenGrok 绿/Gerrit 靛）保留——多类型绑定区分能力优于参考图素灰。
+- **改动文件**：`styles.css`、`pi-drawer-view.js`
+- **验证状态**：`py build.py` 打包成功；`node -c main.js` 通过；`node docs/test_runner.js` 383/383 PASS。
+- **执行 Agent**：Devin。
+
+### [2026-10-17 21:30] style(workbench-view): 隐藏工作台视图标题栏（view-header）
+
+- **问题背景**：用户要求去除工作台视图顶部红框栏——该行为 Obsidian `.view-header`（‹ › 导航箭头 + 「TabonKB 研发工作台」标题 + ⋯ 视图操作），与插件内部 drawer header 功能重复，且标签页栏已在其上方提供切换能力。
+- **核心修改**：`styles.css` 既有作用域规则 `.workspace-leaf-content[data-type="tabonkb-workbench-view"] .view-header` 由 `display:flex` 定制样式改为 `display:none`——仅对 `tabonkb-workbench-view` 类型叶子生效，其它笔记视图标题栏不受影响；导航/更多操作仍可通过标签栏右键与快捷键完成。顺带将 test_runner 中 DRAWER-STATE-01 三条 placeholder 断言同步为现行文案 `发消息或创建任务，/ 调用指令，@ 文件或对话`。
+- **改动文件**：`styles.css`、`docs/test_runner.js`
+- **验证状态**：`py -3 build.py` 打包成功；`node -c main.js` 通过；`node docs/test_runner.js` 383/383 PASS。
+- **执行 Agent**：Devin。
+
+### [2026-10-17 21:45] style(theme): Obsidian 状态栏与主题画布同色，消除底部突兀白块
+
+- **问题背景**：窗口最底部出现一条贯穿全宽的白色横条。定位为 Obsidian `.status-bar`——插件从未覆盖 `--status-bar-background`，其回落到近白的 `--background-secondary`，在 fresh 等淡蓝/彩色画布下呈明显白块。
+- **核心修改**：`styles.css` 新增 `.status-bar` 规则：`background: var(--g-canvas, var(--background-secondary))`（与主题画布同色）+ `border-top: 1px solid var(--g-edge)` 发丝边 + `color: var(--g-label-2)`；44 套皮肤自动适配，状态栏项（TabonKB 剪贴图状态等）保留可见。
+- **改动文件**：`styles.css`
+- **验证状态**：`py -3 build.py` 打包成功；`node -c main.js` 通过；`node docs/test_runner.js` 383/383 PASS。
+- **执行 Agent**：Devin。
+
+### [2026-10-18 00:10] fix(workbench-view): 根除视图底部 40px 白色横条——view-content 高度未回填
+
+- **问题背景**：工作台视图底部持续出现贯穿全宽的白色横条。经 DevTools `elementFromPoint` 逐层定位：白块是 `workspace-leaf-content`（本叶子自身，高 970px），其内部 `.view-content.tabonkb-workbench-container` 仅 930px——底部 40px 未被覆盖，露出 leaf-content 默认底色。
+- **根因**：`.tabonkb-workbench-container.with-drawer` 遗留 `height/max-height: calc(100% - var(--header-height, 40px))`——该规则为已隐藏的 `.view-header`（40px）让位；view-header `display:none` 后仍固定减去 40px，`max-height` 同时顶住 `flex:1` 使其无法拉满，形成底部 40px 死白。
+- **核心修改**：`styles.css` 将该规则 `height`/`max-height` 回填为 `100%`（保留 `flex:1 1 0` + `min-height:0`），容器铺满 leaf-content。同时确认无其它 `--header-height` 残留引用；`.status-bar` 三重隐藏（JS inline + CSS body/:has）与 Antigravity 的 `tw-workbench-active` 联动保留。
+- **改动文件**：`styles.css`
+- **验证状态**：`py -3 build.py` 打包成功；`node -c main.js` 通过；`node docs/test_runner.js` 383/383 PASS；已通过 companion `/api/reload-plugin` 热重载至运行实例。
+- **执行 Agent**：Devin。
+
+### [2026-10-18 00:45] style(agent-composer): 过渡带对齐 DSH——去 backdrop-blur 改薄白纱渐变
+
+- **问题背景**：发送框上方过渡带内容与参考图不符——旧实现 `backdrop-filter: blur(6px)` + 48px 高带使滚动内容穿过时拖出粉色模糊残影（发虚拖影）；参考图（DSH）为薄白纱渐变、无模糊、文字透过仍清晰可读。
+- **核心修改**（`.tw-chat-bottom-fade`）：
+  1. **移除 `backdrop-filter: blur(6px)`**——毛玻璃残影元凶，去除后文字保持锐利仅被白纱轻罩；
+  2. **高度 48px → 30px**——对齐参考图薄带观感；
+  3. **渐变曲线重调**：`rgba(255,255,255,0) → .18@30% → .52@65% → .92@100%`，底部趋近卡片白色与卡片顶边无缝相接，杜绝底部色差线；
+  4. 保留既有能力：`.visible` 滚动感知显隐（d>24 淡入/贴底隐藏）、mask-image 水平羽化（两端 28px 消融无支脚）、暗色版同步去 blur 同构渐变。
+- **改动文件**：`styles.css`
+- **验证状态**：`py -3 build.py` 打包成功；`node -c main.js` 通过；`node docs/test_runner.js` 383/383 PASS。
+- **执行 Agent**：Devin。
+
+## 2026-07-08 — style: 发送框高度精简（对齐 DSH 紧凑构图）
+
+- **问题背景**：用户截图反馈发送框总高偏大（约 106px），与 DSH 参考图的紧凑单行观感不符。构成：卡片 padding 20px + textarea 默认 52px（JS inputHeight 驱动，inline style 压过 CSS min-height）+ gap 6px + 工具栏 30px。
+- **核心修改逻辑**：
+  1. `getSavedInputHeight()` 默认空高 52px → 30px（单行 13px×1.5=19.5px+内边距），持久化下限 42→28、钳制下限 52→30——用户此前拖拽保存的高度不受影响（resizer 钳制 32~350 不变）；
+  2. `adjustInputHeight()` 兜底 minH 52→30；native 角标拖拽保存下限 38→28；
+  3. `styles.css` DSH-parity 块：卡片 padding `10px 14px 10px` → `7px 14px 7px`、gap 6→4px；textarea `min-height` 44→24px、`line-height` 1.65→1.5（更矮盒内垂直居中）；
+  4. 结果空态总高 ≈76px（-28%），顶部拖拽柄、随内容自适应增长、200px 上限全部保留。
+- **改动文件**：`pi-drawer-view.js`、`styles.css`、`main.js`（build.py 重新编译生成）
+- **验证状态**：`py -3 build.py` 打包成功；`node -c main.js` 通过；`node docs/test_runner.js` 383/383 PASS；companion `/api/reload-plugin` 热重载生效。
+- **执行 Agent**：Devin。
+
+## 2026-07-08 — fix: 发送框瘦身不生效（localStorage 旧高度压制）
+
+- **问题背景**：上一轮瘦身（默认 52→30px）热重载后用户反馈"高度无变化"。根因：`getSavedInputHeight()` 每次优先读 localStorage 键 `tabonkb-dialog-input-height`——此前拖拽/自动保存的旧高度（≥52px）永远胜出，新默认值无机会生效；卡片 padding 改动（-6px）量级太小视觉上不可感知。
+- **核心修改逻辑**：持久化键版本化 `tabonkb-dialog-input-height` → `tabonkb-dialog-input-height-v2`；读取时顺手 `removeItem` 清理旧键。一次性将所有存量抽屉重置到紧凑默认 30px，之后的拖拽高度正常写入 v2 键继续持久化。插件内仅此一对读写点（getter/setter），无其他引用。
+- **改动文件**：`pi-drawer-view.js`、`main.js`（build.py 重新编译生成）
+- **验证状态**：`py -3 build.py` 打包成功；`node -c main.js` 通过；`node docs/test_runner.js` 383/383 PASS；companion `/api/reload-plugin` 热重载生效。
+- **执行 Agent**：Devin。
+
+## 2026-07-08 — style: 发送框高度回调至中间档（30→40px）
+
+- **问题背景**：上一版 30px 空态（总高 ≈76px）用户反馈"改得过小了"；原始 52px（≈106px）又偏高。取中间档对齐 DSH 紧凑但不局促的观感。
+- **核心修改逻辑**：`getSavedInputHeight()` 默认 30→40px、`adjustInputHeight()` 兜底同步；CSS `min-height` 24→34px、卡片 padding 7→8px。空态总高 ≈90px（原始 -15%，上一版 +18%）。v2 持久化键不变——用户若拖过顶柄仍以保存值为准。
+- **改动文件**：`pi-drawer-view.js`、`styles.css`、`main.js`（build.py 重新编译生成）
+- **验证状态**：`py -3 build.py` 打包成功；`node -c main.js` 通过；`node docs/test_runner.js` 383/383 PASS；companion `/api/reload-plugin` 热重载生效。
+- **执行 Agent**：Devin。
+
+## 2026-07-08 — style: 发送框高度再上调（40→46px）
+
+- **问题背景**：40px 空态（≈90px）用户反馈仍偏小。继续上调至 46px——约两行半呼吸空间，介于原始 52（偏高）与 40（偏小）之间。
+- **核心修改逻辑**：`getSavedInputHeight()` 默认 40→46px、`adjustInputHeight()` 兜底同步；CSS `min-height` 34→40px，padding 维持 8px。空态总高 ≈96px。
+- **改动文件**：`pi-drawer-view.js`、`styles.css`、`main.js`（build.py 重新编译生成）
+- **验证状态**：`py -3 build.py` 打包成功；`node -c main.js` 通过；`node docs/test_runner.js` 383/383 PASS；companion `/api/reload-plugin` 热重载生效。
+- **执行 Agent**：Devin。
+
+## 2026-07-08 — fix: 用户气泡"套娃双框"——去掉内层小框与背景
+
+- **问题背景**：用户截图反馈已发送消息出现内外两层框。根因：基础层 `.tw-user-bubble-box`（外框：薰衣草底+边框+padding）之上，`--g-*` 令牌层又给内层 `.tw-msg-content` 叠加了 `var(--sk-tint)` 底色 + `var(--g-edge2)` 边框 + `9px 13px` padding + 圆角——双层气泡叠加。
+- **核心修改逻辑**：令牌层规则改回"单盒"语义——内层 `.tw-msg-content` `background:transparent`、`border:0`、`border-radius:0`、`padding:0`，气泡视觉完全由外层 `.tw-user-bubble-box` 承担；`color` 改 `inherit` 以跟随外层暗色 `#DBEAFE`（避免 `--g-label` 在暗色下盖掉外盒文字色）。与基础层（styles.css:4165）及 explore-ai 面板规则（13485）语义一致。
+- **改动文件**：`styles.css`
+- **验证状态**：`py -3 build.py` 打包成功；`node -c main.js` 通过；`node docs/test_runner.js` 383/383 PASS；companion `/api/reload-plugin` 热重载生效。
+- **执行 Agent**：Devin。
+
+## 2026-07-08 — style: AI 回复 Markdown 技术文档级排版打磨（对标目标效果图）
+
+- **问题背景**：用户给出目标效果图，要求 AI 回复区呈"简洁、清晰、专业的技术文档风格"。现状盘点：标题层级近乎平坦（15/14/13/12px 只差 1px）、列表项内 `<p>` 双重间距、行内代码胶囊偏紧、代码块 11.5px 偏小、**全表零 `.token` 规则——语法高亮完全依赖宿主默认色**（无统一调色板）。页面背景/主题/布局/输入框保持原样。
+- **核心修改逻辑**（styles.css 末尾追加作用域块，全部 `!important` 后写者胜，零 JS 零业务逻辑改动）：
+  1. **标题层级**：h1 16/700、 h2 15/650、 h3 13.5/650、 h4-6 12.5/600，拉开档位 + 节距 16/15/12/10px，`:first-child` 去顶距；
+  2. **段落/列表**：p 间距 8→9px；ul/ol `6px 0 10px`+`padding-left 22px`；li 4px 步距；`li>p` 压掉段内双距；嵌套列表紧凑；`li::marker` 换 `--g-label-3` 弱化符号；
+  3. **行内代码**：padding `1.5px 5.5px`→`2px 6px`、radius 4→5px、font 0.9em→0.88em；`:not(a code)` 守卫——不触碰上一轮 a>code 胶囊透明化规则；
+  4. **代码块**：font 11.5→12px、line-height 1.6→1.7、padding-top 30→32px 适配 28px 头部栏；header bar 改 `color-mix(--g-fill 70%)` 半透明 + `--g-sep` 发丝线下边、lang tag 10.5px/650；
+  5. **语法高亮**：新增 GitHub 官方亮/暗双套 `.token` 调色板（keyword #CF222E/#FF7B72、string #0A3069/#A5D6FF、function #8250DF/#D2A8FF、selector #116329/#7EE787 等 11 类），仅作用 `.tw-code-block` 作用域；
+  6. **底部渐隐**：既有 30px 羽化白纱（opacity 感知 + 水平消融）已满足"柔和无边界"要求，排版改动与其正交，零调整。
+- **改动文件**：`styles.css`
+- **验证状态**：`py -3 build.py` 打包成功；`node -c main.js` 通过；`node docs/test_runner.js` 383/383 PASS；companion `/api/reload-plugin` 热重载生效。
+- **执行 Agent**：Devin。
+
+## 2026-07-08 — style: 「+」弹层对齐 DSH 分组页签样式（图1 parity）
+
+- **问题背景**：用户提供 DSH 的「+」弹层截图，要求同款分组页签视觉。对比差异：DSH 组标题行右侧有 `1-2/N` 页码微胶囊、组与组之间有发丝分隔线、弹层更宽（≈290px）、条目右侧值/描述保持素灰（hover 不变蓝）、行高更舒展。交互逻辑保持现状不变（同一套菜单项与级联面板）。
+- **核心修改逻辑**：
+  1. **DOM**：三个 `.tw-opt-group-title` 注入 `<span class="tw-opt-group-count">` 计数胶囊（添加 `1-2/2`、指令 `1-1/1`、上下文 `1-4/4`），标题行改 flex 两端对齐；
+  2. **弹层卡片**：宽度 232→292px、圆角 10→12px、padding 4→6px；`.tw-project-popover`（工程选择等旧面板）保留 232px 不受影响；
+  3. **组分隔**：非首组标题 `border-top` 发丝线（`--g-sep`，暗色同步）+ 上间距，DSH 同款组间分割；
+  4. **计数胶囊**：9px mono `--g-label-3` 文字 + `--g-fill` 底 4px 圆角；
+  5. **条目行**：padding `7px 9px`→`7px 10px`、radius 6→7px、name 12→12.5px；右侧 `tw-opt-item-val` 字重 500→400、字号 11→10.5px、max-width 80→130px（适配加宽）、hover/open 态取消蓝色高亮改 `--g-label-2` 素灰——DSH 描述从不强调。
+- **改动文件**：`pi-drawer-view.js`、`styles.css`、`main.js`（build.py 重新编译生成）
+- **验证状态**：`py -3 build.py` 打包成功；`node -c main.js` 通过；`node docs/test_runner.js` 383/383 PASS；companion `/api/reload-plugin` 热重载生效。
+- **执行 Agent**：Devin。
+
+## 2026-07-08 — fix: 回底↓圆钮压盖弹层级联面板（兄弟层叠上下文物归原序）
+
+- **问题背景**：用户截图红框指出回底 `↓` 按钮浮在 OpenGrok 级联面板上方遮挡内容。根因：`.tw-drawer-input-card` 的 `backdrop-filter` 使其成为层叠上下文（等价 z-0），面板内部 z-220 逃不出卡层级；而 `↓` 按钮所在的 `.tw-messages-viewport` 无 z-index，其内部 z-25 直接参与顶层排序——25 赢了整张卡片 → 按钮盖住一切弹层。
+- **核心修改逻辑**：兄弟层定级——`.tw-messages-viewport { z-index: 1 }` < `.tw-drawer-input-card { z-index: 2 }`。此后整张输入卡（含 options/perm/model 弹层与 4 个级联面板）作为高序层浮于回底钮、渐隐带、吸顶提问条之上；上下排列的兄弟层本无视觉重叠，按钮常态点击不受影响。
+- **改动文件**：`styles.css`
+- **验证状态**：`py -3 build.py` 打包成功；`node -c main.js` 通过；`node docs/test_runner.js` 383/383 PASS；companion `/api/reload-plugin` 热重载生效。
+- **执行 Agent**：Devin。
+
+## 2026-07-08 — perf: 冷启动卡顿定位与三刀修复（启动探针 + 文档扫描优化）
+
+- **问题背景**：用户反馈重载 Obsidian 后需 ~10s 才能打开工作台。新增轻量启动探针实测定位。
+- **探针实测（热重载快照）**：`onload` 全程仅 80ms（settings/theme/服务/Hub/服务器/DSH 全清白）；`view.ctor` +76ms；`render()` ~840ms；**`loadVaultDocs` + 二次渲染 ~3050ms 为主犯**——冷启动时与 Obsidian 索引器争抢同一批文件 I/O，放大至 ~10s。
+- **根因**：①`loadVaultDocs` 对 86 个 md **无条件 `cachedRead` 全文**仅为兜底摘要，即使 frontmatter 已含 `summary/description`；②`vault.on('create'/'modify'/'resolved')` 在冷索引期对每文件连发 `refreshWorkbench`，无防抖无并发闸 → 全量扫描排队重复执行；③文档扫描紧跟首渲染抢主线程。
+- **核心修改逻辑**：
+  1. **启动探针**（`iconpark.js` 记 `__twBootT0` 模块求值起点；`main.js.bak` 注入 `__twBootMark`/`__twBootFlush`，onload 分段 + view.ctor + onOpen 三节点打点，`.startup-profile.json` 落盘；`onload:start` 自动重置防跨重载串扰）；
+  2. **按需读正文**：`cachedRead` 仅在 frontmatter 无摘要时执行（`docs[].content` 字段语义不变）；
+  3. **防抖+并发闸**：`refreshWorkbench` 350ms 尾触发合并索引风暴；`loadVaultDocs` 加 `_docsInFlight` 重入闸；
+  4. **空闲期扫描**：onOpen 后 loadVaultDocs 改 `requestIdleCallback`（timeout 1200ms，兜底 `setTimeout 300`）——首渲染先行呈现骨架，扫描不再与启动争主线程。
+- **改动文件**：`ui/iconpark.js`、`main.js.bak`、`build.py`、`main.js`（重新编译生成）
+- **验证状态**：`py -3 build.py` 打包成功；`node -c main.js` 通过；`node docs/test_runner.js` 392/392 PASS；热重载后 postscan 段 3050→2360ms（预热缓存环境，冷启动收益更大）；companion `/api/reload-plugin` 热重载生效。
+- **执行 Agent**：Devin。
+
+## 2026-07-08 — style: 左侧导航缎带宽度/图标再缩 10%（累计 -28%）
+
+- **需求背景**：用户追加「再减小 10%」——在上一轮 20% 基础上继续收敛。
+- **核心修改逻辑**：`styles.css` 缎带规则更新——`--ribbon-width` 与显式宽 35→32px；图标 `scale(0.8)` → `scale(0.72)`（相对原尺寸累计 -28%）；点击热区 22→20px。
+- **改动文件**：`styles.css`、`main.js`（build.py 重新编译生成）
+- **验证状态**：`py -3 build.py` 打包成功；`node -c main.js` 通过；`node docs/test_runner.js` 392/392 PASS；companion `/api/reload-plugin` 热重载生效。
+- **执行 Agent**：Devin。
+
+## 2026-07-08 — style: 左侧导航缎带宽度/图标收敛 20%
+
+- **需求背景**：用户要求「工作台的导航栏宽度和图标缩小一点，缩小 20%」——即 Obsidian workspace ribbon（左缘 T 头像/功能图标/设置齿轮纵栏）。
+- **核心修改逻辑**：`styles.css` 追加作用域规则——`--ribbon-width` 令牌与 `.workspace-ribbon.mod-left` 显式宽/最小宽 44→35px；`.side-dock-ribbon-action`/`.side-dock-settings` 图标 `transform: scale(0.8)` 统一 20% 缩放（不依赖原尺寸常量），点击热区 28→22px、行距收紧。
+- **改动文件**：`styles.css`、`main.js`（build.py 重新编译生成）
+- **验证状态**：`py -3 build.py` 打包成功；`node -c main.js` 通过；`node docs/test_runner.js` 392/392 PASS；companion `/api/reload-plugin` 热重载生效。
+- **执行 Agent**：Devin。
+
+## 2026-07-08 — fix: 深色皮肤下消息组件亮底残留（`.theme-dark` → `data-tw-active-mode` 全局换锚）
+
+- **需求背景**：用户截图反馈深色模式下代码块、Mermaid 卡片等组件仍显示浅色底。根因：插件的 44 套皮肤由 ThemeEngine 驱动，暗色皮肤通过 `body[data-tw-active-mode="dark"]` 与元素 `data-tw-mode` 标记生效，**与 Obsidian 的 `body.theme-dark` 完全独立**——Obsidian 亮色 + 工作台暗皮时，全部 `.theme-dark` 规则失配，组件回落浅色。
+- **核心修改逻辑**：
+  1. **样式锚点全局迁移**：`styles.css` 548 处 `.theme-dark` 选择器统一替换为 `body[data-tw-active-mode="dark"]`——该属性由 `applyTheme` 在每次皮肤应用时写入 body（含 body 外挂载的 popover，覆盖更全）。自此皮肤模式成为组件明暗的唯一事实源，四种组合（亮/暗 Obsidian × 亮/暗皮肤）全部正确；
+  2. **JS 探测同步**：`pi-drawer-view.js` `postProcessRenderedMarkdown` 的 `isDark` 增加 `body.dataset.twActiveMode === 'dark'` 与 `closest('[data-tw-mode="dark"]')` 两路探测，Mermaid `_beautifyMermaidSvg` 暗色调色板正确命中；
+  3. **浅色残留清除**：原 `.theme-dark` pre 规则内误留的 `background:#F0F2F5`（早前全局替换误伤）修正为 `#0D1117`/`#30363D`/`#E6EDF3`。
+- **改动文件**：`styles.css`、`pi-drawer-view.js`、`main.js`（build.py 重新编译生成）
+- **验证状态**：`py -3 build.py` 打包成功；`node -c main.js` 通过；`node docs/test_runner.js` 392/392 PASS；companion `/api/reload-plugin` 热重载生效。
+- **执行 Agent**：Devin。
+
+## 2026-07-08 — style: 回底按钮 ↓ 常态半透虚化
+
+- **需求背景**：用户截图指出 `.tw-scroll-bottom-btn`（↓ 回底圆钮）压在消息文字上观感过实，要求「稍微虚化一点点」。
+- **核心修改逻辑**：`styles.css`——常态 `opacity` 由 `.visible` 态 1 → **0.55**；底色 `rgba(255,255,255,0.94)` → **0.62** 更透 + 毛玻璃 `blur(6px)` → **`blur(10px)`**；边框/阴影同步减淡（0.06 边、单层微影）。悬停 `opacity: 1` + 实底 + 抬升阴影，交互权重恢复。暗色同步（0.92 → 0.55 底、0.08 边）。`.has-new` 提示点与显隐过渡逻辑不变。
+- **改动文件**：`styles.css`、`main.js`（build.py 重新编译生成）
+- **验证状态**：`py -3 build.py` 打包成功；`node -c main.js` 通过；`node docs/test_runner.js` 392/392 PASS；companion `/api/reload-plugin` 热重载生效。
+- **执行 Agent**：Devin。
+
+## 2026-07-08 — style: 模型选择胶囊去除常态底色（裸字形化）
+
+- **需求背景**：用户截图指出输入卡工具栏的「Gemini 3.8 Flash ⌄」模型胶囊带 `--g-fill` 灰色底衬，要求「模型的这个底色帮我去掉」，与 `+` 裸字形按钮的 DSH 素净风格对齐。
+- **核心修改逻辑**：`styles.css` DSH-parity 层 `.tw-card-model-pill` 的 `background: var(--g-fill)` → `transparent`；悬停态 `--g-fill-2` 浅底保留作为交互反馈，无框无影/28px 高度/截断省略全部不变。
+- **改动文件**：`styles.css`、`main.js`（build.py 重新编译生成）
+- **验证状态**：`py -3 build.py` 打包成功；`node -c main.js` 通过；`node docs/test_runner.js` 383/383 PASS；companion `/api/reload-plugin` 热重载生效。
+- **执行 Agent**：Devin。
+
+## 2026-07-08 — refactor: Agent 版本信息从用量看板迁至插件设置页
+
+- **需求背景**：用户反馈「不想放在用量这里了，放到工作台插件的设置里面」——版本信息属于低频管理动作，置于用量看板展开区徒增视觉噪音，迁入设置页更符合极简哲学（AGENTS.md§3）。
+- **核心修改逻辑**：
+  1. **build.py 还原**：移除 `expandHtml` 中的 `verBlock` 注入、`.tw-au-ver-act` 按钮绑定循环、构造器 `_auVerState/_auVerSvc/_auVerLogOpen` 状态及 `_auVersionSvcGet/_auVersionBlockHtml/_auLoadAgentVersion/_auRunAgentUpdate/_auVersionAction` 5 个方法，用量看板恢复原貌；
+  2. **settings/workbench-settings-tab.js**：构造器新增 `_verSvc/_verState/_verLogOpen/_verContainerEl`；`display()` 末尾追加「🧩 Agent 运行环境」区块（描述行 + `.tw-ver-card` 容器）；新增 `_verSvcGet/_renderVersionSection/_rerenderVerSection/_renderAgentVerRow/_loadAgentVersion/_runAgentUpdate/_versionAction` 7 个方法，DOM API（createDiv/createSpan/createEl）渲染替代 innerHTML 字符串，行级局部重渲染不重建整个设置页；
+  3. **styles.css**：新增 `.tw-ver-card`（圆角卡片容器）与 `.tw-ver-row`（行间虚线分隔）设置页样式，行内元素复用既有 `.tw-au-ver-*` 一族；
+  4. **`services/agent-version-service.js` 与 build.py files[] 注册保持不变**——服务层零改动，仅 UI 挂载点迁移。
+- **改动文件**：`settings/workbench-settings-tab.js`、`build.py`、`styles.css`、`main.js`（重新编译生成）
+- **验证状态**：`py -3 build.py` 打包成功；`node -c main.js` 通过；main.js 中 `_auVer*` 残留 0 处、`_renderAgentVerRow` 等设置页代码已入包；`node docs/test_runner.js` 383/383 PASS；companion `/api/reload-plugin` 热重载生效。
+- **执行 Agent**：Devin。
+
+## 2026-07-08 — feat: Agent 运行环境版本卡（当前版/最新版/一键更新/更新日志）
+
+- **需求背景**：用户要求为 Pi Agent 与 Antigravity CLI 增加版本信息、最新版本、更新方式与版本迭代内容展示。经确认采用「用量看板 agent 行展开区」内嵌「运行环境」块方案。
+- **数据通道（实测验证）**：
+  - Pi 当前版：`fs` 读 `node_modules/@earendil-works/pi-coding-agent/package.json` → `1.3.0`；
+  - Pi 最新版：npm registry `/latest`（6s 超时）→ `1.3.0`（已是最新）；
+  - Pi 更新：`nodeDir/npm.cmd i -g @earendil-works/pi-coding-agent`（仅点击时 spawn）；
+  - Pi 日志：本地 CHANGELOG.md + unpkg `@latest` 增量段（仅显示 >当前版 的小节）；
+  - agy 当前版：`agy --version` → `1.4.1`；更新：`agy update` 官方执行式通道；日志：`agy changelog` 取前 2 个版本节。
+- **核心修改逻辑**：
+  1. **新模块 `services/agent-version-service.js`**：`getInfo`（localStorage 6h 缓存 + in-flight 复用）、`getChangelog`、`runUpdate`（更新后强刷缓存），`semverGt`/`extractChangelogSections` 静态纯函数；全异步、失败降级 `missing/unknown`，零阻塞；
+  2. **`build.py`**：`files[]` 注册新模块；`new_constructor` 注入 `_auVerState/_auVerSvc/_auVerLogOpen` 状态 + `_auVersionBlockHtml/_auLoadAgentVersion/_auRunAgentUpdate/_auVersionAction` 4 个方法；`expandHtml` 对 pi/antigravity 行追加 `verBlock`；`.tw-au-ver-act` 按钮 `stopPropagation` 绑定防误折叠；
+  3. **徽章四态**：`已是最新`(绿) `可更新`(蓝) `官方自更新`(靛) `未检测到/探测失败`(灰) + `检查中…/更新中…` 过渡态；
+  4. **`styles.css`**：`.tw-au-ver*` 一族样式（发丝分隔、mono 版本号、四色徽章、描边微钮、结果行绿/红、220px 高 changelog 滚动块），亮暗双主题。
+- **改动文件**：`services/agent-version-service.js`（新增）、`build.py`、`styles.css`、`main.js`（build.py 重新编译生成）
+- **验证状态**：`py -3 build.py` 打包成功；`node -c main.js` + `node -c services/agent-version-service.js` 通过；Node 实测 pi current/latest=1.3.0、agy=1.4.1、changelog 双通道真实输出；`node docs/test_runner.js` 383/383 PASS；companion `/api/reload-plugin` 热重载生效。
+- **执行 Agent**：Devin。

@@ -32,7 +32,7 @@ async function runAllSuites() {
   console.log('>>> Suite 1: Code Integrity & Manifest Verification');
   const manifest = JSON.parse(fs.readFileSync(path.join(pluginDir, 'manifest.json'), 'utf8'));
   assert(manifest.id === 'tabonkb-workbench', 'manifest.json has correct id');
-  assert(manifest.version === '1.5.0', 'manifest.json has version 1.5.0');
+  assert(manifest.version === '1.6.0', 'manifest.json has version 1.6.0');
   assert(fs.existsSync(path.join(pluginDir, 'main.js')), 'main.js exists');
   assert(fs.existsSync(path.join(pluginDir, 'styles.css')), 'styles.css exists');
 
@@ -926,9 +926,9 @@ async function runAllSuites() {
   mockDrawer.inputChips = [];
 
   mockDrawer.updateInputPlaceholder();
-  assert(mockDrawer.inputEl.placeholder === '向 Pi Agent (gpt-6.1-sol) [05-UW/GP801H] 提问... (Enter 发送)',
-    'DRAWER-STATE-01: updateInputPlaceholder formats agent, model, and project correctly');
-  assert(mockDrawer._inputPlaceholder === '向 Pi Agent (gpt-6.1-sol) [05-UW/GP801H] 提问... (Enter 发送)',
+  assert(mockDrawer.inputEl.placeholder === '发消息或创建任务，/ 调用指令，@ 文件或对话',
+    'DRAWER-STATE-01: updateInputPlaceholder emits minimal DSH-style hint');
+  assert(mockDrawer._inputPlaceholder === '发消息或创建任务，/ 调用指令，@ 文件或对话',
     'DRAWER-STATE-01: _inputPlaceholder cache is updated in sync');
 
   // Test chips override
@@ -938,8 +938,8 @@ async function runAllSuites() {
     'DRAWER-STATE-01: _syncInputPlaceholder switches to chip prompt when chips present');
   mockDrawer.inputChips = [];
   mockDrawer._syncInputPlaceholder();
-  assert(mockDrawer.inputEl.placeholder === '向 Pi Agent (gpt-6.1-sol) [05-UW/GP801H] 提问... (Enter 发送)',
-    'DRAWER-STATE-01: _syncInputPlaceholder restores dynamic placeholder when chips removed');
+  assert(mockDrawer.inputEl.placeholder === '发消息或创建任务，/ 调用指令，@ 文件或对话',
+    'DRAWER-STATE-01: _syncInputPlaceholder restores minimal placeholder when chips removed');
 
   // Test restoreSessionMessages resets stickyHeaderEl and minimap
   mockDrawer.restoreSessionMessages('pi');
@@ -949,6 +949,1126 @@ async function runAllSuites() {
     'DRAWER-STATE-01: restoreSessionMessages clears textContent of stickyHeaderEl');
   assert(Array.isArray(mockDrawer._minimapBubbles) && mockDrawer._minimapBubbles.length === 0,
     'DRAWER-STATE-01: restoreSessionMessages resets _minimapBubbles to empty array');
+
+  // --- Suite 23: Agent Drawer Mount DOM Reuse & Streaming Survival (DRAWER-MOUNT-01) ---
+  console.log('\n>>> Suite 23: Agent Drawer Mount DOM Reuse & Streaming Survival (DRAWER-MOUNT-01)');
+
+  // 精简 DOM 桩（无 jsdom 依赖）：覆盖 PiDrawerView.buildDom/mount/流式渲染所需的 DOM 面
+  class MockEl {
+    constructor(tag = 'div') {
+      this.tagName = String(tag || 'div').toUpperCase();
+      this.ownerDocument = null;
+      this.children = [];
+      this.childNodes = this.children;
+      this.parentElement = null;
+      this.style = {
+        setProperty(k, v) { this[k] = v; },
+        getPropertyValue(k) { return this[k] || ''; },
+        removeProperty(k) { delete this[k]; }
+      };
+      this.dataset = {};
+      this._classes = new Set();
+      const self = this;
+      this.classList = {
+        add(...cs) { cs.forEach(c => self._classes.add(c)); },
+        remove(...cs) { cs.forEach(c => self._classes.delete(c)); },
+        toggle(c, force) {
+          const want = force === undefined ? !self._classes.has(c) : !!force;
+          if (want) self._classes.add(c); else self._classes.delete(c);
+          return want;
+        },
+        contains(c) { return self._classes.has(c); }
+      };
+      this._attrs = {};
+      this._listeners = {};
+      this._html = '';
+      this._htmlKids = [];
+      this.textContent = '';
+      this.value = '';
+      this.title = '';
+      this.placeholder = '';
+      this.scrollTop = 0; this.scrollLeft = 0;
+      this.clientHeight = 600; this.clientWidth = 420;
+      this.offsetTop = 0; this.offsetHeight = 0; this.offsetWidth = 0;
+      this.disabled = false; this.checked = false; this.files = [];
+    }
+    get className() { return [...this._classes].join(' '); }
+    set className(v) { this._classes = new Set(String(v || '').split(/\s+/).filter(Boolean)); }
+    get id() { return this._attrs.id || ''; }
+    set id(v) { this._attrs.id = v; }
+    get firstChild() { return this.children[0] || this._htmlKids[0] || null; }
+    get lastChild() { return this.children[this.children.length - 1] || null; }
+    get innerHTML() { return this._html; }
+    set innerHTML(v) {
+      this._html = String(v || '');
+      this.children.length = 0;
+      this._htmlKids = MockEl.parseHtml(this._html);
+      for (const k of this._htmlKids) k.parentElement = this;
+    }
+    static parseHtml(html) {
+      const kids = [];
+      const tagRe = /<([a-zA-Z][a-zA-Z0-9-]*)((?:"[^"]*"|'[^']*'|[^>"'])*)>/g;
+      let m;
+      while ((m = tagRe.exec(html)) !== null) {
+        const el = new MockEl(m[1]);
+        const attrs = m[2] || '';
+        const idM = attrs.match(/\bid\s*=\s*"([^"]*)"/) || attrs.match(/\bid\s*=\s*'([^']*)'/);
+        const clM = attrs.match(/\bclass\s*=\s*"([^"]*)"/) || attrs.match(/\bclass\s*=\s*'([^']*)'/);
+        const phM = attrs.match(/\bplaceholder\s*=\s*"([^"]*)"/) || attrs.match(/\bplaceholder\s*=\s*'([^']*)'/);
+        if (idM) el._attrs.id = idM[1];
+        if (clM) el.className = clM[1];
+        if (phM) el.placeholder = phM[1];
+        kids.push(el);
+      }
+      return kids;
+    }
+    _descendants() {
+      const out = [];
+      const walk = (el) => {
+        for (const c of el.children) { out.push(c); walk(c); }
+        for (const c of el._htmlKids) { out.push(c); walk(c); }
+      };
+      walk(this);
+      return out;
+    }
+    _matchOne(el, sel) {
+      if (sel === '*') return true;
+      const tokens = String(sel).trim().match(/[#.]?[^\s#.]+/g) || [];
+      for (const t of tokens) {
+        if (t === '*') continue;
+        if (t.startsWith('#')) { if (el.id !== t.slice(1)) return false; }
+        else if (t.startsWith('.')) { if (!el._classes.has(t.slice(1))) return false; }
+        else if (el.tagName !== t.toUpperCase()) return false;
+      }
+      return true;
+    }
+    _matchSelector(el, sel) {
+      for (const part of String(sel).split(',')) {
+        const comps = part.trim().split(/\s+/).filter(Boolean);
+        const last = comps[comps.length - 1];
+        if (last && this._matchOne(el, last)) {
+          if (comps.length === 1) return true;
+          let curr = el.parentElement;
+          let ci = comps.length - 2;
+          while (curr && ci >= 0) {
+            if (comps[ci] === '>') {
+              ci--;
+              if (ci >= 0 && this._matchOne(curr, comps[ci])) {
+                ci--;
+                curr = curr.parentElement;
+              } else {
+                break;
+              }
+            } else {
+              if (this._matchOne(curr, comps[ci])) ci--;
+              curr = curr.parentElement;
+            }
+          }
+          if (ci < 0) return true;
+        }
+      }
+      return false;
+    }
+    querySelector(sel) { return this._descendants().find(el => this._matchSelector(el, sel)) || null; }
+    querySelectorAll(sel) { return this._descendants().filter(el => this._matchSelector(el, sel)); }
+    appendChild(c) {
+      if (c.parentElement) c.parentElement._detach(c);
+      c.parentElement = this;
+      this.children.push(c);
+      return c;
+    }
+    insertBefore(c, ref) {
+      const i = this.children.indexOf(ref);
+      if (c.parentElement) c.parentElement._detach(c);
+      c.parentElement = this;
+      if (i < 0) this.children.push(c); else this.children.splice(i, 0, c);
+      return c;
+    }
+    _detach(c) {
+      let i = this.children.indexOf(c);
+      if (i >= 0) this.children.splice(i, 1);
+      i = this._htmlKids.indexOf(c);
+      if (i >= 0) this._htmlKids.splice(i, 1);
+    }
+    removeChild(c) { this._detach(c); if (c) c.parentElement = null; return c; }
+    remove() { if (this.parentElement) { this.parentElement._detach(this); this.parentElement = null; } }
+    empty() { this.children.length = 0; this._htmlKids.length = 0; this._html = ''; }
+    contains(el) {
+      if (el === this) return true;
+      let p = el && el.parentElement;
+      while (p) { if (p === this) return true; p = p.parentElement; }
+      return false;
+    }
+    closest(sel) { let p = this; while (p) { if (this._matchSelector(p, sel)) return p; p = p.parentElement; } return null; }
+    matches(sel) { return this._matchSelector(this, sel); }
+    setAttribute(k, v) { this._attrs[k] = String(v); }
+    getAttribute(k) { return k in this._attrs ? this._attrs[k] : null; }
+    removeAttribute(k) { delete this._attrs[k]; }
+    hasAttribute(k) { return k in this._attrs; }
+    addEventListener(t, fn) { (this._listeners[t] = this._listeners[t] || []).push(fn); }
+    removeEventListener() {}
+    dispatchEvent() { return true; }
+    addClass(...cs) { cs.forEach(c => this._classes.add(c)); return this; }
+    removeClass(...cs) { cs.forEach(c => this._classes.delete(c)); return this; }
+    toggleClass(c, f) { return this.classList.toggle(c, f); }
+    hasClass(c) { return this._classes.has(c); }
+    createDiv(opts = {}) {
+      if (typeof opts === 'string') opts = { cls: opts };
+      const d = new MockEl('div');
+      if (opts.cls) d.className = opts.cls;
+      if (opts.text) d.textContent = opts.text;
+      this.appendChild(d); return d;
+    }
+    createEl(tag, opts = {}) {
+      const d = new MockEl(tag);
+      if (opts.cls) d.className = opts.cls;
+      if (opts.text) d.textContent = opts.text;
+      if (opts.attr) for (const k in opts.attr) d.setAttribute(k, opts.attr[k]);
+      this.appendChild(d); return d;
+    }
+    insertAdjacentHTML(_pos, html) {
+      for (const k of MockEl.parseHtml(html)) { k.parentElement = this; this._htmlKids.push(k); }
+    }
+    scrollTo() {}
+    scrollIntoView() {}
+    focus() {}
+    blur() {}
+    select() {}
+    click() {}
+    getBoundingClientRect() { return { top: 0, left: 0, right: 0, bottom: 0, width: 0, height: 0, x: 0, y: 0 }; }
+    get scrollHeight() { return Math.max(this.clientHeight, this.children.length * 20); }
+    get scrollWidth() { return this.clientWidth; }
+  }
+
+  const docListeners23 = [];
+  const MockDocument23 = {
+    _isDocRoot: true,
+    body: new MockEl('body'),
+    documentElement: new MockEl('html'),
+    hidden: false,
+    createElement(tag) { const el = new MockEl(tag); el.ownerDocument = this; return el; },
+    createElementNS(_ns, tag) { return this.createElement(tag); },
+    createTextNode(t) { const el = new MockEl('#text'); el.textContent = t; return el; },
+    addEventListener(type, fn, opts) { docListeners23.push({ type, fn, signal: (opts && opts.signal) || null }); },
+    removeEventListener() {},
+    querySelector(sel) { return this.body.querySelector(sel); },
+    querySelectorAll(sel) { return this.body.querySelectorAll(sel); },
+    execCommand() { return true; }
+  };
+  MockDocument23.body.parentElement = MockDocument23.documentElement;
+
+  const mockApp23 = {
+    vault: { adapter: { basePath: '', getResourcePath: (p) => p }, getAbstractFileByPath: () => null },
+    plugins: { plugins: {}, getPlugin: () => null },
+    workspace: { getLeavesOfType: () => [] },
+    metadataCache: { getFileCache: () => ({}) },
+    setting: {}
+  };
+  const ctxProvider23 = {
+    app: mockApp23,
+    onChange() {},
+    getContextBadgeInfo: () => ({ hasContext: false, title: '', module: '' }),
+    getActiveFile: () => null,
+    clearContext() {},
+    clearKnowledgeNode() {},
+    formatPromptWithContext: (t) => t
+  };
+
+  global.document = MockDocument23;
+  global.window = {
+    app: mockApp23, innerWidth: 1600, innerHeight: 900,
+    addEventListener() {}, removeEventListener() {}
+  };
+  if (!global.localStorage) {
+    global.localStorage = { _d: {}, getItem(k) { return this._d[k] || null; }, setItem(k, v) { this._d[k] = String(v); }, removeItem(k) { delete this._d[k]; } };
+  }
+  global.requestAnimationFrame = global.requestAnimationFrame || ((cb) => setTimeout(cb, 0));
+  global.cancelAnimationFrame = global.cancelAnimationFrame || ((id) => clearTimeout(id));
+  global.MutationObserver = global.MutationObserver || class { constructor(cb) { this._cb = cb; } observe() {} disconnect() {} };
+  global.ResizeObserver = global.ResizeObserver || class { constructor(cb) { this._cb = cb; } observe() {} disconnect() {} };
+  try {
+    if (typeof navigator === 'undefined' || !navigator.clipboard) {
+      Object.defineProperty(globalThis, 'navigator', { value: { clipboard: { writeText: async () => {} } }, configurable: true });
+    }
+  } catch (_) {}
+
+  function makeStubHub23() {
+    const listeners = {};
+    const adapter = {
+      id: 'pi', name: 'Pi Agent', displayName: 'Pi Agent', icon: '<svg></svg>',
+      status: 'connected', permissionMode: 'readwrite', isStreaming: false,
+      getStatus() { return { status: this.status, detail: 'ok' }; },
+      getModel: () => ({ id: 'gpt-6.1-sol', name: 'gpt-6.1-sol' }),
+      getModelGroups: () => [],
+      supportsReasoningEffort: () => false,
+      getReasoningEffortConfig: () => null,
+      detect: async () => ({ available: true }),
+      start: async () => true,
+      _syncSessionConversation() {}
+    };
+    const added = [];
+    const sessionManager = {
+      _msgs: [],
+      getMessages: () => sessionManager._msgs.slice(),
+      addMessage: (aid, m) => { added.push(m); sessionManager._msgs.push(m); },
+      getActiveSessionId: () => 'sess-1',
+      getSessions: () => [],
+      getDraft: () => '',
+      setDraft: () => {},
+      switchSession: () => {},
+      newSession: () => {},
+      deleteSession: () => {}
+    };
+    const hub = {
+      activeAgentId: 'pi', sessionManager,
+      on: (ev, fn) => { (listeners[ev] = listeners[ev] || []).push(fn); },
+      emit: (ev, d) => { (listeners[ev] || []).slice().forEach(f => f(d)); },
+      getActiveAdapter: () => adapter,
+      getAdapter: () => adapter,
+      getAgentList: () => [{ id: 'pi', name: 'Pi Agent', displayName: 'Pi Agent', icon: '<svg/>' }],
+      getStatus: () => adapter.getStatus(),
+      isStreaming: () => !!adapter.isStreaming,
+      getPermissionMode: () => 'readwrite',
+      setPermissionMode: async () => {},
+      switchAgent: async () => {}
+    };
+    return { hub, adapter, added };
+  }
+
+  // 场景 A：流式任务中跨页签切换（多次 mount），气泡/工具句柄不丢失，消息完整聚合落库
+  const { hub: hubA, adapter: adpA, added: addedA } = makeStubHub23();
+  const drawerA = new PiDrawerView({ hub: hubA, app: mockApp23, contextProvider: ctxProvider23, vaultBasePath: '' });
+  const layoutA1 = MockDocument23.createElement('div'); layoutA1.className = 'tabonkb-workbench-layout';
+  drawerA.mount(layoutA1);
+  assert(!!drawerA.drawerEl && drawerA.drawerEl.parentElement === layoutA1, 'DRAWER-MOUNT-01: initial mount builds DOM into layout');
+
+  adpA.isStreaming = true;
+  hubA.emit('turn_start');
+  hubA.emit('thinking_start', { startTime: Date.now() });
+  hubA.emit('thinking_delta', '第一步：分析充电驱动代码结构');
+  hubA.emit('tool_start', { toolCallId: 'call-1', toolName: 'read_file', actionDesc: '读取驱动源码' });
+
+  const msgBeforeSwitch = drawerA.currentAssistantMessage;
+  const drawerElBefore = drawerA.drawerEl;
+  const msgChildrenBefore = drawerA.messagesEl.children.length;
+  assert(!!msgBeforeSwitch && (msgBeforeSwitch.thinkingText || '').includes('第一步'), 'DRAWER-MOUNT-01: thinking text accumulated before switch');
+  assert(drawerA.activeToolCards.has('call-1'), 'DRAWER-MOUNT-01: activeToolCards holds running tool before switch');
+
+  const aiWrapA = MockDocument23.createElement('div'); aiWrapA.className = 'tw-explore-ai-pane';
+  const layoutA2 = MockDocument23.createElement('div'); layoutA2.className = 'tabonkb-workbench-layout';
+  const layoutA3 = MockDocument23.createElement('div'); layoutA3.className = 'tabonkb-workbench-layout';
+  drawerA.mount(aiWrapA);   // explore ai（studio 宿主）
+  drawerA.mount(layoutA2);  // home（普通宿主）
+  drawerA.mount(layoutA3);  // tasks（普通宿主）
+  drawerA.mount(aiWrapA);   // 返回 explore ai
+
+  assert(drawerA.drawerEl === drawerElBefore, 'DRAWER-MOUNT-01: drawerEl node is reused (not rebuilt) across mounts');
+  assert(drawerA.drawerEl.parentElement === aiWrapA, 'DRAWER-MOUNT-01: remount re-attaches drawerEl into the new host container');
+  assert(drawerA.currentAssistantMessage === msgBeforeSwitch, 'DRAWER-MOUNT-01: currentAssistantMessage is the same reference after page switches');
+  assert(drawerA.activeToolCards.has('call-1'), 'DRAWER-MOUNT-01: activeToolCards survives page switches');
+  assert(drawerA.messagesEl.children.length >= msgChildrenBefore && msgChildrenBefore > 0, 'DRAWER-MOUNT-01: in-flight bubble DOM preserved');
+  assert(msgBeforeSwitch.startTime > 0, 'DRAWER-MOUNT-01: banner timer not restarted (startTime unchanged, no 1-second restart)');
+
+  hubA.emit('tool_end', { toolCallId: 'call-1', toolName: 'read_file', durationMs: 800 });
+  hubA.emit('text_delta', '根据分析，充电驱动需要修改 hardware_info');
+  adpA.isStreaming = false;
+  hubA.emit('turn_end', { usage: { input: 100, output: 50 } });
+  hubA.emit('agent_settled', {});
+
+  const persisted = addedA[addedA.length - 1];
+  assert(addedA.length === 1, 'DRAWER-MOUNT-01: exactly one assistant message persisted (no fragment/duplicate after switches)');
+  assert(!!persisted && (persisted.thinking || '').includes('第一步'), 'DRAWER-MOUNT-01: persisted message retains thinking chain across page switch');
+  assert(!!persisted && Array.isArray(persisted.toolCalls) && persisted.toolCalls.length === 1, 'DRAWER-MOUNT-01: persisted message keeps the tool call record');
+  assert(!!persisted && (persisted.text || '').includes('根据分析'), 'DRAWER-MOUNT-01: streamed text aggregated into the same message');
+  assert(drawerA.currentAssistantMessage === null, 'DRAWER-MOUNT-01: message finalized after agent_settled');
+
+  // 场景 B：studio 宿主与普通宿主之间的形态与显隐状态机
+  const { hub: hubB } = makeStubHub23();
+  const drawerB = new PiDrawerView({ hub: hubB, app: mockApp23, contextProvider: ctxProvider23, vaultBasePath: '' });
+  const layoutB = MockDocument23.createElement('div'); layoutB.className = 'tabonkb-workbench-layout';
+  const aiPaneB = MockDocument23.createElement('div'); aiPaneB.className = 'tw-explore-ai-pane';
+  drawerB.mount(layoutB);
+  drawerB.mount(aiPaneB);
+  assert(drawerB.drawerEl.classList.contains('tw-studio-mode') === true, 'DRAWER-MOUNT-02: studio host applies tw-studio-mode');
+  assert(drawerB.drawerEl.style.width === '100%' && drawerB.drawerEl.style.display === 'flex', 'DRAWER-MOUNT-02: studio host forces full-width open');
+  drawerB.mount(layoutB);
+  assert(drawerB.drawerEl.classList.contains('tw-studio-mode') === false, 'DRAWER-MOUNT-02: normal host removes tw-studio-mode');
+  assert(drawerB.drawerEl.style.display === 'none' && drawerB.isOpenState === false, 'DRAWER-MOUNT-02: docked drawer hidden & isOpenState reset (no stale true from studio)');
+  drawerB.toggle();
+  assert(drawerB.isOpenState === true && drawerB.drawerEl.style.display === 'flex', 'DRAWER-MOUNT-02: first toggle() opens drawer immediately (no dead click)');
+  drawerB.mount(layoutB);
+  assert(drawerB.isOpenState === true && drawerB.drawerEl.style.display === 'flex', 'DRAWER-MOUNT-02: normal open state survives remount via _normalDrawerOpen');
+  drawerB.close();
+  assert(drawerB._normalDrawerOpen === false && drawerB.drawerEl.style.display === 'none', 'DRAWER-MOUNT-02: close() syncs _normalDrawerOpen=false');
+
+  // 场景 C：document 级全局监听防泄漏 + 幽灵吸顶条样式回归
+  assert(drawerA._docEventsAbort instanceof AbortController && !drawerA._docEventsAbort.signal.aborted, 'DRAWER-MOUNT-03: _docEventsAbort installed during buildDom');
+  const firstDocSignal = drawerA._docEventsAbort.signal;
+  const boundCount = docListeners23.filter(l => l.signal === firstDocSignal).length;
+  assert(boundCount === 5, `DRAWER-MOUNT-03: exactly 5 document listeners bound to abort signal (got ${boundCount})`);
+  drawerA.buildDom(); // 模拟异常恢复路径下的二次构建
+  assert(firstDocSignal.aborted === true, 'DRAWER-MOUNT-03: re-running buildDom aborts previous document listeners');
+  assert(drawerA._docEventsAbort.signal !== firstDocSignal && !drawerA._docEventsAbort.signal.aborted, 'DRAWER-MOUNT-03: fresh abort signal installed after rebuild');
+
+  const stylesSrc23 = fs.readFileSync(path.join(pluginDir, 'styles.css'), 'utf8');
+  const stickyBlocks23 = stylesSrc23.match(/\.tw-sticky-question\s*\{[^}]*\}/g) || [];
+  const ghostBlock23 = stickyBlocks23.find(b => /display\s*:\s*flex\s*!important/.test(b));
+  assert(!ghostBlock23, 'DRAWER-MOUNT-03: .tw-sticky-question has no unconditional display:flex !important (ghost bar fixed)');
+
+  // 场景 D：孤儿回合（热重载/进程被杀导致在途回复未落库）恢复后渲染中断标记
+  // 1) 会话以未应答的 user 消息结尾 → 恢复后消息区末尾出现 .tw-interrupt-marker
+  const { hub: hubD1 } = makeStubHub23();
+  hubD1.sessionManager._msgs.push(
+    { role: 'user', text: '根据 kernel log 定位下关机原因', timestamp: Date.now() - 120000 },
+    { role: 'assistant', text: '初步分析：充电线程正常', thinking: '检查日志', processSteps: [{ label: '思考', text: 'x' }], timestamp: Date.now() - 90000 },
+    { role: 'user', text: '继续深入', timestamp: Date.now() - 60000 }
+  );
+  const drawerD1 = new PiDrawerView({ hub: hubD1, app: mockApp23, contextProvider: ctxProvider23, vaultBasePath: '' });
+  const layoutD1 = MockDocument23.createElement('div'); layoutD1.className = 'tabonkb-workbench-layout';
+  drawerD1.mount(layoutD1);
+  const markerD1 = drawerD1.messagesEl.querySelector('.tw-interrupt-marker');
+  assert(!!markerD1, 'DRAWER-MOUNT-04: interrupt marker rendered when restored session ends with unanswered user message');
+  assert(markerD1 === drawerD1.messagesEl.children[drawerD1.messagesEl.children.length - 1], 'DRAWER-MOUNT-04: interrupt marker sits at the end of the message list');
+  assert(markerD1 && !hubD1.sessionManager._msgs.some(m => m.role !== 'user' && m.role !== 'assistant'), 'DRAWER-MOUNT-04: marker is DOM-only, nothing extra persisted');
+
+  // 2) 会话以完全空壳的 assistant（重载前残缺落库痕迹）结尾 → 同样渲染标记
+  const { hub: hubD2 } = makeStubHub23();
+  hubD2.sessionManager._msgs.push(
+    { role: 'user', text: '问题A', timestamp: Date.now() - 60000 },
+    { role: 'assistant', text: '', thinking: '', processSteps: [{ label: '思考', text: '' }], timestamp: Date.now() - 59000 }
+  );
+  const drawerD2 = new PiDrawerView({ hub: hubD2, app: mockApp23, contextProvider: ctxProvider23, vaultBasePath: '' });
+  const layoutD2 = MockDocument23.createElement('div'); layoutD2.className = 'tabonkb-workbench-layout';
+  drawerD2.mount(layoutD2);
+  assert(!!drawerD2.messagesEl.querySelector('.tw-interrupt-marker'), 'DRAWER-MOUNT-04: interrupt marker rendered for truncated empty assistant tail');
+
+  // 3) 正常收尾的会话（assistant 有正文）→ 不渲染标记
+  const { hub: hubD3 } = makeStubHub23();
+  hubD3.sessionManager._msgs.push(
+    { role: 'user', text: '问题B', timestamp: Date.now() - 60000 },
+    { role: 'assistant', text: '结论：关机由电量计低电保护触发', timestamp: Date.now() - 59000 }
+  );
+  const drawerD3 = new PiDrawerView({ hub: hubD3, app: mockApp23, contextProvider: ctxProvider23, vaultBasePath: '' });
+  const layoutD3 = MockDocument23.createElement('div'); layoutD3.className = 'tabonkb-workbench-layout';
+  drawerD3.mount(layoutD3);
+  assert(!drawerD3.messagesEl.querySelector('.tw-interrupt-marker'), 'DRAWER-MOUNT-04: no marker for a normally completed session');
+
+  // 4) 流式进行中（末条为 user 且 hub.isStreaming()=true）→ 恢复时不误标中断
+  const { hub: hubD4, adapter: adpD4 } = makeStubHub23();
+  hubD4.sessionManager._msgs.push({ role: 'user', text: '进行中的问题', timestamp: Date.now() - 5000 });
+  const drawerD4 = new PiDrawerView({ hub: hubD4, app: mockApp23, contextProvider: ctxProvider23, vaultBasePath: '' });
+  const layoutD4 = MockDocument23.createElement('div'); layoutD4.className = 'tabonkb-workbench-layout';
+  adpD4.isStreaming = true;
+  drawerD4.mount(layoutD4);
+  assert(!drawerD4.messagesEl.querySelector('.tw-interrupt-marker'), 'DRAWER-MOUNT-04: no marker while a turn is streaming (isStreaming guard)');
+  adpD4.isStreaming = false;
+
+  // =========================================================================
+  // Suite 24: STREAM-QUEUE —— 流式 steer 插队 / follow_up 排队 / 回显去重 /
+  //           pi .jsonl 孤儿回合恢复 / 只读方案执行条
+  // =========================================================================
+  console.log('\n--- Suite 24: STREAM-QUEUE ---');
+
+  // 带 steer/followUp 能力桩的 hub 工厂（复用 mockApp23/ctxProvider23/MockDocument23）
+  function makeStubHub24(overrides = {}) {
+    const listeners = {};
+    const calls = { steer: [], followUp: [], cancelQueued: [], send: [], setPerm: [] };
+    let permMode = overrides.permMode || 'readwrite';
+    const adapter = Object.assign({
+      id: 'pi', name: 'Pi Agent', displayName: 'Pi Agent', icon: '<svg></svg>',
+      status: 'connected', permissionMode: 'readwrite', isStreaming: false,
+      getStatus() { return { status: this.status, detail: 'ok' }; },
+      getModel: () => ({ id: 'gpt-6.1-sol', name: 'gpt-6.1-sol' }),
+      getModelGroups: () => [],
+      supportsReasoningEffort: () => false,
+      getReasoningEffortConfig: () => null,
+      detect: async () => ({ available: true }),
+      start: async () => true,
+      _syncSessionConversation() {},
+      steer: async (t) => { calls.steer.push(t); return { success: true }; },
+      followUp: async (t) => { calls.followUp.push(t); return { success: true }; },
+      removeQueuedMessage: async (k, t) => { calls.cancelQueued.push([k, t]); return { success: true }; },
+      send: async (t) => { calls.send.push(t); return { success: true }; }
+    }, overrides.adapter || {});
+    const sessionManager = {
+      _msgs: [],
+      getMessages() { return sessionManager._msgs.slice(); },
+      addMessage(aid, m) { sessionManager._msgs.push(m); },
+      truncateMessages(aid, fromIdx) { if (fromIdx >= 0 && fromIdx < sessionManager._msgs.length) sessionManager._msgs.length = fromIdx; },
+      getActiveSessionId: () => 'sess-1',
+      getSessions: () => [],
+      getDraft: () => '',
+      setDraft: () => {},
+      switchSession: () => {},
+      newSession: () => {},
+      deleteSession: () => {}
+    };
+    const hub = {
+      activeAgentId: 'pi', sessionManager, _calls: calls,
+      on: (ev, fn) => { (listeners[ev] = listeners[ev] || []).push(fn); },
+      emit: (ev, d) => { (listeners[ev] || []).slice().forEach(f => f(d)); },
+      getActiveAdapter: () => adapter,
+      getAdapter: () => adapter,
+      getAgentList: () => [{ id: 'pi', name: 'Pi Agent', displayName: 'Pi Agent', icon: '<svg/>' }],
+      getStatus: () => adapter.getStatus(),
+      isStreaming: () => !!adapter.isStreaming,
+      getPermissionMode: () => permMode,
+      setPermissionMode: async (m) => { calls.setPerm.push(m); permMode = m; },
+      followUp: async (t, meta) => adapter.followUp((meta && meta.prompt) || t),
+      cancelQueued: async (k, t) => adapter.removeQueuedMessage(k, t),
+      steer: async (t) => adapter.steer(t),
+      send: async (t) => adapter.send(t),
+      abort: async () => { adapter.isStreaming = false; hub.emit('agent_settled', {}); },
+      newSession: async () => {},
+      switchAgent: async () => {}
+    };
+    return { hub, adapter, calls, sessionManager };
+  }
+
+  const tick24 = () => new Promise(r => setTimeout(r, 5));
+
+  // 场景 E：流式中 Enter → steer 插队（乐观气泡 + 回显去重）
+  {
+    const { hub, adapter, calls } = makeStubHub24();
+    const drawer = new PiDrawerView({ hub, app: mockApp23, contextProvider: ctxProvider23, vaultBasePath: '' });
+    const host = MockDocument23.createElement('div');
+    drawer.mount(host);
+    drawer.open();
+    adapter.isStreaming = true;
+    hub.emit('turn_start');
+    const kidsBefore = drawer.messagesEl.children.length;
+
+    drawer.inputEl.value = '注意检查 RCU 旁路';
+    await drawer.handleQueueSend('steer');
+    assert(calls.steer.length === 1 && calls.steer[0] === '注意检查 RCU 旁路', 'STREAM-01: Enter during streaming issues pi steer with wireText');
+    assert(drawer.inputEl.value === '', 'STREAM-01: input cleared after steer');
+    // A 方案分段：空壳旧气泡被移除 + 纠偏气泡追加 → 净增 0；若非空段则收尾保留在 DOM
+    assert(drawer.messagesEl.children.length === kidsBefore, 'STREAM-01: empty pre-steer bubble cut & removed, user steer bubble appended');
+    assert(drawer._pendingSentWires.length === 1 && drawer._pendingSentWires[0].optimistic === true, 'STREAM-01: optimistic echo ledger entry recorded');
+
+    // pi 侧回显 message_start(user) 到达 → 对账命中 → 不重复渲染
+    const kidsAfterSteer = drawer.messagesEl.children.length;
+    hub.emit('user_message', { text: '注意检查 RCU 旁路' });
+    assert(drawer.messagesEl.children.length === kidsAfterSteer, 'STREAM-01: steer echo deduped via pending ledger (no duplicate bubble)');
+    assert(drawer._pendingSentWires.length === 0, 'STREAM-01: ledger entry consumed by echo');
+    adapter.isStreaming = false;
+  }
+
+  // 场景 E2：steer 前后分段落库——[assistant1][user][assistant2] 顺序与禁跨用户消息合并
+  {
+    const { hub, adapter, calls, sessionManager } = makeStubHub24();
+    const drawer = new PiDrawerView({ hub, app: mockApp23, contextProvider: ctxProvider23, vaultBasePath: '' });
+    const host = MockDocument23.createElement('div');
+    drawer.mount(host);
+    drawer.open();
+    adapter.isStreaming = true;
+    hub.emit('turn_start');
+    hub.emit('text_delta', '第一段分析内容');
+
+    drawer.inputEl.value = '补充：重点看 otg 路径';
+    await drawer.handleQueueSend('steer');
+    // steer 发送即把前段收尾+落库：此时应已有 [assistant1][user]（用户消息经异步 persist 落地）
+    await tick24();
+    hub.emit('user_message', { text: '补充：重点看 otg 路径' });
+    hub.emit('text_delta', '第二段纠偏后输出');
+    adapter.isStreaming = false;
+    hub.emit('agent_settled', {});
+    await tick24();
+
+    const roles = sessionManager._msgs.map(m => m.role);
+    const aIdx = roles.indexOf('assistant');
+    const uIdx = roles.indexOf('user');
+    const a2Idx = roles.lastIndexOf('assistant');
+    assert(aIdx === 0 && uIdx === 1 && a2Idx === 2, 'STREAM-06: persisted order is [assistant1][user-steer][assistant2] (no cross-user merge)');
+    assert(sessionManager._msgs[0].text.includes('第一段分析内容'), 'STREAM-06: first segment carries pre-steer text');
+    assert(sessionManager._msgs[2].text.includes('第二段纠偏后输出'), 'STREAM-06: second segment carries post-steer text');
+    // 连续段（无用户消息分隔）合并为一条：本场景两轮 turn 各自成段
+    const asstCount = sessionManager._msgs.filter(m => m.role === 'assistant').length;
+    assert(asstCount === 2, 'STREAM-06: two assistant segments persisted as two records (split by user msg)');
+  }
+
+  // 场景 E3：steer 失败回滚乐观气泡（不残留幽灵 user 记录）
+  {
+    const { hub, adapter, sessionManager } = makeStubHub24();
+    adapter.steer = async () => { throw new Error('Pi 核心进程未就绪或已断开'); };
+    const drawer = new PiDrawerView({ hub, app: mockApp23, contextProvider: ctxProvider23, vaultBasePath: '' });
+    const host = MockDocument23.createElement('div');
+    drawer.mount(host);
+    drawer.open();
+    adapter.isStreaming = true;
+    hub.emit('turn_start');
+    hub.emit('text_delta', '运行中内容');
+    drawer.inputEl.value = '注定失败的纠偏';
+    await drawer.handleQueueSend('steer');
+    await tick24();
+    assert(!sessionManager._msgs.some(m => m.role === 'user' && m.text === '注定失败的纠偏'), 'STREAM-07: failed steer rolls back optimistic bubble (no phantom user record)');
+    assert(drawer._pendingSentWires.length === 0, 'STREAM-07: failed steer ledger entry removed');
+    adapter.isStreaming = false;
+  }
+
+  // 场景 F：流式中 Alt+Enter → follow_up 排队（先不渲染气泡，回显派发时补渲染并落库）
+  {
+    const { hub, adapter, calls, sessionManager } = makeStubHub24();
+    const drawer = new PiDrawerView({ hub, app: mockApp23, contextProvider: ctxProvider23, vaultBasePath: '' });
+    const host = MockDocument23.createElement('div');
+    drawer.mount(host);
+    drawer.open();
+    adapter.isStreaming = true;
+    hub.emit('turn_start');
+    const kidsBefore = drawer.messagesEl.children.length;
+
+    drawer.inputEl.value = '然后再看 fuel gauge';
+    await drawer.handleQueueSend('follow_up');
+    assert(calls.followUp.length === 1 && calls.followUp[0] === '然后再看 fuel gauge', 'STREAM-02: Alt+Enter queues follow_up with wireText');
+    assert(drawer.messagesEl.children.length === kidsBefore, 'STREAM-02: queued item does NOT render user bubble immediately');
+    assert(drawer._pendingSentWires.length === 1 && drawer._pendingSentWires[0].optimistic === false, 'STREAM-02: queued echo ledger entry pending render');
+
+    // queue_update 快照 → 排队胶囊条渲染
+    hub.emit('queue_update', { steering: [], followUp: ['然后再看 fuel gauge', '第二条排队'] });
+    const strip = drawer.queueStripEl;
+    assert(strip && strip.style.display === 'flex', 'STREAM-02: queue strip visible on queue_update');
+    assert(strip.querySelectorAll('.tw-queue-chip').length === 2, 'STREAM-02: two queue chips rendered');
+    assert((strip.innerHTML || '').includes('然后再看 fuel gauge'), 'STREAM-02: chip shows queued text');
+
+    // 点击第 2 个芯片 ✕ → cancelQueued('follow', text)
+    const chipXs = strip.querySelectorAll('.tw-queue-chip-x');
+    chipXs[1].onclick({ stopPropagation() {} });
+    await tick24();
+    assert(calls.cancelQueued.length === 1 && calls.cancelQueued[0][0] === 'follow' && calls.cancelQueued[0][1] === '第二条排队', 'STREAM-02: chip ✕ removes that queued item via cancelQueued');
+
+    // 本轮结束 → pi 消费排队项 → message_start(user) 回显 → 渲染原文气泡 + 落库
+    adapter.isStreaming = false;
+    hub.emit('queue_update', { steering: [], followUp: [] });
+    hub.emit('user_message', { text: '然后再看 fuel gauge' });
+    await tick24();
+    const userBubbles = drawer.messagesEl.querySelectorAll('.tw-msg-bubble-wrap.user');
+    assert(userBubbles.length === 1, 'STREAM-02: dispatched follow_up renders user bubble on echo');
+    assert(sessionManager._msgs.some(m => m.role === 'user' && m.text === '然后再看 fuel gauge'), 'STREAM-02: dispatched follow_up persisted as user message');
+    assert(strip.style.display === 'none', 'STREAM-02: strip hides when queue empties');
+  }
+
+  // 场景 G：abort 回收队列 → queue_cleared 回填输入框；正常 prompt 回显对账
+  {
+    const { hub, adapter } = makeStubHub24();
+    const drawer = new PiDrawerView({ hub, app: mockApp23, contextProvider: ctxProvider23, vaultBasePath: '' });
+    const host = MockDocument23.createElement('div');
+    drawer.mount(host);
+    drawer.open();
+
+    hub.emit('queue_cleared', { steering: ['插队没赶上'], followUp: ['排队甲', '排队乙'] });
+    assert(drawer.inputEl.value === '插队没赶上\n排队甲\n排队乙', 'STREAM-03: cleared queue texts restored into input on abort');
+
+    // 正常发送的回显对账：handleSend 登记 optimistic → echo 去重
+    drawer.inputEl.value = '正常提问';
+    sessionManagerPushGuard: {
+      const msgsBefore = hub.sessionManager._msgs.length;
+      await drawer.handleSend();
+      hub.emit('user_message', { text: '正常提问' });
+      await tick24();
+      const userMsgs = hub.sessionManager._msgs.filter(m => m.role === 'user');
+      assert(userMsgs.length === 1, 'STREAM-03: normal prompt echo deduped (single persisted user message)');
+    }
+  }
+
+  // 场景 H：AgentHub 本地队列（非 pi adapter 无原生队列）——入队快照、settled 自动派发、取消
+  {
+    const { AgentHub } = require('../agent-hub.js');
+    const hub = Object.create(AgentHub.prototype);
+    hub.listeners = new Map();
+    hub._localFollowUpQueue = [];
+    hub.activeAgentId = 'agx';
+    const sentLocal = [];
+    const fakeAdapter = {
+      isStreaming: false,
+      send: async (t) => { sentLocal.push(t); return { success: true }; },
+      abort: async () => {}
+    };
+    hub.getActiveAdapter = () => fakeAdapter;
+    const hubEvents = [];
+    const origEmit = AgentHub.prototype.emit.bind(hub);
+    hub.emit = (ev, d) => { hubEvents.push([ev, d]); return origEmit(ev, d); };
+
+    await hub.followUp('本地排队任务一');
+    assert(hub._localFollowUpQueue.length === 1, 'STREAM-04: non-pi adapter falls back to hub local queue');
+    assert(hubEvents.some(e => e[0] === 'queue_update' && e[1].followUp.length === 1 && e[1]._local === true), 'STREAM-04: local queue emits synthesized queue_update');
+
+    // settled → 自动派发首项
+    hub._dispatchLocalFollowUp(fakeAdapter);
+    assert(sentLocal.length === 1 && sentLocal[0] === '本地排队任务一', 'STREAM-04: settled dispatches head of local queue via adapter.send');
+    assert(hubEvents.some(e => e[0] === 'follow_up_dispatched' && e[1].text === '本地排队任务一'), 'STREAM-04: follow_up_dispatched broadcast before send');
+
+    // 取消剩余项
+    await hub.followUp('排队二');
+    await hub.followUp('排队三');
+    await hub.cancelQueued('follow', '排队二');
+    assert(hub._localFollowUpQueue.length === 1 && hub._localFollowUpQueue[0].text === '排队三', 'STREAM-04: cancelQueued splices exact item from local queue');
+
+    // abort 清空本地队列并广播 queue_cleared
+    hub._localFollowUpQueue.push({ id: 'x', text: '排队四' });
+    await hub.abort();
+    assert(hub._localFollowUpQueue.length === 0, 'STREAM-04: abort clears local queue');
+    assert(hubEvents.some(e => e[0] === 'queue_cleared' && e[1].followUp.includes('排队四')), 'STREAM-04: abort broadcasts cleared texts for input restore');
+
+    // pi 原生路径：adapter 提供 followUp 时不入本地队列
+    const nativeCalls = [];
+    const piAdapter = { isStreaming: false, followUp: async (t) => { nativeCalls.push(t); }, send: async () => {} };
+    hub.getActiveAdapter = () => piAdapter;
+    await hub.followUp('原生排队');
+    assert(nativeCalls.length === 1 && hub._localFollowUpQueue.length === 0, 'STREAM-04: adapter with native followUp bypasses local queue');
+  }
+
+  // 场景 I：pi .jsonl 孤儿回合恢复 —— 热重载中断后从会话文件回填 thinking/tool 步骤
+  {
+    const os = require('os');
+    const vaultKey = 'D:\\VaultTest';
+    const jsonlPath = path.join(os.tmpdir(), `pi-sess-test-${Date.now()}.jsonl`);
+    const lines = [
+      JSON.stringify({ type: 'session', cwd: vaultKey, id: 'test' }),
+      JSON.stringify({ type: 'message', timestamp: 1000, message: { role: 'user', content: [{ type: 'text', text: '继续深入分析关机根因\n\n[Target Codebase: xxx]' }] } }),
+      JSON.stringify({ type: 'message', timestamp: 2000, message: { role: 'assistant', content: [{ type: 'thinking', thinking: '先看充电线程日志…' }, { type: 'toolCall', id: 't1', name: 'grep', arguments: { pattern: 'shutdown' } }] } }),
+      JSON.stringify({ type: 'message', timestamp: 3000, message: { role: 'toolResult', toolCallId: 't1', content: [{ type: 'text', text: 'charger_thread: ok' }], isError: false } }),
+      JSON.stringify({ type: 'message', timestamp: 4000, message: { role: 'assistant', content: [{ type: 'text', text: '初步结论：低电保护触发关机' }] } })
+    ];
+    fs.writeFileSync(jsonlPath, lines.join('\n') + '\n', 'utf-8');
+    const mapKey = vaultKey.replace(/\\/g, '/').toLowerCase();
+    const map = JSON.parse(localStorage.getItem('tabonkb-pi-session-files') || '{}');
+    map[mapKey] = jsonlPath;
+    localStorage.setItem('tabonkb-pi-session-files', JSON.stringify(map));
+
+    const { hub, sessionManager } = makeStubHub24();
+    sessionManager._msgs.push(
+      { role: 'user', text: '先分析 kernel log', timestamp: Date.now() - 120000 },
+      { role: 'assistant', text: '线程正常', timestamp: Date.now() - 90000 },
+      { role: 'user', text: '继续深入分析关机根因', timestamp: Date.now() - 60000 }
+    );
+    const drawer = new PiDrawerView({ hub, app: mockApp23, contextProvider: ctxProvider23, vaultBasePath: vaultKey });
+    const host = MockDocument23.createElement('div');
+    drawer.mount(host);
+
+    const lastMsg = sessionManager._msgs[sessionManager._msgs.length - 1];
+    assert(lastMsg.role === 'assistant' && lastMsg.interrupted === true, 'RECOVER-01: orphaned turn recovered from pi .jsonl into interrupted assistant message');
+    assert((lastMsg.thinking || '').includes('充电线程'), 'RECOVER-01: recovered message contains thinking chain');
+    assert(Array.isArray(lastMsg.toolCalls) && lastMsg.toolCalls.length === 1 && lastMsg.toolCalls[0].toolName === 'grep' && lastMsg.toolCalls[0].output.includes('charger_thread'), 'RECOVER-01: recovered tool call carries output');
+    assert((lastMsg.text || '').includes('低电保护'), 'RECOVER-01: recovered message contains streamed text');
+    const marker = drawer.messagesEl.querySelector('.tw-interrupt-marker');
+    assert(!!marker && marker === drawer.messagesEl.children[drawer.messagesEl.children.length - 1], 'RECOVER-01: interrupt marker still tails the recovered bubble');
+    assert(Array.isArray(lastMsg.processSteps) && lastMsg.processSteps.some(s => s.type === 'thinking') && lastMsg.processSteps.some(s => s.type === 'tool'), 'RECOVER-01: recovered message rebuilds ordered thinking+tool processSteps');
+    assert(!!drawer.messagesEl.querySelector('.tw-dsh-process-banner'), 'RECOVER-01: recovered bubble renders collapsed process banner');
+
+    // 文本不匹配（其他会话文件）→ 不恢复
+    const { hub: hub2, sessionManager: sm2 } = makeStubHub24();
+    sm2._msgs.push({ role: 'user', text: '完全不同的提问内容xyz', timestamp: Date.now() - 60000 });
+    const drawer2 = new PiDrawerView({ hub: hub2, app: mockApp23, contextProvider: ctxProvider23, vaultBasePath: vaultKey });
+    const host2 = MockDocument23.createElement('div');
+    drawer2.mount(host2);
+    assert(sm2._msgs.length === 1 && !!drawer2.messagesEl.querySelector('.tw-interrupt-marker'), 'RECOVER-02: mismatched session file skips recovery, marker still shown');
+  }
+
+  // 场景 J：只读模式回合落定 → ExecutePlanBar 浮现；点击执行 → 切读写并发送
+  {
+    const { hub, adapter, calls, sessionManager } = makeStubHub24({ permMode: 'readonly' });
+    const drawer = new PiDrawerView({ hub, app: mockApp23, contextProvider: ctxProvider23, vaultBasePath: '' });
+    const host = MockDocument23.createElement('div');
+    drawer.mount(host);
+    drawer.open();
+
+    // 只读模式 settle 且有正文 → 方案条浮现
+    adapter.isStreaming = true;
+    hub.emit('turn_start');
+    hub.emit('text_delta', '方案：先修改 abc，再编译验证');
+    adapter.isStreaming = false;
+    hub.emit('turn_end', {});
+    hub.emit('agent_settled', {});
+    assert(drawer.planBarEl && drawer.planBarEl.style.display === 'flex', 'PLAN-01: execute-plan bar appears after readonly turn with content');
+
+    // 点击执行 → 切读写 + 自动发送执行指令
+    const runBtn = drawer.drawerEl.querySelector('#twPlanBarRun');
+    runBtn.onclick();
+    await tick24();
+    assert(calls.setPerm[0] === 'readwrite', 'PLAN-01: run button switches to readwrite');
+    assert(calls.send.length === 1 && (calls.send[0] || '').includes('请按上述方案执行'), 'PLAN-01: run button auto-sends execute instruction');
+    assert(drawer.planBarEl.style.display === 'none', 'PLAN-01: plan bar hides after run');
+
+    // 读写模式 settle → 不浮现
+    const { hub: hubRW, adapter: adpRW } = makeStubHub24({ permMode: 'readwrite' });
+    const drawerRW = new PiDrawerView({ hub: hubRW, app: mockApp23, contextProvider: ctxProvider23, vaultBasePath: '' });
+    const hostRW = MockDocument23.createElement('div');
+    drawerRW.mount(hostRW);
+    adpRW.isStreaming = true;
+    hubRW.emit('turn_start');
+    hubRW.emit('text_delta', '正常回答');
+    adpRW.isStreaming = false;
+    hubRW.emit('agent_settled', {});
+    assert(drawerRW.planBarEl.style.display === 'none', 'PLAN-02: no plan bar in readwrite mode');
+
+    // 流式占位提示（需已进入回合：turn_start 建泡后 updateSendButtonState 才走流式分支）
+    adpRW.isStreaming = true;
+    hubRW.emit('turn_start');
+    drawerRW.updateSendButtonState();
+    assert((drawerRW.inputEl.placeholder || '').includes('插队'), 'STREAM-05: streaming placeholder hints steer/queue keys');
+    adpRW.isStreaming = false;
+  }
+
+  // 场景 K：流式中鼠标发送入口（④）——有输入显示发送键、点击=steer
+  {
+    const { hub, adapter, calls } = makeStubHub24();
+    const drawer = new PiDrawerView({ hub, app: mockApp23, contextProvider: ctxProvider23, vaultBasePath: '' });
+    const host = MockDocument23.createElement('div');
+    drawer.mount(host);
+    drawer.open();
+    adapter.isStreaming = true;
+    hub.emit('turn_start');
+    drawer.updateSendButtonState();
+    assert(drawer.btnSend.style.display === 'none', 'STREAM-08: streaming + empty input keeps send button hidden');
+
+    drawer.inputEl.value = '鼠标发送的纠偏';
+    drawer.updateSendButtonState();
+    assert(drawer.btnSend.style.display === 'inline-flex' && drawer.btnSend.disabled === false, 'STREAM-08: streaming + input text keeps send button clickable');
+    assert((drawer.btnSend.title || '').includes('插队'), 'STREAM-08: send button title hints steer during streaming');
+
+    drawer.btnSend.onclick();
+    await tick24();
+    assert(calls.steer.length === 1 && calls.steer[0] === '鼠标发送的纠偏', 'STREAM-08: clicking send during streaming routes to steer');
+
+    // 仅附件（无文本/胶囊）不应显示发送键：handleQueueSend 只发送文本协议
+    drawer.inputEl.value = '';
+    drawer.attachedImages = [{ name: 'only.png' }];
+    adapter.status = 'thinking';
+    drawer.updateSendButtonState();
+    assert(drawer.btnSend.style.display === 'none', 'STREAM-08: streaming + image-only keeps send button hidden');
+    drawer.attachedImages = [];
+    adapter.status = 'connected';
+    adapter.isStreaming = false;
+  }
+
+  // 场景 K2：推理模型预建空 thinking step 不应被当作有效段（P2-1）
+  {
+    const { hub, adapter, sessionManager } = makeStubHub24({ adapter: { supportsReasoningEffort: () => true } });
+    const drawer = new PiDrawerView({ hub, app: mockApp23, contextProvider: ctxProvider23, vaultBasePath: '' });
+    const host = MockDocument23.createElement('div');
+    drawer.mount(host);
+    drawer.open();
+    adapter.isStreaming = true;
+    hub.emit('turn_start');
+    assert(drawer.messagesEl.querySelectorAll('.tw-msg-bubble-wrap.assistant').length === 1, 'STREAM-12: reasoning model pre-creates assistant bubble');
+
+    drawer.inputEl.value = '刚起跑就纠偏';
+    await drawer.handleQueueSend('steer');
+    await tick24();
+
+    const aMsgs = sessionManager._msgs.filter(m => m.role === 'assistant');
+    assert(aMsgs.length === 0, 'STREAM-12: empty thinking step is not persisted as an assistant record');
+    assert(drawer.messagesEl.querySelectorAll('.tw-msg-bubble-wrap.assistant').length === 0, 'STREAM-12: empty assistant shell removed on steer split');
+    assert(sessionManager._msgs.some(m => m.role === 'user' && m.text === '刚起跑就纠偏'), 'STREAM-12: steer user message still persisted');
+    adapter.isStreaming = false;
+  }
+
+  // 场景 K3：新会话清除瞬态（P3-1）
+  {
+    const { hub } = makeStubHub24();
+    const drawer = new PiDrawerView({ hub, app: mockApp23, contextProvider: ctxProvider23, vaultBasePath: '' });
+    const host = MockDocument23.createElement('div');
+    drawer.mount(host);
+    drawer.open();
+    drawer._pendingSentWires = [{ wire: 'old', ts: Date.now() }];
+    drawer._queuedWireByPrompt.set('prompt-x', 'wire-x');
+    drawer._assistantRunBuffer = [{ text: 'stale' }];
+    drawer._runAborted = true;
+    drawer._suppressPlanBarOnce = true;
+
+    await drawer.handleNewSession();
+    assert(drawer._pendingSentWires.length === 0, 'STREAM-13: new session clears echo ledger');
+    assert(drawer._queuedWireByPrompt.size === 0, 'STREAM-13: new session clears queued wire map');
+    assert(drawer._assistantRunBuffer.length === 0, 'STREAM-13: new session clears assistant run buffer');
+    assert(drawer._runAborted === false && drawer._suppressPlanBarOnce === false, 'STREAM-13: new session resets abort/planbar flags');
+  }
+
+  // 场景 K4：steer 切段时运行中工具不被提前标完成（P3-2）
+  {
+    const { hub, adapter, sessionManager } = makeStubHub24();
+    const drawer = new PiDrawerView({ hub, app: mockApp23, contextProvider: ctxProvider23, vaultBasePath: '' });
+    const host = MockDocument23.createElement('div');
+    drawer.mount(host);
+    drawer.open();
+    adapter.isStreaming = true;
+    hub.emit('turn_start');
+    hub.emit('tool_start', { toolCallId: 't1', toolName: 'read', args: { path: 'mtk_charger.c' }, actionDesc: '读取 mtk_charger.c', startTime: Date.now() });
+    assert(drawer.activeToolCards.has('t1'), 'STREAM-14: running tool registered before steer');
+
+    drawer.inputEl.value = '工具执行中插队';
+    await drawer.handleQueueSend('steer');
+    await tick24();
+
+    const assistantBubble = drawer.messagesEl.querySelector('.tw-msg-bubble-wrap.assistant');
+    const runningMarker = assistantBubble && assistantBubble.querySelector('.tw-dsh-step-marker.running');
+    assert(!!runningMarker, 'STREAM-14: running tool marker survives steer split');
+    const aMsg = sessionManager._msgs.find(m => m.role === 'assistant');
+    const toolStep = aMsg && (aMsg.processSteps || []).find(s => s.type === 'tool');
+    assert(toolStep && !String(toolStep.label || '').includes('正在执行'), 'STREAM-14: persisted tool step label normalized (no permanent 正在执行)');
+
+    hub.emit('tool_end', { toolCallId: 't1', toolName: 'read', durationMs: 12, isError: false });
+    const stillRunning = drawer.messagesEl.querySelector('.tw-msg-bubble-wrap.assistant .tw-dsh-step-marker.running');
+    assert(!stillRunning, 'STREAM-14: tool_end clears running marker after split');
+    adapter.isStreaming = false;
+  }
+
+  // 场景 K5：用户消息同步落库，图片元数据稍后补写（P3-3）
+  {
+    const { hub, sessionManager } = makeStubHub24();
+    const drawer = new PiDrawerView({ hub, app: mockApp23, contextProvider: ctxProvider23, vaultBasePath: '' });
+    const host = MockDocument23.createElement('div');
+    drawer.mount(host);
+    drawer.open();
+    drawer.addUserMessageBubble('同步落库的提问', null, []);
+    assert(sessionManager._msgs.some(m => m.role === 'user' && m.text === '同步落库的提问'), 'STREAM-15: user message persisted synchronously before image promise resolves');
+  }
+
+  // 场景 K6：实时工具步明细行 + 失败标红 + 悬停全参（工具明细可视化）
+  {
+    const { hub, adapter, sessionManager } = makeStubHub24();
+    const drawer = new PiDrawerView({ hub, app: mockApp23, contextProvider: ctxProvider23, vaultBasePath: '' });
+    const host = MockDocument23.createElement('div');
+    drawer.mount(host);
+    drawer.open();
+    adapter.isStreaming = true;
+    hub.emit('turn_start');
+    hub.emit('tool_start', { toolCallId: 'd1', toolName: 'bash', args: { command: 'cd W/03-mtk-ww && grep -rn mt6370 .' }, actionDesc: '检索 MT6370', startTime: Date.now() });
+
+    // 流式中：调用发起即刻可见明细行（不等 tool_end）
+    const step = drawer.currentAssistantMessage.steps.find(s => s.type === 'tool');
+    const liveLines = step.proseEl.querySelectorAll('.tw-tool-detail-line');
+    assert(step.proseEl.style.display === 'block' && liveLines.length === 1, 'STREAM-16: running call renders detail line immediately');
+    assert((liveLines[0].textContent || '').includes('bash(cd W/03-mtk-ww'), 'STREAM-16: detail line shows bash(command) form');
+    assert((liveLines[0].title || '').includes('mt6370'), 'STREAM-16: detail line title carries full args JSON');
+
+    // 第二个调用（失败）→ tool_end 后标红 + ✗ + 错误摘要
+    hub.emit('tool_start', { toolCallId: 'd2', toolName: 'read', args: { path: 'drivers/mtk_charger.c' }, startTime: Date.now() });
+    hub.emit('tool_end', { toolCallId: 'd1', toolName: 'bash', durationMs: 80, isError: false });
+    hub.emit('tool_end', { toolCallId: 'd2', toolName: 'read', durationMs: 15, isError: true, error: 'ENOENT: no such file' });
+    const lines = step.proseEl.querySelectorAll('.tw-tool-detail-line');
+    assert(lines.length === 2, 'STREAM-16: aggregated step lists all calls line-by-line');
+    assert(lines[1].classList.contains('error') && (lines[1].textContent || '').includes('✗') && (lines[1].textContent || '').includes('ENOENT'), 'STREAM-16: failed call line marked red with ✗ + error summary');
+
+    // 落库 toolSummaries 携带 ✗ 标记（历史恢复同源显示）
+    adapter.isStreaming = false;
+    hub.emit('agent_settled', {});
+    const asst = sessionManager._msgs.filter(m => m.role === 'assistant').pop();
+    const ts = (asst.processSteps || []).find(s => s.type === 'tool');
+    assert(ts && ts.toolSummaries.some(l => l.startsWith('✗')) && ts.toolSummaries.some(l => l.includes('bash(cd W/03-mtk-ww')), 'STREAM-16: persisted toolSummaries carry ✗ failure marker + per-call detail');
+  }
+
+  // 场景 L：本地队列抑制派发（①）+ 注入上下文派发（②）——真实 AgentHub 原型
+  {
+    const { AgentHub } = require('../agent-hub.js');
+    const hub = Object.create(AgentHub.prototype);
+    hub.listeners = new Map();
+    hub._localFollowUpQueue = [];
+    hub._suppressFollowUpDispatch = false;
+    hub.activeAgentId = 'agx';
+    const sentLocal = [];
+    const fakeAdapter = {
+      isStreaming: false,
+      send: async (t) => { sentLocal.push(t); return { success: true }; },
+      abort: async () => {}
+    };
+    hub.getActiveAdapter = () => fakeAdapter;
+    const hubEvents = [];
+    const origEmit = AgentHub.prototype.emit.bind(hub);
+    hub.emit = (ev, d) => { hubEvents.push([ev, d]); return origEmit(ev, d); };
+
+    // 注入上下文入队：派发应发 prompt（注入后），事件带 text（原文）
+    await hub.followUp('看 fuel gauge', { prompt: '[TabonKB Context Meta]x[研发人员提问]\n看 fuel gauge\n\n[Jira Issue Context] key=ABC-1' });
+    hub._dispatchLocalFollowUp(fakeAdapter);
+    assert(sentLocal.length === 1 && sentLocal[0].includes('[Jira Issue Context]'), 'STREAM-09: local dispatch sends injected prompt (context preserved)');
+    const dispEvt = hubEvents.find(e => e[0] === 'follow_up_dispatched');
+    assert(dispEvt && dispEvt[1].text === '看 fuel gauge' && dispEvt[1].prompt.includes('[Jira Issue Context]'), 'STREAM-09: follow_up_dispatched carries wire text + injected prompt');
+
+    // 抑制派发：abort/switch 同步 settled 期间不得派发
+    await hub.followUp('切换期间的排队');
+    hub._suppressFollowUpDispatch = true;
+    hub._dispatchLocalFollowUp(fakeAdapter);
+    hub._suppressFollowUpDispatch = false;
+    assert(sentLocal.length === 1, 'STREAM-09: suppressed dispatch (switch/abort window) does not send');
+
+    // adapter 已非活跃（异步迟到 settled）→ 不派发
+    const staleAdapter = { send: async () => { sentLocal.push('STALE'); return { success: true }; }, abort: async () => {} };
+    hub._dispatchLocalFollowUp(staleAdapter);
+    assert(sentLocal.length === 1 && !sentLocal.includes('STALE'), 'STREAM-09: stale adapter settled does not dispatch');
+    assert(hub._localFollowUpQueue.length === 1, 'STREAM-09: undispatched queue item survives aborted/stale settle');
+
+    // 正常 settled → 派发
+    hub._dispatchLocalFollowUp(fakeAdapter);
+    assert(sentLocal.length === 2 && sentLocal[1] === '切换期间的排队', 'STREAM-09: normal settle dispatches head item');
+  }
+
+  // 场景 M：pi 原生 follow_up 注入 prompt + 胶囊显示用户原文（②）
+  {
+    const wrapCtx = Object.assign({}, ctxProvider23, {
+      formatPromptWithContext: (t) => `[TabonKB Context Meta] x\n[研发人员提问]\n${t}\n\n[Jira Issue Context] 绑定 ABC-1`
+    });
+    const { hub, adapter, calls } = makeStubHub24();
+    const drawer = new PiDrawerView({ hub, app: mockApp23, contextProvider: wrapCtx, vaultBasePath: '' });
+    const host = MockDocument23.createElement('div');
+    drawer.mount(host);
+    drawer.open();
+    adapter.isStreaming = true;
+    hub.emit('turn_start');
+
+    drawer.inputEl.value = '排队：验证充电曲线';
+    await drawer.handleQueueSend('follow_up');
+    assert(calls.followUp.length === 1 && calls.followUp[0].includes('[Jira Issue Context]') && calls.followUp[0].includes('排队：验证充电曲线'),
+      'STREAM-10: pi native follow_up enqueues injected prompt (context preserved)');
+
+    // 引擎快照回传注入后 prompt → 胶囊显示用户原文而非包裹
+    hub.emit('queue_update', { steering: [], followUp: [calls.followUp[0]] });
+    const chipText = (drawer.queueStripEl.innerHTML || '');
+    assert(chipText.includes('排队：验证充电曲线') && !chipText.includes('TabonKB Context Meta') && !chipText.includes('Jira Issue Context'),
+      'STREAM-10: queue chip displays user wire text, not injected prompt wrapper');
+
+    // 派发回显文本 = 注入后 prompt → 对账经提取命中 wire → 渲染原文气泡
+    adapter.isStreaming = false;
+    hub.emit('user_message', { text: calls.followUp[0] });
+    await tick24();
+    const userBubbles = drawer.messagesEl.querySelectorAll('.tw-msg-bubble-wrap.user');
+    assert(userBubbles.length === 1, 'STREAM-10: echo with injected prompt deduped via extraction, renders wire bubble');
+    const userMsgs = hub.sessionManager._msgs.filter(m => m.role === 'user');
+    assert(userMsgs.length === 1 && userMsgs[0].text === '排队：验证充电曲线', 'STREAM-10: dispatched follow_up persists user wire text (not injected)');
+  }
+
+  // 场景 N：切换历史会话清理瞬态（⑤）+ 工具摘要明细（⑥）+ 中止标记落库（⑦）
+  {
+    const { hub, adapter, sessionManager } = makeStubHub24({ permMode: 'readonly' });
+    const drawer = new PiDrawerView({ hub, app: mockApp23, contextProvider: ctxProvider23, vaultBasePath: '' });
+    const host = MockDocument23.createElement('div');
+    drawer.mount(host);
+    drawer.open();
+
+    // 只读 settle → PlanBar 弹出
+    adapter.isStreaming = true;
+    hub.emit('turn_start');
+    hub.emit('text_delta', '方案内容');
+    adapter.isStreaming = false;
+    hub.emit('agent_settled', {});
+    assert(drawer.planBarEl.style.display === 'flex', 'PLAN-03: readonly settle shows plan bar');
+    drawer._pendingSentWires.push({ wire: 'stale', optimistic: false, ts: Date.now() });
+    drawer.loadHistorySession('sess-2');
+    assert(drawer.planBarEl.style.display === 'none', 'PLAN-03: switching history session hides plan bar');
+    assert(drawer._pendingSentWires.length === 0, 'PLAN-03: switching history session clears echo ledger');
+
+    // 中止落库 aborted + PlanBar 抑制
+    adapter.isStreaming = true;
+    hub.emit('turn_start');
+    hub.emit('text_delta', '将被中止的回答');
+    await drawer.handleAbort();
+    await tick24();
+    const abortedMsg = sessionManager._msgs.filter(m => m.role === 'assistant').pop();
+    assert(abortedMsg && abortedMsg.aborted === true, 'PLAN-04: pi abort persists aborted:true on the merged record');
+    assert(drawer.planBarEl.style.display === 'none', 'PLAN-04: plan bar stays hidden after abort-settled (suppress-once)');
+
+    // NiceAIGC 只读模式不弹 PlanBar
+    const { hub: hubN, adapter: adpN } = makeStubHub24({ permMode: 'readonly' });
+    hubN.activeAgentId = 'niceaigc';
+    const drawerN = new PiDrawerView({ hub: hubN, app: mockApp23, contextProvider: ctxProvider23, vaultBasePath: '' });
+    const hostN = MockDocument23.createElement('div');
+    drawerN.mount(hostN);
+    adpN.isStreaming = true;
+    hubN.emit('turn_start');
+    hubN.emit('text_delta', '纯聊天回答');
+    adpN.isStreaming = false;
+    hubN.emit('agent_settled', {});
+    assert(drawerN.planBarEl.style.display === 'none', 'PLAN-05: NiceAIGC readonly settle does not show plan bar');
+
+    // 工具摘要明细落库：tool step 携带 toolSummaries
+    const { hub: hubT, adapter: adpT, sessionManager: smT } = makeStubHub24();
+    const drawerT = new PiDrawerView({ hub: hubT, app: mockApp23, contextProvider: ctxProvider23, vaultBasePath: '' });
+    const hostT = MockDocument23.createElement('div');
+    drawerT.mount(hostT);
+    adpT.isStreaming = true;
+    hubT.emit('turn_start');
+    hubT.emit('tool_start', { toolCallId: 'tc1', toolName: 'grep', args: { pattern: 'shutdown' }, actionDesc: '检索关机日志', startTime: Date.now() });
+    hubT.emit('tool_end', { toolCallId: 'tc1', toolName: 'grep', durationMs: 120, isError: false, output: 'ok' });
+    hubT.emit('tool_start', { toolCallId: 'tc2', toolName: 'read', args: { path: 'W:/proj/pri/mtk_charger.c' }, startTime: Date.now() });
+    hubT.emit('tool_end', { toolCallId: 'tc2', toolName: 'read', durationMs: 80, isError: false, output: 'code' });
+    hubT.emit('text_delta', '结论文本');
+    adpT.isStreaming = false;
+    hubT.emit('agent_settled', {});
+    const asst = smT._msgs.filter(m => m.role === 'assistant').pop();
+    const toolStep = (asst.processSteps || []).find(s => s.type === 'tool');
+    assert(toolStep && Array.isArray(toolStep.toolSummaries) && toolStep.toolSummaries.includes('grep("shutdown")') && toolStep.toolSummaries.includes('read(mtk_charger.c)'),
+      'STREAM-11: persisted processSteps carry per-call summaries like read(x.c)/grep("..")');
+
+    // 旧数据回退：无 toolSummaries 但 msg.toolCalls 存在 → banner 渲染合并摘要
+    drawerT.renderPastAssistantMessage({
+      role: 'assistant', text: '旧回复', toolCalls: [{ toolName: 'read', args: { path: 'a/b/mtk_charger.c' } }],
+      processSteps: [{ type: 'tool', icon: 'fileText', label: '已读取文件', text: '' }], timestamp: Date.now()
+    });
+    const lastBubble = drawerT.messagesEl.children[drawerT.messagesEl.children.length - 1];
+    const detailEls = lastBubble.querySelectorAll('.tw-tool-detail-line');
+    const found = detailEls.some(p => (p.textContent || '').includes('read(mtk_charger.c)'));
+    assert(found, 'STREAM-11: legacy record without toolSummaries renders merged per-call summary fallback');
+
+    // 序列化白名单往返：aborted/interrupted 不丢
+    const os2 = require('os');
+    const { AgentSessionManager } = require('../agent-session-manager.js');
+    const realSM = new AgentSessionManager({ vaultBasePath: path.join(os2.tmpdir(), `sm-test-${Date.now()}`), app: mockApp23 });
+    realSM.addMessage('pi', { role: 'assistant', text: 'x', aborted: true, interrupted: true, timestamp: Date.now() });
+    const round = JSON.parse(realSM.serializeSessions());
+    const rtMsg = round.pi.sessions[0].messages[0];
+    assert(rtMsg.aborted === true && rtMsg.interrupted === true, 'SESS-01: aborted/interrupted survive serializeSessions whitelist round-trip');
+  }
+
+  // --- Suite 25: MERMAID-EDGELABEL ---
+  console.log('\n--- Suite 25: MERMAID-EDGELABEL ---');
+  {
+    const { hub } = makeStubHub24();
+    const drawer = new PiDrawerView({ hub, app: mockApp23, contextProvider: ctxProvider23, vaultBasePath: '' });
+    const svg = MockDocument23.createElement('svg');
+    const styleEl = MockDocument23.createElement('style');
+    styleEl.textContent = '.edgeLabel { background-color: #ededed; } .edgeLabel rect { opacity: 0.5; fill: #ededed; }';
+    svg.appendChild(styleEl);
+
+    const edgeLabels = MockDocument23.createElement('g');
+    edgeLabels.classList.add('edgeLabels');
+    svg.appendChild(edgeLabels);
+
+    const edgeLabelG = MockDocument23.createElement('g');
+    edgeLabelG.classList.add('edgeLabel');
+    edgeLabels.appendChild(edgeLabelG);
+
+    const rect = MockDocument23.createElement('rect');
+    edgeLabelG.appendChild(rect);
+
+    const fo = MockDocument23.createElement('foreignObject');
+    edgeLabelG.appendChild(fo);
+
+    const div = MockDocument23.createElement('div');
+    fo.appendChild(div);
+
+    const span = MockDocument23.createElement('span');
+    span.classList.add('edgeLabel');
+    div.appendChild(span);
+
+    const innerChild = MockDocument23.createElement('span');
+    span.appendChild(innerChild);
+
+    const nodeG = MockDocument23.createElement('g');
+    nodeG.classList.add('node');
+    const nodeTxt = MockDocument23.createElement('text');
+    nodeG.appendChild(nodeTxt);
+    svg.appendChild(nodeG);
+
+    drawer._beautifyMermaidSvg(svg, false);
+
+    assert(styleEl.textContent.includes('background: transparent !important'), 'MERMAID-01: internal <style> edgeLabel background sanitized');
+    assert(rect.style.display === 'none', 'MERMAID-02: edgeLabel rect hidden');
+    assert(fo.style.overflow === 'visible', 'MERMAID-03: foreignObject overflow set to visible');
+    assert(div.style.background === 'transparent', 'MERMAID-04: wrapper div background transparent');
+    assert(span.style.background === '#FFFFFF' || span.style['background-color'] === '#FFFFFF', 'MERMAID-05: primary badge white background');
+    assert(span.style.border.includes('#CBD5E1'), 'MERMAID-06: primary badge slate border');
+    assert(innerChild.style.background === 'transparent', 'MERMAID-07: badge inner child transparent');
+    assert(span.style['font-size'] === '13px', 'MERMAID-08: edgeLabel badge font-size is 13px');
+    assert(nodeTxt.style['font-size'] === '14px', 'MERMAID-09: node label font-size is 14px');
+  }
 
   // Summary
   console.log('\n===============================================================');

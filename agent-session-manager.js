@@ -123,6 +123,76 @@ class AgentSessionManager {
         }
         agent.updatedAt = data.updatedAt || Date.now();
       }
+      // 历史假估算 usage 自愈清洗 (旧公式 in=max(120,out*1.5+450)/cache=in*0.4 凭空捏造缓存且不计入合计)
+      this._migrateLegacyFakeUsage();
+    }
+  }
+
+  /**
+   * CJK 感知 Token 估算: 汉字/全角标点 ~0.65 tok, 其余 ~0.28 tok
+   */
+  _estimateTokensFromText(s) {
+    s = String(s || '');
+    if (!s) return 0;
+    let cjk = 0, other = 0;
+    for (const ch of s) {
+      const c = ch.codePointAt(0);
+      if ((c >= 0x4e00 && c <= 0x9fa5) || (c >= 0x3000 && c <= 0x303f) || (c >= 0xff00 && c <= 0xffef)) cjk++;
+      else other++;
+    }
+    return Math.ceil(cjk * 0.65 + other * 0.28);
+  }
+
+  /**
+   * 检测并清洗旧版假估算 usage 记录:
+   * 旧公式特征 inp === max(120, round(out*1.5+450)) 且 cache === round(inp*0.4) 且 tot === inp+out。
+   * 命中后按消息真实 text/thinking/toolCalls 重新估算, 缓存归零, 补标 isEstimated。
+   */
+  _migrateLegacyFakeUsage() {
+    let touched = 0;
+    for (const agent of this.agents.values()) {
+      for (const sess of (agent.sessions || [])) {
+        for (const m of (sess.messages || [])) {
+          if (!m || m.role !== 'assistant' || !m.usage || m.usage.isEstimated === true) continue;
+          const u = m.usage;
+          const inp = u.inputTokens || 0, out = u.outputTokens || 0, cache = u.cacheReadTokens || 0, tot = u.totalTokens || 0;
+          const fakeIn = Math.max(120, Math.round(out * 1.5 + 450));
+          if (inp === fakeIn && cache === Math.round(inp * 0.4) && tot === inp + out) {
+            const tCalls = Array.isArray(m.toolCalls) ? m.toolCalls : [];
+            let toolChars = 0;
+            for (const tc of tCalls) {
+              try { toolChars += JSON.stringify(tc.args || {}).length + String(tc.output || '').length; } catch (_) {}
+            }
+            const outputTokens = Math.max(1,
+              this._estimateTokensFromText(m.text) +
+              this._estimateTokensFromText(m.thinking) +
+              Math.ceil(toolChars * 0.28));
+            const inputTokens = Math.max(1, Math.ceil(outputTokens * 1.6 + tCalls.length * 120 + 600));
+            m.usage = {
+              inputTokens,
+              outputTokens,
+              cacheReadTokens: 0,
+              cacheWriteTokens: 0,
+              totalTokens: inputTokens + outputTokens,
+              netBillableTokens: inputTokens + outputTokens,
+              subTurns: 1 + tCalls.length,
+              isEstimated: true,
+              migratedFakeUsage: true,
+              providerAndModel: u.providerAndModel || null,
+              durationText: u.durationText || null
+            };
+            touched++;
+          } else if (tot > 0 && (inp + out + cache + (u.cacheWriteTokens || 0)) > tot) {
+            // 非假公式但分项相加大于合计 → 归一化兜底, 杜绝页脚悖论
+            u.totalTokens = inp + out + cache + (u.cacheWriteTokens || 0);
+            touched++;
+          }
+        }
+      }
+    }
+    if (touched > 0) {
+      try { console.info('[AgentSessionManager] Migrated/normalized legacy usage records:', touched); } catch (_) {}
+      this.saveSessions();
     }
   }
 
@@ -178,7 +248,10 @@ class AgentSessionManager {
           duration: m.duration || null,
           durationText: m.durationText || null,
           usage: m.usage || null,
-          processSteps: Array.isArray(m.processSteps) ? m.processSteps : null
+          processSteps: Array.isArray(m.processSteps) ? m.processSteps : null,
+          // 中止/中断标记必须入白名单，否则落盘即丢（历史恢复误显示"已完成"且 PlanBar 误弹）
+          aborted: m.aborted === true,
+          interrupted: m.interrupted === true
         }))
       }));
 

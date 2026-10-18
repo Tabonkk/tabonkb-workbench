@@ -107,6 +107,27 @@ class PiDrawerView {
     this._tpGen = 0;
     this._tpCommandsCache = null;
     this._tpCommandsFetchedAt = 0;
+
+    // 流式交互队列（steer 插队 / follow_up 排队）与排队条 UI
+    this.queueStripEl = null;
+    this._queueSnapshot = null;
+    // 发送↔回显对账本：message_start(user) 回显到达时按 wireText 匹配，
+    // optimistic=true 表示本地已渲染气泡（prompt/steer），false 表示待回显渲染（排队派发）
+    this._pendingSentWires = [];
+    // 只读模式「方案已生成 → 一键切读写执行」横条
+    this.planBarEl = null;
+    // 队列快照原文(可能含注入包裹) → 用户原文映射：胶囊条显示短文本
+    this._queuedWireByPrompt = new Map();
+    // 连续 assistant 段缓冲：steer/follow_up 等用户消息边界切分，回合末/用户气泡前合并落一条记录
+    this._assistantRunBuffer = [];
+    // 本轮运行曾被用户中止：agent_settled 时据此给落库记录打 aborted 标记
+    this._runAborted = false;
+    // abort 后 agent_settled 会重新点亮 PlanBar：一次性抑制
+    this._suppressPlanBarOnce = false;
+    // 多步工具调用回合 Token 累加器：turn_end 每跳累加，杜绝只记最后一跳
+    this.turnUsageAcc = null;
+    // pi .jsonl 孤儿回合恢复防重入
+    this._piRecoverInFlight = false;
     this._tpFetchPromise = null;
     this._tpFileCache = null;
     this._tpFileCacheAt = 0;
@@ -171,6 +192,11 @@ class PiDrawerView {
     this.localProjNavTitle = null;
 
     this.isOpenState = false;
+    // 普通页签（非探索页 studio 模式）下右侧抽屉的真实开合状态：
+    // 探索页会强制 isOpenState=true 内嵌全宽，该状态独立记录，供切回普通页时精确还原
+    this._normalDrawerOpen = false;
+    // buildDom() 内 document 级全局监听的统一中止信号（防重复 mount 泄漏）
+    this._docEventsAbort = null;
     this.width = this.getSavedWidth();
     this.inputHeight = this.getSavedInputHeight();
     this.isDragging = false;
@@ -210,24 +236,32 @@ class PiDrawerView {
 
   getSavedInputHeight() {
     try {
-      const saved = parseInt(localStorage.getItem('tabonkb-dialog-input-height'), 10);
-      if (!isNaN(saved) && saved >= 42 && saved <= 350) {
-        return Math.max(52, Math.min(saved, 120));
+      localStorage.removeItem('tabonkb-dialog-input-height'); // legacy key: always held an outdated height, drop once
+      const saved = parseInt(localStorage.getItem('tabonkb-dialog-input-height-v2'), 10);
+      if (!isNaN(saved) && saved >= 28 && saved <= 350) {
+        return Math.max(30, Math.min(saved, 120));
       }
     } catch (e) {}
-    return 52; // Comfortably sized base height (elevated from 42px to 52px)
+    return 46; // compact base height — tuned middle ground (52 felt tall, 40 felt cramped)
   }
 
   saveInputHeight(h) {
     try {
       this.inputHeight = h;
-      localStorage.setItem('tabonkb-dialog-input-height', String(h));
+      localStorage.setItem('tabonkb-dialog-input-height-v2', String(h));
     } catch (e) {}
   }
 
   async togglePermissionMode() {
     const nextMode = this.permissionMode === 'readonly' ? 'readwrite' : 'readonly';
-    await this.hub.setPermissionMode(nextMode);
+    await this.setPermissionMode(nextMode);
+  }
+
+  async setPermissionMode(mode) {
+    if (mode !== 'readwrite' && mode !== 'readonly') return;
+    if (mode === this.permissionMode) return;
+    await this.hub.setPermissionMode(mode);
+    this._hidePlanBar();
     this.updatePermBadge();
     this.updatePermHint();
     this.updateStatus(this.hub.getStatus());
@@ -236,13 +270,20 @@ class PiDrawerView {
   updatePermBadge() {
     if (!this.permBadgeEl) return;
     const isRW = this.permissionMode === 'readwrite';
-    this.permBadgeEl.className = `tw-drawer-badge-btn ${isRW ? 'readwrite' : 'readonly'}`;
-    this.permBadgeEl.innerHTML = isRW
-      ? `<span class="tw-badge-icon">${getIconPark('edit', 13)}</span>`
-      : `<span class="tw-badge-icon">${getIconPark('lock', 13)}</span>`;
+    this.permBadgeEl.className = `tw-perm-pill ${isRW ? 'readwrite' : 'readonly'}`;
+    this.permBadgeEl.innerHTML = `
+      <span class="tw-perm-pill-icon">${getIconPark(isRW ? 'shield' : 'lock', 13)}</span>
+      <span class="tw-perm-pill-name">${isRW ? '完全权限' : '只读'}</span>
+      <span class="tw-perm-pill-caret">${getIconPark('down', 10)}</span>
+    `;
     this.permBadgeEl.title = isRW
-      ? '当前：读写模式（支持新建与修改笔记），点击切换为只读'
-      : '当前：只读模式（安全检索不修改），点击切换为读写';
+      ? '当前：完全权限（支持新建与修改笔记），点击切换'
+      : '当前：只读模式（安全检索不修改），点击切换';
+    if (this.permPopoverEl) {
+      this.permPopoverEl.querySelectorAll('.tw-perm-opt').forEach((opt) => {
+        opt.classList.toggle('on', opt.getAttribute('data-mode') === this.permissionMode);
+      });
+    }
   }
 
   updatePermHint() {
@@ -290,18 +331,59 @@ class PiDrawerView {
 
   mount(parentEl) {
     this.containerEl = parentEl;
-    this.buildDom();
+    // DOM 复用：drawerEl 已存在（页签切换/整页重绘后的重挂载）时直接挂入新容器，
+    // 保留 messagesEl / currentAssistantMessage / activeToolCards / bannerTimer /
+    // 输入框内容与滚动位置，杜绝在途任务气泡被销毁后由后续流事件触发"新建空泡重新计时"
+    const isFirstBuild = !this.drawerEl;
+    if (isFirstBuild) {
+      this.buildDom();
+    } else if (parentEl && this.drawerEl.parentElement !== parentEl) {
+      parentEl.appendChild(this.drawerEl);
+    }
+
+    // 按宿主容器切换形态与显隐：探索页 AI 容器 = 全宽 studio 内嵌；其余 = 右侧抽屉
+    const isStudioHost = Boolean(parentEl && parentEl.classList && parentEl.classList.contains('tw-explore-ai-pane'));
+    if (isStudioHost) {
+      this.drawerEl.classList.add('tw-studio-mode');
+      this.drawerEl.style.display = 'flex';
+      this.drawerEl.style.width = '100%';
+      if (this.resizerEl) this.resizerEl.style.display = 'none';
+      this.isOpenState = true;
+    } else {
+      this.drawerEl.classList.remove('tw-studio-mode');
+      this.drawerEl.style.width = `${this.width}px`;
+      if (this.resizerEl) this.resizerEl.style.display = '';
+      this.isOpenState = Boolean(this._normalDrawerOpen);
+      this.drawerEl.style.display = this.isOpenState ? 'flex' : 'none';
+    }
+
     this.updateContextCapsule();
     this.updateCardAttachments();
     this.updatePermBadge();
     this.updatePermHint();
     this.syncActiveAgentUI();
-    this.restoreSessionMessages(this.hub.activeAgentId);
+    // 仅首次构建或消息区确为空且无在途回复时才恢复历史，严禁覆盖在途气泡与工具句柄
+    const hasLiveUi = !!(this.messagesEl && this.messagesEl.children.length > 0);
+    const hubStreaming = typeof this.hub.isStreaming === 'function' ? this.hub.isStreaming() : false;
+    if (isFirstBuild || (!hasLiveUi && !this.currentAssistantMessage && !hubStreaming)) {
+      this.restoreSessionMessages(this.hub.activeAgentId);
+    }
     this.updateStatus(this.hub.getStatus());
     this.ensureAgentConnected();
+
+    // 重挂载后容器尺寸可能变化，下一帧重对齐导航刻度与吸顶提问条
+    setTimeout(() => {
+      if (typeof this.buildChatMinimap === 'function') this.buildChatMinimap();
+      if (typeof this.updateStickyQuestion === 'function') this.updateStickyQuestion();
+    }, 50);
   }
 
   buildDom() {
+    // 若 buildDom 被再次执行（异常恢复等），先中止上一轮 document 级全局监听，防泄漏叠加
+    if (this._docEventsAbort) {
+      try { this._docEventsAbort.abort(); } catch (_) {}
+    }
+    this._docEventsAbort = new AbortController();
     this.drawerEl = document.createElement('div');
     this.drawerEl.className = 'tw-agent-drawer';
     this.drawerEl.style.width = `${this.width}px`;
@@ -334,9 +416,6 @@ class PiDrawerView {
           </button>
           <div class="tw-agent-dropdown-menu" id="twDrawerAgentMenu" style="display:none;"></div>
         </div>
-        <button class="tw-drawer-badge-btn" id="twDrawerPermBadge" title="点击切换：只读模式 / 读写模式">
-          <span class="tw-badge-icon">${getIconPark('edit', 13)}</span>
-        </button>
         <div class="tw-drawer-status">
           <span class="tw-status-dot disconnected" id="twDrawerStatusDot"></span>
           <span class="tw-status-label" id="twDrawerStatusLabel">未连接</span>
@@ -365,7 +444,6 @@ class PiDrawerView {
     this.agentNameEl = header.querySelector('#twDrawerAgentName');
     this.statusLed = header.querySelector('#twDrawerStatusDot');
     this.statusText = header.querySelector('#twDrawerStatusLabel');
-    this.permBadgeEl = header.querySelector('#twDrawerPermBadge');
     this.btnHistory = header.querySelector('#twBtnHistory');
     this.btnExportQuickNote = header.querySelector('#twBtnExportQuickNote');
     this.btnNewSession = header.querySelector('#twBtnNewSession');
@@ -397,7 +475,7 @@ class PiDrawerView {
       this.statusText.onclick = handleStatusClick;
     }
 
-    if (this.permBadgeEl) this.permBadgeEl.onclick = () => this.togglePermissionMode();
+    // 权限徽章已迁移至输入卡工具栏 tw-perm-pill（见 footer 构建与绑定）
     if (this.btnHistory) this.btnHistory.onclick = () => this.toggleHistoryPanel();
     if (this.btnExportQuickNote) this.btnExportQuickNote.onclick = () => this.exportToQuickNote();
     if (this.btnNewSession) this.btnNewSession.onclick = () => this.handleNewSession();
@@ -547,15 +625,25 @@ class PiDrawerView {
     };
 
 
-    contentWrap.appendChild(this.messagesEl);
+    // 5.3 消息视口包裹层: sticky 条与回底按钮的独立定位上下文
+    //     —— top:0 即消息视口顶边，不再依赖 header 高度魔数
+    const messagesViewport = document.createElement('div');
+    messagesViewport.className = 'tw-messages-viewport';
+    contentWrap.appendChild(messagesViewport);
+    messagesViewport.appendChild(this.messagesEl);
 
-    // 5.4 浮动平滑回到底部按钮 (对应 DeepSeek Harness 悬浮箭头)
+    // 5.4 消息视口底部虚化过渡带 (渐变融入发送卡片上方，避免滚动内容生硬截断)
+    this.bottomFadeEl = document.createElement('div');
+    this.bottomFadeEl.className = 'tw-chat-bottom-fade';
+    messagesViewport.appendChild(this.bottomFadeEl);
+
+    // 5.5 浮动平滑回到底部按钮 (正中悬浮正圆向下方箭头，对应 DeepSeek Harness 悬浮图标)
     this.scrollBottomBtn = document.createElement('button');
     this.scrollBottomBtn.className = 'tw-scroll-bottom-btn';
     this.scrollBottomBtn.title = '平滑回到底部';
-    this.scrollBottomBtn.innerHTML = getIconPark('down', 14);
+    this.scrollBottomBtn.innerHTML = getIconPark('arrow-down', 14);
     this.scrollBottomBtn.onclick = () => this.scrollToBottom(true);
-    contentWrap.appendChild(this.scrollBottomBtn);
+    messagesViewport.appendChild(this.scrollBottomBtn);
 
     // 5.5 吸顶提问复用条: 滚动离开原始气泡时钉在消息区顶部 (绝对定位, 不占 flex 流)
     this.stickyHeaderEl = document.createElement('div');
@@ -565,7 +653,7 @@ class PiDrawerView {
       <span class="tw-sticky-q-text"></span>
     `;
     this.stickyHeaderEl.onclick = () => this.scrollToBottom(true);
-    contentWrap.insertBefore(this.stickyHeaderEl, this.messagesEl);
+    messagesViewport.insertBefore(this.stickyHeaderEl, this.messagesEl);
 
     if (this._stickyAbort) {
       try { this._stickyAbort.abort(); } catch (_) {}
@@ -601,8 +689,11 @@ class PiDrawerView {
         this._stickyRaf = null;
         this.updateStickyQuestion();
         this.updateMinimapActive();
+        const d = this.messagesEl.scrollHeight - this.messagesEl.scrollTop - this.messagesEl.clientHeight;
+        if (this.bottomFadeEl) {
+          this.bottomFadeEl.classList.toggle('visible', d > 24);
+        }
         if (this.scrollBottomBtn) {
-          const d = this.messagesEl.scrollHeight - this.messagesEl.scrollTop - this.messagesEl.clientHeight;
           this.scrollBottomBtn.classList.toggle('visible', d > 120 || this._contentBelowPending);
           if (!this._contentBelowPending) this.scrollBottomBtn.classList.remove('has-new');
         }
@@ -661,50 +752,71 @@ class PiDrawerView {
     const footer = document.createElement('div');
     footer.className = 'tw-drawer-footer';
     footer.innerHTML = `
-      <div class="tw-session-ctx" id="twSessionCtx" style="display:none;"></div>
       <div class="tw-drawer-input-card" id="twDrawerInputCard">
         <div class="tw-card-resizer" id="twCardResizer" title="上下拖拽调整对话框高度">
           <span class="tw-card-resizer-line"></span>
         </div>
         <div class="tw-card-image-attachments" id="twCardImageAttachments" style="display:none;"></div>
         <div class="tw-card-attachments" id="twCardAttachments" style="display:none;"></div>
+        <div class="tw-plan-bar" id="twPlanBar" style="display:none;">
+          <span class="tw-plan-bar-icon">${getIconPark('lock', 12)}</span>
+          <span class="tw-plan-bar-text">只读模式已生成方案</span>
+          <button class="tw-plan-bar-run" id="twPlanBarRun" title="切换到读写模式并执行该方案">▶ 执行</button>
+          <button class="tw-plan-bar-close" id="twPlanBarClose" title="忽略">✕</button>
+        </div>
+        <div class="tw-queue-strip" id="twQueueStrip" style="display:none;"></div>
         <div class="tw-card-chips" id="twCardChips" style="display:none;"></div>
         <textarea
           class="tw-drawer-input" 
           id="twDrawerInput" 
-          placeholder="向 ${escapeAttr(activeAdapter.displayName || activeAdapter.name)} 提问，输入需求或问题... (Enter 发送)"
+          placeholder="发消息或创建任务，/ 调用指令，@ 文件或对话"
         ></textarea>
         <div class="tw-card-toolbar">
           <div class="tw-card-toolbar-left">
-            <div class="tw-card-model-wrap" id="twCardModelWrap">
-              <button class="tw-card-model-pill" id="twCardModelPill" title="点击切换当前 AI 模型">
-                <span class="tw-card-model-icon" id="twCardModelIcon">${getOfficialModelSvg('gpt-5-6-thinking', 14)}</span>
-                <span class="tw-card-model-name" id="twCardModelName">GPT-5.6 Sol</span>
-                <span class="tw-card-model-caret">${getIconPark('down', 10)}</span>
-              </button>
-              <div class="tw-model-popover" id="twModelPopover" style="display:none;">
-                <div class="tw-model-search-wrap">
-                  <span class="tw-model-search-icon">${getIconPark('search', 13)}</span>
-                  <input type="text" class="tw-model-search-input" id="twModelSearchInput" placeholder="搜索模型 (如 5.6, Claude, Gemini...)" />
-                  <button type="button" class="tw-model-refresh-btn" id="twModelRefreshBtn" title="实时刷新模型列表">
-                    ${getIconPark('refresh', 13)}
-                  </button>
-                </div>
-                <div class="tw-model-popover-list" id="twModelPopoverList"></div>
-              </div>
-              <div class="tw-reasoning-popover" id="twReasoningPopover" style="display:none;"></div>
-            </div>
-            <button class="tw-card-upload-btn" id="twBtnUploadImage" title="上传图片 (支持相册选择 / Ctrl+V 截图直接粘贴 / 拖拽图片)">
-              ${getIconPark('pic', 15)}
-            </button>
-            <input type="file" id="twImageFileInput" accept="image/png,image/jpeg,image/webp,image/gif" multiple style="display:none;" />
             <div class="tw-card-options-wrap" id="twCardOptionsWrap">
-              <button class="tw-card-options-btn" id="twCardOptionsBtn" title="选项配置">
-                ${getIconPark('options', 15)}
+              <button class="tw-card-options-btn" id="twCardOptionsBtn" title="添加 · 指令 · 上下文">
+                ${getIconPark('plus', 14)}
                 <span class="tw-options-badge-dot" id="twOptionsBadgeDot" style="display:none;"></span>
               </button>
+              <input type="file" id="twImageFileInput" accept="image/png,image/jpeg,image/webp,image/gif" multiple style="display:none;" />
               <div class="tw-options-popover" id="twOptionsPopover" style="display:none;">
                 <div class="tw-options-menu">
+                  <!-- 添加 -->
+                  <div class="tw-opt-group-title">添加<span class="tw-opt-group-count">1-2/2</span></div>
+                  <div class="tw-opt-menu-item" id="twOptImageItem" title="上传图片附件 (支持 Ctrl+V 粘贴 / 拖拽)">
+                    <div class="tw-opt-item-left">
+                      <span class="tw-opt-item-icon">${getIconPark('pic', 14)}</span>
+                      <span class="tw-opt-item-name">图片</span>
+                      <span class="tw-opt-item-en">image</span>
+                    </div>
+                    <div class="tw-opt-item-right">
+                      <span class="tw-opt-item-val">上传附件</span>
+                    </div>
+                  </div>
+                  <div class="tw-opt-menu-item" id="twOptAtItem" title="引用库内文件或技能">
+                    <div class="tw-opt-item-left">
+                      <span class="tw-opt-item-icon">${getIconPark('at-sign', 14)}</span>
+                      <span class="tw-opt-item-name">文件</span>
+                      <span class="tw-opt-item-en">ref</span>
+                    </div>
+                    <div class="tw-opt-item-right">
+                      <span class="tw-opt-item-val">@ 引用</span>
+                    </div>
+                  </div>
+                  <!-- 指令 -->
+                  <div class="tw-opt-group-title">指令<span class="tw-opt-group-count">1-1/1</span></div>
+                  <div class="tw-opt-menu-item" id="twOptSlashItem" title="调用斜杠指令">
+                    <div class="tw-opt-item-left">
+                      <span class="tw-opt-item-icon">${getIconPark('slash', 14)}</span>
+                      <span class="tw-opt-item-name">指令</span>
+                      <span class="tw-opt-item-en">cmd</span>
+                    </div>
+                    <div class="tw-opt-item-right">
+                      <span class="tw-opt-item-val">/ 调用</span>
+                    </div>
+                  </div>
+                  <!-- 上下文 -->
+                  <div class="tw-opt-group-title">上下文<span class="tw-opt-group-count">1-4/4</span></div>
                   <!-- 1. OpenGrok 代码工程 -->
                   <div class="tw-opt-menu-item active has-submenu" id="twOptOpenGrokItem" title="OpenGrok 代码工程切换">
                     <div class="tw-opt-item-left">
@@ -805,13 +917,47 @@ class PiDrawerView {
 
               </div>
             </div>
+            <div class="tw-perm-wrap" id="twPermWrap">
+              <button class="tw-perm-pill" id="twPermPill" title="权限模式：切换读写 / 只读"></button>
+              <div class="tw-perm-popover" id="twPermPopover" style="display:none;">
+                <div class="tw-perm-opt" data-mode="readwrite" title="可新建与修改笔记 / 执行命令">
+                  <span class="tw-perm-opt-icon">${getIconPark('shield', 13)}</span>
+                  <span class="tw-perm-opt-name">完全权限</span>
+                  <span class="tw-perm-opt-check">${getIconPark('check-square', 12)}</span>
+                </div>
+                <div class="tw-perm-opt" data-mode="readonly" title="只读安全模式（不修改文件）">
+                  <span class="tw-perm-opt-icon">${getIconPark('lock', 13)}</span>
+                  <span class="tw-perm-opt-name">只读</span>
+                  <span class="tw-perm-opt-check">${getIconPark('check-square', 12)}</span>
+                </div>
+              </div>
+            </div>
+            <div class="tw-session-ctx" id="twSessionCtx" style="display:none;"></div>
           </div>
           <div class="tw-card-toolbar-right">
+            <div class="tw-card-model-wrap" id="twCardModelWrap">
+              <button class="tw-card-model-pill" id="twCardModelPill" title="点击切换当前 AI 模型">
+                <span class="tw-card-model-icon" id="twCardModelIcon">${getOfficialModelSvg('gpt-5-6-thinking', 14)}</span>
+                <span class="tw-card-model-name" id="twCardModelName">GPT-5.6 Sol</span>
+                <span class="tw-card-model-caret">${getIconPark('down', 10)}</span>
+              </button>
+              <div class="tw-model-popover" id="twModelPopover" style="display:none;">
+                <div class="tw-model-search-wrap">
+                  <span class="tw-model-search-icon">${getIconPark('search', 13)}</span>
+                  <input type="text" class="tw-model-search-input" id="twModelSearchInput" placeholder="搜索模型 (如 5.6, Claude, Gemini...)" />
+                  <button type="button" class="tw-model-refresh-btn" id="twModelRefreshBtn" title="实时刷新模型列表">
+                    ${getIconPark('refresh', 13)}
+                  </button>
+                </div>
+                <div class="tw-model-popover-list" id="twModelPopoverList"></div>
+              </div>
+              <div class="tw-reasoning-popover" id="twReasoningPopover" style="display:none;"></div>
+            </div>
             <button class="tw-card-abort-btn" id="twBtnAbort" style="display:none;" title="停止生成 (Esc)">
               <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor"><rect x="5.5" y="5.5" width="13" height="13" rx="2.5"/></svg>
             </button>
             <button class="tw-card-send-btn disabled" id="twBtnSend" title="发送 (Enter)" disabled>
-              ${getIconPark('send', 16)}
+              ${getIconPark('arrow-up', 15)}
             </button>
           </div>
         </div>
@@ -827,9 +973,13 @@ class PiDrawerView {
     this.cardImageAttachmentsEl = footer.querySelector('#twCardImageAttachments');
     this.cardAttachmentsEl = footer.querySelector('#twCardAttachments');
     this.chipsEl = footer.querySelector('#twCardChips');
+    this.queueStripEl = footer.querySelector('#twQueueStrip');
+    this.planBarEl = footer.querySelector('#twPlanBar');
     this.sessionCtxEl = footer.querySelector('#twSessionCtx');
-    this.btnUploadImage = footer.querySelector('#twBtnUploadImage');
     this.imageFileInput = footer.querySelector('#twImageFileInput');
+    this.permBadgeEl = footer.querySelector('#twPermPill');
+    this.permWrapEl = footer.querySelector('#twPermWrap');
+    this.permPopoverEl = footer.querySelector('#twPermPopover');
     this.inputEl = footer.querySelector('#twDrawerInput');
     this.btnSend = footer.querySelector('#twBtnSend');
     this.btnAbort = footer.querySelector('#twBtnAbort');
@@ -850,6 +1000,10 @@ class PiDrawerView {
     this.optionsBadgeDot = footer.querySelector('#twOptionsBadgeDot');
     this.optionsPopoverEl = footer.querySelector('#twOptionsPopover');
     this.btnCloseOptions = footer.querySelector('#twBtnCloseOptions');
+
+    this.optImageItem = footer.querySelector('#twOptImageItem');
+    this.optAtItem = footer.querySelector('#twOptAtItem');
+    this.optSlashItem = footer.querySelector('#twOptSlashItem');
 
     this.optOpenGrokItem = footer.querySelector('#twOptOpenGrokItem');
     this.optProjTrigger = this.optOpenGrokItem;
@@ -895,6 +1049,7 @@ class PiDrawerView {
     this.bindModelSelectorEvents();
     this.updateModelSelectorPill();
     this.bindProjectSelectorEvents();
+    this.bindPermEvents();
     this.updateProjectSelectorPill();
     this.updateContextCapsule();
     this._restoreChips(this.hub.activeAgentId);
@@ -922,7 +1077,7 @@ class PiDrawerView {
       if (this.selectorMenu && !this.selectorMenu.contains(e.target) && e.target !== this.selectorBtn) {
         this.selectorMenu.style.display = 'none';
       }
-    });
+    }, { signal: this._docEventsAbort ? this._docEventsAbort.signal : undefined });
   }
 
   renderDropdownMenu() {
@@ -1014,14 +1169,14 @@ class PiDrawerView {
       if (this.modelPopoverEl && this.modelWrapEl && !this.modelWrapEl.contains(e.target)) {
         this.closeModelPopover();
       }
-    });
+    }, { signal: this._docEventsAbort ? this._docEventsAbort.signal : undefined });
 
     // Close on Esc
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape' && this.modelPopoverEl && this.modelPopoverEl.style.display === 'flex') {
         this.closeModelPopover();
       }
-    });
+    }, { signal: this._docEventsAbort ? this._docEventsAbort.signal : undefined });
   }
 
   openModelPopover() {
@@ -1367,6 +1522,7 @@ class PiDrawerView {
         localStorage.setItem('tabonkb-opengrok-selected-project', this.selectedProject);
       }
     } catch (e) {}
+    this._persistActiveContextFile();
     this.updateProjectSelectorPill();
   }
 
@@ -1402,6 +1558,7 @@ class PiDrawerView {
         localStorage.setItem('tabonkb-gerrit-selected-filter', this.selectedGerritFilter);
       }
     } catch (e) {}
+    this._persistActiveContextFile();
     this.updateProjectSelectorPill();
   }
 
@@ -1435,7 +1592,15 @@ class PiDrawerView {
           localStorage.removeItem('tabonkb-jira-selected-issue');
         }
       }
+      if (typeof process !== 'undefined' && process.env) {
+        if (this.selectedJiraIssue) {
+          process.env.TABONKB_JIRA_ISSUE_JSON = JSON.stringify(this.selectedJiraIssue);
+        } else {
+          delete process.env.TABONKB_JIRA_ISSUE_JSON;
+        }
+      }
     } catch (_) {}
+    this._persistActiveContextFile();
     this.updateProjectSelectorPill();
   }
 
@@ -1486,7 +1651,47 @@ class PiDrawerView {
         }
       }
     } catch (_) {}
+    this._persistActiveContextFile();
     this.updateProjectSelectorPill();
+  }
+
+  _persistActiveContextFile() {
+    try {
+      const fs = require('fs');
+      const path = require('path');
+      const basePath = this.app?.vault?.adapter?.basePath || (typeof process !== 'undefined' ? process.cwd() : '');
+      if (!basePath) return;
+      const target = path.join(basePath, '.obsidian', 'plugins', 'tabonkb-workbench', 'active-context.json');
+      const payload = {
+        selectedLocalProject: this.selectedLocalProject || null,
+        selectedJiraIssue: this.selectedJiraIssue || null,
+        selectedProject: this.selectedProject || 'auto',
+        selectedGerritFilter: this.selectedGerritFilter || 'all',
+        updatedAt: Date.now()
+      };
+      fs.writeFileSync(target, JSON.stringify(payload, null, 2), 'utf8');
+    } catch (_) {}
+  }
+
+  bindPermEvents() {
+    if (!this.permBadgeEl || !this.permPopoverEl) return;
+    this.permBadgeEl.onclick = (e) => {
+      e.stopPropagation();
+      const open = this.permPopoverEl.style.display === 'flex';
+      this.permPopoverEl.style.display = open ? 'none' : 'flex';
+      if (!open) this.closeProjectPopover(); // 与 + 菜单互斥
+    };
+    this.permPopoverEl.querySelectorAll('.tw-perm-opt').forEach((opt) => {
+      opt.onclick = (e) => {
+        e.stopPropagation();
+        this.permPopoverEl.style.display = 'none';
+        const mode = opt.getAttribute('data-mode');
+        Promise.resolve(this.setPermissionMode(mode)).catch((err) => {
+          console.error('[PiDrawerView] setPermissionMode failed:', err);
+        });
+      };
+    });
+    // 外部点击/Esc 关闭复用 bindProjectSelectorEvents 的 document 级处理器（不新增监听数）
   }
 
   bindProjectSelectorEvents() {
@@ -1498,9 +1703,33 @@ class PiDrawerView {
       if (isVisible) {
         this.closeProjectPopover();
       } else {
+        if (this.permPopoverEl) this.permPopoverEl.style.display = 'none'; // 与权限弹层互斥
         this.openProjectPopover();
       }
     };
+
+    // 「添加/指令」组：图片附件 / @文件引用 / 斜杠指令
+    if (this.optImageItem) {
+      this.optImageItem.onclick = (e) => {
+        e.stopPropagation();
+        this.closeProjectPopover();
+        if (this.imageFileInput) this.imageFileInput.click();
+      };
+    }
+    if (this.optAtItem) {
+      this.optAtItem.onclick = (e) => {
+        e.stopPropagation();
+        this.closeProjectPopover();
+        this._insertTriggerChar('@');
+      };
+    }
+    if (this.optSlashItem) {
+      this.optSlashItem.onclick = (e) => {
+        e.stopPropagation();
+        this.closeProjectPopover();
+        this._insertTriggerChar('/');
+      };
+    }
 
     // 1. OpenGrok 级联子菜单交互
     if (this.optOpenGrokItem && this.optProjDropdownPanel) {
@@ -1696,6 +1925,11 @@ class PiDrawerView {
 
     // Close on click outside - 点击任意空白处关闭退出选项
     document.addEventListener('click', (e) => {
+      // 权限弹层独立关闭（不受 options popover 可见性影响）
+      if (this.permPopoverEl && this.permPopoverEl.style.display !== 'none'
+        && this.permWrapEl && !this.permWrapEl.contains(e.target)) {
+        this.permPopoverEl.style.display = 'none';
+      }
       if (!this.optionsPopoverEl || this.optionsPopoverEl.style.display === 'none') return;
 
       // 如果点击在浮窗内部，不关闭
@@ -1741,14 +1975,18 @@ class PiDrawerView {
           }
         }
       }
-    });
+    }, { signal: this._docEventsAbort ? this._docEventsAbort.signal : undefined });
 
     // Close on Esc
     document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && this.optionsPopoverEl && this.optionsPopoverEl.style.display === 'flex') {
+      if (e.key !== 'Escape') return;
+      if (this.optionsPopoverEl && this.optionsPopoverEl.style.display === 'flex') {
         this.closeProjectPopover();
       }
-    });
+      if (this.permPopoverEl && this.permPopoverEl.style.display !== 'none') {
+        this.permPopoverEl.style.display = 'none';
+      }
+    }, { signal: this._docEventsAbort ? this._docEventsAbort.signal : undefined });
   }
 
   openProjectDropdown() {
@@ -2712,13 +2950,12 @@ class PiDrawerView {
       this.sessionCtxEl.innerHTML = '';
       return;
     }
-    this.sessionCtxEl.style.display = 'flex';
+    this.sessionCtxEl.style.display = 'inline-flex';
     this.sessionCtxEl.innerHTML = chips.map((c, idx) => `
-      <span class="tw-sctx-chip tw-sctx-${c.type}" data-idx="${idx}" title="${escapeAttr(c.tip)}">
-        <span class="tw-sctx-icon">${getIconPark(c.icon, 11)}</span>
+      <button type="button" class="tw-sctx-chip tw-sctx-${c.type}" data-idx="${idx}" title="${escapeAttr(c.tip)}（点击切换配置，右击解除绑定）">
+        <span class="tw-sctx-icon">${getIconPark(c.icon, 14)}</span>
         <span class="tw-sctx-label">${escapeHtml(c.label)}</span>
-        <span class="tw-sctx-x tw-ctx-clear-btn" role="button" tabindex="0" title="解除绑定">${getIconPark('close', 10)}</span>
-      </span>
+      </button>
     `).join('');
     this.sessionCtxEl.querySelectorAll('.tw-sctx-chip').forEach((el) => {
       const chip = chips[Number(el.getAttribute('data-idx'))];
@@ -2726,14 +2963,21 @@ class PiDrawerView {
       el.onclick = (e) => {
         e.stopPropagation();
         if (typeof this.openProjectPopover === 'function') this.openProjectPopover();
+        if (chip.type === 'local' && typeof this.openLocalProjDropdown === 'function') {
+          this.openLocalProjDropdown();
+        } else if (chip.type === 'jira' && typeof this.openJiraDropdown === 'function') {
+          this.openJiraDropdown();
+        } else if (chip.type === 'opengrok' && typeof this.openProjectDropdown === 'function') {
+          this.openProjectDropdown();
+        } else if (chip.type === 'gerrit' && typeof this.openGerritDropdown === 'function') {
+          this.openGerritDropdown();
+        }
       };
-      const x = el.querySelector('.tw-sctx-x');
-      if (x) {
-        x.onclick = (e) => { e.stopPropagation(); chip.clear(); };
-        x.onkeydown = (e) => {
-          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); chip.clear(); }
-        };
-      }
+      el.oncontextmenu = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (typeof chip.clear === 'function') chip.clear();
+      };
     });
   }
 
@@ -2775,6 +3019,15 @@ class PiDrawerView {
 
     // 6. Restore Message History
     this.restoreSessionMessages(agentId);
+    // 排队条/回显对账/方案条随 Agent 切换复位（pi 原生队列快照由 queue_update 事件同步）
+    this._queueSnapshot = null;
+    this._pendingSentWires = [];
+    this._assistantRunBuffer = [];
+    this._runAborted = false;
+    this._suppressPlanBarOnce = false;
+    if (this._queuedWireByPrompt) this._queuedWireByPrompt.clear();
+    this.renderQueueStrip(null);
+    this._hidePlanBar();
 
     // 7. Check if installed and show warning if needed
     this.checkAdapterInstalledState(adapter);
@@ -2817,42 +3070,9 @@ class PiDrawerView {
 
   updateInputPlaceholder() {
     if (!this.inputEl || !this.hub) return;
-    const adapter = this.hub.getActiveAdapter();
-    const agents = typeof this.hub.getAgentList === 'function' ? this.hub.getAgentList() : [];
-    const meta = agents.find(a => a.id === this.hub.activeAgentId) || {
-      name: adapter?.name || 'Agent',
-      displayName: adapter?.displayName || adapter?.name || 'Agent'
-    };
-    const agentName = meta.displayName || meta.name || 'Agent';
-
-    let modelSuffix = '';
-    const currentModel = typeof adapter?.getModel === 'function' ? adapter.getModel() : null;
-    if (currentModel?.name && currentModel.name !== agentName) {
-      let mName = currentModel.name;
-      if (typeof adapter?.supportsReasoningEffort === 'function' && adapter.supportsReasoningEffort(currentModel.id)) {
-        const effortConfig = typeof adapter?.getReasoningEffortConfig === 'function' ? adapter.getReasoningEffortConfig() : null;
-        if (effortConfig && effortConfig.label) mName += ` · ${effortConfig.label}`;
-      }
-      modelSuffix = ` (${mName})`;
-    }
-
-    const isCustomLocalProj = Boolean(this.selectedLocalProject && this.selectedLocalProject.id && this.selectedLocalProject.id !== 'none');
-    const localProjShort = isCustomLocalProj ? (this.selectedLocalProject.label || this.selectedLocalProject.project) : '';
-    const isCustomJira = Boolean(this.selectedJiraIssue && this.selectedJiraIssue.key);
-    const jiraKey = isCustomJira ? this.selectedJiraIssue.key : '';
-
-    let ctxTag = '';
-    if (localProjShort && jiraKey) {
-      ctxTag = ` [${localProjShort} · ${jiraKey}]`;
-    } else if (localProjShort) {
-      ctxTag = ` [${localProjShort}]`;
-    } else if (jiraKey) {
-      ctxTag = ` [${jiraKey}]`;
-    }
-
-    const basePlaceholder = `向 ${agentName}${modelSuffix}${ctxTag} 提问... (Enter 发送)`;
+    // 极简提示：Agent/模型/上下文已由 header 与工具栏胶囊呈现，不再冗余拼接
+    const basePlaceholder = '发消息或创建任务，/ 调用指令，@ 文件或对话';
     this._inputPlaceholder = basePlaceholder;
-
     const hasChips = !!(this.inputChips && this.inputChips.length);
     this.inputEl.placeholder = hasChips ? '输入消息内容...' : basePlaceholder;
   }
@@ -2892,6 +3112,10 @@ class PiDrawerView {
     this.messagesEl.innerHTML = '';
     this.activeToolCards.clear();
     this.currentAssistantMessage = null;
+    // 分段缓冲/中止标记随会话恢复复位（在途内容本就被丢弃，缓冲一并清）
+    this._assistantRunBuffer = [];
+    this._runAborted = false;
+    this._suppressPlanBarOnce = false;
 
     if (this.stickyHeaderEl) {
       this.stickyHeaderEl.classList.remove('visible');
@@ -2915,9 +3139,393 @@ class PiDrawerView {
         this.renderPastAssistantMessage(msg);
       }
     }
+    this._renderInterruptHintIfOrphaned(messages);
     this.scrollToBottom(true);
     if (typeof this.buildChatMinimap === 'function') this.buildChatMinimap();
     if (typeof this.updateStickyQuestion === 'function') this.updateStickyQuestion();
+  }
+
+  /**
+   * 恢复态末尾检测"孤儿回合"：会话最后一条是无应答的 user（或完全空壳的 assistant），
+   * 说明在途回复未落库即丢失（插件热重载/进程被杀导致），渲染极简中断提示分隔条。
+   * 仅 DOM 层标记，不写入 sessionManager；流式/发送中不误标。
+   */
+  _renderInterruptHintIfOrphaned(messages) {
+    if (!this.messagesEl || !Array.isArray(messages) || !messages.length) return;
+    if (this.currentAssistantMessage || this._sendInFlight) return;
+    if (this.hub && typeof this.hub.isStreaming === 'function' && this.hub.isStreaming()) return;
+    const last = messages[messages.length - 1];
+    const isEmptyAssistant = last.role === 'assistant'
+      && !last.text && !last.thinking
+      && !(Array.isArray(last.toolCalls) && last.toolCalls.length)
+      && !(Array.isArray(last.processSteps) && last.processSteps.some(s => s && (s.text || s.content)));
+    const isInterruptedAssistant = last.role === 'assistant' && last.interrupted === true;
+    if (last.role !== 'user' && !isEmptyAssistant && !isInterruptedAssistant) return;
+    const marker = document.createElement('div');
+    marker.className = 'tw-interrupt-marker';
+    marker.innerHTML = '<span>上次回复已中断</span>';
+    this.messagesEl.appendChild(marker);
+
+    // pi 会话：孤儿 user 回合 → 尝试从 pi 原生 .jsonl 恢复中断前的思考链与工具步骤
+    if (last.role === 'user' && this.hub && this.hub.activeAgentId === 'pi') {
+      this._tryRecoverPiInterruptedTurn(last);
+    }
+  }
+
+  /**
+   * 从 pi 原生 .jsonl 会话文件恢复中断回合：pi 在每次 thinking/toolCall/toolResult/text
+   * 落盘实时追加，即使插件热重载导致 UI 层 .chat-history 无记录，.jsonl 尾部仍保留现场。
+   * 恢复结果持久化为带 interrupted 标记的 assistant 消息，仅执行一次。
+   */
+  _tryRecoverPiInterruptedTurn(lastUserMsg) {
+    if (this._piRecoverInFlight) return;
+    this._piRecoverInFlight = true;
+    try {
+      const recovered = this._parsePiSessionTail(lastUserMsg);
+      if (!recovered) return;
+      const agentId = this.hub.activeAgentId;
+      this.hub.sessionManager.addMessage(agentId, recovered);
+      // 恢复气泡插到中断标记之前，随后重渲染标记
+      const marker = this.messagesEl ? this.messagesEl.querySelector('.tw-interrupt-marker') : null;
+      if (marker) marker.remove();
+      this.renderPastAssistantMessage(recovered);
+      this._renderInterruptHintIfOrphaned(this.hub.sessionManager.getMessages(agentId));
+      if (typeof this.buildChatMinimap === 'function') this.buildChatMinimap();
+      if (typeof this.updateStickyQuestion === 'function') this.updateStickyQuestion();
+      this.scrollToBottom(true);
+    } catch (e) {
+      console.warn('[PiDrawerView] recover interrupted pi turn failed:', e);
+    } finally {
+      this._piRecoverInFlight = false;
+    }
+  }
+
+  /** 解析 pi 会话 .jsonl 尾部：取最后一条 user 之后累积的 thinking/toolCall/toolResult/text */
+  _parsePiSessionTail(lastUserMsg) {
+    const file = this._resolvePiSessionFile();
+    if (!file) return null;
+    const fs = require('fs');
+    const raw = fs.readFileSync(file, 'utf-8');
+    const entries = [];
+    for (const line of raw.split('\n')) {
+      const s = line.trim();
+      if (!s) continue;
+      try {
+        const e = JSON.parse(s);
+        if (e && e.type === 'message' && e.message) entries.push(e);
+      } catch (_) {}
+    }
+    // 定位最后一条 user 消息
+    let uIdx = -1;
+    for (let i = entries.length - 1; i >= 0; i--) {
+      if (entries[i].message.role === 'user') { uIdx = i; break; }
+    }
+    if (uIdx < 0 || uIdx >= entries.length - 1) return null;
+    // 会话文件对齐校验：jsonl 中 user 为注入后全文，包含 wireText 片段
+    const want = this._normTxt(lastUserMsg && lastUserMsg.text).slice(0, 48);
+    if (want) {
+      const jText = this._normTxt(this._extractJsonlText(entries[uIdx].message));
+      if (!jText.includes(want.slice(0, 32))) return null;
+    }
+    const thinkingParts = [];
+    const toolCalls = [];
+    const steps = [];
+    let text = '';
+    let curStep = null;
+    for (let i = uIdx + 1; i < entries.length; i++) {
+      const m = entries[i].message;
+      if (m.role === 'assistant' && Array.isArray(m.content)) {
+        for (const part of m.content) {
+          if (!part || typeof part !== 'object') continue;
+          if (part.type === 'thinking' && part.thinking) {
+            thinkingParts.push(part.thinking);
+            if (!curStep || curStep.type !== 'thinking') {
+              curStep = { type: 'thinking', icon: 'sparkle', label: '思考过程', text: '' };
+              steps.push(curStep);
+            }
+            curStep.text += part.thinking;
+          } else if (part.type === 'text' && part.text) {
+            text += part.text;
+            curStep = null;
+          } else if (part.type === 'toolCall' || part.type === 'tool_call' || part.type === 'tool_use') {
+            const tc = {
+              toolCallId: part.id || part.toolCallId || part.tool_use_id || `tc-${i}`,
+              toolName: part.name || part.toolName || 'tool',
+              args: part.arguments || part.args || part.input || {},
+              output: '',
+              isError: false
+            };
+            toolCalls.push(tc);
+            if (!curStep || curStep.type !== 'tool') {
+              curStep = { type: 'tool', icon: 'fileText', label: '已调用工具', text: '', toolCalls: [] };
+              steps.push(curStep);
+            }
+            curStep.toolCalls.push(tc);
+          }
+        }
+      } else if (m.role === 'toolResult') {
+        const tid = m.toolCallId || m.tool_use_id || m.id;
+        const tc = toolCalls.find(t => t.toolCallId === tid) || toolCalls[toolCalls.length - 1];
+        if (tc) {
+          tc.output = this._extractJsonlText(m);
+          tc.isError = !!m.isError;
+        }
+      }
+    }
+    if (!thinkingParts.length && !toolCalls.length && !String(text).trim()) return null;
+    for (const s of steps) {
+      if (s.type === 'tool') {
+        s.label = this.generateBatchToolSummary(s.toolCalls);
+        s.toolSummaries = s.toolCalls.map(tc => this._summarizeToolCall(tc)).filter(Boolean);
+      }
+    }
+    const lastTs = entries[entries.length - 1].timestamp;
+    const ts = typeof lastTs === 'number' ? lastTs : (Date.parse(lastTs) || Date.now());
+    return {
+      role: 'assistant',
+      text,
+      thinking: thinkingParts.join('\n\n'),
+      processSteps: steps,
+      toolCalls,
+      model: '',
+      duration: 0,
+      durationText: '—',
+      interrupted: true,
+      timestamp: ts
+    };
+  }
+
+  /** 定位当前 vault 对应的 pi 会话 .jsonl 文件（优先经 bridge，回落 localStorage 映射） */
+  _resolvePiSessionFile() {
+    try {
+      const adapter = typeof this.hub.getAdapter === 'function' ? this.hub.getAdapter('pi') : null;
+      const bridge = adapter && adapter.bridge;
+      if (bridge && typeof bridge._getSavedSessionFile === 'function') {
+        const f = bridge._getSavedSessionFile();
+        if (f) return f;
+      }
+    } catch (_) {}
+    try {
+      const fs = require('fs');
+      const key = String(this.vaultBasePath || '').replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+      const raw = (typeof localStorage !== 'undefined') ? localStorage.getItem('tabonkb-pi-session-files') : null;
+      const map = raw ? JSON.parse(raw) : {};
+      const file = map[key];
+      if (!file || !fs.existsSync(file)) return null;
+      const head = String(fs.readFileSync(file, 'utf-8')).split('\n', 1)[0];
+      const header = JSON.parse(head);
+      const cwd = String(header.cwd || '').replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+      if (cwd && cwd === key) return file;
+    } catch (_) {}
+    return null;
+  }
+
+  _extractJsonlText(m) {
+    const c = m && m.content;
+    if (typeof c === 'string') return c;
+    if (Array.isArray(c)) {
+      return c.filter(p => p && p.type === 'text').map(p => p.text || '').join('\n');
+    }
+    return '';
+  }
+
+  _normTxt(s) {
+    return String(s || '').replace(/\s+/g, ' ').trim();
+  }
+
+  /**
+   * pi 用户消息回显对账：本地已渲染的 prompt/steer 回显跳过；
+   * 排队项被派发消费时的回显 → 渲染用户原文气泡（持久化由 addUserMessageBubble 承担）。
+   */
+  _onUserMessageEcho(rawText) {
+    const raw = String(rawText || '');
+    if (!raw) return;
+    const core = this._extractUserTextFromWire(raw) || raw;
+    const normRaw = this._normTxt(raw);
+    const normCore = this._normTxt(core);
+    const pending = this._pendingSentWires || [];
+    // 清理超期未匹配项（如扩展命令 handled 无回显），防对账本无限堆积
+    const now = Date.now();
+    for (let i = pending.length - 1; i >= 0; i--) {
+      if (now - (pending[i].ts || 0) > 10 * 60 * 1000) pending.splice(i, 1);
+    }
+    let idx = pending.findIndex(p => {
+      const w = this._normTxt(p.wire);
+      return w === normRaw || w === normCore;
+    });
+    // 技能/模板展开后回显文本与原文不一致 → 取最旧未消费项兜底
+    if (idx < 0 && pending.length) idx = 0;
+    if (idx >= 0) {
+      const p = pending.splice(idx, 1)[0];
+      if (!p.optimistic) this.addUserMessageBubble(p.wire, null);
+      return;
+    }
+    // 非本端入队的回显（如其他端注入）：与最后一条持久化 user 相同则跳过，否则渲染
+    const msgs = this.hub.sessionManager.getMessages(this.hub.activeAgentId) || [];
+    const last = msgs[msgs.length - 1];
+    if (last && last.role === 'user' && (this._normTxt(last.text) === normCore || this._normTxt(last.text) === normRaw)) return;
+    if (normCore) this.addUserMessageBubble(core, null);
+  }
+
+  /**
+   * 流式中提交：Enter=steer 插队纠偏（pi 原生），Alt+Enter=排队待办。
+   * steer 乐观渲染用户气泡；follow_up 仅以排队胶囊呈现，回显派发时再渲染气泡。
+   */
+  async handleQueueSend(mode) {
+    const adapter = this.hub.getActiveAdapter();
+    if (!adapter || adapter.status === 'not_installed') return;
+    if (this._sendInFlight) return;
+    const text = this.inputEl.value.trim();
+    const wireText = this._serializeChips(text);
+    if (!wireText) return;
+
+    // 排队消息派发时是新回合：与正常发送一样注入上下文（steer 轮内纠偏发原文）
+    const isNiceAigc = this.hub.activeAgentId === 'niceaigc';
+    const isSlashCommand = wireText.startsWith('/');
+    const prompt = this._composeContextInjectedPrompt(wireText, isSlashCommand, isNiceAigc);
+    if (!this._queuedWireByPrompt) this._queuedWireByPrompt = new Map();
+    this._queuedWireByPrompt.set(prompt, wireText);
+    this._queuedWireByPrompt.set(wireText, wireText);
+    if (this._queuedWireByPrompt.size > 60) {
+      const firstKey = this._queuedWireByPrompt.keys().next().value;
+      this._queuedWireByPrompt.delete(firstKey);
+    }
+
+    this.inputEl.value = '';
+    this.inputEl.style.height = `${this.inputHeight}px`;
+    this.hub.sessionManager.setDraft(this.hub.activeAgentId, '');
+    this.inputChips = [];
+    this._renderInputChips();
+    this._persistChips();
+    this.closeTriggerPicker();
+
+    const notice = (m) => {
+      const NoticeCls = typeof Notice !== 'undefined' ? Notice : (window.app?.Notice || class {});
+      try { new NoticeCls(m); } catch (_) {}
+    };
+
+    const isPi = this.hub.activeAgentId === 'pi';
+    const useSteer = mode === 'steer' && isPi && typeof adapter.steer === 'function';
+    this._pendingSentWires.push({ wire: wireText, optimistic: useSteer, ts: Date.now() });
+    if (this._pendingSentWires.length > 20) this._pendingSentWires.shift();
+
+    if (useSteer) {
+      // steer 是回合内边界：先把在途 assistant 段收尾入缓冲（addUserMessageBubble 顶部会合并落库），
+      // 否则 pi 注入后的后续输出会继续灌进 DOM 位置在纠偏气泡上方的旧气泡
+      if (this.currentAssistantMessage) {
+        this.finishAssistantMessage(false, { persist: false, preserveTools: true });
+      }
+      this.addUserMessageBubble(wireText, null);
+      const _kids = this.messagesEl && this.messagesEl.children;
+      const bubbleEl = _kids && _kids.length ? _kids[_kids.length - 1] : null;
+      try {
+        await this.hub.steer(wireText);
+      } catch (err) {
+        const i = this._pendingSentWires.findIndex(p => p.wire === wireText && p.optimistic);
+        if (i >= 0) this._pendingSentWires.splice(i, 1);
+        // 回滚乐观气泡：pi 未消费的纠偏消息不应留在历史（防孤儿 user 误触发中断标记）
+        if (bubbleEl && bubbleEl._msgRef && bubbleEl._msgRef.role === 'user' && bubbleEl._msgRef.text === wireText) {
+          const stored = this.hub.sessionManager.getMessages(this.hub.activeAgentId) || [];
+          const sIdx = stored.findIndex(m => m === bubbleEl._msgRef);
+          if (sIdx >= 0 && typeof this.hub.sessionManager.truncateMessages === 'function') {
+            this.hub.sessionManager.truncateMessages(this.hub.activeAgentId, sIdx);
+          } else {
+            bubbleEl._msgRef._removed = true;
+          }
+          bubbleEl.remove();
+        }
+        notice(`插队消息发送失败: ${err.message}`);
+      }
+    } else {
+      if (typeof this.hub.followUp !== 'function') {
+        this.inputEl.value = text;
+        this._pendingSentWires.pop();
+        return;
+      }
+      try {
+        await this.hub.followUp(wireText, { prompt });
+      } catch (err) {
+        const i = this._pendingSentWires.findIndex(p => p.wire === wireText && !p.optimistic);
+        if (i >= 0) this._pendingSentWires.splice(i, 1);
+        notice(`排队失败: ${err.message}`);
+      }
+    }
+    this.updateSendButtonState();
+  }
+
+  /** 排队胶囊条：steer 项（↪）+ followUp 项（◷），✕ 单项移除；显示用户原文而非注入后 prompt */
+  renderQueueStrip(q) {
+    this._queueSnapshot = q || { steering: [], followUp: [] };
+    const items = [];
+    for (const t of (this._queueSnapshot.steering || [])) items.push({ kind: 'steer', text: t });
+    for (const t of (this._queueSnapshot.followUp || [])) items.push({ kind: 'follow', text: t });
+    // 清理已不在快照中的映射，防 Map 无界增长（快照文本为引擎侧实际入队的注入后 prompt）
+    if (this._queuedWireByPrompt && this._queuedWireByPrompt.size) {
+      const live = new Set(items.map(i => i.text));
+      for (const k of Array.from(this._queuedWireByPrompt.keys())) {
+        if (!live.has(k)) this._queuedWireByPrompt.delete(k);
+      }
+    }
+    if (!this.queueStripEl) return;
+    if (!items.length) {
+      this.queueStripEl.style.display = 'none';
+      this.queueStripEl.innerHTML = '';
+      return;
+    }
+    this.queueStripEl.style.display = 'flex';
+    this.queueStripEl.innerHTML = items.map((it) => {
+      const rawLabel = this._normTxt(this._queuedWireByPrompt && this._queuedWireByPrompt.get(it.text))
+        || this._normTxt(this._extractUserTextFromWire(it.text))
+        || this._normTxt(it.text);
+      const label = rawLabel || this._normTxt(it.text);
+      const short = label.length > 28 ? label.slice(0, 28) + '…' : label;
+      return `<span class="tw-queue-chip ${it.kind}">` +
+        `<span class="tw-queue-chip-tag">${it.kind === 'steer' ? '插队' : '排队'}</span>` +
+        `<span class="tw-queue-chip-text" title="${escapeAttr(label)}">${escapeHtml(short)}</span>` +
+        `<button class="tw-queue-chip-x" title="移出队列">✕</button>` +
+        `</span>`;
+    }).join('');
+    const xs = this.queueStripEl.querySelectorAll('.tw-queue-chip-x');
+    xs.forEach((x, i) => {
+      x.onclick = (e) => {
+        e.stopPropagation();
+        this.cancelQueuedItem(items[i]);
+      };
+    });
+  }
+
+  async cancelQueuedItem(item) {
+    if (!item || typeof this.hub.cancelQueued !== 'function') return;
+    try {
+      await this.hub.cancelQueued(item.kind, item.text);
+    } catch (e) {
+      console.warn('[PiDrawerView] cancelQueued failed:', e);
+    }
+  }
+
+  /** 只读模式回合落定且产出正文 → 浮现「切读写执行」极简条（NiceAIGC 无权限概念不弹；中止/中断回合不弹） */
+  _updatePlanBar() {
+    if (!this.planBarEl) return;
+    if (this._suppressPlanBarOnce) {
+      this._suppressPlanBarOnce = false;
+      this.planBarEl.style.display = 'none';
+      return;
+    }
+    let show = false;
+    try {
+      if (this.permissionMode === 'readonly' && !this.hub.isStreaming() && !this._sendInFlight
+          && this.hub.activeAgentId !== 'niceaigc') {
+        const ms = this.hub.sessionManager.getMessages(this.hub.activeAgentId) || [];
+        const last = ms[ms.length - 1];
+        show = !!(last && last.role === 'assistant' && last.text && last.text.trim()
+          && !last.aborted && !last.interrupted);
+      }
+    } catch (_) {}
+    this.planBarEl.style.display = show ? 'flex' : 'none';
+  }
+
+  _hidePlanBar() {
+    if (this.planBarEl) this.planBarEl.style.display = 'none';
   }
 
   resolveImageSrc(img) {
@@ -3034,9 +3642,12 @@ class PiDrawerView {
     // 1. DSH Process Banner (collapsed by default for past messages)
     const banner = document.createElement('div');
     banner.className = 'tw-dsh-process-banner collapsed';
+    const statusLine = msg.interrupted
+      ? '已中断 · 已恢复中断前过程'
+      : (msg.aborted ? `已中止，用时 ${escapeHtml(durationText)}` : `已完成，用时 ${escapeHtml(durationText)}`);
     banner.innerHTML = `
       <div class="tw-dsh-banner-header">
-        <span class="tw-dsh-banner-status-text">已完成，用时 ${escapeHtml(durationText)}</span>
+        <span class="tw-dsh-banner-status-text">${statusLine}</span>
         <span class="tw-dsh-banner-chevron">${DSH_ICONS.chevronDown}</span>
       </div>
       <div class="tw-dsh-banner-divider"></div>
@@ -3055,6 +3666,7 @@ class PiDrawerView {
     const bannerBody = banner.querySelector('.tw-dsh-banner-body');
 
     if (Array.isArray(msg.processSteps) && msg.processSteps.length > 0) {
+      let anyToolSummaries = false;
       for (const step of msg.processSteps) {
         const marker = document.createElement('div');
         marker.className = 'tw-dsh-step-marker';
@@ -3065,10 +3677,45 @@ class PiDrawerView {
         `;
         bannerBody.appendChild(marker);
 
+        // 工具步骤：逐条压缩摘要明细（read(x.c)/grep("..")），展开 banner 可见；✗ 前缀行标红
+        if (step.type === 'tool' && Array.isArray(step.toolSummaries) && step.toolSummaries.length) {
+          anyToolSummaries = true;
+          const sumEl = document.createElement('div');
+          sumEl.className = 'tw-dsh-thinking-prose';
+          for (const line of step.toolSummaries) {
+            const row = document.createElement('div');
+            row.className = 'tw-tool-detail-line' + (String(line).startsWith('✗') ? ' error' : '');
+            row.textContent = line;
+            sumEl.appendChild(row);
+          }
+          bannerBody.appendChild(sumEl);
+        }
+
         if (step.text && step.text.trim()) {
           const prose = document.createElement('div');
           prose.className = 'tw-dsh-thinking-prose';
           prose.textContent = step.text.trim();
+          bannerBody.appendChild(prose);
+        }
+      }
+      // 兼容旧数据：processSteps 无 toolSummaries 字段时，从 msg.toolCalls 合成一段合并摘要
+      if (!anyToolSummaries && Array.isArray(msg.toolCalls) && msg.toolCalls.length) {
+        const lines = msg.toolCalls.map(tc => this._summarizeToolCall(tc)).filter(Boolean);
+        if (lines.length) {
+          const prose = document.createElement('div');
+          prose.className = 'tw-dsh-thinking-prose';
+          for (const line of lines.slice(0, 5)) {
+            const row = document.createElement('div');
+            row.className = 'tw-tool-detail-line' + (String(line).startsWith('✗') ? ' error' : '');
+            row.textContent = line;
+            prose.appendChild(row);
+          }
+          if (lines.length > 5) {
+            const more = document.createElement('div');
+            more.className = 'tw-tool-detail-line';
+            more.textContent = '…';
+            prose.appendChild(more);
+          }
           bannerBody.appendChild(prose);
         }
       }
@@ -3121,6 +3768,28 @@ class PiDrawerView {
         prose.textContent = displayThinking.trim();
         bannerBody.appendChild(prose);
       }
+
+      // 旧数据无 processSteps：补一段逐工具压缩摘要（read(x.c)/grep("..")），最多 5 条；✗ 前缀行标红
+      if (hasTools) {
+        const lines = msg.toolCalls.map(tc => this._summarizeToolCall(tc)).filter(Boolean);
+        if (lines.length) {
+          const prose = document.createElement('div');
+          prose.className = 'tw-dsh-thinking-prose';
+          for (const line of lines.slice(0, 5)) {
+            const row = document.createElement('div');
+            row.className = 'tw-tool-detail-line' + (String(line).startsWith('✗') ? ' error' : '');
+            row.textContent = line;
+            prose.appendChild(row);
+          }
+          if (lines.length > 5) {
+            const more = document.createElement('div');
+            more.className = 'tw-tool-detail-line';
+            more.textContent = '…';
+            prose.appendChild(more);
+          }
+          bannerBody.appendChild(prose);
+        }
+      }
     }
 
     const hasProcess = (Array.isArray(msg.processSteps) && msg.processSteps.length > 0) ||
@@ -3144,14 +3813,12 @@ class PiDrawerView {
 
     let usageData = msg.usage || null;
     if (!usageData || !usageData.totalTokens || usageData.totalTokens <= 0) {
-      const outTok = Math.max(1, Math.round(((displayText || '').length + (displayThinking?.length || 0)) * 0.75));
-      const inTok = Math.max(120, Math.round(outTok * 1.5 + 450));
-      usageData = {
-        inputTokens: inTok,
-        outputTokens: outTok,
-        cacheReadTokens: Math.round(inTok * 0.4),
-        totalTokens: inTok + outTok
-      };
+      // 历史消息缺用量 → CJK 感知结构化兜底（绝不伪造缓存，杜绝分项>合计悖论）
+      usageData = this.estimateTurnUsageFallback({
+        text: displayText || '',
+        thinking: displayThinking || '',
+        toolCalls: msg.toolCalls || []
+      });
     }
     usageData.providerAndModel = usageData.providerAndModel || providerAndModel;
     usageData.durationText = usageData.durationText || durationText;
@@ -3275,7 +3942,7 @@ class PiDrawerView {
 
   adjustInputHeight() {
     if (!this.inputEl) return;
-    const minH = this.inputHeight || 52;
+    const minH = this.inputHeight || 46;
     if (!this.inputEl.value || !this.inputEl.value.trim()) {
       this.inputEl.style.height = `${minH}px`;
       return;
@@ -3326,7 +3993,12 @@ class PiDrawerView {
       }
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
-        this.handleSend();
+        // 流式期间：Enter=steer 插队纠偏（当前工具结束后注入）；Alt+Enter=排队待办（本轮结束后自动派发）
+        if (this.hub.isStreaming()) {
+          this.handleQueueSend(e.altKey ? 'follow_up' : 'steer');
+        } else {
+          this.handleSend();
+        }
       } else if (e.key === 'Escape') {
         if (this.isSplitPaneOpen) {
           e.preventDefault();
@@ -3343,7 +4015,7 @@ class PiDrawerView {
     // Save custom height if user drags the native corner resize handle
     this.inputEl.addEventListener('mouseup', () => {
       const currentH = this.inputEl.offsetHeight;
-      if (currentH >= 38 && Math.abs(currentH - this.inputHeight) > 2) {
+      if (currentH >= 28 && Math.abs(currentH - this.inputHeight) > 2) {
         this.saveInputHeight(currentH);
       }
     });
@@ -3376,15 +4048,37 @@ class PiDrawerView {
       }
     });
 
-    if (this.btnSend) this.btnSend.onclick = () => this.handleSend();
+    // 流式中点击发送 = Enter 插队纠偏（非流式为正常发送）
+    if (this.btnSend) this.btnSend.onclick = () => {
+      if (this.hub && typeof this.hub.isStreaming === 'function' && this.hub.isStreaming()) {
+        this.handleQueueSend('steer');
+      } else {
+        this.handleSend();
+      }
+    };
     if (this.btnAbort) this.btnAbort.onclick = () => this.handleAbort();
 
-    // Image upload button & file picker
-    if (this.btnUploadImage && this.imageFileInput) {
-      this.btnUploadImage.onclick = (e) => {
-        e.preventDefault();
-        this.imageFileInput.click();
+    // 只读方案执行条：一键切读写并发送执行指令
+    const planRunBtn = this.drawerEl ? this.drawerEl.querySelector('#twPlanBarRun') : null;
+    const planCloseBtn = this.drawerEl ? this.drawerEl.querySelector('#twPlanBarClose') : null;
+    if (planRunBtn) {
+      planRunBtn.onclick = async () => {
+        this._hidePlanBar();
+        if (this.permissionMode === 'readonly') {
+          await this.togglePermissionMode();
+        }
+        if (this.inputEl) {
+          this.inputEl.value = '请按上述方案执行';
+          this.handleSend();
+        }
       };
+    }
+    if (planCloseBtn) {
+      planCloseBtn.onclick = () => this._hidePlanBar();
+    }
+
+    // Image file picker (上传入口位于 + 菜单「图片」项；粘贴/拖拽路径不变)
+    if (this.imageFileInput) {
       this.imageFileInput.onchange = (e) => {
         if (e.target.files && e.target.files.length > 0) {
           this.handleImageFilesSelected(e.target.files);
@@ -4510,6 +5204,22 @@ class PiDrawerView {
     return el;
   }
 
+  // 向输入框插入触发符并唤出 picker：'@' 追加为新 token，'/' 须位于行首
+  _insertTriggerChar(ch) {
+    const el = this.inputEl;
+    if (!el) return;
+    el.focus();
+    if (ch === '/') {
+      if (!String(el.value || '').startsWith('/')) el.value = '/' + el.value;
+      if (typeof el.setSelectionRange === 'function') el.setSelectionRange(1, 1);
+    } else {
+      const v = String(el.value || '');
+      el.value = (!v || /\s$/.test(v)) ? v + '@' : v + ' @';
+      if (typeof el.setSelectionRange === 'function') el.setSelectionRange(el.value.length, el.value.length);
+    }
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+
   _evaluateTriggerContext() {
     const el = this.inputEl;
     if (!el) return null;
@@ -5298,7 +6008,18 @@ class PiDrawerView {
       : ((status === 'thinking' || status === 'running_tool') || !!this._sendInFlight || hubStreaming);
 
     if (isStreaming) {
-      this.btnSend.style.display = 'none';
+      // 流式中输入框有内容 → 保留发送入口（点击=Enter 插队纠偏）；无输入时仍只显示中止键
+      // 仅文本/胶囊可走 steer；附件不参与（handleQueueSend 只发送文本协议，图片留待下一轮正常发送）
+      const hasStreamInput = !!(this.inputEl && this.inputEl.value.trim().length > 0)
+        || !!(this.inputChips && this.inputChips.length);
+      this.btnSend.style.display = hasStreamInput ? 'inline-flex' : 'none';
+      this.btnSend.disabled = !hasStreamInput;
+      if (hasStreamInput) {
+        this.btnSend.classList.remove('disabled');
+        this.btnSend.title = '插队纠偏 (Enter)';
+      } else {
+        this.btnSend.classList.add('disabled');
+      }
       if (this.btnAbort) {
         this.btnAbort.style.display = 'inline-flex';
         // 复位上一次中止请求的禁用态（_sendInFlight 收尾后重新可点）
@@ -5306,6 +6027,10 @@ class PiDrawerView {
           this.btnAbort.disabled = false;
           this.btnAbort.title = '中止当前回复';
         }
+      }
+      // 流式期输入框引导：Enter 插队纠偏 / Alt+Enter 排队
+      if (this.inputEl && !(this.inputChips && this.inputChips.length)) {
+        this.inputEl.placeholder = '执行中：Enter 插队纠偏 · Alt+Enter 排队等下轮';
       }
     } else {
       if (this.btnAbort) this.btnAbort.style.display = 'none';
@@ -5324,6 +6049,11 @@ class PiDrawerView {
       } else {
         this.btnSend.classList.remove('disabled');
       }
+      this.btnSend.title = '发送 (Enter)';
+      // 非流式时恢复正常占位符（流式期被 Enter/Alt+Enter 提示覆盖）
+      if (typeof this.updateInputPlaceholder === 'function') {
+        this.updateInputPlaceholder();
+      }
     }
   }
 
@@ -5333,9 +6063,17 @@ class PiDrawerView {
     this.hub.on('turn_start', () => {
       this.lastHubError = null;
       this.removeWelcomeScreen();
+      this._hidePlanBar();
+      // 新一轮 turn（如 pi 消费排队项/steer 注入）与上一段切分：收尾入缓冲，
+      // 待随后的用户回显（addUserMessageBubble 顶部）或回合末合并落库
+      if (this.currentAssistantMessage) {
+        this.finishAssistantMessage(false, { persist: false, preserveTools: true });
+      }
       if (!this.currentAssistantMessage) {
         this.createAssistantMessageBubble();
       }
+      // 新提问回合开启：重置 Token 累加器（上一段的累加已在 finishAssistantMessage 中被消费）
+      this.turnUsageAcc = null;
     });
 
     this.hub.on('thinking_start', (data) => {
@@ -5367,15 +6105,11 @@ class PiDrawerView {
     });
 
     this.hub.on('turn_end', (d) => {
+      // 多步工具调用单提问会触发多次 turn_end：逐跳累加进 turnUsageAcc，
+      // 严禁覆盖赋值（旧缺陷：中间工具轮次 Token 被清零，只剩最后一跳）
       if (d) {
         const u = d.message?.usage || d.usage || d.turn?.usage;
-        if (u) {
-          const inputTokens = u.input || u.prompt_tokens || u.promptTokens || u.inputTokens || 0;
-          const outputTokens = u.output || u.completion_tokens || u.completionTokens || u.outputTokens || 0;
-          const cacheReadTokens = u.cacheRead || u.prompt_cache_hit_tokens || u.cacheReadTokens || 0;
-          const totalTokens = u.totalTokens || u.total_tokens || (inputTokens + outputTokens);
-          this.lastTurnUsage = { inputTokens, outputTokens, cacheReadTokens, totalTokens };
-        }
+        this._accumulateTurnUsage(u);
       }
       if (!this.hub.isStreaming()) {
         this.finishAssistantMessage();
@@ -5384,18 +6118,16 @@ class PiDrawerView {
     });
 
     this.hub.on('agent_settled', (d) => {
-      if (d && !this.lastTurnUsage) {
+      if (d && !this.lastTurnUsage && !(this.turnUsageAcc && this.turnUsageAcc.hasRealUsage)) {
         const u = d.message?.usage || d.usage;
-        if (u) {
-          const inputTokens = u.input || u.prompt_tokens || u.promptTokens || u.inputTokens || 0;
-          const outputTokens = u.output || u.completion_tokens || u.completionTokens || u.outputTokens || 0;
-          const cacheReadTokens = u.cacheRead || u.prompt_cache_hit_tokens || u.cacheReadTokens || 0;
-          const totalTokens = u.totalTokens || u.total_tokens || (inputTokens + outputTokens);
-          this.lastTurnUsage = { inputTokens, outputTokens, cacheReadTokens, totalTokens };
-        }
+        this._accumulateTurnUsage(u);
       }
-      this.finishAssistantMessage();
+      // pi/antigravity 的 abort 只 emit agent_settled（不发 aborted），靠 _runAborted 标记补识别
+      const wasAborted = this._runAborted === true;
+      this.finishAssistantMessage(wasAborted);
+      this._runAborted = false;
       this.updateSendButtonState();
+      this._updatePlanBar();
     });
 
     this.hub.on('aborted', () => {
@@ -5403,11 +6135,47 @@ class PiDrawerView {
       this.updateSendButtonState();
     });
 
+    // 流式交互队列快照（pi 原生 steer/followUp 或 hub 本地队列）→ 渲染排队胶囊条
+    this.hub.on('queue_update', (q) => this.renderQueueStrip(q));
+
+    // 中止时回收的排队内容回填输入框（pi TUI 同款行为）
+    this.hub.on('queue_cleared', (d) => {
+      const texts = [...((d && d.steering) || []), ...((d && d.followUp) || [])];
+      if (!texts.length || !this.inputEl) return;
+      const cur = this.inputEl.value.trim();
+      this.inputEl.value = cur ? `${cur}\n${texts.join('\n')}` : texts.join('\n');
+      if (typeof this.adjustInputHeight === 'function') this.adjustInputHeight();
+      this.updateSendButtonState();
+    });
+
+    // 本地队列派发（非 pi adapter）：消费回显对账项，补渲染用户气泡并持久化
+    // （addUserMessageBubble 顶部自动收尾在途 assistant 段 + 合并落库，保证存储顺序）
+    this.hub.on('follow_up_dispatched', (d) => {
+      if (!d || !d.text) return;
+      const i = (this._pendingSentWires || []).findIndex(p => this._normTxt(p.wire) === this._normTxt(d.text));
+      if (i >= 0) this._pendingSentWires.splice(i, 1);
+      this.addUserMessageBubble(d.text, null);
+    });
+
+    // pi 侧用户消息回显（message_start）：prompt/steer 本地已渲染 → 去重；
+    // 排队项被派发消费 → 渲染原文气泡并持久化
+    this.hub.on('user_message', (d) => {
+      this._onUserMessageEcho(d && d.text);
+    });
+
     this.hub.on('new_session', () => {
       if (this.currentAssistantMessage) {
         this.finishAssistantMessage();
       }
       this.messages = [];
+      this._queueSnapshot = null;
+      this._pendingSentWires = [];
+      this._assistantRunBuffer = [];
+      this._runAborted = false;
+      this._suppressPlanBarOnce = false;
+      if (this._queuedWireByPrompt) this._queuedWireByPrompt.clear();
+      this.renderQueueStrip(null);
+      this._hidePlanBar();
       if (this.messagesEl) {
         this.messagesEl.innerHTML = '';
       }
@@ -5817,6 +6585,8 @@ class PiDrawerView {
       startTime: startTime || Date.now()
     });
 
+    // 逐条明细实时可见：刚发起的调用也立刻列一行（bash(cmd)/read(path)）
+    this._renderToolStepDetails(toolStep);
     this.scrollToBottom();
   }
 
@@ -5829,6 +6599,7 @@ class PiDrawerView {
     if (toolCallRef) {
       toolCallRef.durationMs = durationMs;
       toolCallRef.isError = isError;
+      if (error) toolCallRef.error = String(error).slice(0, 300);
     }
 
     if (toolStep && toolStep.labelEl) {
@@ -5843,10 +6614,25 @@ class PiDrawerView {
         toolStep.label = summary;
       }
     }
+    // 刷新逐条明细（含失败标红 ✗ 与错误摘要）
+    this._renderToolStepDetails(toolStep);
   }
 
-  finishAssistantMessage(isAborted = false) {
-    if (!this.currentAssistantMessage) return;
+  /**
+   * 收尾当前 assistant 气泡。opts.persist!==false 时把"连续 assistant 段缓冲"合并落一条记录；
+   * opts.persist===false 仅切段入缓冲（steer/follow_up 用户消息边界），不落库。
+   * opts.preserveTools===true 保留 activeToolCards，运行中工具的 tool_end 仍能收尾旧气泡卡片。
+   */
+  finishAssistantMessage(isAborted = false, opts = {}) {
+    const persist = !opts || opts.persist !== false;
+    const preserveTools = !!(opts && opts.preserveTools);
+    if (!this.currentAssistantMessage) {
+      // 在途气泡已切走但缓冲段未落库（如 abort 时全部段均已切入缓冲）→ 兜底合并落库
+      if (persist && this._assistantRunBuffer && this._assistantRunBuffer.length) {
+        this._flushAssistantRunBuffer({ isAborted });
+      }
+      return;
+    }
     if (this._textRenderRafId) {
       cancelAnimationFrame(this._textRenderRafId);
       this._textRenderRafId = null;
@@ -5867,8 +6653,10 @@ class PiDrawerView {
       msg.bannerTimer = null;
     }
 
-    // Clear any running tools
-    this.activeToolCards.clear();
+    // 仅回合真正结束才清空工具卡索引；中间切段保留，运行中工具的 tool_end 仍能收尾旧气泡
+    if (!preserveTools) {
+      this.activeToolCards.clear();
+    }
 
     const durationMs = Date.now() - (msg.startTime || Date.now());
     const durationStr = this.formatDuration(durationMs);
@@ -5889,6 +6677,16 @@ class PiDrawerView {
     } else {
       for (let i = 0; i < msg.steps.length; i++) {
         const step = msg.steps[i];
+        // 中段切分时，仍在运行的工具保留旧气泡的 running 视觉（等 tool_end 再收尾）；
+        // 但把持久化 label 规范为完成态摘要，避免历史恢复出现永久的"正在执行..."
+        const stillRunning = !!(preserveTools && this.activeToolCards && step.type === 'tool'
+          && (step.toolCalls || []).some(tc => tc && this.activeToolCards.has(tc.toolCallId)));
+        if (stillRunning) {
+          if (step.toolCalls && step.toolCalls.length > 0) {
+            step.label = this.generateBatchToolSummary(step.toolCalls);
+          }
+          continue;
+        }
         if (step.markerEl) {
           step.markerEl.classList.remove('running');
         }
@@ -5928,8 +6726,8 @@ class PiDrawerView {
 
     } else if (isAborted) {
       // Aborted notice already added above
-    } else {
-      // Empty response fallback: Never leave a blank bubble!
+    } else if (persist) {
+      // Empty response fallback: Never leave a blank bubble!（仅回合真正结束才补错误卡；中段切段不渲染）
       msg.contentEl.style.display = 'block';
       const adapter = this.hub ? this.hub.getActiveAdapter() : null;
       const currentModel = adapter && typeof adapter.getModel === 'function' ? adapter.getModel() : { id: '', name: '' };
@@ -5955,7 +6753,7 @@ class PiDrawerView {
       if (timeSpan) timeSpan.textContent = this.formatTime(Date.now());
     }
 
-    // Token Usage computation & binding
+    // Token Usage: 取本轮真实用量（turn_end/agent_settled 提供），中段不估算，合并时汇总
     const adapter = this.hub.getActiveAdapter();
     const currentModel = typeof adapter.getModel === 'function' ? adapter.getModel() : null;
     let authorModel = (currentModel && currentModel.name) ? currentModel.name : adapter.displayName;
@@ -5965,31 +6763,14 @@ class PiDrawerView {
     }
     const providerAndModel = (adapter.displayName || adapter.name) + ' / ' + authorModel;
 
-    let usageData = this.lastTurnUsage || null;
+    const realUsage = this._drainTurnUsage() || this.lastTurnUsage || null;
     this.lastTurnUsage = null;
-
-    if (!usageData || !usageData.totalTokens || usageData.totalTokens <= 0) {
-      const outTok = Math.max(1, Math.round(((msg.rawText || '').length + (msg.thinkingText?.length || 0)) * 0.75));
-      const inTok = Math.max(120, Math.round(outTok * 1.5 + 450));
-      usageData = {
-        inputTokens: inTok,
-        outputTokens: outTok,
-        cacheReadTokens: Math.round(inTok * 0.4),
-        totalTokens: inTok + outTok
-      };
-    }
-    usageData.providerAndModel = providerAndModel;
-    usageData.durationText = durationStr;
-
-    if (msg.usageBtnEl) {
-      const usageText = msg.usageBtnEl.querySelector('.tw-dsh-usage-text');
-      if (usageText) {
-        usageText.textContent = `用量 ${this.formatTokensPill(usageData.totalTokens)}`;
-      }
-      msg.usageBtnEl.onclick = (e) => {
-        e.stopPropagation();
-        this.showTokenUsagePopover(msg.usageBtnEl, usageData);
-      };
+    if (realUsage) {
+      // 模型名与思考档位解耦落库：纯净 modelId/modelName + 独立 reasoningEffort
+      realUsage.modelId = (currentModel && currentModel.id) || null;
+      realUsage.modelName = (currentModel && currentModel.name) || authorModel;
+      realUsage.reasoningEffort = (typeof adapter.getReasoningEffort === 'function' ? adapter.getReasoningEffort() : null) || null;
+      realUsage.agentId = this.hub.activeAgentId || null;
     }
 
     // Bind action bar buttons
@@ -6008,33 +6789,157 @@ class PiDrawerView {
       };
     }
 
-
-
     const serializedSteps = (msg.steps || []).map(s => ({
       type: s.type,
       icon: s.icon,
       label: s.label,
-      text: (s.text || '').trim()
+      text: (s.text || '').trim(),
+      // 每步附带逐工具压缩摘要（read(xxx.c)/grep("...") 级），供历史恢复时展示明细
+      toolSummaries: (s.toolCalls || []).map(tc => this._summarizeToolCall(tc)).filter(Boolean)
     }));
 
-    // Persist to session manager
-    this.hub.sessionManager.addMessage(this.hub.activeAgentId, {
-      role: 'assistant',
-      text: msg.rawText,
-      toolCount: msg.toolCount,
-      toolCalls: msg.toolCalls,
-      model: authorModel,
+    // 切段快照（仅内存缓冲用，不直接序列化）
+    const segment = {
+      text: msg.rawText || '',
       thinking: msg.thinkingText || '',
-      processSteps: serializedSteps,
+      toolCalls: (msg.toolCalls || []).slice(),
+      toolCount: msg.toolCount || 0,
+      steps: serializedSteps,
+      model: authorModel,
+      providerAndModel,
+      startTime: msg.startTime || Date.now(),
+      durationMs,
+      usage: realUsage,
+      usageBtnEl: msg.usageBtnEl || null
+    };
+    // 空壳判定需忽略"仅预建的空 thinking step"（推理模型 createAssistantMessageBubble 会预建），
+    // 否则 thinking_start 后立刻 steer 会把空壳当作有效段落库并留下空白气泡
+    const hasStepContent = segment.steps.some(st => st
+      && ((st.text && st.text.trim())
+        || (Array.isArray(st.toolSummaries) && st.toolSummaries.length > 0)));
+    const segEmpty = !segment.text && !segment.thinking && !segment.toolCalls.length && !hasStepContent;
+
+    // 用量胶囊统一由 flush 绑定到该连续段最后一条气泡；中段一律隐藏，杜绝重复估算
+    if (msg.usageBtnEl) msg.usageBtnEl.style.display = 'none';
+    this.currentAssistantMessage = null;
+
+    if (!persist) {
+      if (!segEmpty) {
+        this._assistantRunBuffer.push(segment);
+      } else if (msg.wrapEl && msg.wrapEl.parentElement) {
+        // 完全空壳的中段气泡（turn_start 刚建就被切断）直接移除，不留空白残影
+        msg.wrapEl.remove();
+      }
+      this.scrollToBottom();
+      this.updateSendButtonState();
+      return;
+    }
+
+    this._assistantRunBuffer.push(segment);
+    this._flushAssistantRunBuffer({ isAborted });
+    this.scrollToBottom();
+    this.updateSendButtonState();
+  }
+
+  /**
+   * 把"连续 assistant 段缓冲"合并为一条落库记录（禁止跨用户消息合并——
+   * 用户气泡在 addUserMessageBubble 顶部触发本方法，天然形成边界）。
+   */
+  _flushAssistantRunBuffer({ isAborted = false } = {}) {
+    const buf = this._assistantRunBuffer || [];
+    if (!buf.length) return;
+    this._assistantRunBuffer = [];
+    const sm = this.hub && this.hub.sessionManager;
+    if (!sm || typeof sm.addMessage !== 'function') return;
+
+    const texts = buf.map(s => s.text).filter(t => t && t.trim());
+    const thinkings = buf.map(s => s.thinking).filter(t => t && t.trim());
+    const toolCalls = [];
+    const seenTc = new Set();
+    let toolCount = 0;
+    const steps = [];
+    let usageSum = null;
+    for (const s of buf) {
+      toolCount += s.toolCount || 0;
+      for (const tc of (s.toolCalls || [])) {
+        const k = tc.toolCallId || `${tc.toolName}:${toolCalls.length}`;
+        if (!seenTc.has(k)) { seenTc.add(k); toolCalls.push(tc); }
+      }
+      for (const st of (s.steps || [])) steps.push(st);
+      if (s.usage && s.usage.totalTokens > 0) {
+        usageSum = usageSum || {
+          inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0,
+          reasoningTokens: 0, totalTokens: 0, netBillableTokens: 0, costUsd: 0,
+          subTurns: 0, isEstimated: true
+        };
+        usageSum.inputTokens += s.usage.inputTokens || 0;
+        usageSum.outputTokens += s.usage.outputTokens || 0;
+        usageSum.cacheReadTokens += s.usage.cacheReadTokens || 0;
+        usageSum.cacheWriteTokens += s.usage.cacheWriteTokens || 0;
+        usageSum.reasoningTokens += s.usage.reasoningTokens || 0;
+        usageSum.totalTokens += s.usage.totalTokens || 0;
+        usageSum.netBillableTokens += (s.usage.netBillableTokens ?? ((s.usage.inputTokens || 0) + (s.usage.outputTokens || 0) + (s.usage.cacheWriteTokens || 0)));
+        usageSum.costUsd += s.usage.costUsd || 0;
+        usageSum.subTurns += s.usage.subTurns || 1;
+        if (s.usage.isEstimated === false) usageSum.isEstimated = false; // 含真实回传则整体视为精确
+        if (!usageSum.modelId && s.usage.modelId) usageSum.modelId = s.usage.modelId;
+        if (!usageSum.modelName && s.usage.modelName) usageSum.modelName = s.usage.modelName;
+        if (!usageSum.reasoningEffort && s.usage.reasoningEffort) usageSum.reasoningEffort = s.usage.reasoningEffort;
+        if (!usageSum.agentId && s.usage.agentId) usageSum.agentId = s.usage.agentId;
+      }
+    }
+    const text = texts.join('\n\n');
+    const thinking = thinkings.join('\n\n');
+    const durationMs = Date.now() - (buf[0].startTime || Date.now());
+    const durationStr = this.formatDuration(durationMs);
+    const lastSeg = buf[buf.length - 1];
+    const model = lastSeg.model || '';
+    const providerAndModel = lastSeg.providerAndModel || model;
+
+    let usageData = usageSum;
+    if (!usageData) {
+      // 全部段均无真实用量回传 → CJK 感知结构化兜底估算（绝不伪造缓存）
+      const smMsgs = (typeof sm.getMessages === 'function' ? sm.getMessages(this.hub.activeAgentId) : []) || [];
+      usageData = this.estimateTurnUsageFallback({
+        text, thinking, toolCalls, sessionMessages: smMsgs
+      });
+      const fbAdapter = this.hub && typeof this.hub.getActiveAdapter === 'function' ? this.hub.getActiveAdapter() : null;
+      const fbModel = fbAdapter && typeof fbAdapter.getModel === 'function' ? fbAdapter.getModel() : null;
+      usageData.modelId = (fbModel && fbModel.id) || null;
+      usageData.modelName = model || (fbModel && fbModel.name) || null;
+      usageData.reasoningEffort = (fbAdapter && typeof fbAdapter.getReasoningEffort === 'function' ? fbAdapter.getReasoningEffort() : null) || null;
+      usageData.agentId = this.hub.activeAgentId || null;
+    }
+    usageData.providerAndModel = providerAndModel;
+    usageData.durationText = durationStr;
+
+    // 合并用量绑定到该连续段最后一个气泡的胶囊；其余段保持隐藏
+    for (const s of buf) { if (s.usageBtnEl) s.usageBtnEl.style.display = 'none'; }
+    if (lastSeg.usageBtnEl) {
+      const btn = lastSeg.usageBtnEl;
+      btn.style.display = '';
+      const usageText = btn.querySelector('.tw-dsh-usage-text');
+      if (usageText) usageText.textContent = `用量 ${this.formatTokensPill(usageData.totalTokens)}`;
+      btn.onclick = (e) => {
+        e.stopPropagation();
+        this.showTokenUsagePopover(btn, usageData);
+      };
+    }
+
+    sm.addMessage(this.hub.activeAgentId, {
+      role: 'assistant',
+      text,
+      toolCount,
+      toolCalls,
+      model,
+      thinking,
+      processSteps: steps,
       duration: durationMs,
       durationText: durationStr,
       usage: usageData,
-      timestamp: Date.now()
+      timestamp: Date.now(),
+      aborted: !!isAborted
     });
-
-    this.currentAssistantMessage = null;
-    this.scrollToBottom();
-    this.updateSendButtonState();
   }
 
   async formatMessageContent(el, text) {
@@ -6118,6 +7023,176 @@ class PiDrawerView {
     return false;
   }
 
+  getFileTypeInfo(targetCandidate, fallbackText) {
+    const parse = (str) => {
+      if (!str || typeof str !== 'string') return null;
+      let clean = str.trim().replace(/^[`"']|[`"']$/g, '');
+      clean = clean.replace(/#L\d+(-L\d+)?/i, '').replace(/:\d+(?::\d+)?$/, '').trim();
+      if (!clean) return null;
+      const base = clean.split(/[/\\]/).pop().toLowerCase();
+      if (!base) return null;
+      if (base === 'makefile' || base === 'kbuild' || base === 'kconfig') {
+        return { ext: 'mk', label: 'mk', color: '#E11D48' };
+      }
+      const lastDot = base.lastIndexOf('.');
+      if (lastDot > 0 && lastDot < base.length - 1) {
+        return { ext: base.slice(lastDot + 1), label: base.slice(lastDot + 1), base };
+      }
+      return null;
+    };
+
+    const parsed = parse(targetCandidate) || parse(fallbackText);
+    const ext = parsed ? parsed.ext.toLowerCase() : '';
+
+    const EXT_MAP = {
+      'js': { label: 'js', color: '#F59E0B' },
+      'mjs': { label: 'js', color: '#F59E0B' },
+      'cjs': { label: 'js', color: '#F59E0B' },
+      'jsx': { label: 'jsx', color: '#F59E0B' },
+      'ts': { label: 'ts', color: '#3178C6' },
+      'tsx': { label: 'tsx', color: '#3178C6' },
+      'c': { label: 'c', color: '#0969DA' },
+      'h': { label: 'h', color: '#8250DF' },
+      'cpp': { label: 'cpp', color: '#0550AE' },
+      'cc': { label: 'cc', color: '#0550AE' },
+      'cxx': { label: 'c++', color: '#0550AE' },
+      'hpp': { label: 'hpp', color: '#8250DF' },
+      'dts': { label: 'dts', color: '#0D9488' },
+      'dtsi': { label: 'dtsi', color: '#0D9488' },
+      'py': { label: 'py', color: '#3572A5' },
+      'sh': { label: 'sh', color: '#16A34A' },
+      'bash': { label: 'sh', color: '#16A34A' },
+      'md': { label: 'md', color: '#64748B' },
+      'json': { label: 'json', color: '#EA580C' },
+      'html': { label: 'html', color: '#E34F26' },
+      'htm': { label: 'html', color: '#E34F26' },
+      'xml': { label: 'xml', color: '#F97316' },
+      'css': { label: 'css', color: '#7C3AED' },
+      'scss': { label: 'scss', color: '#7C3AED' },
+      'less': { label: 'less', color: '#7C3AED' },
+      'java': { label: 'java', color: '#DC2626' },
+      'go': { label: 'go', color: '#00ADD8' },
+      'rs': { label: 'rs', color: '#DEA584' },
+      'yaml': { label: 'yml', color: '#E11D48' },
+      'yml': { label: 'yml', color: '#E11D48' },
+      'mk': { label: 'mk', color: '#E11D48' },
+      'diff': { label: 'diff', color: '#0D9488' },
+      'patch': { label: 'patch', color: '#0D9488' },
+      'txt': { label: 'txt', color: '#64748B' },
+      'log': { label: 'log', color: '#64748B' },
+    };
+
+    if (EXT_MAP[ext]) {
+      return EXT_MAP[ext];
+    }
+    if (ext && ext.length <= 5) {
+      return { label: ext, color: '#64748B' };
+    }
+    return { label: 'file', color: '#64748B' };
+  }
+
+  ensurePrismGrammars() {
+    if (typeof window === 'undefined' || !window.Prism || !window.Prism.languages) return;
+    const P = window.Prism;
+
+    // DeviceTree (DTS / DTSI)
+    if (!P.languages.dts) {
+      const dts = {
+        'comment': [
+          { pattern: /\/\*[\s\S]*?\*\//, greedy: true },
+          { pattern: /\/\/.*/, greedy: true }
+        ],
+        'string': {
+          pattern: /"(?:\\.|[^"\\\r\n])*"/,
+          greedy: true
+        },
+        'directive': {
+          pattern: /#\s*(?:include|define|undef|ifdef|ifndef|if|else|elif|endif)\b.*/,
+          greedy: true,
+          alias: 'keyword'
+        },
+        'keyword': /\/(?:dts-v1|plugin|memreserve|delete-node|delete-property)\/|\b(?:model|compatible|status|reg|interrupts|interrupt-parent|phandle|linux,phandle|ranges|#address-cells|#size-cells|#interrupt-cells|clock-names|clocks)\b/,
+        'property': {
+          pattern: /(?:^|[\s;{}])([a-zA-Z0-9_,@#-]+)\s*=/m,
+          lookbehind: true,
+          alias: 'attr-name'
+        },
+        'node': {
+          pattern: /(?:^|[\s;{}])([a-zA-Z0-9_,@#-]+)(?:\s*:\s*[a-zA-Z0-9_,@#-]+)?\s*\{/m,
+          lookbehind: true,
+          alias: 'function'
+        },
+        'reference': {
+          pattern: /&[a-zA-Z0-9_-]+/,
+          alias: 'variable'
+        },
+        'number': /\b0x[0-9a-fA-F]+\b|\b\d+\b/,
+        'operator': /[=<>|&!~]/,
+        'punctuation': /[{};,:()\[\]]/
+      };
+      P.languages.dts = dts;
+      P.languages.dtsi = dts;
+      P.languages['device-tree'] = dts;
+      P.languages['devicetree'] = dts;
+    }
+
+    if (!P.languages.shell && P.languages.bash) P.languages.shell = P.languages.bash;
+    if (!P.languages.sh && P.languages.bash) P.languages.sh = P.languages.bash;
+    if (!P.languages.zsh && P.languages.bash) P.languages.zsh = P.languages.bash;
+    if (!P.languages.py && P.languages.python) P.languages.py = P.languages.python;
+    if (!P.languages.js && P.languages.javascript) P.languages.js = P.languages.javascript;
+    if (!P.languages.ts && P.languages.typescript) P.languages.ts = P.languages.typescript;
+    if (!P.languages['c++'] && P.languages.cpp) P.languages['c++'] = P.languages.cpp;
+    if (!P.languages.h && P.languages.c) P.languages.h = P.languages.c;
+    if (!P.languages.hpp && P.languages.cpp) P.languages.hpp = P.languages.cpp;
+    if (!P.languages.make && P.languages.makefile) P.languages.make = P.languages.makefile;
+    if (!P.languages.mk && P.languages.makefile) P.languages.mk = P.languages.makefile;
+    if (!P.languages.kconfig && P.languages.makefile) P.languages.kconfig = P.languages.makefile;
+  }
+
+  highlightCodeFallback(codeEl, rawLang) {
+    if (!codeEl || codeEl.querySelector('.token')) return;
+    const text = codeEl.textContent || '';
+    if (!text) return;
+    const lang = (rawLang || '').toLowerCase();
+
+    let html = escapeHtml(text);
+    const tokens = [];
+    const pushToken = (cls, content) => {
+      const id = `__TW_TOKEN_${tokens.length}__`;
+      tokens.push(`<span class="token ${cls}">${content}</span>`);
+      return id;
+    };
+
+    html = html.replace(/\/\*[\s\S]*?\*\//g, m => pushToken('comment', m));
+    html = html.replace(/\/\/.*/g, m => pushToken('comment', m));
+    if (lang === 'python' || lang === 'py' || lang === 'sh' || lang === 'bash' || lang === 'shell' || lang === 'yaml' || lang === 'yml' || lang === 'make' || lang === 'makefile') {
+      html = html.replace(/(^|[^&])#.*/gm, (m, p1) => p1 + pushToken('comment', m.slice(p1.length)));
+    }
+
+    html = html.replace(/"(?:\\.|[^"\\\r\n])*"/g, m => pushToken('string', m));
+    html = html.replace(/'(?:\\.|[^'\\\r\n])*'/g, m => pushToken('string', m));
+
+    if (lang === 'dts' || lang === 'dtsi') {
+      html = html.replace(/(^|[\s;{}])([a-zA-Z0-9_,@#-]+)(\s*=&lt;|\s*=)/g, (m, p1, p2, p3) => {
+        return p1 + pushToken('property', p2) + p3;
+      });
+    }
+
+    html = html.replace(/\b(0x[0-9a-fA-F]+|\d+(?:\.\d+)?)\b/g, m => pushToken('number', m));
+
+    const kwRegex = /\b(if|else|while|for|return|const|let|var|function|class|def|import|from|export|switch|case|break|continue|struct|enum|typedef|union|volatile|unsigned|signed|int|char|void|bool|true|false|null|undefined|none)\b/g;
+    html = html.replace(kwRegex, m => pushToken('keyword', m));
+
+    html = html.replace(/(&lt;|&gt;|===|!==|==|!=|&amp;&amp;|\|\||[-+=*/&|!~])/g, m => pushToken('operator', m));
+
+    for (let i = 0; i < tokens.length; i++) {
+      html = html.replace(`__TW_TOKEN_${i}__`, tokens[i]);
+    }
+
+    codeEl.innerHTML = html;
+  }
+
   postProcessRenderedMarkdown(containerEl) {
     if (!containerEl) return;
 
@@ -6135,12 +7210,33 @@ class PiDrawerView {
       if (isFileUri || isCodeHref || isCodeText || isInternalNote) {
         const targetCandidate = isFileUri ? href : (isCodeHref ? href : (isCodeText ? text : (a.getAttribute('data-href') || href || text)));
         a.classList.add('tw-clickable-file-link');
+        a.classList.remove('external-link'); // Remove external-link so Obsidian does not inject external icon or right padding
         a.title = `点击在右侧分屏查看: ${targetCandidate}`;
         a.onclick = (e) => {
           e.preventDefault();
           e.stopPropagation();
           this.openCodeInSplitPane(targetCandidate);
         };
+
+        if (!a.querySelector('.tw-file-type-icon')) {
+          const info = this.getFileTypeInfo(targetCandidate, text);
+          const rawDisplayText = text || (targetCandidate ? targetCandidate.split(/[/\\]/).pop() : '');
+          const displayText = rawDisplayText.replace(/^[`"']|[`"']$/g, '');
+
+          a.innerHTML = '';
+          const iconSpan = document.createElement('span');
+          iconSpan.className = `tw-file-type-icon tw-file-type-${info.label}`;
+          iconSpan.textContent = info.label;
+          iconSpan.style.color = info.color;
+
+          const nameSpan = document.createElement('span');
+          nameSpan.className = 'tw-file-name';
+          nameSpan.textContent = displayText;
+
+          a.appendChild(iconSpan);
+          a.appendChild(document.createTextNode(' '));
+          a.appendChild(nameSpan);
+        }
         return;
       }
 
@@ -6160,8 +7256,8 @@ class PiDrawerView {
 
     // 1.1 Turn inline <code> that look like file paths into clickable links
     containerEl.querySelectorAll('code').forEach(codeEl => {
-      if (codeEl.closest('pre')) return; // skip multi-line blocks
-      const codeText = (codeEl.textContent || '').trim();
+      if (codeEl.closest('pre') || codeEl.closest('a')) return; // skip multi-line blocks & already linked code
+      const codeText = (codeEl.textContent || '').trim().replace(/^[`"']|[`"']$/g, '');
       if (this.isLikelyCodeFile(codeText)) {
         codeEl.classList.add('tw-clickable-file-link');
         codeEl.title = `点击在右侧分屏打开: ${codeText}`;
@@ -6170,6 +7266,23 @@ class PiDrawerView {
           e.stopPropagation();
           this.openCodeInSplitPane(codeText);
         };
+
+        if (!codeEl.querySelector('.tw-file-type-icon')) {
+          const info = this.getFileTypeInfo(codeText);
+          codeEl.innerHTML = '';
+          const iconSpan = document.createElement('span');
+          iconSpan.className = `tw-file-type-icon tw-file-type-${info.label}`;
+          iconSpan.textContent = info.label;
+          iconSpan.style.color = info.color;
+
+          const nameSpan = document.createElement('span');
+          nameSpan.className = 'tw-file-name';
+          nameSpan.textContent = codeText;
+
+          codeEl.appendChild(iconSpan);
+          codeEl.appendChild(document.createTextNode(' '));
+          codeEl.appendChild(nameSpan);
+        }
       }
     });
 
@@ -6203,12 +7316,31 @@ class PiDrawerView {
         lang = lang.toUpperCase();
       }
 
+      // Syntax highlight via Prism with grammar extensions, or fallback tokenizer
+      this.ensurePrismGrammars();
+      const rawLang = lang.toLowerCase();
+      let highlighted = false;
+      if (codeEl && typeof window !== 'undefined' && window.Prism && typeof window.Prism.highlightElement === 'function') {
+        try {
+          if (rawLang && rawLang !== 'code' && !codeEl.classList.contains(`language-${rawLang}`)) {
+            codeEl.classList.add(`language-${rawLang}`);
+          }
+          window.Prism.highlightElement(codeEl);
+          if (codeEl.querySelector('.token')) {
+            highlighted = true;
+          }
+        } catch (_) {}
+      }
+      if (!highlighted && codeEl && !codeEl.querySelector('.token')) {
+        this.highlightCodeFallback(codeEl, rawLang);
+      }
+
       const headerBar = document.createElement('div');
       headerBar.className = 'tw-code-header-bar';
       headerBar.innerHTML = `
         <span class="tw-code-lang-tag">${escapeHtml(lang)}</span>
         <button class="tw-code-copy-btn" title="复制代码">
-          ${getIconPark('copy', 13)}
+          ${getIconPark('copy', 12)}
         </button>
       `;
 
@@ -6237,13 +7369,235 @@ class PiDrawerView {
         img.title = '左键预览大图 · 右键选择大小与复制';
       }
     });
+
+    // 5. Enhance Mermaid flowcharts & technical diagrams: default 50% scale with card surface & rich modern aesthetics
+    const isDark = document.body.classList.contains('theme-dark') || !!containerEl.closest('.theme-dark')
+      || document.body.dataset.twActiveMode === 'dark' || !!containerEl.closest('[data-tw-mode="dark"]');
+    containerEl.querySelectorAll('.block-language-mermaid, .mermaid').forEach(diagramEl => {
+      diagramEl.style.setProperty('display', 'flex', 'important');
+      diagramEl.style.setProperty('justify-content', 'flex-start', 'important');
+      diagramEl.style.setProperty('align-items', 'center', 'important');
+      diagramEl.style.setProperty('width', 'fit-content', 'important');
+      diagramEl.style.setProperty('max-width', 'min(100%, max(50%, 540px))', 'important');
+      diagramEl.style.setProperty('min-width', 'min(100%, 360px)', 'important');
+      diagramEl.style.setProperty('margin', '14px 0 14px 0', 'important');
+      diagramEl.style.setProperty('margin-left', '0', 'important');
+      diagramEl.style.setProperty('margin-right', 'auto', 'important');
+      diagramEl.style.setProperty('padding', '14px 18px', 'important');
+      diagramEl.style.setProperty('border-radius', '8px', 'important');
+      diagramEl.style.setProperty('box-sizing', 'border-box', 'important');
+      diagramEl.style.setProperty('overflow-x', 'auto', 'important');
+      diagramEl.style.setProperty('text-align', 'left', 'important');
+
+      const svg = diagramEl.querySelector('svg');
+      if (svg) {
+        svg.style.setProperty('width', '100%', 'important');
+        svg.style.setProperty('max-width', '100%', 'important');
+        svg.style.setProperty('height', 'auto', 'important');
+        svg.style.setProperty('margin', '0', 'important');
+        svg.style.setProperty('margin-left', '0', 'important');
+        svg.style.setProperty('margin-right', 'auto', 'important');
+        svg.style.setProperty('display', 'block', 'important');
+        svg.style.setProperty('background', 'transparent', 'important');
+        this._beautifyMermaidSvg(svg, isDark);
+      }
+    });
+
+    containerEl.querySelectorAll('svg[id^="mermaid-"]').forEach(svg => {
+      if (!svg.closest('.block-language-mermaid, .mermaid')) {
+        svg.style.setProperty('width', 'fit-content', 'important');
+        svg.style.setProperty('max-width', 'min(100%, max(50%, 540px))', 'important');
+        svg.style.setProperty('min-width', 'min(100%, 360px)', 'important');
+        svg.style.setProperty('height', 'auto', 'important');
+        svg.style.setProperty('margin', '14px 0 14px 0', 'important');
+        svg.style.setProperty('margin-left', '0', 'important');
+        svg.style.setProperty('margin-right', 'auto', 'important');
+        svg.style.setProperty('padding', '14px 18px', 'important');
+        svg.style.setProperty('border-radius', '8px', 'important');
+        svg.style.setProperty('box-sizing', 'border-box', 'important');
+        svg.style.setProperty('display', 'block', 'important');
+        this._beautifyMermaidSvg(svg, isDark);
+      }
+    });
   }
 
   /**
-   * Persist attached image dataUrls to local attachment directory, returning lightweight metadata { name, path, hash, size }
-   * @param {Array<any>} images 
-   * @returns {Promise<Array<any>|null>}
+   * Beautify Mermaid flowchart / diagram SVG nodes with modern rounded shapes,
+   * subtle drop-shadows, rich harmonic palette colors, refined connectors & badges.
    */
+  _beautifyMermaidSvg(svg, isDark) {
+    if (!svg) return;
+    const currentTheme = isDark ? 'dark' : 'light';
+    const currentSignature = 'v4-' + currentTheme;
+    if (svg.dataset.twBeautifiedSig === currentSignature) return;
+    svg.dataset.twBeautifiedSig = currentSignature;
+
+    // Sophisticated Engineering Palette: Muted 300-series borders, high-legibility dark slate text
+    const MERMAID_PALETTE_LIGHT = [
+      { fill: '#F0F7FF', stroke: '#93C5FD', text: '#0F172A' }, // Ocean Blue
+      { fill: '#F0FDF4', stroke: '#86EFAC', text: '#0F172A' }, // Emerald Green
+      { fill: '#FFFDF5', stroke: '#FCD34D', text: '#0F172A' }, // Amber Gold
+      { fill: '#FAF5FF', stroke: '#D8B4FE', text: '#0F172A' }, // Lavender Violet
+      { fill: '#FFF1F2', stroke: '#FDA4AF', text: '#0F172A' }, // Rose Coral
+      { fill: '#F0FDFA', stroke: '#99F6E4', text: '#0F172A' }, // Teal Cyan
+    ];
+
+    const MERMAID_PALETTE_DARK = [
+      { fill: '#1E293B', stroke: '#3B82F6', text: '#F1F5F9' }, // Blue
+      { fill: '#1E293B', stroke: '#10B981', text: '#F1F5F9' }, // Emerald
+      { fill: '#1E293B', stroke: '#F59E0B', text: '#F1F5F9' }, // Amber
+      { fill: '#1E293B', stroke: '#8B5CF6', text: '#F1F5F9' }, // Violet
+      { fill: '#1E293B', stroke: '#F43F5E', text: '#F1F5F9' }, // Rose
+      { fill: '#1E293B', stroke: '#14B8A6', text: '#F1F5F9' }, // Cyan
+    ];
+
+    const palette = isDark ? MERMAID_PALETTE_DARK : MERMAID_PALETTE_LIGHT;
+
+    // 1. Beautify nodes: rounded corners, micro drop-shadow, clean surfaces
+    const nodes = svg.querySelectorAll('g.node');
+    nodes.forEach((nodeEl, idx) => {
+      // Shape smoothing: modern rounded corners on rects
+      nodeEl.querySelectorAll('rect').forEach(rect => {
+        const curRx = rect.getAttribute('rx');
+        if (!curRx || parseFloat(curRx) < 4) {
+          rect.setAttribute('rx', '8');
+          rect.setAttribute('ry', '8');
+        }
+      });
+
+      // Micro elevation shadow
+      nodeEl.style.setProperty('filter', isDark ? 'drop-shadow(0 2px 4px rgba(0,0,0,0.35))' : 'drop-shadow(0 2px 4px rgba(15,23,42,0.04))');
+
+      // Check if decision diamond (polygon)
+      const polygon = nodeEl.querySelector('polygon');
+      const colorItem = polygon ? palette[2] : palette[idx % palette.length];
+
+      // Primary shape container
+      const shape = nodeEl.querySelector('.label-container, rect, polygon, circle, ellipse');
+      if (shape) {
+        shape.style.setProperty('fill', colorItem.fill, 'important');
+        shape.style.setProperty('stroke', colorItem.stroke, 'important');
+        shape.style.setProperty('stroke-width', '1.25px', 'important');
+      }
+
+      // Label typography & authoritative dark slate text
+      nodeEl.querySelectorAll('text, tspan, .nodeLabel, span').forEach(txt => {
+        txt.style.setProperty('fill', colorItem.text, 'important');
+        txt.style.setProperty('color', colorItem.text, 'important');
+        txt.style.setProperty('font-weight', '550', 'important');
+        txt.style.setProperty('font-size', '14px', 'important');
+        txt.style.setProperty('line-height', '1.35', 'important');
+        txt.style.setProperty('font-family', 'var(--g-font, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif)', 'important');
+      });
+    });
+
+    // 2. Refined connector lines: soft modern slate
+    svg.querySelectorAll('.flowchart-link, path.path').forEach(path => {
+      path.style.setProperty('stroke', isDark ? '#64748B' : '#94A3B8', 'important');
+      path.style.setProperty('stroke-width', '1.5px', 'important');
+      path.style.setProperty('stroke-linecap', 'round', 'important');
+      path.style.setProperty('stroke-linejoin', 'round', 'important');
+    });
+
+    // 3. Crisp arrowheads
+    svg.querySelectorAll('marker path, .arrowMarkerPath').forEach(arrow => {
+      arrow.style.setProperty('fill', isDark ? '#64748B' : '#94A3B8', 'important');
+      arrow.style.setProperty('stroke', isDark ? '#64748B' : '#94A3B8', 'important');
+      arrow.style.setProperty('stroke-width', '1px', 'important');
+      arrow.style.setProperty('stroke-linejoin', 'round', 'important');
+    });
+
+    // 4. Edge label micro badges: UNCLIPPED, natural floating tags with ZERO gray background artifacts
+    // A) Sanitize internal <style> tags: eliminate Mermaid's default .edgeLabel background-color
+    svg.querySelectorAll('style').forEach(styleEl => {
+      if (styleEl.textContent && styleEl.textContent.includes('edgeLabel')) {
+        styleEl.textContent = styleEl.textContent
+          .replace(/\.edgeLabel\s*\{[^}]*\}/g, '.edgeLabel { background: transparent !important; background-color: transparent !important; }')
+          .replace(/\.edgeLabel\s+rect\s*\{[^}]*\}/g, '.edgeLabel rect { display: none !important; fill: none !important; }');
+      }
+    });
+
+    // B) Hide / remove all background <rect> elements under edgeLabels
+    svg.querySelectorAll('g.edgeLabels rect, g.edgeLabel rect, g.label rect').forEach(r => {
+      r.style.setProperty('display', 'none', 'important');
+      r.style.setProperty('fill', 'transparent', 'important');
+      r.setAttribute('fill', 'none');
+      r.setAttribute('opacity', '0');
+    });
+
+    // C) Transparent intermediate containers: foreignObject, g.edgeLabel, g.label, div
+    svg.querySelectorAll('g.edgeLabels foreignObject, g.edgeLabel foreignObject').forEach(fo => {
+      fo.style.setProperty('overflow', 'visible', 'important');
+      fo.style.setProperty('background', 'transparent', 'important');
+      fo.style.setProperty('background-color', 'transparent', 'important');
+    });
+    svg.querySelectorAll('g.edgeLabels g.edgeLabel, g.edgeLabel, g.edgeLabels g.label, g.edgeLabels .label, g.edgeLabels foreignObject div, g.edgeLabel foreignObject div').forEach(div => {
+      div.style.setProperty('background', 'transparent', 'important');
+      div.style.setProperty('background-color', 'transparent', 'important');
+      div.style.setProperty('border', 'none', 'important');
+      div.style.setProperty('padding', '0', 'important');
+      div.style.setProperty('margin', '0', 'important');
+      div.style.setProperty('box-shadow', 'none', 'important');
+      div.style.setProperty('overflow', 'visible', 'important');
+    });
+
+    // D) Floating micro badge on the primary label span
+    svg.querySelectorAll('g.edgeLabels g.edgeLabel, g.edgeLabel').forEach(gLabel => {
+      const badge = gLabel.querySelector('span.edgeLabel') || gLabel.querySelector('foreignObject span') || gLabel.querySelector('span');
+      if (badge) {
+        badge.style.setProperty('background', isDark ? '#1E293B' : '#FFFFFF', 'important');
+        badge.style.setProperty('background-color', isDark ? '#1E293B' : '#FFFFFF', 'important');
+        badge.style.setProperty('border', isDark ? '1px solid #334155' : '1px solid #CBD5E1', 'important');
+        badge.style.setProperty('border-radius', '5px', 'important');
+        badge.style.setProperty('padding', '3px 8px', 'important');
+        badge.style.setProperty('margin', '0', 'important');
+        badge.style.setProperty('color', isDark ? '#E2E8F0' : '#334155', 'important');
+        badge.style.setProperty('font-size', '13px', 'important');
+        badge.style.setProperty('font-weight', '550', 'important');
+        badge.style.setProperty('font-family', 'var(--g-mono, monospace)', 'important');
+        badge.style.setProperty('box-shadow', isDark ? '0 1px 3px rgba(0,0,0,0.35)' : '0 1px 3px rgba(15,23,42,0.08)', 'important');
+        badge.style.setProperty('white-space', 'nowrap', 'important');
+        badge.style.setProperty('display', 'inline-flex', 'important');
+        badge.style.setProperty('align-items', 'center', 'important');
+        badge.style.setProperty('justify-content', 'center', 'important');
+        badge.style.setProperty('line-height', '1.3', 'important');
+
+        // Neutralize any inner children background/border
+        badge.querySelectorAll('*').forEach(child => {
+          child.style.setProperty('background', 'transparent', 'important');
+          child.style.setProperty('background-color', 'transparent', 'important');
+          child.style.setProperty('border', 'none', 'important');
+          child.style.setProperty('padding', '0', 'important');
+          child.style.setProperty('margin', '0', 'important');
+          child.style.setProperty('box-shadow', 'none', 'important');
+          child.style.setProperty('color', 'inherit', 'important');
+        });
+      }
+    });
+
+    // E) Handle pure SVG text mode (when foreignObject is not used)
+    svg.querySelectorAll('g.edgeLabels text, g.edgeLabel text').forEach(txt => {
+      txt.style.setProperty('fill', isDark ? '#CBD5E1' : '#334155', 'important');
+      txt.style.setProperty('font-size', '13px', 'important');
+      txt.style.setProperty('font-weight', '550', 'important');
+    });
+
+    // 5. Clusters / Subgraphs
+    svg.querySelectorAll('.cluster rect').forEach(clusterRect => {
+      clusterRect.style.setProperty('fill', isDark ? 'rgba(255, 255, 255, 0.03)' : 'rgba(255, 255, 255, 0.75)', 'important');
+      clusterRect.style.setProperty('stroke', isDark ? '#334155' : '#CBD5E1', 'important');
+      clusterRect.style.setProperty('stroke-dasharray', '4 4', 'important');
+      clusterRect.setAttribute('rx', '10');
+      clusterRect.setAttribute('ry', '10');
+    });
+    svg.querySelectorAll('.cluster-label text, .cluster > .label text, g[id^="subGraph"] > .label text').forEach(clusterTxt => {
+      clusterTxt.style.setProperty('fill', isDark ? '#94A3B8' : '#475569', 'important');
+      clusterTxt.style.setProperty('font-weight', '600', 'important');
+      clusterTxt.style.setProperty('font-size', '13px', 'important');
+      clusterTxt.style.setProperty('letter-spacing', '0.2px', 'important');
+    });
+  }
+
   async persistAttachedImages(images) {
     if (!images || !Array.isArray(images) || images.length === 0) return null;
     const fs = require('fs');
@@ -6326,6 +7680,12 @@ class PiDrawerView {
   }
 
   addUserMessageBubble(userText, contextBadgeText, images = []) {
+    // 用户消息是合并边界：先把在途 assistant 段收尾入缓冲并合并落库，
+    // 保证 [assistant 连续段][user][assistant 连续段] 的存储与视觉顺序一致（禁止跨用户消息合并）
+    if (this.currentAssistantMessage) {
+      this.finishAssistantMessage(false, { persist: false, preserveTools: true });
+    }
+    this._flushAssistantRunBuffer();
     this.removeWelcomeScreen();
     const bubbleWrap = document.createElement('div');
     bubbleWrap.className = 'tw-msg-bubble-wrap user';
@@ -6391,17 +7751,18 @@ class PiDrawerView {
     this._bindUserMsgActions(bubbleWrap, msgRecord);
     this.messagesEl.appendChild(bubbleWrap);
 
-    // 异步提取图片写入附件目录，仅保存相对路径、哈希和尺寸，彻底杜绝历史文件膨胀
-    // msgRecord._removed: 回退/删除发生在持久化落地前时，阻止补写僵尸记录
+    // 用户消息同步落库：保证与前后 assistant 分段的相对顺序不受图片落盘耗时影响；
+    // 图片异步写入附件目录后就地补写轻量元数据（同一对象引用），再触发一次防抖保存。
+    const sm = this.hub.sessionManager;
+    sm.addMessage(this.hub.activeAgentId, msgRecord);
     this.persistAttachedImages(images).then(persistedImages => {
       if (msgRecord._removed) return;
       msgRecord.images = persistedImages;
-      this.hub.sessionManager.addMessage(this.hub.activeAgentId, msgRecord);
+      if (sm && typeof sm.saveSessionsDebounced === 'function') sm.saveSessionsDebounced(300);
     }).catch(err => {
       if (msgRecord._removed) return;
       console.warn('[PiDrawerView] Failed to persist attached images:', err);
       msgRecord.images = null;
-      this.hub.sessionManager.addMessage(this.hub.activeAgentId, msgRecord);
     });
 
     // 用户刚发出消息：强制回到底部开始跟随本轮流式输出
@@ -6430,7 +7791,7 @@ class PiDrawerView {
     const parts = core.split('[研发人员提问]');
     if (parts.length > 1) core = parts.slice(1).join('[研发人员提问]');
     core = core.replace(/^\n+/, '');
-    const cut = core.search(/\n\n\[(Target Codebase|OpenGrok Target Project)/);
+    const cut = core.search(/\n\n\[(Target Codebase|OpenGrok Target Project|Jira Issue Context)/);
     if (cut >= 0) core = core.slice(0, cut);
     return core;
   }
@@ -6543,57 +7904,24 @@ class PiDrawerView {
 
     if (this.currentAssistantMessage) this.currentAssistantMessage = null;
     if (this.activeToolCards) this.activeToolCards.clear();
+    // 截断点之后的未落库分段缓冲一并丢弃，防止僵尸记录回补
+    this._assistantRunBuffer = [];
     if (this.buildChatMinimap) this.buildChatMinimap();
     if (this.updateStickyQuestion) this.updateStickyQuestion();
   }
 
-  async handleSend() {
-    const adapter = this.hub.getActiveAdapter();
-    if (adapter.status === 'not_installed') {
-      return;
-    }
-    // 防重入：上一次提交（含检索等待）未落地前，忽略 Enter/点击
-    if (this._sendInFlight) return;
-
-    const text = this.inputEl.value.trim();
-    // 胶囊序列化为协议文本：命令 chip → 消息首部 '/name'，文件 chip → 尾部 '[[path]]'
-    const wireText = this._serializeChips(text);
-    const imagesToSend = [...(this.attachedImages || [])];
-    if ((!wireText && imagesToSend.length === 0) || this.hub.isStreaming()) return;
-
-    this._sendInFlight = true;
-    this._abortRequested = false;
-    this._hasAssistantMessageInTurn = false;
-    try {
-
-    if (this.currentAssistantMessage) {
-      this.finishAssistantMessage();
-    }
-
-    this.inputEl.value = '';
-    this.inputEl.style.height = `${this.inputHeight}px`;
-    this.hub.sessionManager.setDraft(this.hub.activeAgentId, '');
-    this.attachedImages = [];
-    this.renderImageAttachments();
-    this.inputChips = [];
-    this._renderInputChips();
-    this._persistChips();
-    this.updateSendButtonState();
-    this.closeTriggerPicker();
-
-    const isNiceAigc = this.hub.activeAgentId === 'niceaigc';
-    // 斜杠命令必须原样直通：Pi 的扩展命令/技能/模板分发均要求消息体 startsWith('/')，
-    // 任何前置注入（Context Meta / 工程绑定）都会破坏命令解析；后置注入会污染命令参数
-    const isSlashCommand = wireText.startsWith('/');
-    const ctxInfo = (!isNiceAigc && this.contextProvider) ? this.contextProvider.getContextBadgeInfo() : null;
-    const badgeLabel = (ctxInfo && ctxInfo.hasContext) ? `${ctxInfo.title} (${ctxInfo.module})` : null;
-
-    this.addUserMessageBubble(wireText, badgeLabel, imagesToSend);
-
-    // NiceAIGC does NOT bind to knowledge base; send clean user prompt without metadata
+  /**
+   * 上下文注入合成（同步段）：Context Meta 包裹 + 本地工程/OpenGrok/Jira 尾部注入。
+   * slash 命令与 NiceAIGC 原样直通；检索增强（异步 gatherRetrievalContext）仍留在 handleSend。
+   * handleSend 与 follow_up 排队派发共用本方法，保证注入语义一致。
+   */
+  _composeContextInjectedPrompt(wireText, isSlashCommand, isNiceAigc) {
     let fullPrompt = (!isSlashCommand && !isNiceAigc && this.contextProvider)
       ? this.contextProvider.formatPromptWithContext(wireText)
       : wireText;
+
+    const ctxInfo = (!isNiceAigc && this.contextProvider && typeof this.contextProvider.getContextBadgeInfo === 'function')
+      ? this.contextProvider.getContextBadgeInfo() : null;
 
     // 本地工程第一优先级注入 (Requirement 1 & Requirement 2)
     const isCustomLocalProj = Boolean(this.selectedLocalProject && this.selectedLocalProject.id && this.selectedLocalProject.id !== 'none');
@@ -6638,6 +7966,63 @@ class PiDrawerView {
 请调用 jira_get_issue 获取完整详情、jira_list_attachments 查看附件；如需日志/抓包分析，用 jira_download_attachment 下载到 00-Inbox/03-Quick-Note/${ji.key}/attachments/ 后分析。分析结论与产物写入 00-Inbox/03-Quick-Note/${ji.key}/ 目录。`;
     }
 
+    return fullPrompt;
+  }
+
+  async handleSend() {
+    const adapter = this.hub.getActiveAdapter();
+    if (adapter.status === 'not_installed') {
+      return;
+    }
+    // 防重入：上一次提交（含检索等待）未落地前，忽略 Enter/点击
+    if (this._sendInFlight) return;
+
+    const text = this.inputEl.value.trim();
+    // 胶囊序列化为协议文本：命令 chip → 消息首部 '/name'，文件 chip → 尾部 '[[path]]'
+    const wireText = this._serializeChips(text);
+    const imagesToSend = [...(this.attachedImages || [])];
+    if ((!wireText && imagesToSend.length === 0) || this.hub.isStreaming()) return;
+
+    this._sendInFlight = true;
+    this._abortRequested = false;
+    this._hasAssistantMessageInTurn = false;
+    this._runAborted = false;
+    this._suppressPlanBarOnce = false;
+    this._hidePlanBar();
+    // 防御：上一轮异常残留的 assistant 段先合并落库，避免跨发送串档
+    if (this._assistantRunBuffer && this._assistantRunBuffer.length) this._flushAssistantRunBuffer();
+    try {
+
+    if (this.currentAssistantMessage) {
+      this.finishAssistantMessage();
+    }
+
+    this.inputEl.value = '';
+    this.inputEl.style.height = `${this.inputHeight}px`;
+    this.hub.sessionManager.setDraft(this.hub.activeAgentId, '');
+    this.attachedImages = [];
+    this.renderImageAttachments();
+    this.inputChips = [];
+    this._renderInputChips();
+    this._persistChips();
+    this.updateSendButtonState();
+    this.closeTriggerPicker();
+
+    const isNiceAigc = this.hub.activeAgentId === 'niceaigc';
+    // 斜杠命令必须原样直通：Pi 的扩展命令/技能/模板分发均要求消息体 startsWith('/')，
+    // 任何前置注入（Context Meta / 工程绑定）都会破坏命令解析；后置注入会污染命令参数
+    const isSlashCommand = wireText.startsWith('/');
+    const ctxInfo = (!isNiceAigc && this.contextProvider) ? this.contextProvider.getContextBadgeInfo() : null;
+    const badgeLabel = (ctxInfo && ctxInfo.hasContext) ? `${ctxInfo.title} (${ctxInfo.module})` : null;
+
+    this.addUserMessageBubble(wireText, badgeLabel, imagesToSend);
+    // 登记回显对账：pi message_start(user) 回显到达时跳过重复渲染
+    this._pendingSentWires.push({ wire: wireText, optimistic: true, ts: Date.now() });
+    if (this._pendingSentWires.length > 20) this._pendingSentWires.shift();
+
+    // NiceAIGC does NOT bind to knowledge base; send clean user prompt without metadata
+    let fullPrompt = this._composeContextInjectedPrompt(wireText, isSlashCommand, isNiceAigc);
+
     // 非 Pi / Hermes / Antigravity Agent（无内置或原生 MCP vendor 工具的 Agent）此处才做插件侧前置检索注入；
     // Pi、Hermes 与 Antigravity 已通过 Extension / MCP 接入完整工具链，支持自主按需调用与执行卡片渲染
     if (wireText && !isSlashCommand && !isNiceAigc && this.hub.activeAgentId !== 'pi' && this.hub.activeAgentId !== 'hermes' && this.hub.activeAgentId !== 'antigravity') {
@@ -6659,7 +8044,9 @@ class PiDrawerView {
       // disposition='handled'：扩展命令/输入钩子已自行处理，不产生 agent run，跳过早回兜底
       const cmdHandled = res && res.data && res.data.disposition === 'handled';
       if (cmdHandled) {
-        // no-op：命令输出经扩展自身通道呈现
+        // no-op：命令输出经扩展自身通道呈现；无 message_start 回显，摘除对账登记
+        const i = this._pendingSentWires.findIndex(p => p.wire === wireText && p.optimistic);
+        if (i >= 0) this._pendingSentWires.splice(i, 1);
       } else if (res && res.success === false) {
         if (!this._hasAssistantMessageInTurn) {
           this.createAssistantMessageBubble();
@@ -6709,6 +8096,12 @@ class PiDrawerView {
       }
       return;
     }
+    // pi/antigravity 的 abort 不发 'aborted' 事件、只发 agent_settled：
+    // 置位 _runAborted 让 settled 路径给落库记录打 aborted 标记；
+    // _suppressPlanBarOnce 防止 abort 后的 settled 重新点亮只读方案条
+    this._runAborted = true;
+    this._suppressPlanBarOnce = true;
+    this._hidePlanBar();
     await this.hub.abort();
     this.updateSendButtonState();
   }
@@ -7088,6 +8481,10 @@ class PiDrawerView {
 
   loadHistorySession(sessionId) {
     const agentId = this.hub.activeAgentId;
+    // 当前会话若仍有在途气泡，先正常落库再切换，避免回复丢失
+    if (this.currentAssistantMessage) {
+      this.finishAssistantMessage();
+    }
     if (this.hub && this.hub.sessionManager) {
       this.hub.sessionManager.switchSession(agentId, sessionId);
     }
@@ -7096,6 +8493,12 @@ class PiDrawerView {
       adapter._syncSessionConversation();
     }
     this.restoreSessionMessages(agentId);
+    // 清理瞬态：旧会话的回显对账/分段缓冲/方案条不得带入新会话；
+    // _queueSnapshot 保留——它反映引擎侧真实队列，不随本地会话切换失效
+    this._pendingSentWires = [];
+    this._assistantRunBuffer = [];
+    this._runAborted = false;
+    this._hidePlanBar();
     this.closeHistoryPanel();
   }
 
@@ -7152,11 +8555,203 @@ class PiDrawerView {
     return `${tokens} tok`;
   }
 
+  /**
+   * CJK 感知 Token 估算器：汉字/全角标点 ~0.65 tok，其余字符 ~0.28 tok。
+   * 仅用于无原生 usage 回传的兜底估算，绝不凭空捏造缓存字段。
+   */
+  estimateTokensFromText(text) {
+    const s = String(text || '');
+    if (!s) return 0;
+    let cjk = 0, other = 0;
+    for (const ch of s) {
+      const c = ch.codePointAt(0);
+      if ((c >= 0x4e00 && c <= 0x9fa5) || (c >= 0x3000 && c <= 0x303f) || (c >= 0xff00 && c <= 0xffef)) cjk++;
+      else other++;
+    }
+    return Math.ceil(cjk * 0.65 + other * 0.28);
+  }
+
+  /**
+   * turn_end / agent_settled 每跳 usage 累加进 turnUsageAcc。
+   * 多步工具调用单提问会触发多次 turn_end，覆盖赋值会丢中间轮次 Token。
+   */
+  _accumulateTurnUsage(u) {
+    if (!u || typeof u !== 'object') return;
+    const inp = Math.max(0, u.input ?? u.prompt_tokens ?? u.promptTokens ?? u.inputTokens ?? 0);
+    const out = Math.max(0, u.output ?? u.completion_tokens ?? u.completionTokens ?? u.outputTokens ?? 0);
+    const cr  = Math.max(0, u.cacheRead ?? u.prompt_cache_hit_tokens ?? u.cache_read_input_tokens ?? u.cacheReadTokens ?? 0);
+    const cw  = Math.max(0, u.cacheWrite ?? u.cache_creation_input_tokens ?? u.cacheWriteTokens ?? 0);
+    const rs  = Math.max(0, u.reasoning ?? u.reasoningTokens ?? u.completion_tokens_details?.reasoning_tokens ?? 0);
+    const cost = Math.max(0, Number(u.cost?.total ?? u.costUsd ?? 0));
+    const nativeTot = Math.max(0, u.totalTokens ?? u.total_tokens ?? 0);
+    if (!(inp > 0 || out > 0 || cr > 0 || cw > 0 || nativeTot > 0)) return;
+    const acc = this.turnUsageAcc || (this.turnUsageAcc = {
+      inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0,
+      reasoningTokens: 0, nativeTotal: 0, costUsd: 0, subTurns: 0, hasRealUsage: false
+    });
+    acc.inputTokens += inp;
+    acc.outputTokens += out;
+    acc.cacheReadTokens += cr;
+    acc.cacheWriteTokens += cw;
+    acc.reasoningTokens += rs;
+    acc.nativeTotal += nativeTot;
+    acc.costUsd += cost;
+    acc.subTurns += 1;
+    acc.hasRealUsage = true;
+  }
+
+  /**
+   * 消费当前回合累加器：统一算术口径
+   *   totalTokens       = input + output + cacheRead + cacheWrite (与原生总额取大兜底)
+   *   netBillableTokens = input + output + cacheWrite (剔除低价缓存读取)
+   */
+  _drainTurnUsage() {
+    const acc = this.turnUsageAcc;
+    this.turnUsageAcc = null;
+    if (!acc || !acc.hasRealUsage) return null;
+    const inputTokens = Math.max(0, acc.inputTokens);
+    const outputTokens = Math.max(0, acc.outputTokens);
+    const cacheReadTokens = Math.max(0, acc.cacheReadTokens);
+    const cacheWriteTokens = Math.max(0, acc.cacheWriteTokens);
+    return {
+      inputTokens,
+      outputTokens,
+      cacheReadTokens,
+      cacheWriteTokens,
+      reasoningTokens: Math.max(0, acc.reasoningTokens),
+      totalTokens: Math.max(inputTokens + outputTokens + cacheReadTokens + cacheWriteTokens, acc.nativeTotal),
+      netBillableTokens: inputTokens + outputTokens + cacheWriteTokens,
+      costUsd: Math.max(0, acc.costUsd),
+      subTurns: acc.subTurns,
+      isEstimated: false
+    };
+  }
+
+  /**
+   * 无原生 usage 回传时的结构化兜底估算（CJK 感知，绝不伪造缓存）：
+   *   output = 回答正文 + 思维链 + 工具调用参数
+   *   input  = 用户 Prompt + 历史上下文链 + 工具回传 + 系统提示词基数(600) + 每步工具重放开销(120)
+   */
+  estimateTurnUsageFallback({ text = '', thinking = '', toolCalls = [], sessionMessages = [] } = {}) {
+    const calls = Array.isArray(toolCalls) ? toolCalls : [];
+    let toolArgsChars = 0, toolOutChars = 0;
+    for (const tc of calls) {
+      try { toolArgsChars += JSON.stringify(tc.args || tc.arguments || {}).length; } catch (_) {}
+      toolOutChars += String(tc.output || '').length;
+    }
+    const outputTokens = Math.max(1,
+      this.estimateTokensFromText(text) +
+      this.estimateTokensFromText(thinking) +
+      Math.ceil(toolArgsChars * 0.28));
+
+    const msgs = Array.isArray(sessionMessages) ? sessionMessages.slice(-30) : [];
+    let ctxChars = 0;
+    for (const m of msgs) {
+      ctxChars += String(m && m.text || '').length + String(m && m.thinking || '').length;
+    }
+    const inputTokens = Math.max(1, Math.ceil(
+      Math.min(ctxChars, 300000) * 0.28 +
+      toolOutChars * 0.28 +
+      calls.length * 120 +
+      600
+    ));
+    return {
+      inputTokens,
+      outputTokens,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      reasoningTokens: 0,
+      totalTokens: inputTokens + outputTokens,
+      netBillableTokens: inputTokens + outputTokens,
+      costUsd: 0,
+      subTurns: 1 + calls.length,
+      isEstimated: true
+    };
+  }
+
   formatTime(ts) {
     const d = ts ? new Date(ts) : new Date();
     const h = String(d.getHours()).padStart(2, '0');
     const m = String(d.getMinutes()).padStart(2, '0');
     return `${h}:${m}`;
+  }
+
+  /**
+   * 单个工具调用的压缩摘要（≤80 字符、去换行）：read(xxx.c) / grep("...") / bash(...) 级明细。
+   * 供历史恢复 banner 展开时展示逐步操作；未知工具回退 toolName，绝不抛错。
+   */
+  _summarizeToolCall(tc) {
+    try {
+      if (!tc || typeof tc !== 'object') return '';
+      const name = String(tc.toolName || tc.name || 'tool');
+      const lname = name.toLowerCase();
+      const args = tc.args || tc.arguments || tc.input || {};
+      const pick = (...keys) => {
+        for (const k of keys) {
+          const v = args[k];
+          if (typeof v === 'string' && v) return v;
+          if (typeof v === 'number') return String(v);
+        }
+        return '';
+      };
+      const clip = (s, n = 60) => {
+        const t = String(s || '').replace(/\s+/g, ' ').trim();
+        return t.length > n ? t.slice(0, n) + '…' : t;
+      };
+      const base = (p) => String(p || '').split(/[\\/]/).filter(Boolean).pop() || String(p || '');
+      let out = '';
+      if (/^(read|read_file|view_file|opengrok_read_file|open|cat)$/i.test(lname)) {
+        out = `read(${clip(base(pick('path', 'file_path', 'file', 'filePath', 'target', 'absPath')), 60)})`;
+      } else if (/^(grep|find|search|opengrok_search_code|glob|find_files|ls|list_dir)$/i.test(lname)) {
+        const q = pick('pattern', 'query', 'q', 'regex', 'search', 'name', 'path', 'root');
+        out = `grep("${clip(q, 50)}")`;
+      } else if (/^(bash|exec|terminal|command|run_command|shell|cmd)$/i.test(lname)) {
+        out = `bash(${clip(pick('command', 'cmd', 'script', 'input'), 55)})`;
+      } else if (/^(write|write_to_file|replace_file_content|edit|update_file|apply_patch|create_file)$/i.test(lname)) {
+        out = `edit(${clip(base(pick('path', 'file_path', 'file', 'filePath', 'target')), 55)})`;
+      } else if (/^update_plan$/i.test(lname)) {
+        out = 'plan';
+      } else {
+        const hint = tc.actionDesc || clip(pick('path', 'file_path', 'command', 'query', 'url', 'change_id', 'id'), 45);
+        out = hint ? `${name}(${clip(hint, 45)})` : name;
+      }
+      if (tc.isError) {
+        const e = clip(tc.error || '', 36);
+        out = `✗ ${out}${e ? ` — ${e}` : ''}`;
+      }
+      return out.length > 80 ? out.slice(0, 80) + '…' : out;
+    } catch (_) {
+      return String(tc && (tc.toolName || tc.name) || '');
+    }
+  }
+
+  /**
+   * 渲染工具步逐条明细（read(x.c)/bash(...)）：填进 step.proseEl（此前空置），
+   * 失败行标 error 类；title 悬停可见完整 args。实时/收尾都会调用，幂等重建。
+   */
+  _renderToolStepDetails(toolStep) {
+    try {
+      if (!toolStep || !toolStep.proseEl) return;
+      const calls = toolStep.toolCalls || [];
+      if (!calls.length) { toolStep.proseEl.style.display = 'none'; return; }
+      toolStep.proseEl.innerHTML = '';
+      for (const tc of calls) {
+        const line = this._summarizeToolCall(tc);
+        if (!line) continue;
+        const row = document.createElement('div');
+        row.className = 'tw-tool-detail-line' + (tc.isError ? ' error' : '');
+        row.textContent = line;
+        try {
+          const fullArgs = tc.args || tc.arguments || tc.input;
+          if (fullArgs) {
+            const t = JSON.stringify(fullArgs);
+            row.title = t.length > 2000 ? t.slice(0, 2000) + '…' : t;
+          }
+        } catch (_) {}
+        toolStep.proseEl.appendChild(row);
+      }
+      toolStep.proseEl.style.display = 'block';
+    } catch (_) {}
   }
 
   generateBatchToolSummary(toolCalls) {
@@ -7229,11 +8824,15 @@ class PiDrawerView {
     const inputStr = (data.inputTokens || 0).toLocaleString() + ' tok';
     const outputStr = (data.outputTokens || 0).toLocaleString() + ' tok';
     const cacheReadStr = data.cacheReadTokens ? (data.cacheReadTokens.toLocaleString() + ' tok') : null;
+    const cacheWriteStr = data.cacheWriteTokens ? (data.cacheWriteTokens.toLocaleString() + ' tok') : null;
+
+    const modelLine = escapeHtml(data.providerAndModel || '未知');
+    const effortTag = data.reasoningEffort ? ` <span style="opacity:.65;font-size:10px;">(${escapeHtml(String(data.reasoningEffort))})</span>` : '';
 
     let rowsHtml = `
       <div class="tw-token-row">
         <span class="tw-token-label">提供方 / 模型</span>
-        <span class="tw-token-val">${escapeHtml(data.providerAndModel || '未知')}</span>
+        <span class="tw-token-val">${modelLine}${effortTag}</span>
       </div>
       <div class="tw-token-row">
         <span class="tw-token-label">未缓存输入</span>
@@ -7248,6 +8847,13 @@ class PiDrawerView {
         <span class="tw-token-val">${cacheReadStr}</span>
       </div>`;
     }
+    if (cacheWriteStr) {
+      rowsHtml += `
+      <div class="tw-token-row">
+        <span class="tw-token-label">缓存写入</span>
+        <span class="tw-token-val">${cacheWriteStr}</span>
+      </div>`;
+    }
 
     rowsHtml += `
       <div class="tw-token-row">
@@ -7255,6 +8861,33 @@ class PiDrawerView {
         <span class="tw-token-val">${outputStr}</span>
       </div>
     `;
+
+    if (data.netBillableTokens > 0 && data.netBillableTokens !== data.totalTokens) {
+      rowsHtml += `
+      <div class="tw-token-row">
+        <span class="tw-token-label">净计费</span>
+        <span class="tw-token-val">${data.netBillableTokens.toLocaleString()} tok</span>
+      </div>`;
+    }
+    if (data.subTurns > 1) {
+      rowsHtml += `
+      <div class="tw-token-row">
+        <span class="tw-token-label">LLM 子回合</span>
+        <span class="tw-token-val">${data.subTurns} 次</span>
+      </div>`;
+    }
+    if (data.costUsd > 0) {
+      rowsHtml += `
+      <div class="tw-token-row">
+        <span class="tw-token-label">等效成本</span>
+        <span class="tw-token-val">~$${data.costUsd.toFixed(3)}</span>
+      </div>`;
+    }
+    rowsHtml += `
+      <div class="tw-token-row">
+        <span class="tw-token-label">数据来源</span>
+        <span class="tw-token-val">${data.isEstimated ? '估算 (未回传原生用量)' : '原生回传 (精确)'}</span>
+      </div>`;
 
     if (data.durationText) {
       rowsHtml += `
@@ -7319,6 +8952,13 @@ class PiDrawerView {
       this.hub.sessionManager.newSession(agentId);
     }
     this.currentAssistantMessage = null;
+    // 新会话瞬态复位：回显台账/排队映射/分段缓冲/中止标记不得带入下一会话
+    this._pendingSentWires = [];
+    this._assistantRunBuffer = [];
+    this._runAborted = false;
+    this._suppressPlanBarOnce = false;
+    if (this._queuedWireByPrompt) this._queuedWireByPrompt.clear();
+    this._hidePlanBar();
     if (this.messagesEl) {
       this.messagesEl.innerHTML = '';
     }
@@ -7364,7 +9004,8 @@ class PiDrawerView {
       this._minimapTargetIdx = null;
       this._minimapScrollingUntil = 0;
       this._contentBelowPending = false;
-      if (this.scrollBottomBtn) this.scrollBottomBtn.classList.remove('has-new');
+      if (this.scrollBottomBtn) this.scrollBottomBtn.classList.remove('has-new', 'visible');
+      if (this.bottomFadeEl) this.bottomFadeEl.classList.remove('visible');
       if (this._scrollRafId) {
         cancelAnimationFrame(this._scrollRafId);
         this._scrollRafId = null;
@@ -7381,9 +9022,12 @@ class PiDrawerView {
       if (this._stickToBottom === false) {
         this._contentBelowPending = true;
         if (this.scrollBottomBtn) this.scrollBottomBtn.classList.add('visible', 'has-new');
+        if (this.bottomFadeEl) this.bottomFadeEl.classList.add('visible');
         return;
       }
       this.messagesEl.scrollTop = this.messagesEl.scrollHeight;
+      if (this.bottomFadeEl) this.bottomFadeEl.classList.remove('visible');
+      if (this.scrollBottomBtn) this.scrollBottomBtn.classList.remove('visible');
     });
   }
 
@@ -7542,6 +9186,9 @@ class PiDrawerView {
   open() {
     if (this.isOpenState) return;
     this.isOpenState = true;
+    if (!(this.drawerEl && this.drawerEl.classList.contains('tw-studio-mode'))) {
+      this._normalDrawerOpen = true;
+    }
     this.drawerEl.style.display = 'flex';
     this.notifyToggle(true);
 
@@ -7569,6 +9216,7 @@ class PiDrawerView {
     if (this.drawerEl && this.drawerEl.classList.contains('tw-studio-mode')) return;
     if (!this.isOpenState) return;
     this.isOpenState = false;
+    this._normalDrawerOpen = false;
     this.drawerEl.style.display = 'none';
     this.notifyToggle(false);
   }

@@ -162,6 +162,57 @@ function extractLatestThinking(convId, userProfile) {
 }
 
 /**
+ * CJK 感知 Token 估算: 汉字/全角标点 ~0.65 tok, 其余 ~0.28 tok
+ */
+function estTokensByChars(chars) {
+  return Math.ceil(Math.max(0, chars) * 0.28);
+}
+function estTokensFromText(s) {
+  s = String(s || '');
+  if (!s) return 0;
+  let cjk = 0, other = 0;
+  for (const ch of s) {
+    const c = ch.codePointAt(0);
+    if ((c >= 0x4e00 && c <= 0x9fa5) || (c >= 0x3000 && c <= 0x303f) || (c >= 0xff00 && c <= 0xffef)) cjk++;
+    else other++;
+  }
+  return Math.ceil(cjk * 0.65 + other * 0.28);
+}
+
+/**
+ * 从 transcript_full.jsonl 中提取原生 usage/token_count 字段（若 CLI 已记录）
+ */
+function extractNativeUsageFromTranscript(convId, userProfile) {
+  if (!convId) return null;
+  try {
+    const root = userProfile || process.env.USERPROFILE || 'C:\\Users\\Administrator';
+    const fp = path.join(root, '.gemini', 'antigravity-cli', 'brain', convId, '.system_generated', 'logs', 'transcript_full.jsonl');
+    if (!fs.existsSync(fp)) return null;
+    const lines = fs.readFileSync(fp, 'utf8').trim().split('\n').filter(Boolean);
+    let agg = null;
+    for (const line of lines) {
+      try {
+        const e = JSON.parse(line);
+        const u = e && (e.usage || e.token_count || (e.result && (e.result.usage || e.result.token_count)));
+        if (u && typeof u === 'object') {
+          const inp = Math.max(0, u.input ?? u.inputTokens ?? u.prompt_tokens ?? u.promptTokens ?? 0);
+          const out = Math.max(0, u.output ?? u.outputTokens ?? u.completion_tokens ?? u.completionTokens ?? 0);
+          const cr  = Math.max(0, u.cacheRead ?? u.cacheReadTokens ?? u.prompt_cache_hit_tokens ?? 0);
+          const cw  = Math.max(0, u.cacheWrite ?? u.cacheWriteTokens ?? u.cache_creation_input_tokens ?? 0);
+          if (inp + out + cr + cw > 0) {
+            agg = agg || { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 };
+            agg.inputTokens += inp; agg.outputTokens += out; agg.cacheReadTokens += cr; agg.cacheWriteTokens += cw;
+          }
+        }
+      } catch (_) {}
+    }
+    return agg;
+  } catch (_) {
+    return null;
+  }
+}
+
+/**
  * AntigravityAdapter: Native integration for Google Antigravity CLI (`agy`).
  * Runs headless mode with `--output-format stream-json`.
  * Features session UUID tracking, full MCP tool dispatching (WeKnora, Vendor, Gerrit, OpenGrok, DrawIO),
@@ -462,6 +513,15 @@ class AntigravityAdapter extends AgentAdapter {
     this.hasEmittedThinkingStart = false;
     this.hasSettledTurn = false;
     this.lastEmittedThinking = '';
+    // 本轮用量载荷追踪: 输入=prompt(含 MCP 工具 hints), 输出=text/思维链/工具参数/工具回传
+    this._turnUsageTrack = {
+      promptChars: (promptText || '').length,
+      thinkingChars: 0,
+      textChars: 0,
+      toolCalls: 0,
+      toolParamChars: 0,
+      toolOutputChars: 0
+    };
     if (this.thinkingPollTimer) {
       clearInterval(this.thinkingPollTimer);
       this.thinkingPollTimer = null;
@@ -546,7 +606,7 @@ class AntigravityAdapter extends AgentAdapter {
           }
           if (!this.hasSettledTurn) {
             this.hasSettledTurn = true;
-            this.emit('turn_end');
+            this.emit('turn_end', { usage: this._buildTurnUsage(null) });
             this.emit('agent_settled');
             this.setStatus('connected', '已就绪');
           }
@@ -598,6 +658,52 @@ class AntigravityAdapter extends AgentAdapter {
     });
   }
 
+  /**
+   * 构建本轮结构化 usage: 优先 transcript 原生 token 统计, 否则 CJK 感知估算
+   * 输入 = promptText(含 MCP hints) + 工具回传, 输出 = 正文 + 思维链 + 工具参数
+   */
+  _buildTurnUsage(res) {
+    const tr = this._turnUsageTrack || {};
+    this._turnUsageTrack = null;
+    // 1. 原生 usage 优先 (result 事件自带 / transcript_full.jsonl 提取)
+    const native = (res && (res.usage || res.token_count)) || extractNativeUsageFromTranscript(this.sessionId, process.env.USERPROFILE);
+    if (native && typeof native === 'object') {
+      const inp = Math.max(0, native.input ?? native.inputTokens ?? native.prompt_tokens ?? 0);
+      const out = Math.max(0, native.output ?? native.outputTokens ?? native.completion_tokens ?? 0);
+      const cr  = Math.max(0, native.cacheRead ?? native.cacheReadTokens ?? native.prompt_cache_hit_tokens ?? 0);
+      const cw  = Math.max(0, native.cacheWrite ?? native.cacheWriteTokens ?? native.cache_creation_input_tokens ?? 0);
+      if (inp + out + cr + cw > 0) {
+        return {
+          inputTokens: inp, outputTokens: out, cacheReadTokens: cr, cacheWriteTokens: cw,
+          totalTokens: inp + out + cr + cw,
+          netBillableTokens: inp + out + cw,
+          subTurns: 1 + (tr.toolCalls || 0),
+          isEstimated: false
+        };
+      }
+    }
+    // 2. CJK 感知结构化估算 (绝不伪造缓存)
+    const inputTokens = Math.max(1, Math.ceil(
+      estTokensByChars(tr.promptChars || 0) +
+      estTokensByChars(tr.toolOutputChars || 0) +
+      (tr.toolCalls || 0) * 120 + 600
+    ));
+    const outputTokens = Math.max(1,
+      estTokensByChars(tr.textChars || 0) +
+      estTokensByChars(tr.thinkingChars || 0) +
+      estTokensByChars(tr.toolParamChars || 0));
+    return {
+      inputTokens,
+      outputTokens,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      totalTokens: inputTokens + outputTokens,
+      netBillableTokens: inputTokens + outputTokens,
+      subTurns: 1 + (tr.toolCalls || 0),
+      isEstimated: true
+    };
+  }
+
   handleStdoutChunk(chunk) {
     this.stdoutBuffer += chunk;
     const lines = this.stdoutBuffer.split('\n');
@@ -643,9 +749,11 @@ class AntigravityAdapter extends AgentAdapter {
       if (step.step_type === 'agent_response') {
         if (step.thinking_delta) {
           this.lastEmittedThinking += step.thinking_delta;
+          if (this._turnUsageTrack) this._turnUsageTrack.thinkingChars += step.thinking_delta.length;
           this.emit('thinking_delta', step.thinking_delta);
         }
         if (step.text_delta) {
+          if (this._turnUsageTrack) this._turnUsageTrack.textChars += step.text_delta.length;
           if (this.isThinkingActive) {
             this.syncThinkingFromTranscript();
             this.emit('thinking_end');
@@ -669,6 +777,10 @@ class AntigravityAdapter extends AgentAdapter {
         const callId = `agy_tool_${stepIdx}`;
 
         if (step.state === 'ACTIVE') {
+          if (this._turnUsageTrack) {
+            this._turnUsageTrack.toolCalls += 1;
+            try { this._turnUsageTrack.toolParamChars += JSON.stringify(toolInfo.parameters || {}).length; } catch (_) {}
+          }
           if (this.isThinkingActive) {
             this.syncThinkingFromTranscript();
             this.emit('thinking_end');
@@ -689,6 +801,7 @@ class AntigravityAdapter extends AgentAdapter {
         } else if (step.state === 'DONE') {
           const prev = this.activeTools.get(callId) || { startTime: Date.now(), name: toolName };
           const duration = step.duration_seconds ? Math.round(step.duration_seconds * 1000) : (Date.now() - prev.startTime);
+          if (this._turnUsageTrack) this._turnUsageTrack.toolOutputChars += String(toolInfo.output || '').length;
           this.emit('tool_end', {
             toolCallId: callId,
             toolName: prev.name,
@@ -750,7 +863,7 @@ class AntigravityAdapter extends AgentAdapter {
       }
       if (!this.hasSettledTurn) {
         this.hasSettledTurn = true;
-        this.emit('turn_end');
+        this.emit('turn_end', { usage: this._buildTurnUsage(res) });
         this.emit('agent_settled');
         this.setStatus('connected', '已就绪');
       }

@@ -60,12 +60,26 @@ class ExploreView {
 
   setSubTab(subTab) {
     if (this.activeSubTab === subTab) return;
+    const leavingAi = this.activeSubTab === 'ai';
     this.activeSubTab = subTab;
     try {
       if (typeof localStorage !== 'undefined') {
         localStorage.setItem('tabonkb-explore-subtab', subTab);
       }
     } catch (_) {}
+    // 离开 AI 子页前，先把 agentDrawer 从 aiWrap 安全迁回工作台根布局（docked 抽屉态）。
+    // 否则 render() → containerEl.empty() 会把 drawerEl 连同 aiWrap 一起从文档树摘除，
+    // 使其悬浮在 DOM 之外，直到下次回到 ai 子页才重现。
+    if (leavingAi && this.agentDrawer && typeof this.agentDrawer.mount === 'function') {
+      try {
+        const layoutEl = (this.containerEl && typeof this.containerEl.closest === 'function')
+          ? this.containerEl.closest('.tabonkb-workbench-layout')
+          : null;
+        if (layoutEl) {
+          this.agentDrawer.mount(layoutEl);
+        }
+      } catch (_) {}
+    }
     this.render();
   }
 

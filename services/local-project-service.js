@@ -545,7 +545,7 @@ function getAllAvailableLocalProjects(forceRefresh = false) {
         const id = `${srv.id}_${cleanWsId}_${p.platform}_${p.project}`;
         const wsShort = ws.relPath.split('/').pop();
         const label = `${wsShort}/${p.project}`;
-        const shortDesc = `${srv.id}服 · ${p.platform}/${p.project}`;
+        const shortDesc = `${srv.host || srv.id} · ${p.platform}/${p.project}`;
 
         list.push({
           id,

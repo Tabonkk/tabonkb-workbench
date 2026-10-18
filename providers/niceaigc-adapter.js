@@ -1,6 +1,18 @@
 const { AgentAdapter, getAgentBrandSvg } = require('./agent-adapter-base.js');
 const crypto = require('crypto');
 
+function estTokensFromText(s) {
+  s = typeof s === 'string' ? s : JSON.stringify(s || '');
+  if (!s) return 0;
+  let cjk = 0, other = 0;
+  for (const ch of s) {
+    const c = ch.codePointAt(0);
+    if ((c >= 0x4e00 && c <= 0x9fa5) || (c >= 0x3000 && c <= 0x303f) || (c >= 0xff00 && c <= 0xffef)) cjk++;
+    else other++;
+  }
+  return Math.ceil(cjk * 0.65 + other * 0.28);
+}
+
 function generateUuid() {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) {
     return crypto.randomUUID();
@@ -714,6 +726,47 @@ class NiceAigcAdapter extends AgentAdapter {
     } catch (e) {}
   }
 
+  /**
+   * 构建本轮结构化 usage: 优先 SSE metadata 原生 token, 否则 CJK 感知估算
+   * (输入=实际上下文历史总字数 + 图片×255, 输出=思维链+回复正文)
+   */
+  _buildTurnUsageEstimate(assistantText, imageCount = 0) {
+    const nu = this._lastNativeUsage;
+    this._lastNativeUsage = null;
+    if (nu && typeof nu === 'object') {
+      const inp = Math.max(0, nu.input ?? nu.inputTokens ?? nu.prompt_tokens ?? nu.promptTokens ?? 0);
+      const out = Math.max(0, nu.output ?? nu.outputTokens ?? nu.completion_tokens ?? nu.completionTokens ?? 0);
+      const cr  = Math.max(0, nu.cacheRead ?? nu.cacheReadTokens ?? nu.prompt_cache_hit_tokens ?? 0);
+      const cw  = Math.max(0, nu.cacheWrite ?? nu.cacheWriteTokens ?? nu.cache_creation_input_tokens ?? 0);
+      if (inp + out + cr + cw > 0) {
+        return {
+          inputTokens: inp, outputTokens: out, cacheReadTokens: cr, cacheWriteTokens: cw,
+          totalTokens: inp + out + cr + cw,
+          netBillableTokens: inp + out + cw,
+          subTurns: 1,
+          isEstimated: false
+        };
+      }
+    }
+    // CJK 感知估算: 历史上下文(至多 20 条) + 图片 + 思维链与正文, 绝不伪造缓存
+    let ctxTokens = 0;
+    for (const m of (this.conversationHistory || []).slice(-20)) {
+      ctxTokens += estTokensFromText(typeof m.content === 'string' ? m.content : JSON.stringify(m.content || ''));
+    }
+    const outputTokens = Math.max(1, estTokensFromText(assistantText) + Math.ceil((this._turnThinkChars || 0) * 0.28));
+    const inputTokens = Math.max(1, ctxTokens + (imageCount || 0) * 255 + 600);
+    return {
+      inputTokens,
+      outputTokens,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      totalTokens: inputTokens + outputTokens,
+      netBillableTokens: inputTokens + outputTokens,
+      subTurns: 1,
+      isEstimated: true
+    };
+  }
+
   // GET 小工具: 拉取 JSON (对话树查询用)
   _httpGetJson(url, headers) {
     return new Promise((resolve, reject) => {
@@ -1332,6 +1385,8 @@ class NiceAigcAdapter extends AgentAdapter {
     try {
       this.abortController = new AbortController();
       let fullAssistantText = '';
+      this._lastNativeUsage = null;
+      this._turnThinkChars = 0;
 
       const isConvBroken = (err) => {
         if (!err) return false;
@@ -1424,7 +1479,7 @@ class NiceAigcAdapter extends AgentAdapter {
         this._persistConversationId();
         this.isStreaming = false;
         this.setStatus('connected', '已就绪');
-        this.emit('turn_end', { fullText: fullAssistantText });
+        this.emit('turn_end', { fullText: fullAssistantText, usage: this._buildTurnUsageEstimate(fullAssistantText, imageAttachments.length) });
         this.emit('agent_settled');
         return { success: true };
       } else {
@@ -1527,6 +1582,12 @@ class NiceAigcAdapter extends AgentAdapter {
         const recipient = msg.recipient;
         const channel = msg.channel;
 
+        // 0. 捕获原生 token 统计 (部分上游通道在 metadata 回传 usage/token_usage)
+        const metaUsage = msg.metadata && (msg.metadata.usage || msg.metadata.token_usage || msg.metadata.tokenUsage);
+        if (metaUsage && typeof metaUsage === 'object') {
+          this._lastNativeUsage = metaUsage;
+        }
+
         // 1a. Reasoning recap (OpenAI o1/o3/gpt-6 official recap object)
         if (contentType === 'reasoning_recap') {
           const recapContent = msg.content?.content || (typeof msg.content === 'string' ? msg.content : '');
@@ -1560,6 +1621,7 @@ class NiceAigcAdapter extends AgentAdapter {
             if (fullThought.length > streamState.thinkingAccumulatedLength) {
               const delta = fullThought.slice(streamState.thinkingAccumulatedLength);
               streamState.thinkingAccumulatedLength = fullThought.length;
+              this._turnThinkChars = (this._turnThinkChars || 0) + delta.length;
               this.emit('thinking_delta', delta);
             }
           }

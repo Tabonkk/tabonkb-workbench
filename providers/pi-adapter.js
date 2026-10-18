@@ -381,6 +381,11 @@ class PiAdapter extends AgentAdapter {
       this.isStreaming = false;
       this.emit('error', d);
     });
+
+    // 流式交互队列：steer/follow_up 快照与入队回显、abort 队列回收
+    this.bridge.on('queue_update', (d) => this.emit('queue_update', d));
+    this.bridge.on('user_message', (d) => this.emit('user_message', d));
+    this.bridge.on('queue_cleared', (d) => this.emit('queue_cleared', d));
   }
 
   getStatus() {
@@ -471,6 +476,34 @@ class PiAdapter extends AgentAdapter {
     this.isStreaming = false;
     this.setStatus('connected', '已中止');
     this.emit('agent_settled');
+  }
+
+  /**
+   * 流式中插队纠偏（pi 原生）：当前工具结束后、下一次 LLM 调用前注入用户消息。
+   */
+  async steer(text) {
+    if (!this.bridge || typeof this.bridge.steer !== 'function') {
+      throw new Error('当前通道不支持插队纠偏');
+    }
+    return await this.bridge.steer(text);
+  }
+
+  /**
+   * 流式中排队待办（pi 原生队列）：本轮结束后自动以新回合消费。
+   */
+  async followUp(text) {
+    if (!this.bridge || typeof this.bridge.followUp !== 'function') {
+      throw new Error('当前通道不支持排队待办');
+    }
+    return await this.bridge.followUp(text);
+  }
+
+  /**
+   * 移除单个排队项（pi 侧为 清空+按序重投 实现）。
+   */
+  async removeQueuedMessage(kind, text) {
+    if (!this.bridge || typeof this.bridge.removeQueuedMessage !== 'function') return;
+    return await this.bridge.removeQueuedMessage(kind, text);
   }
 
   async getForkMessages() {

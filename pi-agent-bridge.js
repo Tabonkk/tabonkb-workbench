@@ -2,6 +2,98 @@ const child_process = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
+// MCP shared modules for TabonKB services
+const { WEKNORA_MCP_SERVER_NAME, WEKNORA_MCP_TOOL_HINT, weknoraMcpResolveNodeExe, weknoraMcpScriptPath, buildWeknoraEnv } = require('./mcp/weknora-mcp-shared.js');
+const { VENDOR_MCP_SERVER_NAME, VENDOR_MCP_TOOL_HINT, vendorMcpScriptPath, buildVendorEnv } = require('./mcp/vendor-mcp-shared.js');
+const { GERRIT_MCP_SERVER_NAME, GERRIT_MCP_TOOL_HINT, gerritMcpScriptPath, buildGerritEnv } = require('./mcp/gerrit-mcp-shared.js');
+const { OPENGROK_MCP_SERVER_NAME, OPENGROK_MCP_TOOL_HINT, opengrokMcpScriptPath, buildOpengrokEnv } = require('./mcp/opengrok-mcp-shared.js');
+const { DRAWIO_MCP_SERVER_NAME, DRAWIO_MCP_TOOL_HINT, drawioMcpScriptPath } = require('./mcp/drawio-mcp-shared.js');
+
+/**
+ * 确保 Pi Agent 拥有 TabonKB 专有 MCP 工具配置 (幂等, 自动写入)
+ * 配置写入 ~/.pi/agent/mcp.json
+ */
+function ensurePiMcpServers(vaultBasePath) {
+  try {
+    const userProfile = process.env.USERPROFILE || 'C:\\Users\\Administrator';
+    const piAgentDir = path.join(userProfile, '.pi', 'agent');
+    const mcpConfigFile = path.join(piAgentDir, 'mcp.json');
+
+    const nodeExe = weknoraMcpResolveNodeExe();
+    const tools = {
+      [WEKNORA_MCP_SERVER_NAME]: {
+        script: weknoraMcpScriptPath(vaultBasePath),
+        description: '知识库全文检索与多模态内容提取（Weknora 引擎）',
+        env: buildWeknoraEnv(vaultBasePath)
+      },
+      [VENDOR_MCP_SERVER_NAME]: {
+        script: vendorMcpScriptPath(vaultBasePath),
+        description: '芯片原厂技术资料检索（紫光展锐 Unisoc、联发科 MTK）',
+        env: buildVendorEnv(vaultBasePath)
+      },
+      [GERRIT_MCP_SERVER_NAME]: {
+        script: gerritMcpScriptPath(vaultBasePath),
+        description: 'Gerrit 代码审查平台集成（提交查询、评审意见、CI 状态）',
+        env: buildGerritEnv(vaultBasePath)
+      },
+      [OPENGROK_MCP_SERVER_NAME]: {
+        script: opengrokMcpScriptPath(vaultBasePath),
+        description: 'OpenGrok 源码全局搜索与交叉引用',
+        env: buildOpengrokEnv(vaultBasePath)
+      },
+      [DRAWIO_MCP_SERVER_NAME]: {
+        script: drawioMcpScriptPath(vaultBasePath),
+        description: 'Draw.io 图表操作（导出、渲染、SVG 生成）',
+        env: {}
+      }
+    };
+
+    let mcpConfig = { mcpServers: {} };
+    if (fs.existsSync(mcpConfigFile)) {
+      try {
+        mcpConfig = JSON.parse(fs.readFileSync(mcpConfigFile, 'utf8')) || { mcpServers: {} };
+      } catch (_) {
+        mcpConfig = { mcpServers: {} };
+      }
+    }
+    mcpConfig.mcpServers = mcpConfig.mcpServers || {};
+
+    let mcpChanged = false;
+    for (const [name, config] of Object.entries(tools)) {
+      if (!config.script || !fs.existsSync(config.script)) continue;
+      
+      const existing = mcpConfig.mcpServers[name];
+      const same = existing 
+        && existing.command === nodeExe 
+        && Array.isArray(existing.args) 
+        && existing.args[0] === config.script;
+      
+      if (!same) {
+        mcpConfig.mcpServers[name] = {
+          command: nodeExe,
+          args: [config.script],
+          env: Object.assign({}, config.env, {
+            TABONKB_VAULT_PATH: vaultBasePath,
+            TABONKB_VAULT_NAME: path.basename(vaultBasePath)
+          }),
+          description: config.description
+        };
+        mcpChanged = true;
+      }
+    }
+
+    if (mcpChanged) {
+      if (!fs.existsSync(piAgentDir)) fs.mkdirSync(piAgentDir, { recursive: true });
+      fs.writeFileSync(mcpConfigFile, JSON.stringify(mcpConfig, null, 2), 'utf8');
+    }
+
+    return { ok: true, mcpChanged };
+  } catch (err) {
+    console.warn('[PiAgentBridge] MCP auto-provisioning warning:', err.message);
+    return { ok: false, error: err.message };
+  }
+}
+
 /**
  * PiAgentBridge: Manages the headless Pi Coding Agent via stdin/stdout JSONL RPC.
  * - Spawns Node running Pi CLI bundle with restricted tools: read, grep, find, ls
@@ -373,6 +465,13 @@ class PiAgentBridge {
       return true;
     }
 
+    // Auto-provision TabonKB MCP servers for Pi Agent (idempotent)
+    try {
+      ensurePiMcpServers(this.vaultBasePath);
+    } catch (e) {
+      console.warn('[PiAgentBridge] MCP auto-provisioning skipped:', e.message);
+    }
+
     this.setStatus('connecting', '正在启动 Pi 核心引擎...');
     const launch = this.resolveLaunchCommand();
 
@@ -670,6 +769,27 @@ class PiAgentBridge {
       this.setStatus('connected', '已就绪');
       this.emit('agent_settled', data);
       this._settleDrawioArtifact();
+      return;
+    }
+
+    if (type === 'queue_update') {
+      // Pi 原生 steer/followUp 队列快照：入队、被消费（message_start 前）与 clear_queue 均会广播
+      this.emit('queue_update', {
+        steering: Array.isArray(data.steering) ? data.steering.slice() : [],
+        followUp: Array.isArray(data.followUp) ? data.followUp.slice() : []
+      });
+      return;
+    }
+
+    if (type === 'message_start') {
+      // 用户消息回显：prompt / steer / followUp 被实际写入会话树时触发，供 UI 对账去重
+      const m = data.message;
+      if (m && m.role === 'user') {
+        const text = Array.isArray(m.content)
+          ? m.content.filter(p => p && p.type === 'text').map(p => p.text || '').join('\n')
+          : (typeof m.content === 'string' ? m.content : '');
+        this.emit('user_message', { text });
+      }
       return;
     }
 
@@ -1016,6 +1136,66 @@ class PiAgentBridge {
   }
 
   /**
+   * 流式中插队纠偏：pi 在当前工具执行完、下一次 LLM 调用前把该消息注入本轮。
+   * @param {string} messageText 用户纠偏内容（原始 wireText，不做上下文注入）
+   */
+  async steer(messageText) {
+    if (!this.process || this.process.killed) {
+      throw new Error('Pi 核心进程未就绪或已断开');
+    }
+    return await this.sendCommand({ type: 'steer', message: messageText });
+  }
+
+  /**
+   * 流式中排队待办：pi 在本轮完全结束（无剩余工具/插队消息）后自动以新回合消费。
+   * @param {string} messageText 用户排队内容
+   */
+  async followUp(messageText) {
+    if (!this.process || this.process.killed) {
+      throw new Error('Pi 核心进程未就绪或已断开');
+    }
+    return await this.sendCommand({ type: 'follow_up', message: messageText });
+  }
+
+  /**
+   * 清空 pi 侧 steer/followUp 队列，返回被移除的 {steering, followUp} 文本数组。
+   * abort 必须搭配本方法：pi 的 abort 不清队列，残留项会污染下一次运行。
+   */
+  async clearQueue() {
+    if (!this.process || this.process.killed) return { steering: [], followUp: [] };
+    try {
+      const res = await this.sendCommand({ type: 'clear_queue' });
+      const d = (res && res.data) || {};
+      return {
+        steering: Array.isArray(d.steering) ? d.steering : [],
+        followUp: Array.isArray(d.followUp) ? d.followUp : []
+      };
+    } catch (e) {
+      return { steering: [], followUp: [] };
+    }
+  }
+
+  /**
+   * 移除单个排队项：pi 仅支持整体清空，采用 清空→按原序重投剩余项 实现。
+   * @param {'steer'|'follow'} kind 队列类型
+   * @param {string} text 排队项原文（queue_update 快照中的文本）
+   */
+  async removeQueuedMessage(kind, text) {
+    const cleared = await this.clearQueue();
+    const steering = cleared.steering.slice();
+    const followUp = cleared.followUp.slice();
+    const list = kind === 'steer' ? steering : followUp;
+    const idx = list.indexOf(text);
+    if (idx >= 0) list.splice(idx, 1);
+    for (const t of steering) {
+      try { await this.sendCommand({ type: 'steer', message: t }); } catch (_) {}
+    }
+    for (const t of followUp) {
+      try { await this.sendCommand({ type: 'follow_up', message: t }); } catch (_) {}
+    }
+  }
+
+  /**
    * Abort current generation
    */
   async abort() {
@@ -1023,6 +1203,11 @@ class PiAgentBridge {
     try {
       this.setStatus('thinking', '正在中止操作...');
       await this.sendCommand({ type: 'abort' });
+      // 回收未消费的插队/排队消息（pi abort 不清队列），交回 UI 层回填输入框
+      const cleared = await this.clearQueue();
+      if (cleared.steering.length || cleared.followUp.length) {
+        this.emit('queue_cleared', cleared);
+      }
     } catch (e) {
       console.warn('[PiAgentBridge] Abort command issue:', e);
     } finally {

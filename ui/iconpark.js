@@ -6,6 +6,9 @@
  * Stroke: currentColor, stroke-width: 2, stroke-linecap: round, stroke-linejoin: round
  */
 
+// Boot profiler epoch: bundled first — all marks measure elapsed from bundle eval start
+globalThis.__twBootT0 = Date.now();
+
 const ICON_PARK_PATHS = {
   // Navigation & Actions
   'download': '<path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2M12 3v12M7 11l5 5 5-5"/>',
@@ -31,10 +34,15 @@ const ICON_PARK_PATHS = {
   'copy': '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M5 16H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v1"/>',
   'send': '<path d="M22 2 11 13M22 2l-7 20-4-9-9-4 20-7z"/>',
   'arrow-up': '<path d="M12 19V5M5 12l7-7 7 7"/>',
+  'arrow-down': '<path d="M12 5v14M19 12l-7 7-7-7"/>',
+  'plus': '<path d="M12 5v14M5 12h14"/>',
+  'at-sign': '<circle cx="12" cy="12" r="4"/><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8"/>',
+  'slash': '<path d="M17 4 7 20"/>',
 
   // Status & Mode
   'edit': '<path d="m14 4 6 6M4 20l5-1 11-11a2.828 2.828 0 0 0-4-4L5 15l-1 5z"/>',
   'lock': '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
+  'shield': '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><line x1="12" y1="2" x2="12" y2="22"/>',
   'time': '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/>',
   'setting-config': '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
   'options': '<line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/><circle cx="8" cy="6" r="2"/><circle cx="16" cy="12" r="2"/><circle cx="10" cy="18" r="2"/>',
@@ -161,7 +169,7 @@ function detectModelBrand(modelOrBrand) {
   if (lower.includes('claude') || lower.includes('sonnet') || lower.includes('opus') || lower.includes('anthropic')) {
     return 'claude';
   }
-  if (lower.includes('deepseek') || lower.includes('r1')) {
+  if (lower.includes('deepseek') || lower.includes('r1') || lower === 'dsh' || lower.includes('harness')) {
     return 'deepseek';
   }
   if (lower.includes('qwen') || lower.includes('千问') || lower.includes('alibaba')) {
@@ -257,7 +265,10 @@ function getOfficialModelSvg(modelOrBrand, size = 14) {
   }
 
   if (brand === 'antigravity') {
-    return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" class="tw-official-brand tw-brand-antigravity"><defs><linearGradient id="tw-brand-agy-grad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#4285F4"/><stop offset="50%" stop-color="#9B72CF"/><stop offset="100%" stop-color="#00C9A7"/></linearGradient></defs><circle cx="12" cy="12" r="9.5" stroke="url(#tw-brand-agy-grad)" stroke-width="2"/><path d="M12 5.5v13M8 9.5l4-4 4 4" stroke="url(#tw-brand-agy-grad)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="12" r="1.5" fill="url(#tw-brand-agy-grad)"/></svg>`;
+    // 官方 Antigravity mark：蝴蝶结剪影 + 黄/红/绿/蓝四色柔光斑
+    // （官方版为 11 个高斯模糊椭圆，此处 clipPath+径向光斑等效还原，16px 下观感一致且无滤镜开销）
+    const bow = 'M14.0777 13.984C14.945 14.6345 16.2458 14.2008 15.0533 13.0084C11.476 9.53949 12.2349 0 7.79033 0C3.34579 0 4.10461 9.53949 0.527295 13.0084C-0.773543 14.3092 0.635692 14.6345 1.50293 13.984C4.86344 11.7076 4.64663 7.69664 7.79033 7.69664C10.934 7.69664 10.7172 11.7076 14.0777 13.984Z';
+    return `<svg viewBox="0 0 16 15" width="${size}" height="${size}" class="tw-official-brand tw-brand-antigravity"><defs><clipPath id="tw-agy-clip"><path d="${bow}"/></clipPath><radialGradient id="tw-agy-y"><stop offset="0%" stop-color="#FBBC04"/><stop offset="100%" stop-color="#FBBC04" stop-opacity="0"/></radialGradient><radialGradient id="tw-agy-r"><stop offset="0%" stop-color="#FC413D"/><stop offset="100%" stop-color="#FC413D" stop-opacity="0"/></radialGradient><radialGradient id="tw-agy-g"><stop offset="0%" stop-color="#00B95C"/><stop offset="100%" stop-color="#00B95C" stop-opacity="0"/></radialGradient><radialGradient id="tw-agy-b"><stop offset="0%" stop-color="#3186FF"/><stop offset="100%" stop-color="#3186FF" stop-opacity="0"/></radialGradient></defs><g clip-path="url(#tw-agy-clip)"><rect x="-2" y="-2" width="20" height="19" fill="#3186FF"/><ellipse cx="2" cy="-1" rx="7" ry="5.5" fill="url(#tw-agy-y)"/><ellipse cx="15" cy="0" rx="8" ry="6" fill="url(#tw-agy-r)"/><ellipse cx="-1" cy="7" rx="6.5" ry="6" fill="url(#tw-agy-g)"/><ellipse cx="3.5" cy="7" rx="5" ry="4.5" fill="url(#tw-agy-g)"/><ellipse cx="8" cy="14.5" rx="9" ry="6" fill="url(#tw-agy-b)"/><ellipse cx="14" cy="8" rx="5" ry="5" fill="url(#tw-agy-b)"/></g></svg>`;
   }
 
   if (brand === 'niceaigc') {

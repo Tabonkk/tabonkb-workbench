@@ -20,6 +20,12 @@ class AgentHub {
     this.adapters = new Map();
     this.listeners = new Map();
     this.generation = 0;
+    // 本地 follow-up 队列：仅当活跃 adapter 不具备原生排队能力（非 pi）时启用，
+    // 在 agent_settled 时按序自动派发；pi 走 RPC follow_up 原生队列，不占此处。
+    this._localFollowUpQueue = [];
+    // 中止/切换 Agent 期间抑制本地队列派发：adapter.abort() 会同步 emit agent_settled，
+    // 若不加守卫，排队项会被派发给正在被杀的旧 adapter
+    this._suppressFollowUpDispatch = false;
 
     this.initAdapters(options);
     this.activeAgentId = this.getSavedActiveAgent();
@@ -185,7 +191,17 @@ class AgentHub {
         if (isCurrentActive()) {
           const payload = (d && typeof d === 'object') ? Object.assign({ generation: this.generation, agentId: id }, d) : d;
           this.emit('agent_settled', payload);
+          this._dispatchLocalFollowUp(adapter);
         }
+      });
+      adapter.on('queue_update', (d) => {
+        if (isCurrentActive()) this.emit('queue_update', d);
+      });
+      adapter.on('user_message', (d) => {
+        if (isCurrentActive()) this.emit('user_message', d);
+      });
+      adapter.on('queue_cleared', (d) => {
+        if (isCurrentActive()) this.emit('queue_cleared', d);
       });
       adapter.on('error', (d) => {
         if (isCurrentActive()) this.emit('error', d);
@@ -249,15 +265,23 @@ class AgentHub {
     this.generation = (this.generation || 0) + 1;
     const currentGeneration = this.generation;
 
-    // Explicitly abort previous adapter before switching
-    if (prevAdapter) {
-      try {
-        if (typeof prevAdapter.abort === 'function') {
-          await prevAdapter.abort();
+    // 切换前先清本地队列：abort() 会同步 emit agent_settled，此时 activeAgentId 尚未翻转，
+    // isCurrentActive() 仍为 true，必须防止排队项被派发给正在中止的旧 adapter
+    this._localFollowUpQueue = [];
+    this._emitLocalQueueUpdate();
+    this._suppressFollowUpDispatch = true;
+    try {
+      if (prevAdapter) {
+        try {
+          if (typeof prevAdapter.abort === 'function') {
+            await prevAdapter.abort();
+          }
+        } catch (err) {
+          console.warn(`[AgentHub] Failed to abort previous adapter '${prevAgentId}':`, err);
         }
-      } catch (err) {
-        console.warn(`[AgentHub] Failed to abort previous adapter '${prevAgentId}':`, err);
       }
+    } finally {
+      this._suppressFollowUpDispatch = false;
     }
 
     this.activeAgentId = agentId;
@@ -343,11 +367,97 @@ class AgentHub {
     return [];
   }
 
+  /**
+   * 流式中插队纠偏：活跃 adapter 支持原生 steer 时注入本轮（在下一工具间隙生效）；
+   * 否则降级为本地 follow-up 排队（本轮结束后自动派发）。
+   */
+  async steer(text) {
+    const adapter = this.getActiveAdapter();
+    if (adapter && typeof adapter.steer === 'function') {
+      return await adapter.steer(text);
+    }
+    return await this.followUp(text);
+  }
+
+  /**
+   * 流式中排队待办：pi 走原生 follow_up 队列（pi 自行派发并广播 queue_update）；
+   * 其他 adapter 进入 hub 本地队列，settled 后自动派发。
+   */
+  async followUp(text, meta = {}) {
+    const adapter = this.getActiveAdapter();
+    // 派发时是新回合：与正常发送一样注入上下文（meta.prompt 为注入后文本，text 为用户原文）
+    const payload = (meta && meta.prompt) || text;
+    if (adapter && typeof adapter.followUp === 'function') {
+      return await adapter.followUp(payload);
+    }
+    this._localFollowUpQueue.push({ id: `q${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, text, prompt: payload });
+    this._emitLocalQueueUpdate();
+    return { success: true, queued: true };
+  }
+
+  /**
+   * 移除单个排队项：pi 走原生 clear+重投；本地队列直接摘除。
+   */
+  async cancelQueued(kind, text) {
+    const adapter = this.getActiveAdapter();
+    if (adapter && typeof adapter.removeQueuedMessage === 'function') {
+      return await adapter.removeQueuedMessage(kind, text);
+    }
+    const idx = this._localFollowUpQueue.findIndex(i => i.text === text);
+    if (idx >= 0) this._localFollowUpQueue.splice(idx, 1);
+    this._emitLocalQueueUpdate();
+  }
+
+  _emitLocalQueueUpdate() {
+    this.emit('queue_update', {
+      steering: [],
+      followUp: this._localFollowUpQueue.map(i => i.text),
+      _local: true
+    });
+  }
+
+  /**
+   * 本地队列在回合落定后自动派发首项（pi 原生队列由 pi 内部消费，不经此路径）。
+   * 派发前广播 follow_up_dispatched，由 UI 渲染用户气泡并持久化。
+   */
+  _dispatchLocalFollowUp(adapter) {
+    if (!adapter || typeof adapter.followUp === 'function') return;
+    if (this._suppressFollowUpDispatch) return;
+    if (adapter !== this.getActiveAdapter()) return;
+    if (!this._localFollowUpQueue.length) return;
+    const next = this._localFollowUpQueue.shift();
+    this._emitLocalQueueUpdate();
+    if (!next) return;
+    const payload = next.prompt || next.text;
+    this.emit('follow_up_dispatched', { text: next.text, prompt: payload, agentId: this.activeAgentId });
+    try {
+      const r = adapter.send(payload);
+      if (r && typeof r.catch === 'function') {
+        r.catch(e => console.warn('[AgentHub] local followUp dispatch failed:', e));
+      }
+    } catch (e) {
+      console.warn('[AgentHub] local followUp dispatch failed:', e);
+    }
+  }
+
   async abort() {
-    return await this.getActiveAdapter().abort();
+    this._suppressFollowUpDispatch = true;
+    try {
+      // 回收本地队列（pi 原生队列由 bridge.abort → clear_queue 处理并回显 queue_cleared）
+      if (this._localFollowUpQueue.length) {
+        const cleared = this._localFollowUpQueue.splice(0);
+        this._emitLocalQueueUpdate();
+        this.emit('queue_cleared', { steering: [], followUp: cleared.map(i => i.text) });
+      }
+      return await this.getActiveAdapter().abort();
+    } finally {
+      this._suppressFollowUpDispatch = false;
+    }
   }
 
   async newSession() {
+    this._localFollowUpQueue = [];
+    this._emitLocalQueueUpdate();
     this.sessionManager.clearSession(this.activeAgentId);
     return await this.getActiveAdapter().newSession();
   }
