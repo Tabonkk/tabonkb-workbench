@@ -14,6 +14,7 @@ const path = require('path');
 const fs = require('fs');
 const http = require('http');
 const child_process = require('child_process');
+const { decodeTarget, splitLine, classifyTarget, rankHits } = require('../services/file-locator-core.js');
 
 class CodeViewerPanel {
   /**
@@ -49,6 +50,14 @@ class CodeViewerPanel {
     this.remoteLinuxPath = '';
     this.remoteServer = null;
     this.isMonacoActive = false;
+
+    // 远程分层定位: 多命中候选 / 搜索阶段轨迹 / last_resort 计时 / 匹配浮层
+    this.remoteCandidates = [];
+    this._lastSearchStages = [];
+    this._lastOpenExtra = null;
+    this._locateTicker = null;
+    this._matchesPopEl = null;
+    this._matchesPopHandler = null;
 
     // Notepad++ 查找功能状态
     this.isSearchOpen = false;
@@ -189,8 +198,8 @@ class CodeViewerPanel {
     });
     this.bodyEl.appendChild(this.editWrapEl);
 
-    // 3.3 Background Monaco Iframe (通过本地 Companion 服务加载)
-    this.initMonacoIframe();
+    // 3.3 Monaco Iframe 懒加载：mount 时不拉起 —— 首次 openFile 小文件才创建 iframe，
+    //     避免工作台恢复/抽屉重建时后台白烧 ~10s Monaco 引擎初始化 (火图实测最大头)
 
     // 4. Notepad++ Style Bottom Search Dock
     this.searchDockEl = document.createElement('div');
@@ -217,6 +226,7 @@ class CodeViewerPanel {
   }
 
   initMonacoIframe() {
+    if (this.iframeEl) return; // 懒加载幂等守卫
     this.iframeEl = document.createElement('iframe');
     this.iframeEl.className = 'tw-code-monaco-iframe';
     this.iframeEl.setAttribute('frameborder', '0');
@@ -230,6 +240,7 @@ class CodeViewerPanel {
 
   renderHeader() {
     if (!this.headerEl) return;
+    this._matchesPopEl = null; // innerHTML 重建会销毁浮层 DOM, 同步清引用
     const baseName = this.currentFilePath ? path.basename(this.currentFilePath) : '未打开代码';
     const relDir = this.currentFilePath ? path.dirname(this.currentFilePath) : '';
     const lineLabel = this.currentLine && this.currentLine > 0 ? `L${this.currentLine}` : '';
@@ -240,6 +251,7 @@ class CodeViewerPanel {
         <span class="tw-code-file-name">${escapeHtml(baseName)}</span>
         ${lineLabel ? `<span class="tw-code-line-badge">${escapeHtml(lineLabel)}</span>` : ''}
         ${this.isRemote ? `<span class="tw-code-remote-badge" title="${escapeAttr(this.remoteSource)}">${this.remoteSource && this.remoteSource.includes('SSH') ? 'SSH' : '远端'}</span>` : ''}
+        ${(this.remoteCandidates && this.remoteCandidates.length > 1) ? `<button class="tw-code-matches-btn" id="twBtnCodeMatches" title="同名文件多处匹配，点击切换">${this.remoteCandidates.length} 处匹配 ▾</button>` : ''}
         ${this.isModified ? `<span class="tw-code-dirty-dot" title="有未保存修改">●</span>` : ''}
         <span class="tw-code-file-dir">${escapeHtml(relDir)}</span>
       </div>
@@ -312,6 +324,67 @@ class CodeViewerPanel {
           this.onClose();
         }
       };
+    }
+
+    const btnMatches = this.headerEl.querySelector('#twBtnCodeMatches');
+    if (btnMatches) {
+      btnMatches.onclick = (e) => {
+        e.stopPropagation();
+        this.toggleMatchesPopover(btnMatches);
+      };
+    }
+  }
+
+  /**
+   * 「N 处匹配」小浮层: 同名文件多命中时列出 Windows 路径, 点击切换
+   */
+  toggleMatchesPopover(anchorEl) {
+    if (this._matchesPopEl) { this._closeMatchesPopover(); return; }
+    const cands = this.remoteCandidates || [];
+    if (cands.length < 2 || !this.headerEl || !anchorEl) return;
+    const l2w = (typeof linuxPathToWindows === 'function') ? linuxPathToWindows : (p => p);
+
+    const pop = document.createElement('div');
+    pop.className = 'tw-code-matches-pop';
+    pop.innerHTML = cands.map((lp, i) => {
+      const wp = l2w(lp);
+      const short = wp.length > 72 ? wp.slice(0, 30) + '…' + wp.slice(-40) : wp;
+      return `<div class="tw-code-match-item ${i === 0 ? 'is-active' : ''}" data-lp="${escapeAttr(lp)}" title="${escapeAttr(wp)}">${escapeHtml(short)}</div>`;
+    }).join('');
+
+    this.headerEl.style.position = this.headerEl.style.position || 'relative';
+    const rect = anchorEl.getBoundingClientRect();
+    const hostRect = this.headerEl.getBoundingClientRect();
+    pop.style.left = Math.max(0, rect.left - hostRect.left) + 'px';
+    pop.style.top = (rect.bottom - hostRect.top + 4) + 'px';
+    this.headerEl.appendChild(pop);
+
+    pop.querySelectorAll('.tw-code-match-item').forEach(el => {
+      el.onclick = (e) => {
+        e.stopPropagation();
+        const lp = el.getAttribute('data-lp');
+        this._closeMatchesPopover();
+        if (lp) {
+          this.openFile(l2w(lp), this.currentLine, this._lastOpenExtra || {});
+        }
+      };
+    });
+
+    this._matchesPopEl = pop;
+    this._matchesPopHandler = (e) => {
+      if (pop && !pop.contains(e.target) && e.target !== anchorEl) this._closeMatchesPopover();
+    };
+    setTimeout(() => document.addEventListener('click', this._matchesPopHandler), 0);
+  }
+
+  _closeMatchesPopover() {
+    if (this._matchesPopEl) {
+      try { this._matchesPopEl.remove(); } catch (_) {}
+      this._matchesPopEl = null;
+    }
+    if (this._matchesPopHandler && typeof document !== 'undefined') {
+      document.removeEventListener('click', this._matchesPopHandler);
+      this._matchesPopHandler = null;
     }
   }
 
@@ -768,6 +841,23 @@ class CodeViewerPanel {
    */
   async openFile(filePath, targetLine = 1, extraOptions = {}) {
     if (!filePath) return;
+
+    // R1 修复: 百分号编码 (中文文件名) 先解码, 内嵌 :行号 统一拆分
+    if (typeof decodeTarget === 'function') {
+      filePath = decodeTarget(filePath);
+    }
+    if (typeof splitLine === 'function') {
+      const sl = splitLine(filePath);
+      if (sl.line) targetLine = sl.line;
+      filePath = sl.path || filePath;
+    }
+
+    this.remoteCandidates = [];
+    this._lastSearchStages = ['本地/SMB'];
+    this._lastOpenExtra = extraOptions || {};
+    this._stopLocateTicker();
+    this._closeMatchesPopover();
+
     this.currentFilePath = filePath;
     this.currentLine = parseInt(targetLine, 10) || 1;
     this.isModified = false;
@@ -818,6 +908,7 @@ class CodeViewerPanel {
 
     // 3. 若 SSH 亦未命中，智能尝试远端 OpenGrok HTTP 镜像拉取
     if (content === null) {
+      this._lastSearchStages.push('OpenGrok');
       const opengrokContent = await this.tryFetchFromOpenGrok(filePath, extraOptions);
       if (opengrokContent) {
         content = opengrokContent;
@@ -826,15 +917,26 @@ class CodeViewerPanel {
       }
     }
 
-    // 4. 兜底友善排查建议
+    this._stopLocateTicker();
+
+    // 4. 兜底友善排查建议 (按分类给出明确错误, 显示解码后的真实路径)
     if (content === null) {
+      const cls = extraOptions.classification ||
+        (typeof classifyTarget === 'function' ? classifyTarget(filePath, { vaultBase: this.vaultBasePath }) : null);
+      const clsHints = {
+        vault_abs: '知识库内文件存在但读取失败或已移动',
+        local_abs: '本地文件不存在或不可读',
+        server_abs: '服务器文件不存在, 或网络共享断开且 SSH 不可达',
+        rel_workspace: '未选中本地工程且各服务器工作区锚点均未定位到该相对路径',
+        rel_partial: '分层查找未命中 — 文件可能不存在或相对路径不完整',
+        bare: '按文件名在服务器分层目录中未找到 (可能为对话中虚构路径)'
+      };
+      const stages = (this._lastSearchStages && this._lastSearchStages.length)
+        ? this._lastSearchStages.join(' → ') : '本地/SMB → SSH → OpenGrok';
       content = `// 无法读取文件: ${filePath}
-// 原因: ${localReadError ? localReadError.message : '文件不存在或网络共享已断开'}
-// 
-// 💡 排查建议:
-// 1. 若为 Linux 服务器工程，请确认顶部工程下拉框选中了正确的工程目录。
-// 2. 当前系统已开启 SSH 秒级直连 (无需依赖 Windows SMB 网络共享挂载)。
-// 3. 点击右上角 [外部] 按钮，可直接调起本地 Notepad++ 或 VS Code 穿透打开。`;
+// ${clsHints[cls] || '文件不存在或网络共享已断开'}
+// 已搜索: ${stages}
+// 建议在对话中给出绝对路径 (如 Y:\\01\\pri_project\\... 或 D:\\work\\Mgmt\\TabonKB\\...)`;
     }
 
     this.currentContent = content;
@@ -844,95 +946,227 @@ class CodeViewerPanel {
     this.renderNativeCodeView(content, this.currentLine);
 
     // 6. 同步至 Monaco 增强引擎 (小文件接管显示；大文件保留原生视图避免双重渲染闪屏)
+    //    懒加载：仅小文件才值得拉起 iframe 引擎（与 syncToMonaco 大文件门控同阈值），
+    //    首次真实使用时才加载，启动/重建场景零成本
+    if ((content || '').length <= 2 * 1024 * 1024) {
+      this.initMonacoIframe();
+    }
     this.syncToMonaco();
   }
 
   /**
-   * 尝试通过 SSH 直接从远端 Linux 服务器秒级读取 (完全不依赖 Windows SMB 共享挂载)
-   * 单条 SSH 连接内完成全部候选路径探测与 find 兜底，杜绝多次 spawn 的握手叠加延迟。
+   * 尝试通过 SSH 直接从远端 Linux 服务器读取 (完全不依赖 Windows SMB 共享挂载)
+   * 分层定位: server_abs 直读 → 相对路径 anchors 精确探测 → tiers 分层 find → last_resort 整树
    */
   async tryFetchViaSsh(filePath, extraOptions = {}) {
     try {
-      const smartFn = (typeof readRemoteFileSmartAsync === 'function') ? readRemoteFileSmartAsync : null;
-      if (!smartFn) return null;
+      const svc = {
+        locate: (typeof locateRemoteFileAsync === 'function') ? locateRemoteFileAsync : null,
+        read: (typeof readRemoteFileViaSshAsync === 'function') ? readRemoteFileViaSshAsync : null,
+        w2l: (typeof windowsPathToLinux === 'function') ? windowsPathToLinux : null,
+        l2w: (typeof linuxPathToWindows === 'function') ? linuxPathToWindows : null,
+        servers: (typeof LOCAL_SERVERS !== 'undefined' && Array.isArray(LOCAL_SERVERS)) ? LOCAL_SERVERS : [],
+        rank: (typeof rankHits === 'function') ? rankHits : null,
+        classify: (typeof classifyTarget === 'function') ? classifyTarget : null,
+        getProjs: (typeof getAllAvailableLocalProjects === 'function') ? getAllAvailableLocalProjects : null
+      };
+      if (!svc.read) return null;
 
-      const activeProj = extraOptions.activeProject;
+      const activeProj = extraOptions.activeProject || null;
       const fileName = path.basename(filePath);
+      const classification = extraOptions.classification ||
+        (svc.classify ? svc.classify(filePath, { vaultBase: this.vaultBasePath }) : null);
+      const normPath = String(filePath).replace(/\\/g, '/');
+      const serverOf = (srvId) => svc.servers.find(s => s.id === srvId) || null;
+      const projServer = activeProj
+        ? (serverOf(activeProj.serverId) || {
+            id: activeProj.serverId || '62',
+            sshHost: activeProj.sshHost || activeProj.serverIp,
+            host: activeProj.sshHost || activeProj.serverIp,
+            user: activeProj.user,
+            name: activeProj.serverName || (activeProj.serverId ? `${activeProj.serverId} 服务器` : '')
+          })
+        : null;
 
-      let host = activeProj?.sshHost || activeProj?.serverIp;
-      let user = activeProj?.user || 'tankaikun';
-      let serverName = activeProj?.serverName || (activeProj?.serverId ? `${activeProj.serverId} 服务器` : '');
+      // —— server_abs: 路径映射后直接 cat, 不做 find ——
+      // 注意: resolveCodeFilePath 对相对路径会返回 "最佳猜测" 的 Y:\ 绝对路径,
+      // 此时分类仍是 rel_*/bare, 不得按 server_abs 短路, 否则分层定位永远不会执行
+      const isRelClass = (classification === 'rel_workspace' || classification === 'rel_partial' || classification === 'bare');
+      const isAbsRemote = !isRelClass &&
+        (classification === 'server_abs' || /^[YyZz]:\//.test(normPath) || normPath.startsWith('/dfb/') || normPath.startsWith('/home/'));
+      if (isAbsRemote) {
+        const linuxPath = svc.w2l ? svc.w2l(normPath) : normPath;
+        if (!linuxPath.startsWith('/')) return null;
+        let srv = projServer;
+        if (linuxPath.startsWith('/dfb/')) srv = serverOf('62') || srv;
+        else if (linuxPath.startsWith('/home/')) srv = serverOf('31') || srv;
+        const host = (srv && (srv.sshHost || srv.host)) || '192.168.1.62';
+        const user = (srv && srv.user) || 'tankaikun';
+        const serverName = (srv && (srv.name || srv.serverName)) || '62 服务器';
+        this._lastSearchStages.push('SSH直读');
+        const content = await svc.read(host, user, linuxPath, 20000);
+        if (typeof content === 'string' && content.length > 0) {
+          this.remoteCandidates = [linuxPath];
+          return { content, linuxPath, winPath: svc.l2w ? svc.l2w(linuxPath) : filePath, serverName, host, user };
+        }
+        return null;
+      }
+      if (!svc.locate) return null;
 
-      const normLower = filePath.toLowerCase().replace(/\\/g, '/');
-      if (!host) {
-        if (normLower.startsWith('y:') || normLower.startsWith('/dfb/')) {
-          host = '192.168.1.62';
-          serverName = '62 服务器';
-        } else if (normLower.startsWith('z:') || normLower.startsWith('/home/')) {
-          host = '192.168.1.31';
-          serverName = '31 服务器';
+      // —— 相对/裸名: 按服务器分组组装定位任务 (≤2 并发) ——
+      // rel 必须来自原始目标 (rawTarget), 而非决议后的 Y:\ 猜测路径
+      let relSrc = (isRelClass && extraOptions.rawTarget) ? extraOptions.rawTarget : filePath;
+      if (typeof decodeTarget === 'function') relSrc = decodeTarget(relSrc);
+      if (typeof splitLine === 'function') relSrc = splitLine(relSrc).path;
+      const rel = String(relSrc).replace(/\\/g, '/').replace(/^\.\//, '').replace(/^(\.\.\/)+/, '').replace(/^\/+/, '');
+      const jobs = [];
+      const mkJob = (srv, anchors, tiers, lastResortRoot, linuxRoot) => ({
+        srv, anchors, tiers, lastResortRoot, linuxRoot,
+        host: srv.sshHost || srv.host, user: srv.user || 'tankaikun',
+        serverName: srv.name || srv.serverName || '服务器'
+      });
+
+      if (activeProj && activeProj.linuxPath) {
+        const lp = activeProj;
+        const srv = projServer || { id: '62', sshHost: '192.168.1.62', host: '192.168.1.62', user: lp.user || 'tankaikun', name: '62 服务器' };
+        const tiers = [
+          lp.priDriverRel && `${lp.linuxPath}/${lp.priDriverRel}`,
+          lp.publicDriverRel && `${lp.linuxPath}/${lp.publicDriverRel}`,
+          `${lp.linuxPath}/vendor_w/kernel/kernel_device_modules-*`,
+          `${lp.linuxPath}/vendor_w`,
+          lp.platform && `${lp.linuxPath}/pri_project/driver/${lp.platform}`
+        ].filter(Boolean);
+        if (classification === 'rel_workspace') {
+          // 先做工程根锚点探测, 锚点失败再走分层目录 (私有 → 公共 → vendor_w 内核)
+          jobs.push(mkJob(srv, [lp.linuxPath], tiers, lp.linuxPath, lp.linuxPath));
         } else {
-          host = '192.168.1.62';
-          serverName = '62 服务器';
+          jobs.push(mkJob(srv, [], tiers, lp.linuxPath, lp.linuxPath));
         }
-      }
-
-      const w2lFn = (typeof windowsPathToLinux === 'function') ? windowsPathToLinux : (p => p.replace(/^[Yy]:/i, '/dfb/tankaikun/share/').replace(/^[Zz]:\/work/i, '/home/tankaikun/share/work/').replace(/\\/g, '/'));
-      const l2wFn = (typeof linuxPathToWindows === 'function') ? linuxPathToWindows : (p => p.replace('/dfb/tankaikun/share/', 'Y:\\').replace('/home/tankaikun/share/work/', 'Z:\\work\\').replace(/\//g, '\\'));
-
-      // 候选 Linux 路径：直达映射 -> Tier 2 项目定制 -> Tier 1 公共差分
-      const candidates = [];
-      const directLinuxPath = w2lFn(filePath);
-      if (directLinuxPath && directLinuxPath.startsWith('/')) {
-        candidates.push(directLinuxPath);
-      }
-      if (activeProj?.linuxPath) {
-        const cleanBase = filePath.replace(/^[A-Za-z]:[\\\/]/, '').replace(/^[\\\/]+/, '').replace(/^base[\\\/]/i, '').replace(/\\/g, '/');
-        if (activeProj.priDriverRel) {
-          candidates.push(`${activeProj.linuxPath}/${activeProj.priDriverRel}/${cleanBase}`);
-          candidates.push(`${activeProj.linuxPath}/${activeProj.priDriverRel}/bsp/kernel5.15/kernel5.15/drivers/misc/prize/hardware_info/${fileName}`);
-          candidates.push(`${activeProj.linuxPath}/${activeProj.priDriverRel}/bsp/kernel5.15/kernel5.15/drivers/misc/prize/${fileName}`);
-        }
-        if (activeProj.publicDriverRel) {
-          candidates.push(`${activeProj.linuxPath}/${activeProj.publicDriverRel}/${cleanBase}`);
-          candidates.push(`${activeProj.linuxPath}/${activeProj.publicDriverRel}/bsp/kernel5.15/kernel5.15/drivers/misc/prize/hardware_info/${fileName}`);
-        }
-      }
-
-      // find 兜底搜索根
-      const searchRoots = [];
-      if (activeProj?.linuxPath) {
-        if (activeProj.platform && activeProj.project) {
-          searchRoots.push(`${activeProj.linuxPath}/pri_project/driver/${activeProj.platform}/${activeProj.project}`);
-        }
-        searchRoots.push(`${activeProj.linuxPath}/pri_project/driver/public`);
-        searchRoots.push(activeProj.linuxPath);
       } else {
-        searchRoots.push('/dfb/tankaikun/share/W/01-sprd/pri_project/driver/public');
-        searchRoots.push('/dfb/tankaikun/share/W/03-mtk-ww/pri_project/driver/public');
-        searchRoots.push('/home/tankaikun/share/work/AndroidW/05-UW/pri_project/driver/public');
+        // R2 修复: 无活动工程 → anchors = 各服务器全部 LOCAL_SERVERS 工作区根 + 缓存工程 linuxPath
+        const cachedRoots = { '62': new Set(), '31': new Set() };
+        if (svc.getProjs) {
+          try {
+            for (const p of (svc.getProjs() || [])) {
+              if (p && p.linuxPath && cachedRoots[p.serverId]) cachedRoots[p.serverId].add(p.linuxPath);
+            }
+          } catch (_) {}
+        }
+        for (const srv of svc.servers) {
+          const wsRoots = (srv.workspaces || []).map(w => `${srv.linuxRoot}/${w.relPath}`);
+          for (const r of (cachedRoots[srv.id] || [])) wsRoots.push(r);
+          const uniq = [...new Set(wsRoots)];
+          if (!uniq.length) continue;
+          if (classification === 'rel_workspace') {
+            jobs.push(mkJob(srv, uniq, [], null, srv.linuxRoot));
+          } else {
+            const pubDirs = uniq.map(r => `${r}/pri_project/driver/public`);
+            // 整树兜底仅挂默认 62 的第一个工作区根, 避免多台服务器重复全树扫描
+            const lrr = (srv.id === '62') ? uniq[0] : null;
+            jobs.push(mkJob(srv, [], pubDirs, lrr, srv.linuxRoot));
+          }
+        }
+      }
+      if (!jobs.length) return null;
+
+      const results = await Promise.all(jobs.map(job =>
+        svc.locate({
+          server: job.srv,
+          anchors: job.anchors,
+          rel,
+          fileName,
+          tiers: job.tiers,
+          lastResortRoot: extraOptions.skipLastResort ? null : job.lastResortRoot,
+          timeoutMs: 15000,
+          lastResortTimeoutMs: 45000,
+          onStage: (st) => { this._onLocateStage && this._onLocateStage(st, job); }
+        }).then(r => ({ job, r })).catch(() => ({ job, r: { hits: [], stage: 'none', timedOut: false } }))
+      ));
+
+      for (const { job, r } of results) {
+        this._lastSearchStages.push(`SSH:${r.stage}${r.timedOut ? '(超时)' : ''}`);
       }
 
-      const res = await smartFn(host, user, {
-        candidates,
-        searchRoots,
-        fileName
-      }, 8000);
+      // 汇总各服务器命中并按项目上下文排序
+      const rankedItems = [];
+      results.forEach(({ job, r }, jobIdx) => {
+        if (!r || !r.hits || !r.hits.length) return;
+        const sorted = svc.rank ? svc.rank(r.hits, {
+          projectLinuxRoot: (activeProj && activeProj.linuxPath) ? activeProj.linuxPath : job.linuxRoot,
+          priDriverRel: activeProj ? activeProj.priDriverRel : null,
+          publicDriverRel: activeProj ? activeProj.publicDriverRel : null,
+          kernelVer: activeProj ? this._inferKernelVer(activeProj, r.hits) : null
+        }) : r.hits;
+        for (const h of sorted) rankedItems.push({ hit: h, job, jobIdx });
+      });
+      // 活动工程所在 job 的命中整体优先
+      if (activeProj) rankedItems.sort((a, b) => (a.jobIdx - b.jobIdx));
 
-      if (res && typeof res.content === 'string' && res.content.length > 0) {
-        const linuxPath = res.linuxPath || candidates[0] || '';
+      const seen = new Set();
+      const candidates = [];
+      for (const it of rankedItems) {
+        if (!seen.has(it.hit)) { seen.add(it.hit); candidates.push(it); }
+        if (candidates.length >= 12) break;
+      }
+      if (!candidates.length) return null;
+
+      this.remoteCandidates = candidates.map(it => it.hit);
+      const top = candidates[0];
+      this._lastSearchStages.push('SSH直读');
+      const content = await svc.read(top.job.host, top.job.user, top.hit, 20000);
+      if (typeof content === 'string' && content.length > 0) {
         return {
-          content: res.content,
-          linuxPath,
-          winPath: linuxPath ? l2wFn(linuxPath) : filePath,
-          serverName,
-          host,
-          user
+          content,
+          linuxPath: top.hit,
+          winPath: svc.l2w ? svc.l2w(top.hit) : filePath,
+          serverName: top.job.serverName,
+          host: top.job.host,
+          user: top.job.user
         };
       }
       return null;
     } catch (_) {
       return null;
+    }
+  }
+
+  /**
+   * 从命中列表推断当前工程实际使用的 kernel_device_modules 版本:
+   * 优先取 priDriverRel 下命中里出现的版本, 否则不加该排序级
+   */
+  _inferKernelVer(activeProj, hits) {
+    try {
+      const pri = activeProj && activeProj.linuxPath && activeProj.priDriverRel
+        ? `${activeProj.linuxPath}/${activeProj.priDriverRel}/` : null;
+      for (const h of (hits || [])) {
+        const s = String(h).replace(/\\/g, '/');
+        if (pri && !s.startsWith(pri)) continue;
+        const m = s.match(/kernel_device_modules-([\d.]+)/);
+        if (m) return m[1];
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  /**
+   * 远程定位阶段回调: last_resort 时显示「正在服务器上定位 …（N 秒）」并每秒刷新
+   */
+  _onLocateStage(stage, job) {
+    if (stage !== 'last_resort') return;
+    this._stopLocateTicker();
+    const t0 = Date.now();
+    this._renderLoadingState('正在服务器上定位 …');
+    this._locateTicker = setInterval(() => {
+      const el = this.nativeViewerEl && this.nativeViewerEl.querySelector('.tw-code-loading-text');
+      if (!el) { this._stopLocateTicker(); return; }
+      el.textContent = `正在服务器上定位 …（${Math.floor((Date.now() - t0) / 1000)} 秒）`;
+    }, 1000);
+  }
+
+  _stopLocateTicker() {
+    if (this._locateTicker) {
+      clearInterval(this._locateTicker);
+      this._locateTicker = null;
     }
   }
 
@@ -999,16 +1233,17 @@ class CodeViewerPanel {
     }
   }
 
-  _renderLoadingState() {
+  _renderLoadingState(msg) {
     if (!this.nativeViewerEl) return;
     if (this.editWrapEl) this.editWrapEl.style.display = 'none';
     if (this.iframeEl) this.iframeEl.style.display = 'none';
     this.nativeViewerEl.style.display = 'block';
     this._nv = null;
+    const text = msg || `正在读取 ${path.basename(this.currentFilePath || '')} …`;
     this.nativeViewerEl.innerHTML = `
       <div class="tw-code-loading">
         <span class="tw-code-loading-dot"></span>
-        <span>正在读取 ${escapeHtml(path.basename(this.currentFilePath || ''))} …</span>
+        <span class="tw-code-loading-text">${escapeHtml(text)}</span>
       </div>
     `;
   }

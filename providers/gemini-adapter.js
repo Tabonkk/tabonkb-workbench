@@ -18,7 +18,7 @@ class GeminiAdapter extends AgentAdapter {
       displayName: 'Gemini',
       icon: getAgentBrandSvg('gemini', 16),
       vaultBasePath: options.vaultBasePath || '',
-      permissionMode: options.permissionMode || 'readonly'
+      permissionMode: options.permissionMode || 'readwrite'
     });
 
     this.sessionId = null;
@@ -144,7 +144,9 @@ class GeminiAdapter extends AgentAdapter {
 
     const bin = this.resolveGeminiBinary();
     const vaultPath = this.vaultBasePath || process.cwd();
-    const approvalMode = this.permissionMode === 'readwrite' ? 'auto_edit' : 'plan';
+    // 三档映射: readonly→plan / readwrite→auto_edit / full→yolo
+    const approvalMode = this.permissionMode === 'readonly' ? 'plan'
+      : (this.permissionMode === 'full' ? 'yolo' : 'auto_edit');
     this.ensureVendorMcp();
 
     if (!this.sessionId) {

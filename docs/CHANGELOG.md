@@ -1,3 +1,378 @@
+## [1.7.0] - 2026-10-20
+### Released
+- **正式发布 TabonKB 研发工作台 V1.7.0 里程碑版本**：
+  - **涉及文件**：`manifest.json`、`build.py`、`main.js`、`services/remote-exec-core.js`（新增）、`services/file-locator-core.js`（新增）、`services/magpie-observability-service.js`（新增）、`services/local-project-service.js`、`services/dsh-daemon-manager.js`、`extensions/remote-exec-portal.ts`（新增）、`components/explore-palette.js`（新增）、`components/code-viewer-panel.js`、`components/explore-view.js`、`components/notion-embed.js`（移除）、`pi-agent-bridge.js`、`pi-drawer-view.js`、`agent-hub.js`、`agent-session-manager.js`、`agent-context-provider.js`、`providers/`（全量适配器）、`styles.css`、`ui/iconpark.js`、`docs/test_runner.js`
+  - **问题背景**：1.6.1–1.6.4 阶段功能迭代与体验打磨全面完成，收敛发布为正式里程碑版本并推送至远程仓库。
+  - **核心修改逻辑**：
+    1. **AI 专用 SSH 远程执行器与三档权限体系**：新增 `remote-exec-core`/`remote-exec-portal`/`remote_exec` 工具，Y:/Z:/UNC 映射盘检索自动走服务器端 SSH 执行（本地 19min+ → 远端 3.3s）；只读/读写/完全三档白名单命令审查模型，base64 传输隔离 shell 语法层，远端 timeout+本地看门狗+AbortSignal 双通道防孤儿
+    2. **AI 对话文件链接定位链路重构**：`file-locator-core` 六分类目标识别 + href 百分号解码 + vault 优先匹配 + SSH 锚点→分层 find→整树兜底三级定位 + 多匹配候选浮层
+    3. **导航栏重构为浮动玻璃 Dock**：macOS 式磁吸放大 + 名称气泡 + 左缘 active 竖条，极致简约
+    4. **探索页命令面板**：Alt+K 唤起毛玻璃搜索框，接入 Omnisearch 全文检索
+    5. **性能系统性根治**：Monaco 编辑器懒加载、DSH 守护进程热重载保留复用、主线程同步 I/O 解耦、历史消息分批流式挂载，重载 ~10s 卡顿根治；启动探针补齐冷启动全链路打点
+    6. **Magpie 观测服务**：新增用量快照聚合/账号脱敏/额度卡片刷新内核，支撑 Agent 用量效能看板
+  - **验证状态**：py build.py 打包通过；node -c main.js 语法验证通过；全量 **621 项**自动化单元测试 100% 全绿 PASS。
+  - **执行 Agent**：Devin (SWE-2 High)
+
+## [1.6.4] - 2026-10-19
+### Added
+- **AI 专用 SSH 执行器 + 三档权限（只读 / 读写 / 完全权限）：grep/find/ls 命中映射盘即走服务器远端执行，新增 remote_exec 通用命令工具**
+  - **涉及文件**：
+    - `services/remote-exec-core.js`（新增：纯 CommonJS 无副作用内核——`calcTimeoutSec`(clamp 60~600, 60+fileCount/250 取整, 探测失败兜底 180)、`clampTimeoutSec`(remote_exec 显式超时夹取 [min,600]，min 缺省 `TABONKB_REMOTE_MIN_TIMEOUT` 环境变量或 60，测试可传 minSec 调低)、`buildRemoteCommand`(用户命令 base64 传输, `timeout -k 5 <T> bash -c "$(echo <B64>|base64 -d)" <marker>`，marker 作 $0 供 pkill -f 匹配)、`buildSshArgs`(-T BatchMode+保活参数)、`resolveServer`(Y:/Z:/UNC/linux/'62'/'31' 映射)、`shellQuote`(单引号安全转义)、`checkCommand`(三档命令审查)）
+    - `extensions/remote-exec-portal.ts`（新增：同名覆盖内置 grep/find/ls——schema 原样复用 `createGrepToolDefinition`/`createFindToolDefinition`/`createLsToolDefinition`，路径命中 Y:/Z:/UNC 映射盘即走 SSH `grep -rnI --null`/`find`/`ls -1Ap`，结果行回译 Windows 路径；未命中走内置实现+120s 兜底超时；动态超时=先 `du -s --inodes` 探测(15s 限)再 `calcTimeoutSec`，**探测自身超时视为超大目录记 1e9→600s 并按正常 10min 缓存**（不再每次搜索白烧 15s），仅其它失败（ssh 断/解析失败）走 180s 兜底+60s 失败缓存；远端 timeout 为主限时+本地看门狗兜底+AbortSignal 双通道(杀本地 ssh + 二次 ssh `pkill -f <marker>` 清残留)；onUpdate 每 5s 回报进度；超时返回已收集部分输出+提示不吞结果；新工具 `remote_exec` 执行前过 `checkCommand`，模式取 `TABONKB_PERM_MODE`，被拒返回中文提示并引导切换档位）
+    - `pi-agent-bridge.js`（三档校验；`resolveLaunchCommand` 只读档去掉 write/edit 与 project_edit_file/project_compile（修复只读档缺口），`remote_exec` 各档常驻；`getExtensionPaths` 注册 remote-exec-portal.ts；spawn env 注入 `TABONKB_PERM_MODE`）
+    - `agent-hub.js`（getSavedPermissionMode/setPermissionMode 校验三值，旧存档 'readwrite' 语义保留为读写档）
+    - `providers/`（agent-adapter-base 校验三值；antigravity readonly→plan/其余→accept-edits；codex readonly→read-only/readwrite→workspace-write/full→danger-full-access；gemini readonly→plan/readwrite→auto_edit/full→yolo；pi/dsh/hermes/niceaigc 默认值统一为 readwrite）
+    - `pi-drawer-view.js`（权限弹层三选项：只读(lock)/读写(shield)/完全权限(lightning)；togglePermissionMode 三档循环；胶囊与 hint 文案/配色按档切换）
+    - `styles.css`（`.tw-perm-pill.readwrite` 主题主色 / `.tw-perm-pill.full` 克制红、`!important` 镜像块同步、`.tw-perm-opt-full` 红色提示、`.tw-hint-dot.full`）
+    - `docs/test_runner.js`（Suite 28 `REMOTE-EXEC` 扩至 157 项断言：动态超时/clampTimeoutSec/路径往返/注入防护/三档审查，三档用例含权威对抗集 adv-test 29 条 + adv2 31 条 + 补充回归+「需完全权限模式」拒绝文案断言）
+    - `main.js`（py build.py 重新编译生成）
+  - **需求背景**：Y: 盘为 SMB 网络盘，本地 rg 全量检索 19 分钟+无果，同搜索经 SSH 服务器端 `grep -rnI` 仅 3.3s；需 AI 直接经 SSH 执行检索/命令并受三档权限约束。**评审返工（两轮）**：第一轮初版 checkCommand 对抗性测试 16/29 不符预期——只读档 git `-c`/`--output`/`--ext-diff`、sed `s///e|w` 标志、tree/uniq/xxd/repo manifest 位置输出等可写文件；读写档黑名单漏 dd/truncate/gzip/shred/zip/unlink/awk -i，故一次性重构为白名单模型。第二轮对抗集（adv2, 31 条）再捕 4 类漏洞：双引号内 `$(...)`/反引号因 stripQuoted 整段抹除而漏检；git `--git-dir`/`-C /tmp` 可指向 /tmp 内自建恶意仓库执行配置注入；sort `--compress-program` 可执行任意程序；凭据/密钥文件未受全档保护
+  - **核心修改逻辑**：三档语义——readonly 白名单收紧：git 全拒 `-c`/`--config-env`/`--exec-path`/`--output*`/`--ext-diff`/`--textconv`（diff/log/show 再禁 `-o`）；sed 改严格语法（必须 -n，脚本仅允许「可选地址(数字/`$`/`/re/`/逗号范围)+单条 p 或 =」）；tree/uniq/xxd/repo-manifest/date/file/awk 逐项参数审查（-o/多位置参数/-r/-o/-s/-C/-i 等写路径全堵）；readwrite（新默认）= **白名单模型：只读集+受限写动词**（cp/mv/mkdir/touch/tee/rm 仅 *.bak/*.tmp/sed -i 脚本禁 e/w/r/R/W 命令与 s 的 e/w 标志/输出重定向），写目标一律 `writeTargetOk` 限定 writeRoots（当前工程 priDriverRel/publicDriverRel linux 路径）与 /tmp 绝对路径、禁 `..`/变量/通配符，非白名单命令统一拒绝「该命令需完全权限模式」；full 仅硬拦 sudo/su、根级 rm -rf、mkfs、dd of=/dev/*、关机、fork 炸弹等灾难级命令。用户命令一律 base64 传输不进 shell 语法层；远端 `timeout -k 5` 硬限时（实测 124 准时退出），本地看门狗 + AbortSignal pkill 清理防孤儿；remote_exec 显式 `timeout_sec` 经 `clampTimeoutSec` 夹取生产下限 60s（测试经 `TABONKB_REMOTE_MIN_TIMEOUT` 调低）。**第二轮加固**：新增 `stripSingleQuoted`（仅抹单引号内容，保留双引号内 `$(...)`/反引号供检测——bash 双引号内命令替换仍会执行）；git 全拒 `--git-dir`/`--work-tree`/`--namespace`/`--super-prefix`，`-C` 目录禁 `..`/变量/`~` 且绝对路径必须位于 `/dfb|/home/...share` 下，ctx 新增 `cwd` 使 git/repo 有效目录（-C 值或 cwd）不得位于 /tmp（防读写档先 `tee` 建恶意仓库再 `git --git-dir` 执行）；`writeTargetOk` 拒写含 `/.git` 组件的路径；sort 禁 `--compress-program`；所有模式（含 full）对 token 与重定向目标做凭据路径判定（`.ssh/`、`id_*`、`.gnupg/`、`.netrc`、`.git-credentials`、`/etc/shadow|gshadow|sudoers`、`.aws/credentials`、`.kube/config`、`.docker/config.json`），grep/find/sed/awk 的 pattern/表达式参数位跳过以避免误伤搜索关键字。**注意仍非沙箱**：读类命令可读服务器上远程用户可读的任意文件
+  - **验证状态**：py build.py 打包通过；node -c main.js 通过；node docs/test_runner.js **572 项 100% 全绿 PASS**（Suite 28 含权威对抗集 adv-test 29 条 + adv2 31 条全过）；实机冒烟三项全过——62 服务器 grep `prize_typec_charge_det` 3.98s 命中 tcpci_typec.c 且输出 Y:\ 路径；`remote_exec sleep 30`(完全权限+`TABONKB_REMOTE_MIN_TIMEOUT=1`, timeout_sec=3) 3.79s 返回超时提示且 `pgrep -f "sleep 30"` 证实远端零残留；只读档 `git reset --hard` 被拒（原文见 %TEMP%\remote-exec-smoke.txt）
+  - **执行 Agent**：Devin (SWE-2 High)
+
+### Added
+- **AI 对话文件链接定位链路重构：href 解码 + vault 优先 + 工作区锚点探测 + SSH 分层定位（锚点→分层 find→整树兜底）+ 多匹配候选 UI**
+  - **涉及文件**：
+    - `services/file-locator-core.js`（新增：纯 CommonJS 无副作用内核——`decodeTarget`（仅当含合法 `%HH` 才 decodeURIComponent，`%ZZ`/孤立 `%` 保持原样不抛错；剥离 `file:///`、反引号/引号/`[[wikilink]]` 包裹）、`splitLine`（`#L85`/`#L85-L90`/`:85`/`:85:12`，Windows 盘符冒号不误判）、`classifyTarget`（`server_abs`/`vault_abs`/`local_abs`/`rel_workspace`/`rel_partial`/`bare` 六分类）、`shortenPathLabel`（路径 → basename[:line]，省略号段取最后一段）、`rankHits`（项目私有 pri > 公共 public > kernel_device_modules-<ver> > 工程根 > 其它，同级短路径优先）、`buildLocateScript`（生成远端 bash：anchors `[ -f ]` 精确探测 → 无命中按层 `find -maxdepth 14`（剪枝 .git/.repo/out，`-path "*/rel"` 或 `-name`，每层至多 30 条，**某层命中即 `[ "$hits" -gt 0 ] && break`**；含目录路径 `-path` 无命中时同层再 `-name` 裸名兜底；含 `*` 的层按安全字符集保留 glob 展开；全部插值经单/双引号转义）、`OBSIDIAN_NATIVE_EXTS`）
+    - `services/local-project-service.js`（新增 `locateRemoteFileAsync(opts)`：一次 SSH 跑 buildLocateScript（15s），可选 lastResort 整树 find（45s）前触发 `onStage('last_resort')`；全部经 remote-exec-core `buildRemoteCommand`/`buildSshArgs` + spawn 管道 + 本地看门狗（远端 timeout+10s）防挂死；保留 `readRemoteFileSmartAsync` 兼容旧调用点）
+    - `pi-drawer-view.js`（`resolveCodeFilePath` 入口 decode+splitLine；**vault 优先**：绝对路径落库内存在 / 相对路径在库内存在 / `.md` 文件名 app.vault 唯一匹配 → `{isVault:true}`；`subBranches` 补 `kernel/kernel_device_modules-<实存版本>` 候选；未选工程时 `_probeWorkspaceAnchors` 用缓存工程记录+LOCAL_SERVERS 工作区根做 SMB 锚点探测（R2）；`openCodeInSplitPane` 改 async——isVault 且扩展名∈OBSIDIAN_NATIVE_EXTS → 新方法 `openVaultFileInSplit`（复用 `_vaultSplitLeaf`，失效经 `getLeavesOfType`/`createLeafBySplit` 重建，`openFile` 传 `eState.line`+`active:false`，`revealLeaf` 展示，不打开右侧代码面板）；链接渲染：`a.title` 显示解码后全路径，路径形文本缩为 basename[:line]；上下文注入新增 `[文件引用]` 绝对路径规则行，wire 提取同步剥离）
+    - `components/code-viewer-panel.js`（`openFile` 入口 decodeTarget；`tryFetchViaSsh` 重写——`server_abs` 直接 cat（不 find）；相对/裸名按分类组定位任务：有工程 → anchors=[工程根]+tiers=[pri, public, `vendor_w/kernel/kernel_device_modules-*` glob, `vendor_w`, `pri_project/driver/<platform>`]，无工程 → 各服务器工作区根 anchors / 各工作区 public 层（≤2 并发 SSH）；**rel 取原始目标**而非决议出的 Y:\ 猜测路径（修复 R3 决议路径被误当 server_abs 导致永不定位的缺陷）；命中 `rankHits` 排序保留全部候选 ≤12 入 `remoteCandidates`；头部「N 处匹配 ▾」浮层切候选（Windows 路径中间省略、title 全路径）；`_renderLoadingState` 支持阶段文案，last_resort 显示「正在服务器上定位 …（N 秒）」每秒刷新；失败提示写明已搜索阶段并建议给绝对路径；新增 `extraOptions.skipLastResort` 供调用方限制整树扫描；不再调用 `readRemoteFileSmartAsync`）
+    - `agent-context-provider.js`（注入 prompt 增加 `[文件引用]` 规则段）
+    - `styles.css`（`.tw-code-remote-badge` 多匹配按钮与候选浮层样式，沿用 ghost-button 极简规范）
+    - `docs/test_runner.js`（新增 Suite 29 `FILE-LOCATE` 断言：decode/splitLine/classify/shorten/rankHits/buildLocateScript 转义与分层即停/locateRemoteFileAsync 接口与不可达服务器兜底/`[文件引用]` 注入-剥离往返/openVaultFileInSplit 叶复用-失效重建-stub 测试）
+    - `build.py`（files 清单在 local-project-service 之前注册 file-locator-core）
+    - `main.js`（py build.py 重新编译生成）
+  - **需求背景（R1-R4，真实数据复现确认）**：R1 Markdown href 中文 `%E5%BA%93...` 未解码直接拿去 stat（解码后本地 45ms 即中）；R2 相对路径未选工程时无工作区锚点，候选全空 find 必败（K90 在 01/02/03/04×62/31 共 16 条工程记录）；R3 `readRemoteFileSmartAsync` 串行最多 3 遍整树 find（单遍 ~10s+，总超时 8s）且 `head -n1` 任意取首可能开错版本（cust_charger.dtsi 65 份、mtk_pe5.c 35 份跨 6.12/6.18/tcpc_aw）；R4 选中工程后 vault 相对路径被 isRemoteCandidate 提前 return 截胡（.obsidian/community-plugins.json、INDEX-by-Platform.md 失败）
+  - **验证状态**：py build.py 打包通过；node -c main.js 通过；node docs/test_runner.js **612 项 100% 全绿 PASS**；30 个真实引用样本前后对比 `{"ssh":2,"FAIL":26,"smb":2}` → `{"smb":11,"ssh":13,"vault":3,"FAIL":3}`（%TEMP%\viewer-repro5.txt），3 个 FAIL 均属合理未命中（库内 INDEX-by-Platform.md 依赖 app.vault 唯一名匹配——stub 环境无 vault 索引，真实 Obsidian 内可命中；km003c_worker.py 文件不存在；`_v1.0_...md` 系编造残缺文件名）；图一百分号编码 vault 文档 3ms 命中（vault_abs）；图二未选工程经锚点探测 145ms 命中；mtk_pe5.c 分层定位 746ms 首名 kernel_device_modules-6.12、未触发整树 last_resort；全程 last_resort 整树 find 调用 0 次（≤2 约束内）。**修复一个自引入缺陷**：初版 buildLocateScript 层停写为 `[ -n "$hits" ] && break`——`hits=0` 为非空字符串恒真导致永远只搜第一层，改为 `-gt 0` 判定后多层级正常（tcpci_timer.c 命中 vendor_w/kernel_device_modules-6.12 层）。**评审返工**：`_probeWorkspaceAnchors` 加 800ms 主线程预算（与 probeExpired 同口径，超时返回 null 交 SSH），同一工作区盘符/UNC 变体互斥（盘符在线只用盘符，离线才回退 UNC），优先探测当前/上次工程所在工作区，新增可注入 `_statFileProbe` 便于预算测试；`openVaultFileInSplit` 叶存活判断改 `iterateAllLeaves` 工作区成员遍历（已 detach 叶 view/parent 残留不误判，pdf/canvas 叶不误杀），anchor 缺失回退 `getLeaf('split','vertical')`，创建失败返回 null 且 `openCodeInSplitPane` 回落右侧代码面板（不再点击无反应）。**Obsidian 真实 UI 行为（分栏/悬停提示/候选浮层交互）当前环境无法驱动，仅经 stub 测试与代码审查验证，待用户手验**
+  - **执行 Agent**：Devin (SWE-2 High)
+
+### Fixed
+- **文件链接悬停双浮窗：移除原生 title 浅框与 href URL 预览框，统一走 aria-label → Obsidian 深色 tooltip 并放宽宽度**
+  - **涉及文件**：`pi-drawer-view.js`（postProcessRenderedMarkdown 文件/代码链接分支：`a.title` 与 `a.href` 一并移除，解码后全路径改存 `aria-label` 与 `dataset.twPath`；inline `<code>` 链接同样 title→aria-label+data-tw-path；库内 internal-link 笔记链接保留 href/title 不变）、`styles.css`（`.tooltip` max-width 放宽至 `min(600px, 85vw)` + `overflow-wrap:anywhere`，仅影响超长内容）、`main.js`（重新编译）
+  - **问题背景**：用户截图显示悬停文件链接时同时出现两个浮窗——深色框为 `<a href="file:///Z:/...">` 触发的 Obsidian/Electron URL 预览（位于元素上方），浅色框为 `a.title="完整路径: ..."` 触发的 Chromium 原生提示（位于下方），功能重复且深色框对中文文件名会显示百分号编码
+  - **核心修改逻辑**：文件/代码链接 removeAttribute('href') 使 URL 预览浮窗失去数据源，removeAttribute('title') 去掉原生浅框；`aria-label=解码后全路径` 由 Obsidian 原生 aria-label tooltip 渲染为深色浮窗（`.tooltip`，默认上方弹出），`<a>` 与 `<code>` 同一样式且中文路径保持解码态；点击目标从 `dataset.twPath` 读取，displayText 已缩短为 basename 的重渲染场景仍指向完整路径；`.tooltip` 全局放宽宽度上限——仅当内容超长才显宽，短提示无视觉变化
+  - **验证状态**：py build.py 打包通过；node -c main.js 通过；node docs/test_runner.js 全绿。**Obsidian 真实 UI 无法在本环境驱动，aria-label→tooltip 渲染与宽度需用户手验**
+  - **执行 Agent**：Devin (SWE-2 Max)
+
+### Fixed
+- **文件链接悬停光标 I-beam 修复：子元素强制手型**
+  - **涉及文件**：`styles.css`（新增 `.tw-clickable-file-link *` 等 `cursor: pointer !important` 规则）
+  - **问题背景**：文件头部 `.tw-msg-content * { cursor:text !important }` 命中链接内部 `.tw-file-name`/`.tw-file-type-icon` 子元素——元素自身规则优先于从 `<a>` 继承的 pointer，整条链接显示文本 I-beam
+  - **核心修改逻辑**：`.tw-msg-content .tw-clickable-file-link *`（优先级 0,2,0 > 0,1,0）等规则强制子元素手型；手型取系统原生 `cursor:pointer`，与 Obsidian 自身链接一致
+  - **验证状态**：纯 CSS 改动无需打包；级联优先级经审查确认
+  - **执行 Agent**：Devin (SWE-2 Max)
+
+### Added
+- **Ctrl+F 搜索面板新增最近 5 次搜索历史：搜索框下方小胶囊字串，点击回填输入框并立即检索**
+  - **涉及文件**：`components/explore-palette.js`（新增 `_loadHistory`/`_recordQuery`——localStorage `tabonkb-explore-palette-history` 持久化、去重置顶、上限 5 条、trim 空串忽略；新增 `.tw-cmdk-history` 字串行与 `_renderHistory`——空查询且有历史时显示，点击字串 `inputEl.value=h` + focus + 立即 `_renderList`；Enter/click 执行路径先记录 `inputEl.value` 再 `item.run()`）、`styles.css`（`.tw-cmdk-history` flex 平铺 + `.tw-cmdk-hist-chip` 小胶囊 11px  muted 底 hover 强调色）、`main.js`（重新编译）
+  - **需求背景**：用户要求在搜索框下方展示最近 5 次搜索历史字串，点击可直接复制到搜索框；初版做成列表项后按反馈简化为纯字串
+  - **核心修改逻辑**：历史在执行结果时记录（回填本身不入史）；字串去重 `filter(s!==q)` + `slice(0,5)`；输入非空时字串自动隐藏，清空恢复；localStorage 读写全部 try/catch 容错
+  - **验证状态**：py build.py 打包通过；node -c main.js 通过
+  - **执行 Agent**：Devin (SWE-2 Max)
+
+### Simplify
+- **Ctrl+F 搜索面板去冗余：移除默认命令项、行列尾 ↵ 键帽、输入行 esc 键帽与底部快捷键提示条**
+  - **涉及文件**：`components/explore-palette.js`（模板移除 `.tw-search-actions` esc kbd 与 `.tw-cmdk-foot` 提示条、列表项移除 `↵` kbd；空查询且列表为空时整块 `.tw-cmdk-list` 隐藏，面板收缩为纯输入框；查询无结果仍保留「无匹配结果」占位；占位符改为「Omnisearch 全文检索…」）、`components/explore-view.js`（移除 `_paletteCommands` 三条默认命令注册，构造传 `[]`）、`styles.css`（清理 `.tw-cmdk-kbd`/`.tw-cmdk-enter`/`.tw-cmdk-foot` 死规则，badge 间距规则保留；`.tw-cmdk-search-wrap` 输入框右内边距 56px→16px）、`main.js`（重新编译）
+  - **需求背景**：用户圈出命令列表区、行尾 ↵ 图标、输入行 esc、底部快捷键条均为冗余；默认命令项（AI 助手/平台资源检索/原厂账号配置）经导航栏与子页直达即可
+  - **核心修改逻辑**：面板回归纯检索入口——空查询只剩输入框，输入即 Omnisearch 结果列表（↑↓/Enter/Esc/点击外部 行为不变）；命令参数位保留空数组兼容构造签名
+  - **验证状态**：py build.py 打包通过；node -c main.js 通过
+  - **执行 Agent**：Devin (SWE-2 Max)
+
+### Style
+- **浮动 Dock 外圈对比度修复：浅色模式白描边换成深色细线**
+  - **涉及文件**：`styles.css`（Dock 边框 `rgba(255,255,255,0.5)` → `rgba(15,23,42,0.10)`，阴影 0.14→0.16 / 内嵌高光 0.55→0.7；暗色边框 0.1→0.16；active 指示条 `left:-5px`→`-3px`）
+  - **问题背景**：浅色主题下白色半透明描边叠在淡紫页面上几乎隐形，左侧外缘看不清；active 指示条 -5px 探出过多视觉上贴着轨道左缘
+  - **核心修改逻辑**：深色发丝描边 + 内嵌顶部高光——外圈四缘在任何背景下都有清晰界定且保留玻璃质感；指示条收到 -3px 与描边留出间隙
+  - **验证状态**：纯 CSS 改动无需打包
+  - **执行 Agent**：Devin (SWE-2 Max)
+
+### Added
+- **上下文配置 (OpenGrok/Gerrit/Jira/本地工程) 改为随会话持久化：新建会话恢复未选中，切换历史会话各自恢复**
+  - **涉及文件**：`agent-session-manager.js`（agent 记录新增 `pendingContext` 待发区；session 序列化白名单加 `context`；`createSession` 物化时接管 pendingContext；`newSession` 清空 pending；新增 `setSessionContext`/`getSessionContext`）、`pi-drawer-view.js`（新增 `_ctxSnapshot`/`_syncCtxToSession`/`_applySessionContext`；四个 save* 的公共尾 `_persistActiveContextFile` 内同步写会话；`handleNewSession`/`loadHistorySession`/`deleteHistorySession`(wasActive)/`switchAgent`/`mount` 全生命周期挂接应用）、`main.js`（重新编译）
+  - **需求背景**：上下文绑定此前全局共享，新开会话仍携带旧会话的工程/Jira 绑定；用户要求跟随对话、新建复位未选中
+  - **核心逻辑**：写穿透——任一 save* 变更即快照四项绑定写入 `session.context`（无活跃会话写 `agent.pendingContext`，首条消息 createSession 时接管）；应用——会话带 context 按其恢复，老会话缺该字段回退全局 localStorage 兼容，全新会话一律未选中；走 save* 链路写回保证 localStorage/env 变量/提示条 UI 一致
+  - **验证状态**：py build.py 打包通过；node -c main.js 通过
+  - **执行 Agent**：Devin (SWE-2 Max)
+
+### Changed
+- **AI 助手会话工程胶囊直达级联面板：点击 03/K90 等本地工程胶囊只弹出工程选择面板，不再显示外层选项菜单**
+  - **涉及文件**：`pi-drawer-view.js`（`updateSessionCtxHints` 胶囊 onclick：`local` 类型改为 `openProjectPopover()` + 加 `tw-panel-only` 类 + `openLocalProjDropdown()` 直达；`openProjectPopover`/`closeProjectPopover` 均复位该类防状态串台）、`styles.css`（`.tw-options-popover.tw-panel-only` 透明化弹层壳并隐藏 `.tw-options-menu`，仅级联面板浮出）、`main.js`（重新编译）
+  - **需求背景**：用户要求点击输入卡底部工程胶囊时只显示工程选择面板（框2），不显示"添加/指令/上下文"综合菜单（框1）
+  - **核心逻辑**：级联面板 DOM 是选项弹层子节点且定位相对弹层，故不能跳过弹层；改为给弹层加 panel-only 类——壳透明、菜单列 display:none、宽 auto，子面板依旧 `left: calc(100% - 6px)` 正常浮出，外部点击/Esc 关闭逻辑不变
+  - **验证状态**：py build.py 打包通过；node -c main.js 通过
+  - **执行 Agent**：Devin (SWE-2 Max)
+
+### Added
+- **首页升级 Magpie「观测 · 用量与额度概览」：订阅额度卡片 + 配速/OLS 耗尽预测 + 网关&本地双源用量融合**
+  - **涉及文件**：
+    - `services/magpie-observability-service.js`（新增：`MagpieObservabilityService`——本机 `127.0.0.1:3425` 只读桥接 `requestJson`(Node http, 1500ms 超时, 永不抛异常)、`fetchSnapshot`(并行拉取 `/v1/magpie/quotas/cards`+`/v1/magpie/quotas?kept=1`+`/v1/magpie/quotas/history?days=30`+`/v1/magpie/usage?period=`，8s 快照 TTL + lastGood 离线兜底)、`refreshQuotaCard`(手动 POST refresh)、`findHistoryPoints`(provider+user+窗口名三级匹配历史折线)、`maskUser`、`inferWindowCycle`(兼容 resetsAt/runsOutAt)、`computePace`(window_pace.go 同款)、`extractCurrentCyclePoints`、`computeQuotaEta`(OLS 一元回归)、`renderQuotaPlotSvg`(300×60 走势 SVG)、`formatWindowHolds`）
+    - `build.py`（files 清单注册新模块；构造器新增 `magpieObs`/`_mqMaskAccounts`/`_mqIncludeCache`/`_mqQuotaCollapsed`/`_mqTrendExpanded`/`_mqRankTab`/`_mqAutoRefreshSec`/`_mqLastSnapshot`/`_mqFetching` 状态；`setActiveTab` 离开 home 清理自动刷新定时器；`onClose` 兜底清理；`getAgentUsageRange`/`collectAgentUsageStats` 新增 `month`(30天) 周期与 `bucketAg` 分桶表；`renderAgentUsageCard` 挂载后异步拉快照、turn_end 联动强制刷新；新增 `refreshMagpieObservability`/`_mqClearAutoRefresh`/`_mqSetAutoRefresh`/`_mqProviderIcon`/`_mqWindowHtml`/`_mqQuotaCardHtml`/`_mqQuotaSectionHtml`/`_mqNormGwRow`/`_mqRankRows`/`_mqRowExpandHtml`；`updateAgentUsageCard` 全面重构为 Magpie 四层概览）
+    - `styles.css`（`.tw-agent-usage-card` 区块末尾追加 `.tw-mq-*` 整节：状态徽章/价格胶囊/5秒按钮、额度折叠区与卡片网格、进度条三色阈值、300×60 走势 SVG(even 虚线/now 竖线/渐变填充/端点圆点)、ETA 文案、mini-seg 缓存切换、p-red/p-amber 胶囊、字母徽标回退、spin 动画，亮暗双色兼容）
+    - `docs/test_runner.js`（新增 Suite 27 `MAGPIE-OBS-01` 共 12 项断言）
+    - `main.js`（py build.py 重新编译生成，node -c 校验通过）
+  - **需求背景**：将 Magpie「观测 → 用量 → 概览」核心能力（订阅额度卡片、配速计算、剩余额度 SVG 走势、OLS 线性回归耗尽预测、网关+本地双源 Token/推理/失败重试指标、分时堆叠柱状图、AGENT/模型/账号三维排行）以「方式2 升级首页 Agent 用量看板」+「方案A 安全桥接 127.0.0.1:3425 + 本地兜底」形态移植
+  - **核心修改逻辑**：1) 顶栏：标题「观测 · 用量与额度概览」+ 网关状态胶囊(Magpie 网关/本地账本) + `≈$X.XXX 生效价格` + `今天|7天|30天|全部` 周期按钮组 + `5秒` 自动刷新开关 + `↻` 手动刷新；2) 额度区：`▾ 额度` 折叠 + 账号打码开关，卡片含供应商图标/套餐徽章/打码账号/单卡 ↻、窗口行`已用%·重置日·配速±N%`+三色进度条+整窗容量/到期，可折叠 `剩余额度走势`(匀速虚线+当前竖线+实测折线+OLS 耗尽预测)；3) KPI 四层：`TOKEN`(含缓存/不含缓存切换)、`缓存读取`(命中率+降本)、`推理`(推理 token 或 TTFT 均延兜底轮次耗时)、`次调用`(失败红胶囊/重试琥珀胶囊/工具数)；4) 排行：`AGENT|模型|账号` 三维切换，行可展开明细；5) 双源融合：网关 `usage.agents[].id` 命中(pi/dsh 等)采用精确账本，未命中 Agent 仅计本地差额杜绝双计，`bucketAg` 把本地非代理桶并入网关 series 趋势；6) 安全红线：自动刷新只打 `cards`/`?kept=1`/`history`/`usage` 只读端点，手动刷新才 POST `quotas/refresh`(服务端 30s 互斥)，1500ms(usage 5000ms)短超时+8s TTL+lastGood 缓存，离线毫秒级静默回退本地账本，首屏渲染栈零阻塞
+  - **验证状态**：py build.py 打包通过；node -c main.js 通过；node docs/test_runner.js 全部 415 项 100% 全绿 PASS；实测本机 Magpie 网关返回 3 张额度卡(Kiro/WorkBuddy/WorkBuddy AI)+5 组历史折线+usage(427 调用/7 日桶)，配速(-48%/-3%/-60%)、走势 SVG 与 OLS 预测均正常输出
+  - **执行 Agent**：Devin (SWE-2 Max)
+
+### Removed
+- **移除 Notion AI 子页功能**（功能不再使用）
+  - **涉及文件**：删除 `components/notion-embed.js`；`components/explore-view.js`（移除 require、命令面板 notion 项、`renderNotionSubView`、render 的 notionEmbed 释放块与分支、`getSavedSubTab` 白名单；存量 localStorage 值 `notion` 自动回退 `ai`）；`build.py`（打包清单剔除 notion-embed.js、`getExploreSubTab` 白名单、二级菜单移除 Notion AI 项）；`services/dsh-daemon-manager.js`（webRequest 响应头剥离白名单移除 notion.so/com/site 域名）；`main.js`（重新编译）
+  - **执行 Agent**：Devin (SWE-2 Max)
+
+### Added
+- **导航栏快捷键：Ctrl+← 隐藏 / Ctrl+→ 展示，工作台全部页签生效**
+  - **涉及文件**：`build.py`（onOpen 注册 document 捕获级 keydown + window message 监听，onClose 反注册；新增 `setNavRailCollapsed`/`toggleNavRail` 方法；`renderNavRail` 按 `_navCollapsed` 恢复折叠态，切页重渲染不丢失）、`styles.css`（`.tw-nav-rail.tw-nav-collapsed { display:none }`）、`services/dsh-daemon-manager.js`（注入脚本新增第 5 节：iframe 内 Ctrl+方向键 `postMessage` 转发给父窗口）、`main.js`（重新编译）
+  - **需求背景**：用户要求导航栏支持快捷键隐藏/展示，且在所有页签可操作
+  - **核心逻辑**：Ctrl+方向键未被 Obsidian Keymap 绑定（asar 验证），document 捕获监听可全页面生效；输入框/contenteditable 内保留原生跳词不劫持；Harness 的 DSH iframe 内按键到不了父文档，经桥接脚本 postMessage `tabonkb-navrail` 转发（Notion iframe 无法注入，除外）
+  - **验证状态**：py build.py 打包通过；node -c main.js 通过；注入脚本 new Function 校验通过
+  - **执行 Agent**：Devin (SWE-2 Max)
+
+### Changed
+- **探索页命令面板唤起快捷键由 Alt+K 改为 Ctrl+F**
+  - **涉及文件**：`components/explore-view.js`（全局 keydown 判定改为 `ctrlKey && !alt/meta/shift && code === 'KeyF'`，仍为捕获阶段并 preventDefault/stopPropagation，抢在 Obsidian 内置查找之前）、`components/explore-palette.js`（注释同步）、`main.js`（重新编译）
+  - **问题背景**：用户要求 AI 助手界面搜索框唤起键改为 Ctrl+F
+  - **后续修复（Ctrl+F 无法唤起）**：根因为 Obsidian Keymap 在 `window` 捕获阶段先于本插件的 `document` 捕获监听处理按键，Ctrl+F 属已绑定热键，命中后 `preventDefault+stopPropagation`，document 监听收不到（Alt+K 无绑定故此前可用）。`explore-view.js` 增加 `app.scope.register(['Ctrl'],'f')` 并置顶；探索页未激活时临时摘除自身并转交 `scope.handleKey` 原链路，dispose 时反注册，document 监听保留为兜底
+  - **注意**：仅当探索页视图挂载在文档树中时才拦截 Ctrl+F，其它页面不影响 Obsidian 原生 Ctrl+F
+  - **验证状态**：py build.py 打包通过；node -c main.js 通过；自动化测试全绿
+  - **执行 Agent**：Devin (SWE-2 Max)
+
+### Fixed
+- **Harness 选区右键菜单去掉冗余 Ctrl+C：拦截原生菜单，改为极简单项「复制」**
+  - **涉及文件**：
+    - `services/dsh-daemon-manager.js`（`getDshFileBridgeScript()` 注入脚本第 4 节：iframe 内 `contextmenu` 捕获监听，非可编辑区且有选中文本时 `preventDefault` 并渲染自绘单项「复制」浮层；Esc / 点击外部 / 滚轮 / 失焦关闭；输入框与 Lexical 编辑器保持原生菜单）
+    - `main.js`（py build.py 重新编译生成，node -c 校验通过）
+  - **问题背景/真实根因**：该菜单并非 DSH 前端渲染（已核查 `@deepseek-ai/dsh` 前端 bundle 与各 client 包，不存在带快捷键的选区菜单；此前"剔除 `_shortcut_` 角标"的方案基于错误假设，对此菜单无效，已撤销）。实际来源：Obsidian 主进程对所有 webContents（含 iframe）监听 `context-menu` 事件并弹出 Electron 原生菜单，其 Copy 项为 role 菜单，系统自动附带 `Ctrl+C` accelerator，页面 DOM 无法修改
+  - **核心修改逻辑**：原生菜单仅在 `contextmenu` 事件未被 `preventDefault` 时才会触发 `context-menu`；故在 iframe 注入脚本中拦截选区右键，自绘仅含「复制」的菜单（沿用 DSH `--dsw-*` 主题变量，clipboard.writeText + execCommand 兜底）
+  - **验证状态**：py build.py 打包通过；node -c main.js 通过；注入脚本运行时串 new Function 校验通过；403 项自动化测试见下
+  - **执行 Agent**：Devin (SWE-2 Max)
+
+### Added
+- **Pi 当前上下文占用胶囊 + 手动压缩入口：输入卡工具栏新增 Ctx 胶囊，实时显示上下文长度/占比，浮层内附「压缩」按钮（pi RPC compact）**
+  - **涉及文件**：
+    - `pi-agent-bridge.js`（`handleRpcMessage` 新增 `compaction_start`/`compaction_end` 事件分发——start 置 thinking「正在压缩上下文...」、end 复位 connected；新增 `getSessionStats()`（`get_session_stats` RPC，8s 超时、进程未起静默返回 null）与 `compact()`（`compact` RPC，LLM 摘要耗时故 120s 超时））
+    - `providers/pi-adapter.js`（modelsMap 条目新增 `contextWindow` 字段；`setupBridgeEvents` 转发 `compaction_start`/`compaction_end`；新增 `getContextWindow()`、`getContextUsage()`——pi `contextUsage` 优先、缺省时回退 models.json 窗口值、tokens:null 透传「待下轮响应可知」语义；新增 `compact()` 透传）
+    - `providers/antigravity-adapter.js`（新增 `AGY_CONTEXT_WINDOWS` 内置公称窗口表——`agy models` 不暴露窗口值：gemini=1M/claude=200K/gpt-oss=131K；新增 `extractLatestContextTokens()`——`transcript_full.jsonl` 尾部倒查最后一条 token 计账，`input_tokens + cache_read_tokens + output_tokens` 与 pi `calculateContextTokens` 同口径；新增 `getContextWindow()`/`getContextUsage()`；`step_update` DONE 携原生 usage 时广播 `context_usage` 事件；**不实现 `compact()`**——实测 print 模式 `-p "/compact"` 被当用户消息直发 LLM、`compact` stream event 被拒收 `warning: ignoring unsupported stream input message event`，agy 手动压缩仅交互 TUI 可用，自动压缩内置已实证 transcript `CHECKPOINT` "Resuming from a compaction"）
+    - `agent-hub.js`（`bindActiveAdapterEvents` 转发 `compaction_start`/`compaction_end`/`context_usage`，沿用 isCurrentActive 守卫）
+    - `pi-drawer-view.js`（工具栏右侧模型胶囊前新增 `tw-ctx-wrap`：`tw-ctx-pill`（cpu 图标 + 短值，title 全量悬浮明细）+ `tw-ctx-popover`（占比数值 + 4px 进度条 ≥85% 转红 + `tokens / window` 明细 + 「压缩」按钮）；`bindCtxEvents` 胶囊开合与 + 菜单/权限/模型浮层互斥；`_refreshContextUsage` 能力探测——实现 `getContextUsage` 的通道（pi+agy）显示胶囊、实现 `compact()` 的通道（仅 pi）显示压缩按钮；`_updateCtxFromTurnUsage` 兼容 snake_case 字段、turn_end 驱动路径仅限 `usageReflectsContext=true` 的 per-call 口径通道（agy 回合聚合口径仅走 `context_usage`/settle 校准防误读）；`_updateCtxFromTurnUsage` 每跳 in+out+cacheRead+cacheWrite 与 pi `calculateContextTokens` 同口径实时刷新；`_runManualCompact` 流式中拒绝 + 按钮 busy + 异常 Notice；挂钩 `turn_end`(实时)/`agent_settled`/`new_session`/`switchAgent`/`selectModel`/`open()`/`compaction_end`(统一收尾)；外部点击/Esc 关闭并入既有 document 处理器）
+    - `styles.css`（`.tw-ctx-pill` 复刻 perm-pill 裸字形 28px 规范；`.tw-ctx-popover` 复刻 perm-popover 毛玻璃浮层；`.busy` 图标旋转动画；`.tw-ctx-popover-fill.warn` 阈值变红；亮暗双主题）
+    - `main.js`（py build.py 重新编译生成）
+  - **需求背景**：用户询问 pi agent 是否支持上下文压缩并要求「当前上下文长度可以统计出来并显示」。pi 原生 `core/compaction` 模块自动压缩默认开启（reserve 16K/keepRecent 20K），手动 `compact` RPC 与 `get_session_stats.contextUsage`（tokens/contextWindow/percent）均现成，工作台此前未暴露任何入口
+  - **核心修改逻辑**：双数据源——`turn_end` 每跳 `message.usage`（in+out+cacheRead+cacheWrite 即当时上下文长度，与 pi `calculateContextTokens` 同口径）做流式实时刷新；`get_session_stats` 的 `contextUsage`（`estimateProjectedContextTokens` 投影估算，含待发队列）做回合末/开抽屉/切会话权威校准；压缩按钮走 `adapter.compact()` → pi manual compaction（与 `/compact` 同路径），过程经 `compaction_start`/`compaction_end` 事件驱动 busy 态与收尾刷新；pi 在 compact 后首个 LLM 响应前返回 `tokens:null`，UI 显示 `--` 不伪造
+  - **验证状态**：py build.py 打包通过；node -c main.js 通过；node docs/test_runner.js **621 项 100% 全绿 PASS**。**Obsidian 真实 UI 与 pi RPC 往返无法在本环境驱动，胶囊渲染/压缩往返需用户手验**
+  - **执行 Agent**：Devin (SWE-2 Max)
+
+### Fixed
+- **Ctx 胶囊重载丢值 + 样式对齐 Devin 圆环规范**
+  - **涉及文件**：`pi-drawer-view.js`（胶囊图标由 cpu iconpark 改为 SVG 圆环进度——`tw-ctx-pill-ring` 双 circle r=6.5（track 底环 18% 透明 + val 弧 `stroke-dashoffset` 驱动、-90° 顶部起弧、round 线帽），文案改百分比（<10% 保 1 位小数、≥10% 取整、无窗口时回退 tokens 短值），≥85% `warn` 变红；新增 `_ctxCacheKey`/`_loadCtxCache`/`_persistCtxUsage`——`localStorage['tabonkb-ctx-usage']` 按 `agentId:sessionId` 缓存 `{tokens, contextWindow, percent}`（30 条 LRU 裁剪），`_refreshContextUsage` 先回填缓存再等 RPC/transcript 权威值覆盖，`_updateCtxFromTurnUsage`/权威返回即写缓存）、`styles.css`（`.tw-ctx-pill-ring`/`.tw-ctx-ring-track`/`.tw-ctx-ring-val` 圆环规范 + `.tw-ctx-pill.warn` 阈值红 + busy 旋转挂 ring 元素）
+  - **问题背景**：用户实测反馈①工作台重载后 Ctx 显示 `--`——pi bridge 冷启动/会话恢复竞态下 `get_session_stats` 尚不可用即渲染空态；②图标与 Devin 圆环进度范式不一致
+  - **验证状态**：py build.py 打包通过；node -c main.js 通过；node docs/test_runner.js **621 项 100% 全绿 PASS**
+  - **执行 Agent**：Devin (SWE-2 Max)
+
+### Changed
+- **agy 模型列表动态化：`agy models` 权威拉取 + 本地元数据合并，上游上下架自动跟随**
+  - **涉及文件**：`providers/antigravity-adapter.js`（新增 `AGY_MODEL_META` 元数据表——只登记 desc/icon/effort 标注，id/名称以 CLI 为准；`AGY_MODEL_GROUP_META` 家族分组表（gemini/claude/gpt-oss/other）；`AGY_MODEL_FALLBACK` 兜底静态列表（对齐 agy 1.4.2 实测 6 模型）；`parseAgyModelsOutput`（Tab/多空格分隔解析）；`refreshModels()`——spawn `agy models` 15s 超时、5min TTL、并发去重、成功写 `localStorage['tabonkb-agy-models']` 并广播 `model_list_change`；`_hydrateModelsCache` 构造期回填缓存防首屏空态；`_reconcileActiveModel` 选中模型已被上游下架时自动切首个可用模型防 `--model` 必败；`getModelGroups` 改远端优先+家族分桶+未登记 id 降级入组；`start()` 成功即 force 拉取）、`agent-hub.js`（转发 `model_list_change`）、`pi-drawer-view.js`（`model_list_change` 监听：刷新模型胶囊 + 浮层已开则按当前搜索词重渲染）
+  - **问题背景**：原 `getModelGroups` 纯硬编码已漂移——残留上游下架的 `gemini-3.7-flash-high`/`gemini-3.1-pro-high`（选中发送必败），缺失新增的 `gemini-3.8-flash-medium`/`low`
+  - **验证状态**：py build.py 打包通过；node -c main.js 通过；node docs/test_runner.js **621 项 100% 全绿 PASS**；`agy models` 实测输出 6 模型与元数据表/兜底表一致
+  - **执行 Agent**：Devin (SWE-2 Max)
+
+### Fixed
+- **agy 内建推理档位型号 UI 纠偏：型号后缀 = 固定 tier，不再显示可点选 effort 选择器**
+  - **涉及文件**：`providers/antigravity-adapter.js`（新增 `builtinEffortTier(modelId)`——`/-(high|medium|low)$/` 提取内建 tier，发送路径复用同一判定省略 `--effort`；新增 `getModelEffortConfig(modelId)` 返回固定档位 label 供 UI 渲染）、`pi-drawer-view.js`（`_renderModelItem` 内建档型号渲染 `.tw-reasoning-badge` 固定徽标（无 caret/不可交互）且 `data-supports-reasoning=false` 选中不改会话 effort；`updateModelSelectorPill` 与 `createAssistantMessageBubble` 作者行优先取 `getModelEffortConfig` 固定档位、否则回退会话 effort）、`styles.css`（`.tw-reasoning-badge` 复刻 trigger 观感去交互态）
+  - **问题背景/实测依据**：agy 实测 `--model gemini-3.8-flash-low --effort max` → `conflicts with --effort=max` 硬错误；矩阵验证 `-low/-medium/-high` 后缀型号要求 `--effort` 与后缀**精确相等**（不等不论高低均拒绝）。发送路径此前已跳过 `--effort`（行为正确），但 UI 仍显示「高推理 ›」可点选择器——用户选了也无效属误导性控件
+  - **验证状态**：py build.py 打包通过；node -c main.js 通过；node docs/test_runner.js **621 项 100% 全绿 PASS**
+  - **执行 Agent**：Devin (SWE-2 Max)
+
+### Changed
+- **agy 模型浮层特制化：档位变体折叠为单一型号「Gemini 3.8 Flash」，等级高/中/低即切换 -high/-medium/-low 型号**
+  - **涉及文件**：`providers/antigravity-adapter.js`（新增 `AGY_EFFORT_TIER_MAP`——UI effort→型号档位映射：off→low、low/medium/high 同名、xhigh/max→high；`_tierVariants(id)` 收集同族档位变体→真实 id；`_resolveTierModelId(id, effort)` 统一收束 base id + 档位 → 具体发送型号；`getModelTierLevels(id)` 返回族内真实档位集；`getModelEffortConfig` 扩展——具体变体返回固定档位、折叠 base id 返回当前 effort 映射档位；`setModel` 经 `_applyEffort` 落账后解析具体型号（不再裸存传入 id）；`setReasoningEffort` 在档位族上自动重定向 activeModelId 到对应变体并 emit `model_change`；`getModelGroups` 折叠 `X-{low,medium,high}` 为单条目（name 去 (Tier) 后缀、`tiers` 记录变体表、meta 回退链 base→档位变体→家族默认）；构造期恢复 `tabonkb-agy-active-model` 持久化选中模型——此前只写不读重载即丢）、`pi-drawer-view.js`（`_renderModelItem` 选中判定含变体 id 命中、`m.tiers` 渲染等级触发器且标签=映射档位；`openReasoningPopover` 对档位族仅列真实存在的 low/medium/high 档、激活项按 `mapEffortToTier` 标记；用量记录 `reasoningEffort` 优先记具体变体档位（`builtinEffortTier`）避免与型号脱节的假值）、`styles.css`（`.tw-reasoning-badge` 已由上条登记）
+  - **问题背景**：agy 实测 `X-{tier}` 变体的 `--effort` 必须与后缀精确相等——即型号名后缀本身就是推理档位；按用户要求 UI 上折叠为单型号 + 等级选择器形态（与 DeepSeek/pi 通道心智一致）
+  - **验证状态**：py build.py 打包通过；node -c main.js 通过；node docs/test_runner.js **621 项 100% 全绿 PASS**
+  - **执行 Agent**：Devin (SWE-2 Max)
+
+### Style
+- **模型浮层选中项底色降透明度**：`.tw-model-item.active` 与 `.tw-reasoning-item.active` 激活底色 亮主题 0.09→0.05 / 暗主题 0.22→0.14，减轻高亮抢占感（用户反馈）。py build.py + node -c 通过
+- **执行 Agent**：Devin (SWE-2 Max)
+
+### Fixed
+- **Ctx 胶囊重载后仍丢值根治**：权威返回 `tokens:null`（bridge 预热/get_session_stats 暂不可知）不再覆盖已有缓存值——仅同步窗口并按窗口重算 percent；新增 `status_change=connected` 监听，通道重连就绪后补一次权威刷新兜底预热竞态；`compaction_end` 显式 `_ctxUsage=null` + `_clearCtxCache()`（compact 使旧值真失效，权威 null → 如实显示 `--` 不残留假值）。涉及 `pi-drawer-view.js` 单文件。py build.py + node -c + 621 项测试通过
+- **执行 Agent**：Devin (SWE-2 Max)
+
+## [1.6.3] - 2026-10-18
+### Style & Feature
+- **导航栏重构为浮动玻璃 Dock：macOS 式磁吸放大 + 名称气泡**
+  - **涉及文件**：
+    - `build.py`（renderNavRail 尾部新增放大逻辑：rail 级 mousemove 监听，按光标与各按钮中心的纵向距离做 smoothstep 衰减缩放 s = 1 + 0.5·t²(3−2t)，影响半径 92px、峰值 1.5x，RAF 节流每帧写入 .tw-nav-icon 的 transform，mouseleave 整体复位；主按钮与底部主题/设置按钮统一参与）
+    - `styles.css`（文件末尾追加「左侧浮动玻璃 Dock」整节：rail 脱边悬浮 margin:14px 0 14px 14px + border-radius:22px + backdrop-filter: blur(20px) saturate(1.45) 毛玻璃 + 双层投影 + 高光描边；.tw-nav-icon 加 cubic-bezier(0.34,1.45,0.64,1) 回弹过渡；.tw-nav-label 由内联文本转为 absolute 右侧气泡（玻璃质感、opacity/translateX 缓入、pointer-events:none）；暗色主题 data-tw-active-mode="dark" / theme-dark 双挂钩适配；max-width:767px 媒体查询同步收缩）
+    - `main.js`（py build.py 重新编译生成，node -c 校验通过）
+  - **需求背景**：用户要求把工作台左侧导航栏做成浮动玻璃停靠栏，悬停时当前图标放大、相邻图标跟随放大并显示名称气泡；经确认为左侧垂直 Dock 形态
+  - **核心修改逻辑**：1) 视觉层——rail 保留布局占位但视觉脱离边缘，圆角胶囊 + 毛玻璃 + 浮层阴影，内容区不受影响；2) 交互层——光标在停靠栏内滑动即按距离连续缩放（非逐按钮 hover 判定，避免相邻放大互相抢夺 hover 造成闪烁），主题/设置按钮同步参与；3) 名称层——内联 label 复用为绝对定位玻璃气泡，悬停按钮时从其右侧弹出（垂直 Dock 的名称位）
+  - **验证状态**：py build.py 打包通过；node -c main.js 语法校验通过；全部 403 项自动化测试 100% 全绿 PASS
+  - **执行 Agent**：Devin (SWE-2 Max)
+
+### Fixed & Polish
+- **Dock 放大优化：图标放大模糊/偏小 + 相邻跟随不明显**
+  - **涉及文件**：
+    - `build.py`（放大逻辑由写入 transform:scale 改为每帧写入 .tw-nav-icon 的真实 width/height——SVG 按目标尺寸矢量重绘，任意倍率下始终锐利；MAG_RANGE 92→110、MAG_BOOST 0.5→0.85、MAG_BASE 24，峰值约 44px 图标；mouseleave 清空宽高复位）
+    - `styles.css`（.tw-nav-icon 基础尺寸 22→24px、flex-shrink:0、过渡由 transform 改为 width/height 0.13s 回弹曲线；新增 .tw-nav-icon svg 宽高 100% 填充规则覆盖行内 px 属性）
+    - `main.js`（py build.py 重新编译生成，node -c 校验通过）
+  - **问题背景**：用户反馈 transform 放大的图标模糊且不够大、滑动经过时相邻图标变化不明显
+  - **核心修改逻辑**：transform:scale 缩放的是已光栅化的 22px 图层故模糊；改为动画图标盒子真实尺寸后 SVG 逐帧重绘保持清晰，同时提高放大半径与峰值使相邻图标跟随感更强
+  - **验证状态**：py build.py 打包通过；node -c main.js 语法校验通过；全部 403 项自动化测试 100% 全绿 PASS
+  - **执行 Agent**：Devin (SWE-2 Max)
+
+### Style
+- **Dock 右侧留白：停靠栏与内容区增加间隙**
+  - **涉及文件**：`styles.css`（浮动 Dock 的 margin 由 14px 0 14px 14px 调整为 14px 14px 14px 14px，右缘与主内容区间距 14px；窄视口媒体查询同步为 10px 四边距）
+  - **问题背景**：DSH 等工作台页面下 Dock 右缘与内容区过于贴合，视觉拥挤
+  - **验证状态**：py build.py 打包通过；node -c main.js 语法校验通过
+  - **执行 Agent**：Devin (SWE-2 Max)
+
+### Style & Polish
+- **Dock 放大手感再调：图标加大、相邻跟随增强、余弦衰减丝滑化**
+  - **涉及文件**：
+    - `build.py`（衰减曲线由 smoothstep 改为余弦衰减 s = 1 + B·cos(d/R·π/2)——macOS Dock 原生手感，中距离衰减更缓使相邻图标跟随更明显；MAG_RANGE 110→118、MAG_BOOST 0.85→1.0（峰值 2×≈52px）、MAG_BASE 24→26）
+    - `styles.css`（.tw-nav-icon 基础尺寸 24→26px；宽高过渡 0.13s→0.12s）
+    - `main.js`（py build.py 重新编译生成，node -c 校验通过）
+  - **需求背景**：用户要求图标放得稍大、放大后保持清晰、相邻放大效果更明显且动画丝滑；上一轮已改真实宽高写入保证矢量清晰，本轮做手感精调
+  - **验证状态**：py build.py 打包通过；node -c main.js 语法校验通过；全部 403 项自动化测试 100% 全绿 PASS
+  - **执行 Agent**：Devin (SWE-2 Max)
+
+### Fixed
+- **根治 Dock 放大无效：23px !important 全局锁压制了宽高动画**
+  - **涉及文件**：
+    - `styles.css`（定位根因：21598 行 `.tw-nav-btn .tw-nav-icon, .tw-nav-btn svg { width/height: 23px !important }` 全局锁——`!important` 级联高于普通 inline style，JS 宽高写入被完全无视，表现为"没有任何效果"；Dock 规则 .tw-nav-icon 基础尺寸与 svg 填充、宽高过渡全部补 `!important` 夺权）
+    - `build.py`（magApply 改用 `style.setProperty('width'/'height', px, 'important')`——inline !important 是作者层最高优先级可压过样式表锁；目标列表预缓存 svg 引用避免每帧查询；复位改用 removeProperty 回落到 26px 基础态）
+    - `main.js`（py build.py 重新编译生成，node -c 校验通过）
+  - **问题背景**：用户实测 Dock 悬停放大完全无效果；排查确认 bundle 逻辑正确、事件监听正常，唯一样式表层 !important 尺寸锁导致所有宽度写入失效
+  - **验证状态**：py build.py 打包通过；node -c main.js 语法校验通过；全部 403 项自动化测试 100% 全绿 PASS
+  - **执行 Agent**：Devin (SWE-2 Max)
+
+### Polish
+- **Dock 放大型态修正：主角/邻居层次拉开 + 悬停 z 序提升**
+  - **涉及文件**：
+    - `build.py`（衰减曲线加幂次锐化 cos^2.2：MAG_BOOST 1.0→0.8、MAG_RANGE 118→120、新增 MAG_SHAPE——主角峰值 ~47px 贴近按钮尺寸不越界，相邻 ~37px 明显让位，次邻基本不动；移除冗余的 svg 双写，svg 由 100% 规则自动跟随盒子）
+    - `styles.css`（.tw-nav-btn:hover 提升 z-index:2——放大主角始终画在相邻图标之上；宽高过渡回弹曲线 1.25→1.1 收敛橡皮感）
+    - `main.js`（py build.py 重新编译生成，node -c 校验通过）
+  - **问题背景**：用户反馈放大后图标显示不自然、相邻图标放大程度盖过主角
+  - **验证状态**：py build.py 打包通过；node -c main.js 语法校验通过；全部 403 项自动化测试 100% 全绿 PASS
+  - **执行 Agent**：Devin (SWE-2 Max)
+
+### Simplify
+- **Dock 放大简化为纯悬停单图标放大：移除相邻跟随**
+  - **涉及文件**：
+    - `build.py`（renderNavRail 尾部整个 mousemove 距离衰减放大块移除——相邻跟随效果用户反馈不自然，不再需要 JS 参与）
+    - `styles.css`（改为纯 CSS 方案：.tw-nav-btn:hover .tw-nav-icon 宽高 26→40px !important，沿用真实宽高动画保证 SVG 清晰；0.14s 轻回弹过渡）
+    - `main.js`（py build.py 重新编译生成，node -c 校验通过）
+  - **需求背景**：用户确认相邻图标跟随放大的效果不自然，只需主角图标自身悬停放大
+  - **验证状态**：py build.py 打包通过；node -c main.js 语法校验通过；全部 403 项自动化测试 100% 全绿 PASS
+  - **执行 Agent**：Devin (SWE-2 Max)
+
+### Style
+- **Dock 悬停去底色：只留图标放大 + 名称气泡**
+  - **涉及文件**：`styles.css`（Dock 内 .tw-nav-btn:hover:not(.active) 强制 background/border-color transparent + box-shadow none !important，压过 21598 段全局 accent-wash 高亮；active 态强调色保留）
+  - **需求背景**：悬停时图标下出现额外底色块，用户要求放大不加底色
+  - **验证状态**：py build.py 打包通过；node -c main.js 语法校验通过
+  - **执行 Agent**：Devin (SWE-2 Max)
+
+### Style
+- **Dock active 指示点改左缘竖条：避免与放大图标重合**
+  - **涉及文件**：`styles.css`（Dock 内 .tw-nav-btn.active::after 由底部 4px 圆点改为左缘 3×16 竖条，垂直居中、left:-5px——图标放大至 40px 后指示标记不再与其底边重叠）
+  - **问题背景**：悬停放大后图标与按钮底部的 active 指示点视觉重合
+  - **验证状态**：py build.py 打包通过；node -c main.js 语法校验通过
+  - **执行 Agent**：Devin (SWE-2 Max)
+
+### Feature
+- **探索页命令面板：Alt+K 唤起毛玻璃搜索框**
+  - **涉及文件**：
+    - `components/explore-palette.js`（新增 ExploreCommandPalette：挂 document.body 的 fixed 遮罩层，压暗+blur(10px) 背景，中央毛玻璃面板 blur(26px)；输入实时按 label/desc/keywords 过滤并 span 高亮匹配子串；↑↓ 循环选择（鼠标悬停同步）、Enter/点击执行、Esc/点击遮罩关闭；面板打开期间 input keydown stopPropagation 吞键防止底层热键响应；pop/fade 入场动画）
+    - `components/explore-view.js`（require 新组件；构造器注册 4 条命令——AI 助手/平台资源检索/Notion AI/原厂账号配置，命令执行复用 setSubTab 与 openAccountModal；document 级 Alt+K 捕获监听，e.code==='KeyK' 且 containerEl.isConnected 才响应（即探索页激活时）；新增 togglePalette 与 dispose）
+    - `build.py`（files 列表在 explore-view.js 前注册 explore-palette.js；onClose 增加 exploreView.dispose() 调用，清理全局键盘监听与面板 DOM）
+    - `styles.css`（追加 tw-cmdk-* 整节：overlay/panel/input-row/list/item/icon/hl/empty/foot/kbd 全套样式，暗色主题双挂钩适配）
+    - `main.js`（py build.py 重新编译生成，node -c 校验通过）
+  - **需求背景**：用户要求工作台探索页加命令面板——Alt+K 唤起、屏幕中央玻璃搜索框、背景压暗模糊、输入实时过滤高亮匹配文字、回车跳转
+  - **验证状态**：py build.py 打包通过；node -c main.js 语法校验通过；全部 403 项自动化测试 100% 全绿 PASS
+  - **执行 Agent**：Devin (SWE-2 Max)
+
+### Style
+- **命令面板输入区改用工作台首页搜索框签名样式**
+  - **涉及文件**：
+    - `components/explore-palette.js`（面板头部改为 tw-search-wrap + tw-search-icon + tw-search-input + tw-search-actions 结构，与首页顶栏搜索框同源）
+    - `styles.css`（.tw-cmdk-input-row/.tw-cmdk-input 旧样式块移除，新增 .tw-cmdk-head 容器内边距与 .tw-cmdk-search-wrap 下 input 的 42px 高/左右内边距覆盖；面板宽 560→620px、列表项 padding 加宽）
+    - `main.js`（py build.py 重新编译生成，node -c 校验通过）
+  - **需求背景**：用户要求面板搜索框采用工作台首页搜索框样式（accent 描边 + 柔光 + 左放大镜 + 右 kbd 动作区）
+  - **验证状态**：py build.py 打包通过；node -c main.js 语法校验通过；全部 403 项自动化测试 100% 全绿 PASS
+  - **执行 Agent**：Devin (SWE-2 Max)
+
+### Feature
+- **命令面板接入 Omnisearch：输入即全文检索库内文档**
+  - **涉及文件**：
+    - `components/explore-palette.js`（数据源从纯命令过滤扩展为异步 provider：非空查询经 140ms 防抖走 `onQuery`，期间显示"检索中…"占位，`_querySeq` 序号丢弃过期结果防乱序；列表项模板新增 `badge` 徽标槽位渲染匹配度；占位符改为"Omnisearch 全文检索或命令…"）
+    - `components/explore-view.js`（新增 `_paletteOmniItems(q)`：调 `globalThis.omnisearch`/`plugins.omnisearch.api.search()` 全文检索，前 8 条映射为文档跳转项（file-text 图标 + basename + 路径 desc + score 百分比徽标，`app.workspace.openLinkText(path,'','tab')` 打开）；列表尾部固定追加"在 Omnisearch 中检索「q」"项——`executeCommandById('omnisearch:show-modal')` 唤起原生大窗并回填关键词（120ms 后注入 input），omnisearch 缺失时回退 `global-search:open`；无插件时整体回退 vault 文件名/路径子串检索）
+    - `styles.css`（新增 .tw-cmdk-badge 徽标样式）
+    - `main.js`（py build.py 重新编译生成，node -c 校验通过）
+  - **需求背景**：用户要求 Alt+K 面板改为唤起 Omnisearch 搜索而非命令列表；空查询仍保留 4 条命令项作为入口
+  - **验证状态**：py build.py 打包通过；node -c main.js 语法校验通过；全部 403 项自动化测试 100% 全绿 PASS
+  - **执行 Agent**：Devin (SWE-2 Max)
+
+### Fixed
+- **命令面板结果行依旧紧凑的根因修复 + 交互/视觉重构**
+  - **涉及文件**：`components/explore-palette.js`、`components/explore-view.js`、`styles.css`
+  - **问题背景**：结果行是 button 元素，被 Obsidian 全局 button 样式（固定高度/内边距，选择器优先级更高）覆盖，此前多轮调 padding/gap 均被吞掉
+  - **核心修改**：行改为 div 并加 height:auto/padding 显式夺权；新增分组标题（命令/文档/更多）；文档项显示标题、摘要（2 行截断）、目录路径三层信息；原生大窗兜底项固定为紧凑行；鼠标改 mousemove 同步高亮避免滚动时抢焦；回车提示用 CSS 控制；面板加宽至 680px、列表最大高度自适应
+  - **验证状态**：py build.py、node -c main.js、node docs/test_runner.js 全部通过（未在真实 Obsidian 内目视验证）
+  - **执行 Agent**：Devin
+
+### Style
+- **命令面板结果列表放宽行距**
+  - **涉及文件**：`styles.css`（.tw-cmdk-list 改 flex 列布局 gap:5px + padding 10px；.tw-cmdk-item padding 11→12/13→14、图标 30→32px 圆角 9px；.tw-cmdk-item-text 行距 gap 2→4px、label 13→13.5px、label/desc line-height 1.3；面板头部 padding 12→14/14→16、底部 8→9）
+  - **需求背景**：搜索结果项之间与项内过于紧凑，需要更透气的布局
+  - **验证状态**：py build.py 打包通过；node -c main.js 语法校验通过
+  - **执行 Agent**：Devin (SWE-2 Max)
+
+### Performance & Fixed
+- **根治重载 ~10s 真凶：Monaco 编辑器后台 iframe 启动时白加载 —— 改为首次使用懒加载**：
+  - **涉及文件**：
+    - `components/code-viewer-panel.js`（1. `mount()` 不再调用 `initMonacoIframe()`：此前抽屉每次构建 DOM（工作台恢复/页签渲染）都会无条件给隐藏 iframe 挂 `http://127.0.0.1:28123/monaco/editor.html`，浏览器即使 `display:none` 仍完整加载 Monaco 引擎并烧 ~10.7s 主线程；2. `initMonacoIframe()` 增加 `if (this.iframeEl) return` 幂等守卫；3. `openFile()` 首次真正使用且文件 ≤2MB（与 `syncToMonaco` 大文件门控同阈值）时才懒创建 iframe——小文件保留"原生视图瞬时上屏→Monaco 静默接管"体验，大文件与从不打开场景零成本）
+    - `docs/test_runner.js`（Suite 26 新增 `RELOAD-PERF-08` 三项断言：mount 不含 eager init、幂等守卫存在、openFile 懒初始化）
+    - `main.js`（`py -3 build.py` 重新编译生成，`node -c` 校验通过）
+  - **问题背景**：1.6.1/1.6.2 后重载体感仍 ~10s。通过 DevTools Performance「录制并重载」火焰图 + CPU 采样按脚本归并定位：启动窗口内 `127.0.0.1:28123/monaco/*` 脚本自耗 ~10.7s（editor 3.6s + workerHost 7.1s），为全部脚本最大头；`navigationStart` 事件确认导航后 ~3.3s 加载了 monaco 子框架——来源即抽屉构建时 eager 挂载的 CodeViewerPanel 后台 iframe。兄弟插件合计仅 ~2.3s，全部排除嫌疑。
+  - **核心修改逻辑**：将 Monaco 引擎加载从「构造即加载」改为「首次真实使用才加载」——工作台启动路径上不再有 Monaco 任何成本；用户点击代码链接打开分屏时，iframe 才开始加载并由原生极速视图先上屏，接管时机与原先一致。
+  - **验证状态**：`py -3 build.py` 打包通过；`node -c main.js` 语法验证通过；全量 403 项自动化单元测试 100% 全绿 PASS。
+  - **执行 Agent**：Devin (SWE-2 Max)
+
+## [1.6.2] - 2026-10-18
+### Debug & Instrumentation
+- **启动探针升级：补齐「重载开始→插件被求值」绝对时间盲区与异步冷启动链路打点**：
+  - **涉及文件**：
+    - `ui/iconpark.js`（首个入包模块新增 `__twBootNavMs` = `performance.now()` 导航开始毫秒锚点与 `__twBootUptimeMs` = `process.uptime()` 进程锚点，暴露 Obsidian 渲染进程初始化 + 前置社区插件链在本插件求值前的累积耗时）
+    - `main.js.bak`（`__twBootFlush` 落盘 JSON 增加 `navMs` / `uptimeMs` 字段，配合 marks 可将每个打点映射回 reload 绝对时间线）
+    - `build.py`（`onload` 尾部新增 `layout:ready` 打点与 6500ms 尾随 flush，捕获 DSH 复用/冷启与会话分片恢复等延迟异步打点）
+    - `services/dsh-daemon-manager.js`（`_doStart` 锁文件复用分支打 `dsh:lock-reused`，spawn 分支打 `dsh:cold-spawn`，区分热复用 vs 冷启动路径）
+    - `pi-drawer-view.js`（`restoreSessionMessages` 打 `restore:start` / `restore:tail-batch:N` / `restore:done`，量化首帧尾批与历史分片补齐耗时）
+    - `main.js`（`py -3 build.py` 重新编译生成，`node -c` 校验通过）
+  - **问题背景**：1.6.1 修复后用户反馈重载体感仍 ~10s。实测 profile 显示本插件可控链路仅 ~3.3s（onload 60ms + 首渲 253ms + postscan ~1.9s），缺失的 ~7s 位于「reload 开始 → 本插件 bundle 被求值」的探针盲区（渲染进程初始化 + 12 个兄弟社区插件加载链），需绝对时间锚定位。
+  - **核心修改逻辑**：在不改变任何业务行为的前提下，将探针从「插件内部相对时间」升级为「导航开始绝对时间」，并打点延迟异步链路（DSH 复用、分片恢复、layout:ready），一次真实重启即可分离 Obsidian 本体/兄弟插件/本插件三段耗时归属。
+  - **验证状态**：`py -3 build.py` 打包通过；`node -c main.js` 语法验证通过；全量 400 项自动化单元测试 100% 全绿 PASS。
+  - **执行 Agent**：Devin (SWE-2 Max)
+
+## [1.6.1] - 2026-10-18
+### Performance & Fixed
+- **工作台重载 ~10s 卡顿与左侧文件树白屏问题根治：DSH 守护进程热重载保留复用、主线程同步阻塞 I/O 解耦、历史消息分批流式挂载与冷启动二次整页重建修复**：
+  - **涉及文件**：
+    - `services/dsh-daemon-manager.js`（1. `destroy(killDaemon = false)` 默认改为软解绑模式：插件 `onunload` 重载时仅关闭本地反向代理 `proxyServer` 并剥离旧进程事件监听与 `unref()`，保留后台 DSH 守护进程与 `.dsh/profiles/tabonkb/daemon.lock`，使重载后 `_doStart()` 在 `<50ms` 内秒级热复用，消除每次重载 `execSync('taskkill /PID ... /T /F')` 主线程阻塞与 8~10 秒的 DSH + MCP 冷启动轮询；2. `_doStart` 锁文件复用分支放宽无 Cookie 探针下的 `lock.authUrl` / `lock.authCookie` 判定，并在拉起子进程时调用 `proc.unref()` 防止句柄继承导致随窗口刷新被杀）
+    - `build.py`（1. 重写 `onOpen()`：首屏渲染前通过 `requestAnimationFrame` 让出一帧给 Obsidian 原生左侧文件树完成虚拟列表测量与绘制，根除重载时左侧文件管理器白屏/文件名空白；2. 修复 `onOpen()` 中 `loadVaultDocs()` 完成后的无条件二次 `this.render()` 缺陷：增加 `!hubBusy && !drawerBusy && this.activeTab === 'home'` 守卫，杜绝在 `explore`（AI助手）或 `harness`（DSH）页签下 1 秒后再次 `container.empty()` 销毁重建整页；3. `loadVaultDocs()` 每 25 个文件让出事件循环时间片，并限制冷启动无摘要回退全文读取上限，避免与 Obsidian 索引器抢盘；4. `_auLedgerScan()` 首屏同步渲染阶段跳过冷盘 `.jsonl` 与 `.zstd` 同步解压，先用内存会话极速出首屏，180ms 后异步预热并局部刷新卡片；5. `loadAiOplogEvents()` 增加 15s 内存缓存 `_aiOplogCache`；6. `onload()` 中 `dshDaemon.start()` 延迟 1200ms 后台静默连接）
+    - `pi-drawer-view.js`（1. `restoreSessionMessages()` 引入首帧尾批极速渲染 + 历史分片流式前置挂载：当会话消息 `>12` 条时，首帧仅同步渲染最新 10 条消息并瞬时贴底可交互，更早历史按每帧 6 条在顶部平滑插入并保持滚动锚点；2. `getGerritBaseUrl()` 增加 30s 内存缓存 `_gerritBaseUrlCache`，消除恢复会话时上百次重复 `fs.readFileSync('data.json')`；3. `formatMessageContent()` 仅在包含 `mermaid` 代码块时才挂载 60ms/250ms 延时后处理，消除普通消息 3 倍 DOM 遍历风暴）
+    - `agent-session-manager.js`（`_migrateLegacyFakeUsage()` 由同步 `saveSessions()` 改为 `saveSessionsDebounced(1500)`，避免构造函数加载阶段同步写盘阻塞）
+    - `docs/test_runner.js`（新增 Suite 26: `RELOAD-PERF-01 ~ 07` 共 7 项自动化断言，覆盖 DSH 软解绑热复用、历史消息分片恢复、`getGerritBaseUrl` 缓存与 `onOpen` 页签守卫）
+    - `main.js`（通过 `python build.py` 重新编译生成并通过 `node -c main.js` 语法校验）
+  - **问题背景**：用户反馈重载 Obsidian 工作台时需等待约 10 秒才能加载完成，且截图中出现两类典型症状：① Harness 页签长时间卡在「正在连接 DeepSeek Harness 智能工作台...」；② 探索 -> AI 助手页签加载期间及刚加载完时，Obsidian 左侧原生文件树列表整块白屏或子项文字空白。
+  - **核心修改逻辑**：
+    1. **守护进程跨重载热复用**：插件卸载时不杀后台 DSH 进程、不删锁文件，重载后直接通过 `daemon.lock` 秒级接管；
+    2. **渲染主线程零阻塞**：让出首帧给 Obsidian 原生侧边栏，剥离首屏同步 Zstd 解压、全库 Markdown 抢盘、重复 `data.json` 同步读盘与二次整页销毁重建。
+  - **验证状态**：`python build.py` 打包通过；`node -c main.js` 语法验证通过；Suite 26 专项测试全绿 PASS。
+
 ## [1.6.0] - 2026-10-18
 ### Released
 - **正式发布 TabonKB 研发工作台 V1.6.0 里程碑版本**：

@@ -120,7 +120,7 @@ class NiceAigcAdapter extends AgentAdapter {
       displayName: 'NiceAIGC',
       icon: getAgentBrandSvg('niceaigc', 16),
       vaultBasePath: options.vaultBasePath || '',
-      permissionMode: options.permissionMode || 'readonly'
+      permissionMode: options.permissionMode || 'readwrite'
     });
 
     this.app = options.app || null;

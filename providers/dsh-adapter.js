@@ -27,7 +27,7 @@ class DshAdapter extends AgentAdapter {
       displayName: 'DSH',
       icon: getAgentBrandSvg('deepseek', 16),
       vaultBasePath: options.vaultBasePath || '',
-      permissionMode: options.permissionMode || 'readonly'
+      permissionMode: options.permissionMode || 'readwrite'
     });
     this.plugin = options.plugin || null;
     this.process = null;

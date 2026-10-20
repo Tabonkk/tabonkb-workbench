@@ -20,8 +20,11 @@ class PiAdapter extends AgentAdapter {
       displayName: 'Pi',
       icon: getAgentBrandSvg('pi', 16),
       vaultBasePath: options.vaultBasePath || '',
-      permissionMode: options.permissionMode || 'readonly'
+      permissionMode: options.permissionMode || 'readwrite'
     });
+
+    // turn_end 的 message.usage 为单 LLM 调用口径 → 可直接驱动 Ctx 胶囊（agy 等回合聚合口径不设此标记）
+    this.usageReflectsContext = true;
 
     this.bridge = options.bridge || null;
     if (!this.bridge) {
@@ -162,6 +165,7 @@ class PiAdapter extends AgentAdapter {
                 provider: providerKey,
                 brand: brand,
                 iconPark: iconPark,
+                contextWindow: m.contextWindow || 0,
                 supportsReasoningEffort: m.reasoning !== false,
                 thinkingLevelMap: m.thinkingLevelMap || null
               };
@@ -386,6 +390,10 @@ class PiAdapter extends AgentAdapter {
     this.bridge.on('queue_update', (d) => this.emit('queue_update', d));
     this.bridge.on('user_message', (d) => this.emit('user_message', d));
     this.bridge.on('queue_cleared', (d) => this.emit('queue_cleared', d));
+
+    // 上下文压缩（手动 /compact 与自动阈值/溢出压缩共用同一事件流）
+    this.bridge.on('compaction_start', (d) => this.emit('compaction_start', d));
+    this.bridge.on('compaction_end', (d) => this.emit('compaction_end', d));
   }
 
   getStatus() {
@@ -504,6 +512,43 @@ class PiAdapter extends AgentAdapter {
   async removeQueuedMessage(kind, text) {
     if (!this.bridge || typeof this.bridge.removeQueuedMessage !== 'function') return;
     return await this.bridge.removeQueuedMessage(kind, text);
+  }
+
+  getContextWindow() {
+    this.loadModelsFromDisk(false);
+    const m = this.modelsMap ? this.modelsMap.get(this.activeModelId) : null;
+    return (m && m.contextWindow) || 0;
+  }
+
+  /**
+   * 当前上下文占用：优先 pi get_session_stats 的 contextUsage（投影估算含待发队列），
+   * pi 未就绪或 contextWindow 缺省时回退 models.json 声明值；tokens:null 表示待下轮响应后可知。
+   */
+  async getContextUsage() {
+    const win = this.getContextWindow();
+    if (!this.bridge || typeof this.bridge.getSessionStats !== 'function') {
+      return win ? { tokens: null, contextWindow: win, percent: null } : null;
+    }
+    const stats = await this.bridge.getSessionStats();
+    const cu = stats && stats.contextUsage;
+    if (cu && (cu.contextWindow || win)) {
+      return {
+        tokens: (typeof cu.tokens === 'number') ? cu.tokens : null,
+        contextWindow: cu.contextWindow || win,
+        percent: (typeof cu.percent === 'number') ? cu.percent : null
+      };
+    }
+    return win ? { tokens: null, contextWindow: win, percent: null } : null;
+  }
+
+  /**
+   * 手动压缩会话上下文（pi /compact 同款 manual compaction 路径）。
+   */
+  async compact() {
+    if (!this.bridge || typeof this.bridge.compact !== 'function') {
+      throw new Error('当前通道不支持上下文压缩');
+    }
+    return await this.bridge.compact();
   }
 
   async getForkMessages() {

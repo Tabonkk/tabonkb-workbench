@@ -25,6 +25,9 @@ const shell = electronModule ? electronModule.shell : null;
 
 // Boot profiler epoch: bundled first — all marks measure elapsed from bundle eval start
 globalThis.__twBootT0 = Date.now();
+// 绝对时间锚: performance.now() = 距导航开始(reload)的毫秒数 → 暴露"重载开始→本插件被求值"盲区耗时
+globalThis.__twBootNavMs = (typeof performance !== 'undefined' && performance.now) ? Math.round(performance.now() * 10) / 10 : 0;
+globalThis.__twBootUptimeMs = (typeof process !== 'undefined' && process.uptime) ? Math.round(process.uptime() * 1000) : -1;
 
 const ICON_PARK_PATHS = {
   // Navigation & Actions
@@ -1207,7 +1210,7 @@ class AgentAdapter {
     this.displayName = options.displayName || 'Agent';
     this.icon = options.icon || getIconPark('robot', 16);
     this.vaultBasePath = options.vaultBasePath || '';
-    this.permissionMode = options.permissionMode || 'readonly';
+    this.permissionMode = options.permissionMode || 'readwrite';
     this.status = 'disconnected'; // disconnected | connecting | connected | thinking | running_tool | error | not_installed
     this.statusDetail = '';
     this.listeners = new Map();
@@ -1257,6 +1260,7 @@ class AgentAdapter {
   }
 
   async setPermissionMode(mode) {
+    if (mode !== 'readonly' && mode !== 'readwrite' && mode !== 'full') return;
     if (this.permissionMode === mode) return;
     this.permissionMode = mode;
     this.emit('permission_change', mode);
@@ -4781,9 +4785,8 @@ function getTabonKbWebRequestBridge() {
             const headers = Object.assign({}, details.responseHeaders);
             const url = (details.url || '').toLowerCase();
 
-            // WeKnora / Notion 嵌入拦截剥除（iframe 需剥 x-frame-options 与 CSP frame-ancestors）
-            if (url.includes(':8088') || url.includes(':8080') || url.includes('192.168.1.62') || url.includes('weknora')
-                || url.includes('notion.so') || url.includes('notion.com') || url.includes('notion.site')) {
+            // WeKnora 嵌入拦截剥除（iframe 需剥 x-frame-options 与 CSP frame-ancestors）
+            if (url.includes(':8088') || url.includes(':8080') || url.includes('192.168.1.62') || url.includes('weknora')) {
               for (const k of Object.keys(headers)) {
                 const lk = k.toLowerCase();
                 if (lk === 'x-frame-options' || lk === 'content-security-policy') {
@@ -5311,6 +5314,68 @@ function getDshFileBridgeScript() {
       }
     }
   });
+
+  // 4. 选区右键: 拦截 Obsidian/Electron 原生菜单 (其 Copy role 自带不可去除的 Ctrl+C accelerator),
+  //    改为极简单项「复制」自绘菜单; 输入框/可编辑区保持原生菜单 (需要粘贴/剪切等)
+  var _twCopyMenu = null;
+  function closeTwCopyMenu() {
+    if (_twCopyMenu && _twCopyMenu.parentNode) _twCopyMenu.parentNode.removeChild(_twCopyMenu);
+    _twCopyMenu = null;
+  }
+  function isEditableTarget(t) {
+    if (!t || !t.closest) return false;
+    return !!t.closest('input, textarea, [contenteditable=""], [contenteditable="true"], [data-lexical-editor]');
+  }
+  function copyText(text) {
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).catch(function() { document.execCommand('copy'); });
+        return;
+      }
+    } catch (_) {}
+    try { document.execCommand('copy'); } catch (_) {}
+  }
+  document.addEventListener('contextmenu', function(e) {
+    if (isEditableTarget(e.target)) return;
+    var sel = window.getSelection && window.getSelection();
+    var text = sel ? sel.toString() : '';
+    if (!text || !text.trim()) return;
+    e.preventDefault();
+    e.stopPropagation();
+    closeTwCopyMenu();
+    var m = document.createElement('div');
+    m.id = 'tabonkb-copy-menu';
+    m.textContent = '\u590d\u5236';
+    m.style.cssText = 'position:fixed;z-index:2147483647;padding:6px 18px;font-size:13px;line-height:20px;border-radius:8px;cursor:pointer;user-select:none;'
+      + 'color:var(--dsw-alias-label-primary,#1f2328);background:var(--dsw-specific-menu,rgba(255,255,255,.96));'
+      + 'box-shadow:0 6px 20px rgba(0,0,0,.14),0 0 0 .5px rgba(128,128,128,.25);backdrop-filter:blur(16px);';
+    m.onmouseenter = function() { m.style.background = 'var(--dsw-alias-interactive-bg-hover,rgba(128,128,128,.14))'; };
+    m.onmouseleave = function() { m.style.background = 'var(--dsw-specific-menu,rgba(255,255,255,.96))'; };
+    m.onmousedown = function(ev) { ev.preventDefault(); };
+    m.onclick = function(ev) { ev.stopPropagation(); copyText(text); closeTwCopyMenu(); };
+    m.oncontextmenu = function(ev) { ev.preventDefault(); };
+    document.body.appendChild(m);
+    var w = m.offsetWidth, h = m.offsetHeight;
+    m.style.left = Math.max(4, Math.min(e.clientX, window.innerWidth - w - 4)) + 'px';
+    m.style.top = Math.max(4, Math.min(e.clientY, window.innerHeight - h - 4)) + 'px';
+    _twCopyMenu = m;
+  }, true);
+  document.addEventListener('mousedown', function(e) {
+    if (_twCopyMenu && !_twCopyMenu.contains(e.target)) closeTwCopyMenu();
+  }, true);
+  document.addEventListener('keydown', function(e) { if (e.key === 'Escape') closeTwCopyMenu(); }, true);
+  window.addEventListener('blur', closeTwCopyMenu);
+  window.addEventListener('wheel', closeTwCopyMenu, { passive: true, capture: true });
+
+  // 5. 快捷键桥接: Ctrl+← 隐藏 / Ctrl+→ 展示 工作台导航栏 (iframe 内按键到不了父文档, 转 postMessage)
+  document.addEventListener('keydown', function(e) {
+    if (!e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) return;
+    if (e.code !== 'ArrowLeft' && e.code !== 'ArrowRight') return;
+    if (isEditableTarget(e.target)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    try { window.parent.postMessage({ type: 'tabonkb-navrail', dir: e.code === 'ArrowLeft' ? 'hide' : 'show' }, '*'); } catch (_) {}
+  }, true);
 
   // Notify parent Obsidian Workbench that DSH iframe bridge is ready for theme sync
   function notifyReady() {
@@ -7074,18 +7139,20 @@ class DshDaemonManager {
     try {
       this.ensureVaultWorkspace();
 
-      // 1. 检查锁文件与已有进程
+      // 1. 检查锁文件与已有进程 (热重载秒级复用: 只要锁文件进程存活且签名确认为 DSH 即直接复用)
       const lock = this.readLockFile();
       if (lock && lock.port && this.isProcessAlive(lock.pid)) {
         const probe = await this.probeDshSignature(lock.port);
-        if (probe.isDsh && (probe.authenticated || (lock.authUrl && lock.authUrl.includes('token=')))) {
+        if (probe.isDsh && (probe.authenticated || (lock.authUrl && lock.authUrl.includes('token=')) || lock.authCookie)) {
           this.actualPort = lock.port;
           this.authUrl = lock.authUrl || `http://127.0.0.1:${lock.port}/`;
-          this._ownedPid = lock.pid; // R3: 复用实例同样登记归属, 保证 stop() 能回收
+          if (lock.authCookie && !this.authCookie) this.authCookie = lock.authCookie;
+          this._ownedPid = lock.pid; // R3: 复用实例同样登记归属, 保证显式 stop()/restart() 能回收
           await this.refreshAuthCookie(this.authUrl);
           await this.startProxy(this.actualPort);
           this.registerBridgePorts();
           this.setStatus('running', '复用已运行实例');
+          try { globalThis.__twBootMark && __twBootMark('dsh:lock-reused'); } catch (_) {}
           this._isStarting = false;
           this.emit('auth_ready', { authUrl: this.authUrl, studioUrl: this.studioUrl, port: this.actualPort, adopted: true });
           return true;
@@ -7144,6 +7211,7 @@ class DshDaemonManager {
       env.Path = envPath;
 
       // 6. 拉起子进程
+      try { globalThis.__twBootMark && __twBootMark('dsh:cold-spawn'); } catch (_) {}
       const proc = child_process.spawn(spawnCmd, spawnArgs, {
         cwd: this.vaultBasePath || process.cwd(),
         env,
@@ -7151,6 +7219,7 @@ class DshDaemonManager {
         stdio: ['ignore', 'pipe', 'pipe']
       });
 
+      try { proc.unref(); } catch (_) {}
       this.process = proc;
       this._ownedPid = proc.pid; // R3: 登记归属, 供 stop()/失败路径回收整棵进程树
       let stdoutBuffer = '';
@@ -7327,8 +7396,35 @@ class DshDaemonManager {
     return await this.start();
   }
 
-  destroy() {
-    this.stop().catch(() => {});
+  /**
+   * 插件卸载/热重载时默认仅解绑当前前端代理与事件监听器，保留后台 DSH 守护进程与 daemon.lock，
+   * 使重载后 _doStart() 可在 <50ms 内秒级热复用，彻底消除每次重载 8~10s 的冷启动与主线程 taskkill 阻塞。
+   * 如需彻底强杀后台守护进程，显式传入 destroy(true) 或调用 stop() / restart()。
+   */
+  destroy(killDaemon = false) {
+    if (killDaemon) {
+      this.stop().catch(() => {});
+      this.listeners.clear();
+      return;
+    }
+    if (this.proxyServer) {
+      try { this.proxyServer.close(); } catch (_) {}
+      this.proxyServer = null;
+      this.proxyPort = null;
+      this.studioUrl = null;
+    }
+    if (this.process) {
+      try {
+        if (this.process.stdout) this.process.stdout.removeAllListeners();
+        if (this.process.stderr) this.process.stderr.removeAllListeners();
+        this.process.removeAllListeners();
+        if (typeof this.process.unref === 'function') this.process.unref();
+      } catch (_) {}
+      this.process = null;
+    }
+    this._ownedPid = null;
+    this._startPromise = null;
+    this._isStarting = false;
     this.listeners.clear();
   }
 }
@@ -8410,11 +8506,12 @@ class PiAgentBridge {
     this.activeModelId = (typeof localStorage !== 'undefined' && localStorage.getItem('tabonkb-pi-active-model')) || 'deepseek-v4-flash';
     this.activeReasoningEffort = (typeof localStorage !== 'undefined' && localStorage.getItem('tabonkb-pi-reasoning-effort')) || 'max';
 
-    this.permissionMode = options.permissionMode || 'readwrite';
+    // 三档权限: readonly(只读) / readwrite(读写, 默认) / full(完全权限); 旧存档 'readwrite' 语义保留为读写档
+    this.permissionMode = ['readonly', 'readwrite', 'full'].includes(options.permissionMode) ? options.permissionMode : 'readwrite';
     try {
       if (typeof localStorage !== 'undefined') {
         const saved = localStorage.getItem('tabonkb-agent-permission-mode');
-        if (saved === 'readonly' || saved === 'readwrite') {
+        if (saved === 'readonly' || saved === 'readwrite' || saved === 'full') {
           this.permissionMode = saved;
         }
       }
@@ -8501,6 +8598,7 @@ class PiAgentBridge {
   }
 
   async setPermissionMode(mode) {
+    if (mode !== 'readonly' && mode !== 'readwrite' && mode !== 'full') return;
     if (this.permissionMode === mode) return;
     this.permissionMode = mode;
     this.emit('permission_change', mode);
@@ -8523,7 +8621,7 @@ class PiAgentBridge {
   // 返回所有可用的 Pi 原生扩展路径 (vendor-portal + weknora-portal + opengrok-portal + gerrit-portal + codegraph-portal)
   // 优先级: .pi/extensions > plugin/extensions; 供 --extension 多次传入
   getExtensionPaths() {
-    const names = ['vendor-portal.ts', 'weknora-portal.ts', 'opengrok-portal.ts', 'gerrit-portal.ts', 'jira-portal.ts', 'codegraph-portal.ts', 'drawio-portal.ts', 'local-project-portal.ts'];
+    const names = ['vendor-portal.ts', 'weknora-portal.ts', 'opengrok-portal.ts', 'gerrit-portal.ts', 'jira-portal.ts', 'codegraph-portal.ts', 'drawio-portal.ts', 'local-project-portal.ts', 'remote-exec-portal.ts'];
     const result = [];
     for (const name of names) {
       const candidates = [
@@ -8546,17 +8644,21 @@ class PiAgentBridge {
    * Determine launch executable: direct node + bundle cli.js (cleanest) or fallback to pi.cmd
    */
   resolveLaunchCommand() {
-    const baseTools = this.permissionMode === 'readwrite'
-      ? 'read,write,edit,grep,find,ls'
-      : 'read,grep,find,ls';
+    // baseTools: 只读档无 write/edit; 读写与完全权限档保留本地写能力
+    const baseTools = this.permissionMode === 'readonly'
+      ? 'read,grep,find,ls'
+      : 'read,write,edit,grep,find,ls';
     const weknoraTools = ',weknora_list_knowledge_bases,weknora_search,weknora_ask,weknora_list_documents,weknora_read_document,weknora_add_document,weknora_update_document,weknora_delete_document';
     const opengrokTools = ',opengrok_list_projects,opengrok_search_code,opengrok_read_file';
     const gerritTools = ',gerrit_search_changes,gerrit_get_change,gerrit_get_diff,gerrit_get_comments,gerrit_list_projects';
     const jiraTools = ',jira_search_issues,jira_get_issue,jira_get_comments,jira_list_attachments,jira_download_attachment';
     const codegraphTools = ',codegraph_explore';
     const drawioTools = ',drawio_create,drawio_load,drawio_get,drawio_edit,drawio_export,drawio_list_pages,drawio_add_page,drawio_rename_page,drawio_delete_page';
-    const localProjectTools = ',project_read_file,project_edit_file,project_compile';
-    const tools = `${baseTools},vendor_portal_search,vendor_portal_get_detail${weknoraTools}${opengrokTools}${gerritTools}${jiraTools}${codegraphTools}${drawioTools}${localProjectTools}`;
+    // project_edit_file/project_compile 仅非只读档放行; remote_exec 各档均注册由 checkCommand 把关
+    const localProjectTools = this.permissionMode === 'readonly'
+      ? ',project_read_file'
+      : ',project_read_file,project_edit_file,project_compile';
+    const tools = `${baseTools},remote_exec,vendor_portal_search,vendor_portal_get_detail${weknoraTools}${opengrokTools}${gerritTools}${jiraTools}${codegraphTools}${drawioTools}${localProjectTools}`;
 
     const extPaths = this.getExtensionPaths();
     const extArgs = [];
@@ -8882,7 +8984,8 @@ class PiAgentBridge {
           WEKNORA_API_KEY: weknoraKey,
           WEKNORA_DEFAULT_KB: weknoraKb,
           OPENGROK_BASE_URL: opengrokBase,
-          OPENGROK_DEFAULT_PROJECT: opengrokProject
+          OPENGROK_DEFAULT_PROJECT: opengrokProject,
+          TABONKB_PERM_MODE: this.permissionMode
         }),
         stdio: ['pipe', 'pipe', 'pipe']
       });
@@ -9064,6 +9167,18 @@ class PiAgentBridge {
         steering: Array.isArray(data.steering) ? data.steering.slice() : [],
         followUp: Array.isArray(data.followUp) ? data.followUp.slice() : []
       });
+      return;
+    }
+
+    if (type === 'compaction_start') {
+      this.setStatus('thinking', '正在压缩上下文...');
+      this.emit('compaction_start', data);
+      return;
+    }
+
+    if (type === 'compaction_end') {
+      this.setStatus('connected', '已就绪');
+      this.emit('compaction_end', data);
       return;
     }
 
@@ -9422,6 +9537,31 @@ class PiAgentBridge {
   }
 
   /**
+   * 会话统计（含 contextUsage：当前上下文 tokens / 窗口 / 占比）。
+   * compact 后首个 LLM 响应前 pi 返回 tokens:null —— 压缩前 usage 不可信。
+   */
+  async getSessionStats() {
+    if (!this.process || this.process.killed) return null;
+    try {
+      const res = await this.sendCommand({ type: 'get_session_stats' }, 8000);
+      return (res && res.data) || null;
+    } catch (e) {
+      console.warn('[PiAgentBridge] get_session_stats failed:', e);
+      return null;
+    }
+  }
+
+  /**
+   * 手动压缩会话上下文（pi RPC compact，内部走 LLM 摘要，耗时较长故放宽超时）。
+   */
+  async compact(customInstructions) {
+    if (!this.process || this.process.killed) {
+      throw new Error('Pi 核心进程未就绪或已断开');
+    }
+    return await this.sendCommand({ type: 'compact', customInstructions }, 120000);
+  }
+
+  /**
    * 流式中插队纠偏：pi 在当前工具执行完、下一次 LLM 调用前把该消息注入本轮。
    * @param {string} messageText 用户纠偏内容（原始 wireText，不做上下文注入）
    */
@@ -9685,8 +9825,11 @@ class PiAdapter extends AgentAdapter {
       displayName: 'Pi',
       icon: getAgentBrandSvg('pi', 16),
       vaultBasePath: options.vaultBasePath || '',
-      permissionMode: options.permissionMode || 'readonly'
+      permissionMode: options.permissionMode || 'readwrite'
     });
+
+    // turn_end 的 message.usage 为单 LLM 调用口径 → 可直接驱动 Ctx 胶囊（agy 等回合聚合口径不设此标记）
+    this.usageReflectsContext = true;
 
     this.bridge = options.bridge || null;
     if (!this.bridge) {
@@ -9827,6 +9970,7 @@ class PiAdapter extends AgentAdapter {
                 provider: providerKey,
                 brand: brand,
                 iconPark: iconPark,
+                contextWindow: m.contextWindow || 0,
                 supportsReasoningEffort: m.reasoning !== false,
                 thinkingLevelMap: m.thinkingLevelMap || null
               };
@@ -10051,6 +10195,10 @@ class PiAdapter extends AgentAdapter {
     this.bridge.on('queue_update', (d) => this.emit('queue_update', d));
     this.bridge.on('user_message', (d) => this.emit('user_message', d));
     this.bridge.on('queue_cleared', (d) => this.emit('queue_cleared', d));
+
+    // 上下文压缩（手动 /compact 与自动阈值/溢出压缩共用同一事件流）
+    this.bridge.on('compaction_start', (d) => this.emit('compaction_start', d));
+    this.bridge.on('compaction_end', (d) => this.emit('compaction_end', d));
   }
 
   getStatus() {
@@ -10171,6 +10319,43 @@ class PiAdapter extends AgentAdapter {
     return await this.bridge.removeQueuedMessage(kind, text);
   }
 
+  getContextWindow() {
+    this.loadModelsFromDisk(false);
+    const m = this.modelsMap ? this.modelsMap.get(this.activeModelId) : null;
+    return (m && m.contextWindow) || 0;
+  }
+
+  /**
+   * 当前上下文占用：优先 pi get_session_stats 的 contextUsage（投影估算含待发队列），
+   * pi 未就绪或 contextWindow 缺省时回退 models.json 声明值；tokens:null 表示待下轮响应后可知。
+   */
+  async getContextUsage() {
+    const win = this.getContextWindow();
+    if (!this.bridge || typeof this.bridge.getSessionStats !== 'function') {
+      return win ? { tokens: null, contextWindow: win, percent: null } : null;
+    }
+    const stats = await this.bridge.getSessionStats();
+    const cu = stats && stats.contextUsage;
+    if (cu && (cu.contextWindow || win)) {
+      return {
+        tokens: (typeof cu.tokens === 'number') ? cu.tokens : null,
+        contextWindow: cu.contextWindow || win,
+        percent: (typeof cu.percent === 'number') ? cu.percent : null
+      };
+    }
+    return win ? { tokens: null, contextWindow: win, percent: null } : null;
+  }
+
+  /**
+   * 手动压缩会话上下文（pi /compact 同款 manual compaction 路径）。
+   */
+  async compact() {
+    if (!this.bridge || typeof this.bridge.compact !== 'function') {
+      throw new Error('当前通道不支持上下文压缩');
+    }
+    return await this.bridge.compact();
+  }
+
   async getForkMessages() {
     if (!this.bridge || typeof this.bridge.getForkMessages !== 'function') return [];
     return this.bridge.getForkMessages();
@@ -10214,7 +10399,7 @@ class HermesAdapter extends AgentAdapter {
       displayName: 'Hermes CLI',
       icon: getAgentBrandSvg('hermes', 16),
       vaultBasePath: options.vaultBasePath || '',
-      permissionMode: options.permissionMode || 'readonly'
+      permissionMode: options.permissionMode || 'readwrite'
     });
     this.process = null;
     this.stdoutBuffer = '';
@@ -10808,7 +10993,7 @@ class GeminiAdapter extends AgentAdapter {
       displayName: 'Gemini',
       icon: getAgentBrandSvg('gemini', 16),
       vaultBasePath: options.vaultBasePath || '',
-      permissionMode: options.permissionMode || 'readonly'
+      permissionMode: options.permissionMode || 'readwrite'
     });
 
     this.sessionId = null;
@@ -10934,7 +11119,9 @@ class GeminiAdapter extends AgentAdapter {
 
     const bin = this.resolveGeminiBinary();
     const vaultPath = this.vaultBasePath || process.cwd();
-    const approvalMode = this.permissionMode === 'readwrite' ? 'auto_edit' : 'plan';
+    // 三档映射: readonly→plan / readwrite→auto_edit / full→yolo
+    const approvalMode = this.permissionMode === 'readonly' ? 'plan'
+      : (this.permissionMode === 'full' ? 'yolo' : 'auto_edit');
     this.ensureVendorMcp();
 
     if (!this.sessionId) {
@@ -11261,6 +11448,99 @@ function estTokensFromText(s) {
 }
 
 /**
+ * agy 模型元数据表：权威 id/名称列表来自 `agy models`（refreshModels 动态拉取），
+ * 本地仅登记 desc/icon/effort 标注；未登记 id 走 _familyMeta 按前缀归入家族分组兜底。
+ */
+const AGY_MODEL_META = {
+  'gemini-3.8-flash-high':    { desc: '极速响应与高阶长上下文推理 (默认推荐)', icon: '⚡', iconPark: 'lightning', supportsReasoningEffort: true },
+  'gemini-3.8-flash-medium':  { desc: '速度与推理深度均衡档', icon: '⚡', iconPark: 'lightning', supportsReasoningEffort: true },
+  'gemini-3.8-flash-low':     { desc: '轻量推理，极速低成本', icon: '⚡', iconPark: 'lightning', supportsReasoningEffort: true },
+  'claude-sonnet-4-6':        { desc: '高水平编码与架构深度思考', icon: '🧠', iconPark: 'brain', supportsReasoningEffort: true },
+  'claude-opus-4-6-thinking': { desc: '旗舰级最强综合分析思考', icon: '🧠', iconPark: 'brain', supportsReasoningEffort: true },
+  'gpt-oss-120b-medium':      { desc: '开源千亿参数推理模型', icon: '🌐', iconPark: 'globe', supportsReasoningEffort: false }
+};
+
+/** 家族分组展示元数据（渲染顺序即数组顺序） */
+const AGY_MODEL_GROUP_META = {
+  'gemini':  { group: 'Gemini 旗舰与高阶推理', icon: '🔷', iconPark: 'diamond', isTop: true },
+  'claude':  { group: 'Claude 深度思考系列', icon: '🧠', iconPark: 'brain' },
+  'gpt-oss': { group: '开源与通用大模型', icon: '🌐', iconPark: 'cloud' },
+  'other':   { group: '其他模型', icon: '📦', iconPark: 'box' }
+};
+
+/** CLI 不可达时的兜底静态列表（与 agy 1.4.2 `agy models` 对齐） */
+const AGY_MODEL_FALLBACK = [
+  { id: 'gemini-3.8-flash-high', name: 'Gemini 3.8 Flash (High)' },
+  { id: 'gemini-3.8-flash-medium', name: 'Gemini 3.8 Flash (Medium)' },
+  { id: 'gemini-3.8-flash-low', name: 'Gemini 3.8 Flash (Low)' },
+  { id: 'claude-sonnet-4-6', name: 'Claude Sonnet 4.6 (Thinking)' },
+  { id: 'claude-opus-4-6-thinking', name: 'Claude Opus 4.6 (Thinking)' },
+  { id: 'gpt-oss-120b-medium', name: 'GPT-OSS 120B (Medium)' }
+];
+
+/** UI effort → 型号档位映射：off 无对应变体取最低档 low；xhigh/max 封顶 high */
+const AGY_EFFORT_TIER_MAP = { off: 'low', low: 'low', medium: 'medium', high: 'high', xhigh: 'high', max: 'high' };
+
+function agyModelFamily(id) {
+  const s = String(id || '').toLowerCase();
+  if (s.startsWith('gemini')) return 'gemini';
+  if (s.startsWith('claude')) return 'claude';
+  if (s.startsWith('gpt-oss') || s.startsWith('gpt_oss')) return 'gpt-oss';
+  return 'other';
+}
+
+/** 解析 `agy models` 输出：每行 `id<TAB>名称`，跳过 Fetching/空行 */
+function parseAgyModelsOutput(out) {
+  const list = [];
+  for (const line of String(out || '').split('\n')) {
+    const t = line.trim();
+    if (!t || /^fetching/i.test(t)) continue;
+    const parts = t.split(/\t| {2,}/);
+    const id = parts[0].trim();
+    if (!id || /\s/.test(id)) continue;
+    list.push({ id, name: (parts[1] || id).trim() });
+  }
+  return list;
+}
+
+/**
+ * agy 各模型上下文窗口（`agy models` 不暴露，按厂商公称值登记；未登记模型返回 0 则不显示占比）。
+ */
+const AGY_CONTEXT_WINDOWS = {
+  'gemini': 1048576,
+  'claude': 200000,
+  'gpt-oss': 131072
+};
+
+/**
+ * 从 transcript_full.jsonl 尾部倒查最后一条带 token 计账的条目（PLANNER_RESPONSE），
+ * input_tokens + cache_read_tokens + output_tokens 即当时上下文长度（与 pi calculateContextTokens 同口径）。
+ */
+function extractLatestContextTokens(convId, userProfile) {
+  if (!convId) return null;
+  try {
+    const root = userProfile || process.env.USERPROFILE || 'C:\\Users\\Administrator';
+    const fp = path.join(root, '.gemini', 'antigravity-cli', 'brain', convId, '.system_generated', 'logs', 'transcript_full.jsonl');
+    if (!fs.existsSync(fp)) return null;
+    const lines = fs.readFileSync(fp, 'utf8').trim().split('\n');
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const line = lines[i].trim();
+      if (!line || !line.startsWith('{')) continue;
+      try {
+        const e = JSON.parse(line);
+        const inp = Math.max(0, e.input_tokens ?? e.inputTokens ?? 0);
+        const cr = Math.max(0, e.cache_read_tokens ?? e.cacheReadTokens ?? 0);
+        const out = Math.max(0, e.output_tokens ?? e.outputTokens ?? 0);
+        if (inp + cr + out > 0) return inp + cr + out;
+      } catch (_) {}
+    }
+    return null;
+  } catch (_) {
+    return null;
+  }
+}
+
+/**
  * 从 transcript_full.jsonl 中提取原生 usage/token_count 字段（若 CLI 已记录）
  */
 function extractNativeUsageFromTranscript(convId, userProfile) {
@@ -11318,6 +11598,16 @@ class AntigravityAdapter extends AgentAdapter {
     this.activeTools = new Map();
     this.activeModelId = 'gemini-3.8-flash-high';
     this.activeModelName = 'Gemini 3.8 Flash (High)';
+    // 恢复上次选中模型（重载持久化）
+    try {
+      if (typeof localStorage !== 'undefined') {
+        const savedId = localStorage.getItem('tabonkb-agy-active-model');
+        if (savedId) {
+          this.activeModelId = savedId;
+          this.activeModelName = localStorage.getItem('tabonkb-agy-active-model-name') || savedId;
+        }
+      }
+    } catch (_) {}
 
     // 思维链状态追踪
     this.isThinkingActive = false;
@@ -11325,11 +11615,142 @@ class AntigravityAdapter extends AgentAdapter {
     this.lastEmittedThinking = '';
     this.thinkingPollTimer = null;
     this.reasoningEffort = null;
+
+    // 动态模型列表：_remoteModels 为 `agy models` 权威结果（localStorage 缓存防首屏空态）
+    this._remoteModels = null;
+    this._modelsFetchedAt = 0;
+    this._modelsFetching = null;
+    this._hydrateModelsCache();
+  }
+
+  _hydrateModelsCache() {
+    try {
+      if (typeof localStorage === 'undefined') return;
+      const raw = JSON.parse(localStorage.getItem('tabonkb-agy-models') || 'null');
+      if (raw && Array.isArray(raw.models) && raw.models.length) {
+        this._remoteModels = raw.models;
+      }
+    } catch (_) {}
+  }
+
+  /**
+   * 拉取 `agy models` 权威模型列表（15s 超时、5min TTL、并发去重）。
+   * 成功后：缓存 localStorage + 校正失效选中模型 + 广播 model_list_change。
+   */
+  refreshModels(force = false) {
+    if (this._modelsFetching) return this._modelsFetching;
+    if (!force && this._modelsFetchedAt && Date.now() - this._modelsFetchedAt < 5 * 60 * 1000) {
+      return Promise.resolve(this._remoteModels);
+    }
+    this._modelsFetching = new Promise((resolve) => {
+      let proc = null;
+      const finish = (list) => {
+        this._modelsFetching = null;
+        if (list && list.length) {
+          this._remoteModels = list;
+          this._modelsFetchedAt = Date.now();
+          try {
+            if (typeof localStorage !== 'undefined') {
+              localStorage.setItem('tabonkb-agy-models', JSON.stringify({ at: this._modelsFetchedAt, models: list }));
+            }
+          } catch (_) {}
+          this._reconcileActiveModel();
+          this.emit('model_list_change', { models: list });
+        }
+        resolve(this._remoteModels);
+      };
+      try {
+        const bin = this.resolveBinary();
+        proc = child_process.spawn(bin.cmd, [...bin.prefixArgs, 'models'], {
+          windowsHide: true,
+          stdio: ['ignore', 'pipe', 'ignore']
+        });
+        let out = '';
+        const timer = setTimeout(() => { try { proc.kill(); } catch (_) {} }, 15000);
+        proc.stdout.on('data', (d) => { out += d.toString(); });
+        proc.on('close', () => { clearTimeout(timer); finish(parseAgyModelsOutput(out)); });
+        proc.on('error', () => { clearTimeout(timer); finish(null); });
+      } catch (_) {
+        finish(null);
+      }
+    });
+    return this._modelsFetching;
+  }
+
+  /** 选中模型已不在上游列表（如版本下架）→ 自动切到首个可用模型，避免 --model 发送必败 */
+  _reconcileActiveModel() {
+    if (!this._remoteModels || !this._remoteModels.length) return;
+    if (this._remoteModels.some(m => m.id === this.activeModelId)) return;
+    const first = this._remoteModels[0];
+    console.warn(`[Antigravity] 模型 ${this.activeModelId} 已不在 agy models 列表，自动切换至 ${first.id}`);
+    this.setModel(first.id, first.name);
   }
 
   supportsReasoningEffort(modelId) {
     const id = String(modelId || this.activeModelId || '').toLowerCase();
     return id.includes('flash') || id.includes('pro') || id.includes('thinking') || id.includes('claude') || id.includes('gemini');
+  }
+
+  /**
+   * 型号内建推理档位：-low/-medium/-high 后缀 = 该变体固定 tier，
+   * `--effort` 必须与之精确相等否则 agy 报 conflicts 拒绝（实测）。
+   * 发送路径对这些变体直接省略 --effort；UI 据此显示固定档位徽标而非可选器。
+   */
+  builtinEffortTier(modelId) {
+    const m = /-(?:high|medium|low)$/i.exec(String(modelId || this.activeModelId || ''));
+    return m ? m[0].slice(1).toLowerCase() : null;
+  }
+
+  mapEffortToTier(effort) {
+    return AGY_EFFORT_TIER_MAP[String(effort || 'high').toLowerCase()] || 'high';
+  }
+
+  /**
+   * 档位族变体表：id 为 base（gemini-3.8-flash）或带档后缀均可，返回 {low,medium,high}→远端真实 id。
+   * 无变体（非档位族/上游未提供）返回 null。
+   */
+  _tierVariants(id) {
+    const s = String(id || '');
+    const m = /-(?:low|medium|high)$/i.exec(s);
+    const base = m ? s.slice(0, -m[0].length) : s;
+    if (!base) return null;
+    const src = (Array.isArray(this._remoteModels) && this._remoteModels.length) ? this._remoteModels : AGY_MODEL_FALLBACK;
+    const tiers = {};
+    for (const r of src) {
+      const rid = String(r.id || '');
+      const t = /-(low|medium|high)$/i.exec(rid);
+      if (t && rid.slice(0, -t[0].length).toLowerCase() === base.toLowerCase()) tiers[t[1].toLowerCase()] = rid;
+    }
+    return Object.keys(tiers).length ? tiers : null;
+  }
+
+  /** id + effort → 实际应发送的具体型号 id（档位族折叠逻辑在此收束） */
+  _resolveTierModelId(id, effort) {
+    const tiers = this._tierVariants(id);
+    if (!tiers) return String(id || '');
+    const want = this.mapEffortToTier(effort);
+    return tiers[want] || tiers.high || tiers.medium || tiers.low || String(id || '');
+  }
+
+  /** 档位族折叠型号返回其真实可用档位列表（如 ['low','medium','high']），否则 null */
+  getModelTierLevels(id) {
+    const tiers = this._tierVariants(id);
+    return tiers ? ['low', 'medium', 'high'].filter(t => tiers[t]) : null;
+  }
+
+  /**
+   * UI 档位标签：具体变体 id → 固定档位；档位族 base id → 当前 effort 映射档位；
+   * 非档位族返回 null。
+   */
+  getModelEffortConfig(modelId) {
+    const map = {
+      low: { id: 'low', label: '低推理' },
+      medium: { id: 'medium', label: '中推理' },
+      high: { id: 'high', label: '高推理' }
+    };
+    const tier = this.builtinEffortTier(modelId) ||
+      (this._tierVariants(modelId) ? this.mapEffortToTier(this.getReasoningEffort()) : null);
+    return tier ? map[tier] : null;
   }
 
   getReasoningEffort() {
@@ -11343,12 +11764,25 @@ class AntigravityAdapter extends AgentAdapter {
     return this.reasoningEffort;
   }
 
-  setReasoningEffort(effort) {
+  _applyEffort(effort) {
     this.reasoningEffort = effort || 'high';
     if (typeof localStorage !== 'undefined') {
       localStorage.setItem('tabonkb-agy-reasoning-effort', this.reasoningEffort);
     }
     this.emit('reasoning_effort_change', this.reasoningEffort);
+  }
+
+  setReasoningEffort(effort) {
+    this._applyEffort(effort);
+    // 当前型号为档位族变体 → 重定向到对应 tier 变体（档位 = 型号切换）
+    const resolved = this._resolveTierModelId(this.activeModelId, this.reasoningEffort);
+    if (resolved && resolved !== this.activeModelId) {
+      this.activeModelId = resolved;
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('tabonkb-agy-active-model', resolved);
+      }
+      this.emit('model_change', { modelId: resolved, displayName: this.activeModelName });
+    }
   }
 
   getReasoningEffortConfig() {
@@ -11372,49 +11806,73 @@ class AntigravityAdapter extends AgentAdapter {
   }
 
   setModel(modelId, modelName, reasoningEffort = null) {
-    this.activeModelId = modelId;
-    this.activeModelName = modelName || modelId;
+    // effort 先落账但不 retarget（此时 id 还是旧型号）；再由 _resolveTierModelId 收束到具体变体
     if (reasoningEffort !== null && reasoningEffort !== undefined) {
-      this.setReasoningEffort(reasoningEffort);
+      this._applyEffort(reasoningEffort);
     }
+    const resolved = this._resolveTierModelId(modelId, this.getReasoningEffort());
+    this.activeModelId = resolved;
+    this.activeModelName = modelName || resolved;
     if (typeof localStorage !== 'undefined') {
-      localStorage.setItem('tabonkb-agy-active-model', this.activeModelId);
+      localStorage.setItem('tabonkb-agy-active-model', resolved);
       localStorage.setItem('tabonkb-agy-active-model-name', this.activeModelName);
     }
-    this.emit('model_change', { modelId, displayName: this.activeModelName });
+    this.emit('model_change', { modelId: resolved, displayName: this.activeModelName });
   }
 
+  /**
+   * 模型分组：权威列表 = `agy models` 远端结果（localStorage 缓存亦可）；
+   * CLI 不可达时回落 AGY_MODEL_FALLBACK。未登记 id 按前缀入家族分组、desc 降级。
+   * 每次调用顺手触发 TTL 过期检查（后台静默刷新）。
+   */
   getModelGroups() {
-    return [
-      {
-        group: 'Gemini 旗舰与高阶推理',
-        icon: '🔷',
-        iconPark: 'diamond',
-        isTop: true,
-        models: [
-          { id: 'gemini-3.8-flash-high', name: 'Gemini 3.8 Flash (High)', desc: '极速响应与高阶长上下文推理 (默认推荐)', icon: '⚡', iconPark: 'lightning', supportsReasoningEffort: true },
-          { id: 'gemini-3.7-flash-high', name: 'Gemini 3.7 Flash (High)', desc: '混合思维链与平衡效能', icon: '⚡', iconPark: 'lightning', supportsReasoningEffort: true },
-          { id: 'gemini-3.1-pro-high', name: 'Gemini 3.1 Pro (High)', desc: '深度逻辑与复杂架构推演', icon: '💎', iconPark: 'diamond', supportsReasoningEffort: true }
-        ]
-      },
-      {
-        group: 'Claude 深度思考系列',
-        icon: '🧠',
-        iconPark: 'brain',
-        models: [
-          { id: 'claude-sonnet-4-6', name: 'Claude Sonnet 4.6 (Thinking)', desc: '高水平编码与架构深度思考', icon: '🧠', iconPark: 'brain', supportsReasoningEffort: true },
-          { id: 'claude-opus-4-6-thinking', name: 'Claude Opus 4.6 (Thinking)', desc: '旗舰级最强综合分析思考', icon: '💎', iconPark: 'diamond', supportsReasoningEffort: true }
-        ]
-      },
-      {
-        group: '开源与通用大模型',
-        icon: '🌐',
-        iconPark: 'cloud',
-        models: [
-          { id: 'gpt-oss-120b-medium', name: 'GPT-OSS 120B (Medium)', desc: '开源千亿参数推理模型', icon: '🌐', iconPark: 'globe', supportsReasoningEffort: false }
-        ]
+    const remote = Array.isArray(this._remoteModels) && this._remoteModels.length ? this._remoteModels : null;
+    const list = remote || AGY_MODEL_FALLBACK;
+    if (remote) this.refreshModels();
+
+    // 档位族折叠：gemini-3.8-flash-{low,medium,high} → 单一「Gemini 3.8 Flash」条目，
+    // tiers 记录各档位真实 id，等级切换由 reasoning 浮层驱动 setModel 解析
+    const collapsed = [];
+    const tierSeen = new Map();
+    for (const m of list) {
+      const t = /-(low|medium|high)$/i.exec(String(m.id || ''));
+      if (t) {
+        const base = m.id.slice(0, -t[0].length);
+        let entry = tierSeen.get(base);
+        if (!entry) {
+          entry = { id: base, name: String(m.name || base).replace(/\s*\((?:low|medium|high)\)\s*$/i, ''), tiers: {} };
+          tierSeen.set(base, entry);
+          collapsed.push(entry);
+        }
+        entry.tiers[t[1].toLowerCase()] = m.id;
+      } else {
+        collapsed.push({ id: m.id, name: m.name });
       }
-    ];
+    }
+
+    const buckets = {};
+    for (const m of collapsed) {
+      const fam = agyModelFamily(m.id);
+      // 元数据回退链：base id → 任一档位变体（high 优先）→ 家族默认
+      const meta = AGY_MODEL_META[m.id]
+        || (m.tiers && (AGY_MODEL_META[m.tiers.high] || AGY_MODEL_META[m.tiers.medium] || AGY_MODEL_META[m.tiers.low]))
+        || null;
+      const item = {
+        id: m.id,
+        name: m.name || m.id,
+        desc: meta ? meta.desc : '',
+        icon: meta ? meta.icon : (AGY_MODEL_GROUP_META[fam] || {}).icon || '✦',
+        iconPark: meta ? meta.iconPark : (AGY_MODEL_GROUP_META[fam] || {}).iconPark || 'cpu',
+        supportsReasoningEffort: meta ? meta.supportsReasoningEffort : this.supportsReasoningEffort(m.id)
+      };
+      if (m.tiers) item.tiers = m.tiers;
+      (buckets[fam] = buckets[fam] || []).push(item);
+    }
+
+    const order = ['gemini', 'claude', 'gpt-oss', 'other'];
+    return order
+      .filter(f => buckets[f] && buckets[f].length)
+      .map(f => Object.assign({}, AGY_MODEL_GROUP_META[f], { models: buckets[f] }));
   }
 
   resolveBinary() {
@@ -11472,6 +11930,7 @@ class AntigravityAdapter extends AgentAdapter {
     if (check.available) {
       this.ensureMcpConfiguration();
       this.setStatus('connected', '已就绪');
+      this.refreshModels(true).catch(() => {});
       return true;
     }
     this.setStatus('not_installed', 'Antigravity CLI 未安装');
@@ -11513,6 +11972,32 @@ class AntigravityAdapter extends AgentAdapter {
         this.emit('thinking_delta', delta);
       }
     }
+  }
+
+  /**
+   * agy 无 RPC 状态通道：上下文占用读 transcript_full.jsonl 尾条 token 计账，
+   * contextWindow 取内置公称窗口表（未知模型返回 0 → UI 不显示占比）。
+   * 手动压缩不支持：print 模式实测 `/compact` 被当用户消息、`compact` stream event 被拒收，
+   * 压缩仅存在于交互 TUI 与自动阈值路径，故不实现 compact()。
+   */
+  getContextWindow() {
+    const id = String(this.activeModelId || '').toLowerCase();
+    for (const key of Object.keys(AGY_CONTEXT_WINDOWS)) {
+      if (id.includes(key)) return AGY_CONTEXT_WINDOWS[key];
+    }
+    return 0;
+  }
+
+  async getContextUsage() {
+    this._syncSessionConversation();
+    const tokens = extractLatestContextTokens(this.sessionId, process.env.USERPROFILE);
+    const win = this.getContextWindow();
+    if (tokens === null && !win) return null;
+    return {
+      tokens,
+      contextWindow: win,
+      percent: (typeof tokens === 'number' && win > 0) ? (tokens / win) * 100 : null
+    };
   }
 
   /**
@@ -11558,7 +12043,8 @@ class AntigravityAdapter extends AgentAdapter {
 
     const bin = this.resolveBinary();
     const vaultPath = this.vaultBasePath || process.cwd();
-    const execMode = this.permissionMode === 'readwrite' ? 'accept-edits' : 'plan';
+    // 三档映射: readonly→plan; readwrite/full→accept-edits (本 CLI 无更激进档)
+    const execMode = this.permissionMode === 'readonly' ? 'plan' : 'accept-edits';
     this.ensureMcpConfiguration();
 
     // 拼接 TabonKB 专有工具指令提示词
@@ -11579,8 +12065,8 @@ class AntigravityAdapter extends AgentAdapter {
 
     const effort = this.getReasoningEffort();
     const supportsReasoning = this.supportsReasoningEffort(this.activeModelId);
-    const modelHasBuiltinEffort = /-(?:high|medium|low)$/i.test(this.activeModelId || '');
-    if (supportsReasoning && effort !== 'off' && !modelHasBuiltinEffort) {
+    // 内建档位变体（-low/-medium/-high 后缀）省略 --effort：agy 要求与后缀精确相等否则报错
+    if (supportsReasoning && effort !== 'off' && !this.builtinEffortTier(this.activeModelId)) {
       args.push('--effort', effort);
     }
 
@@ -11824,6 +12310,11 @@ class AntigravityAdapter extends AgentAdapter {
       if (step.conversation_id) {
         this.sessionId = step.conversation_id;
         this._persistConversationId();
+      }
+
+      // 每步 DONE 携带原生 usage（snake_case）：per-call 口径 = 当时上下文长度 → 广播给 Ctx 胶囊
+      if (step.state === 'DONE' && step.usage && typeof step.usage === 'object') {
+        this.emit('context_usage', step.usage);
       }
 
       // 文本生成 / 思维链更新
@@ -12105,7 +12596,7 @@ class NiceAigcAdapter extends AgentAdapter {
       displayName: 'NiceAIGC',
       icon: getAgentBrandSvg('niceaigc', 16),
       vaultBasePath: options.vaultBasePath || '',
-      permissionMode: options.permissionMode || 'readonly'
+      permissionMode: options.permissionMode || 'readwrite'
     });
 
     this.app = options.app || null;
@@ -14234,7 +14725,7 @@ class DshAdapter extends AgentAdapter {
       displayName: 'DSH',
       icon: getAgentBrandSvg('deepseek', 16),
       vaultBasePath: options.vaultBasePath || '',
-      permissionMode: options.permissionMode || 'readonly'
+      permissionMode: options.permissionMode || 'readwrite'
     });
     this.plugin = options.plugin || null;
     this.process = null;
@@ -14737,6 +15228,8 @@ class AgentSessionManager {
         draft: '',
         currentAssistantMessage: null,
         activeToolCards: new Map(),
+        // 会话级上下文绑定 (OpenGrok/Gerrit/Jira/本地工程): 尚无会话对象 (新会话待发首条消息) 时的暂存区
+        pendingContext: null,
         updatedAt: Date.now()
       });
     }
@@ -14887,7 +15380,8 @@ class AgentSessionManager {
     }
     if (touched > 0) {
       try { console.info('[AgentSessionManager] Migrated/normalized legacy usage records:', touched); } catch (_) {}
-      this.saveSessions();
+      // 避免在构造函数同步加载栈中阻塞写盘，统一走防抖延迟落盘
+      this.saveSessionsDebounced(1500);
     }
   }
 
@@ -14918,6 +15412,8 @@ class AgentSessionManager {
         // 服务端会话 ID (NiceAIGC conversation_id / 叶子消息链): 必须随白名单序列化, 否则落盘即丢无法续接
         conversationId: s.conversationId || null,
         lastMessageId: s.lastMessageId || null,
+        // 会话级上下文绑定快照: 随会话持久化, 切换/新建会话时恢复或复位
+        context: s.context || null,
         messages: (s.messages || []).slice(-100).map(m => ({
           id: m.id || Math.random().toString(36).slice(2),
           role: m.role,
@@ -15123,8 +15619,11 @@ class AgentSessionManager {
       title: title,
       createdAt: Date.now(),
       updatedAt: Date.now(),
+      // 新会话物化时接管待发区的上下文绑定 (无待发即为默认未选中)
+      context: agent.pendingContext || null,
       messages: []
     };
+    agent.pendingContext = null;
     agent.sessions.unshift(newSession);
     agent.activeSessionId = newSession.id;
     agent.updatedAt = Date.now();
@@ -15147,6 +15646,7 @@ class AgentSessionManager {
     agent.currentAssistantMessage = null;
     agent.activeToolCards.clear();
     agent.draft = '';
+    agent.pendingContext = null;
     agent.updatedAt = Date.now();
     this.saveSessions();
   }
@@ -15176,6 +15676,27 @@ class AgentSessionManager {
     active.lastMessageId = lastMsgId || null;
     active.updatedAt = Date.now();
     this.saveSessions();
+  }
+
+  // 会话级上下文绑定 (OpenGrok/Gerrit/Jira/本地工程快照): 有活跃会话写到 session.context,
+  // 无会话 (新建待首条消息) 暂存 agent.pendingContext, 由 createSession 接管物化
+  setSessionContext(agentId, ctx) {
+    const agent = this.getAgent(agentId);
+    const active = this.getActiveSession(agentId);
+    if (active) {
+      active.context = ctx || null;
+      active.updatedAt = Date.now();
+    } else {
+      agent.pendingContext = ctx || null;
+    }
+    this.saveSessionsDebounced(400);
+  }
+
+  getSessionContext(agentId) {
+    const active = this.getActiveSession(agentId);
+    if (active) return active.context || null;
+    const agent = this.getAgent(agentId);
+    return agent.pendingContext || null;
   }
 
   getSessionConversation(agentId) {
@@ -15295,7 +15816,8 @@ class AgentHub {
     try {
       if (typeof localStorage !== 'undefined') {
         const saved = localStorage.getItem('tabonkb-agent-permission-mode');
-        if (saved === 'readonly' || saved === 'readwrite') return saved;
+        // 三档: readonly/readwrite/full; 旧存档 'readwrite' 保留为读写档语义
+        if (saved === 'readonly' || saved === 'readwrite' || saved === 'full') return saved;
       }
     } catch (e) {}
     return 'readwrite';
@@ -15460,6 +15982,18 @@ class AgentHub {
       adapter.on('queue_cleared', (d) => {
         if (isCurrentActive()) this.emit('queue_cleared', d);
       });
+      adapter.on('compaction_start', (d) => {
+        if (isCurrentActive()) this.emit('compaction_start', d);
+      });
+      adapter.on('compaction_end', (d) => {
+        if (isCurrentActive()) this.emit('compaction_end', d);
+      });
+      adapter.on('context_usage', (d) => {
+        if (isCurrentActive()) this.emit('context_usage', d);
+      });
+      adapter.on('model_list_change', (d) => {
+        if (isCurrentActive()) this.emit('model_list_change', d);
+      });
       adapter.on('error', (d) => {
         if (isCurrentActive()) this.emit('error', d);
       });
@@ -15590,6 +16124,7 @@ class AgentHub {
   }
 
   async setPermissionMode(mode) {
+    if (mode !== 'readonly' && mode !== 'readwrite' && mode !== 'full') return;
     this.permissionMode = mode;
     try {
       if (typeof localStorage !== 'undefined') {
@@ -15957,9 +16492,239 @@ ${jsonBlock}
 
 ${contextSummary}
 
+[文件引用] 引用文件一律用绝对路径：服务器 Y:\... / Z:\work\...，知识库 D:\work\Mgmt\TabonKB\...；禁止相对路径与省略号；行号写作 路径:行号。界面会自动缩短显示。
+
 [研发人员提问]
 ${userPrompt}`;
   }
+}
+
+/* ==========================================================================
+   File Locator Core — AI 文件引用定位纯逻辑内核 (无副作用, 可直接 node 测试)
+   - 百分号编码解码 / 行号拆分 / 目标分类 / 链接文本缩短 / 远程命中排序
+   - 远端分层定位 bash 脚本生成 (交给 remote-exec-core 的 buildRemoteCommand 传输)
+   ========================================================================== */
+
+const OBSIDIAN_NATIVE_EXTS = new Set([
+  'md', 'canvas', 'png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'bmp', 'pdf'
+]);
+
+// 远端脚本安全转义 (与 remote-exec-core.shellQuote 同语义, 本模块保持零依赖)
+function _sq(s) {
+  return "'" + String(s).replace(/'/g, "'\\''") + "'";
+}
+function _dq(s) {
+  return '"' + String(s).replace(/([\\"$`])/g, '\\$1') + '"';
+}
+
+/**
+ * 解码 AI 输出的文件链接目标:
+ * - 剥离两端反引号/引号/[[wikilink]] 包裹与 file:/// 前缀
+ * - 仅当存在合法 %[0-9A-Fa-f]{2} 序列才 decodeURIComponent;
+ *   非法序列 (%ZZ / 孤立 %) 或整体非法时保持原样, 永不抛错
+ */
+function decodeTarget(raw) {
+  if (raw === undefined || raw === null) return '';
+  let s = String(raw).trim();
+  const wiki = s.match(/^\[\[(.+)\]\]$/);
+  if (wiki) s = String(wiki[1]).trim();
+  let prev;
+  do {
+    prev = s;
+    s = s.replace(/^[`'"「『]+/, '').replace(/[`'"」』]+$/, '');
+  } while (s !== prev);
+  s = s.replace(/^file:\/\/\/?/i, '');
+  if (/%[0-9A-Fa-f]{2}/.test(s)) {
+    try {
+      s = decodeURIComponent(s);
+    } catch (_) { /* 混合合法/非法序列: 保守保持原样 */ }
+  }
+  return s;
+}
+
+/**
+ * 拆分路径与行号: 识别 '#L85' / '#L85-L90' / ':85' / ':85:12'
+ * Windows 盘符冒号 (如 'D:\x' / 'D:85') 不算行号后缀
+ */
+function splitLine(p) {
+  const res = { path: String(p == null ? '' : p), line: null };
+  const hash = res.path.match(/#L(\d+)(?:-L?(\d+))?$/i);
+  if (hash) {
+    res.line = parseInt(hash[1], 10);
+    res.path = res.path.slice(0, hash.index);
+    return res;
+  }
+  const colon = res.path.match(/:(\d+)(?::\d+)?$/);
+  if (colon && colon.index > 1) {
+    res.line = parseInt(colon[1], 10);
+    res.path = res.path.slice(0, colon.index);
+  }
+  return res;
+}
+
+const WORKSPACE_TOP_DIRS = new Set([
+  'pri_project', 'vendor_w', 'vendor_u', 'vendor_t', 'kernel', 'device',
+  'vendor', 'frameworks', 'bsp', 'idh'
+]);
+
+/**
+ * 目标分类:
+ *  server_abs     Y:/Z:/UNC/Linux 远端绝对路径 (/dfb/, /home/tankaikun)
+ *  vault_abs      落在 vaultBase 之下的绝对路径
+ *  local_abs      其它本地绝对路径 (如 C:\x\a.c)
+ *  rel_workspace  以工作区顶层目录开头的相对路径 (pri_project/ vendor_w/ ...)
+ *  rel_partial    含目录但不属于工作区顶层的相对路径
+ *  bare           纯文件名
+ */
+function classifyTarget(p, opts) {
+  const vaultBase = String((opts && opts.vaultBase) || '')
+    .trim().replace(/\\/g, '/').replace(/\/+$/, '');
+  const raw = String(p || '').trim();
+  if (!raw) return 'bare';
+  let norm = raw.replace(/\\/g, '/');
+
+  if (/^\/\//.test(norm)) return 'server_abs'; // UNC
+  if (/^\/dfb\//.test(norm) || /^\/home\/tankaikun(\/|$)/.test(norm)) return 'server_abs';
+
+  const drive = norm.match(/^([A-Za-z]):(\/|$)/);
+  if (drive) {
+    const letter = drive[1].toUpperCase();
+    if (letter === 'Y' || letter === 'Z') return 'server_abs';
+    if (vaultBase) {
+      const vb = vaultBase.toLowerCase();
+      const n = norm.toLowerCase();
+      if (n === vb || n.startsWith(vb + '/')) return 'vault_abs';
+    }
+    return 'local_abs';
+  }
+  if (norm.startsWith('/')) {
+    if (vaultBase && norm.toLowerCase().startsWith(vaultBase.toLowerCase() + '/')) return 'vault_abs';
+    return 'local_abs';
+  }
+
+  const rel = norm.replace(/^\.\//, '');
+  const top = rel.split('/')[0].toLowerCase();
+  if (WORKSPACE_TOP_DIRS.has(top)) return 'rel_workspace';
+  if (rel.includes('/')) return 'rel_partial';
+  return 'bare';
+}
+
+/**
+ * 链接/行内代码显示文本缩短:
+ * - 像路径 (含 / 或 \\ 且 >=2 段) → label = basename(:line)
+ * - 不像路径 → label = 原文
+ * - 省略号 ('...'/'…') 段跳过, 取最后一个有意义段
+ */
+function shortenPathLabel(text) {
+  const raw = String(text == null ? '' : text).trim();
+  const full = decodeTarget(raw);
+  const sl = splitLine(full);
+  const p = sl.path;
+  const norm = p.replace(/\\/g, '/');
+  const segs = norm.split('/').filter(s => s && s !== '.');
+  const isPath = (norm.includes('/') || p.includes('\\')) && segs.length >= 2;
+  if (!isPath) return { label: raw, full, line: sl.line };
+  let base = '';
+  for (let i = segs.length - 1; i >= 0; i--) {
+    const s = segs[i];
+    if (s === '..' || s === '...' || s === '…') continue;
+    base = s;
+    break;
+  }
+  if (!base) base = segs.length ? segs[segs.length - 1] : p;
+  return { label: sl.line ? `${base}:${sl.line}` : base, full, line: sl.line };
+}
+
+/**
+ * 远程命中排序:
+ *  ① <linuxRoot>/<priDriverRel>/ 下 (项目私有定制)
+ *  ② <linuxRoot>/<publicDriverRel>/ 下 (公共差分)
+ *  ③ 含 kernel_device_modules-<kernelVer>/ (kernelVer 缺省时尝试从 priDriverRel 推断, 推断不到不加该级)
+ *  ④ <linuxRoot>/ 下
+ *  ⑤ 其它
+ *  同级: 路径短者优先, 再按字典序稳定输出
+ */
+function rankHits(hits, ctx) {
+  ctx = ctx || {};
+  const root = String(ctx.projectLinuxRoot || '').replace(/\\/g, '/').replace(/\/+$/, '');
+  const pri = (root && ctx.priDriverRel) ? `${root}/${String(ctx.priDriverRel).replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')}` : '';
+  const pub = (root && ctx.publicDriverRel) ? `${root}/${String(ctx.publicDriverRel).replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')}` : '';
+  let kv = ctx.kernelVer ? String(ctx.kernelVer) : '';
+  if (!kv && ctx.priDriverRel) {
+    const m = String(ctx.priDriverRel).match(/kernel_device_modules-([\d.]+)/);
+    if (m) kv = m[1];
+  }
+  const score = (p) => {
+    const s = String(p || '').replace(/\\/g, '/');
+    if (pri && s.startsWith(pri + '/')) return 0;
+    if (pub && s.startsWith(pub + '/')) return 1;
+    if (kv && s.includes(`/kernel_device_modules-${kv}/`)) return 2;
+    if (root && s.startsWith(root + '/')) return 3;
+    return 4;
+  };
+  return (Array.isArray(hits) ? hits : []).slice().sort((a, b) => {
+    const d = score(a) - score(b);
+    if (d) return d;
+    const la = String(a).length - String(b).length;
+    if (la) return la;
+    return String(a).localeCompare(String(b));
+  });
+}
+
+/**
+ * 远端分层定位 bash 脚本文本:
+ * (a) anchors: 逐个 [ -f "$root/<rel>" ] 精确探测, 命中输出 'HIT\t<path>'
+ * (b) 若 (a) 无命中且给了 tiers: 按层顺序 find -maxdepth 14 (剪枝 .git/.repo/out),
+ *     rel 含目录用 -path 通配尾缀匹配、仅文件名用 -name, 某层命中即停, 每层最多 30 条
+ * 层命中输出前打 'SEC\ttier' 分段标记供调用方区分 anchor/tier 命中阶段
+ * 所有插值均经引号转义; 含 * 的 tier 视为 glob (限定安全字符集, 不转义以保留展开)
+ */
+function buildLocateScript(opts) {
+  opts = opts || {};
+  const anchors = (Array.isArray(opts.anchors) ? opts.anchors : []).filter(Boolean);
+  const tiers = (Array.isArray(opts.tiers) ? opts.tiers : []).filter(Boolean);
+  const rel = String(opts.rel || '')
+    .replace(/\\/g, '/')
+    .replace(/^\.?\//, '')
+    .replace(/^(\.\.\/)+/, '');
+  const fileName = String(opts.fileName || (rel ? rel.split('/').pop() : ''));
+
+  const lines = ['hits=0'];
+
+  if (anchors.length && rel) {
+    lines.push(`for __r in ${anchors.map(_sq).join(' ')}; do`);
+    lines.push(`  if [ -f "$__r"/${_sq(rel)} ]; then printf 'HIT\\t%s\\n' "$__r"/${_sq(rel)}; hits=1; fi`);
+    lines.push('done');
+  }
+
+  if (tiers.length && (rel || fileName)) {
+    const hasDir = rel.includes('/');
+    const matcher = hasDir ? `-path ${_dq('*/' + rel)}` : `-name ${_dq(fileName)}`;
+    const nameMatcher = `-name ${_dq(fileName)}`;
+    const tierList = tiers.map(t => {
+      const s = String(t);
+      if (/[*?]/.test(s)) {
+        return /^[A-Za-z0-9_.\-\/\*\?]+$/.test(s) ? s : null; // glob 层: 仅安全字符, 不转义以保留展开
+      }
+      return _sq(s);
+    }).filter(Boolean).join(' ');
+    if (tierList) {
+      lines.push('if [ "$hits" -eq 0 ]; then');
+      lines.push("  printf 'SEC\\ttier\\n'");
+      lines.push(`  for __t in ${tierList}; do`);
+      lines.push('    [ -d "$__t" ] || continue');
+      lines.push(`    __o=$(find "$__t" -maxdepth 14 \\( -name .git -o -name .repo -o -name out \\) -prune -o -type f ${matcher} -print 2>/dev/null | head -n 30)`);
+      if (hasDir) {
+        // 中间目录写错时按裸文件名在同层兜底 (重名由调用方排序/展示, 不静默丢弃)
+        lines.push(`    if [ -z "$__o" ]; then __o=$(find "$__t" -maxdepth 14 \\( -name .git -o -name .repo -o -name out \\) -prune -o -type f ${nameMatcher} -print 2>/dev/null | head -n 30); fi`);
+      }
+      lines.push("    if [ -n \"$__o\" ]; then printf '%s\\n' \"$__o\" | sed 's/^/HIT\\t/'; hits=1; fi");
+      lines.push('    [ "$hits" -gt 0 ] && break');
+      lines.push('  done');
+      lines.push('fi');
+    }
+  }
+  return lines.join('\n');
 }
 
 /* ==========================================================================
@@ -16297,6 +17062,140 @@ function readRemoteFileSmartAsync(sshHost, user, opts = {}, timeoutMs = 8000) {
       resolve({ content, linuxPath });
     });
   });
+}
+
+/**
+ * 惰性加载 remote-exec-core (避免顶层 require 循环依赖:
+ * remote-exec-core 顶层已 require 本模块)。打包进 main.js 后
+ * remote-exec-core 未内联, 运行时按插件目录相对路径解析。
+ */
+function _remoteExecCore() {
+  if (typeof buildRemoteCommand === 'function' && typeof buildSshArgs === 'function' &&
+      typeof shellQuote === 'function' && typeof resolveServer === 'function') {
+    return { buildRemoteCommand, buildSshArgs, shellQuote, resolveServer };
+  }
+  try { return require('./remote-exec-core.js'); } catch (_) {}
+  try { return require('./services/remote-exec-core.js'); } catch (_) {}
+  try { return require(path.join(__dirname, 'remote-exec-core.js')); } catch (_) {}
+  return null;
+}
+
+/**
+ * 惰性加载 file-locator-core (打包后为全局函数; 独立 require 时按同目录模块加载)
+ */
+function _fileLocatorCore() {
+  if (typeof buildLocateScript === 'function') return { buildLocateScript };
+  try { return require('./file-locator-core.js'); } catch (_) {}
+  try { return require('./services/file-locator-core.js'); } catch (_) {}
+  try { return require(path.join(__dirname, 'file-locator-core.js')); } catch (_) {}
+  return null;
+}
+
+/**
+ * spawn 一条 SSH 连接执行远端脚本 (buildRemoteCommand 已含远端 timeout -k 5 硬限时,
+ * 本地看门狗 = timeoutMs + 10s, 杀不死也 resolve 不悬挂)。
+ * @returns {Promise<{ok:boolean, timedOut:boolean, code:number, stdout:string, stderr:string}>}
+ */
+function _runSshScriptAsync(server, scriptText, timeoutMs) {
+  return new Promise((resolve) => {
+    const rex = _remoteExecCore();
+    if (!rex) return resolve({ ok: false, timedOut: false, code: -1, stdout: '', stderr: 'remote-exec-core unavailable' });
+    const remoteCmd = rex.buildRemoteCommand({ cmd: scriptText, timeoutSec: Math.max(5, Math.ceil(timeoutMs / 1000)) });
+    const sshArgs = rex.buildSshArgs(server, remoteCmd);
+    let out = '', err = '', done = false, killed = false;
+    let cp;
+    try {
+      cp = child_process.spawn(getWinSshBin(), sshArgs, { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+    } catch (e) {
+      return resolve({ ok: false, timedOut: false, code: -1, stdout: '', stderr: String(e && e.message || e) });
+    }
+    const watchdog = setTimeout(() => {
+      killed = true;
+      try { cp.kill('SIGKILL'); } catch (_) {}
+    }, Math.max(1000, timeoutMs) + 10000);
+    if (cp.stdout) cp.stdout.on('data', d => { out += d; });
+    if (cp.stderr) cp.stderr.on('data', d => { err += d; });
+    cp.on('error', (e) => {
+      if (done) return;
+      done = true;
+      clearTimeout(watchdog);
+      resolve({ ok: false, timedOut: killed, code: -1, stdout: out, stderr: String(e && e.message || e) });
+    });
+    cp.on('close', (code) => {
+      if (done) return;
+      done = true;
+      clearTimeout(watchdog);
+      resolve({ ok: true, timedOut: killed || code === 124, code: code || 0, stdout: out, stderr: err });
+    });
+  });
+}
+
+/**
+ * 分层远程文件定位 (单次 SSH 完成 anchors 精确探测 + tiers 分层 find;
+ * 无命中且给了 lastResortRoot 时再做一次整树 -name find, 独立长超时)。
+ * @param {object} opts
+ * @param {object|string} opts.server   LOCAL_SERVERS 条目 / '62'/'31' / {sshHost,user}
+ * @param {string[]} [opts.anchors]     精确探测根目录 (linux 绝对路径)
+ * @param {string}   [opts.rel]         相对路径 (含目录走 -path 尾缀, 无目录走 -name)
+ * @param {string}   [opts.fileName]    文件名 (last_resort 恒用 -name)
+ * @param {string[]} [opts.tiers]       有序分层根目录 (含 * 视为 glob)
+ * @param {string}   [opts.lastResortRoot] 整树兜底根 (剪枝 .git/.repo/out)
+ * @param {number}   [opts.timeoutMs=15000]
+ * @param {number}   [opts.lastResortTimeoutMs=60000]
+ * @param {function} [opts.onStage]     阶段回调 ('last_resort' 等)
+ * @returns {Promise<{hits:string[], stage:'anchor'|'tier'|'last_resort'|'none', timedOut:boolean}>}
+ */
+function locateRemoteFileAsync(opts = {}) {
+  const flc = _fileLocatorCore();
+  if (!flc || !flc.buildLocateScript) {
+    return Promise.resolve({ hits: [], stage: 'none', timedOut: false });
+  }
+  const timeoutMs = opts.timeoutMs || 15000;
+  const lastResortTimeoutMs = opts.lastResortTimeoutMs || 60000;
+  const onStage = typeof opts.onStage === 'function' ? opts.onStage : () => {};
+  const anchors = (Array.isArray(opts.anchors) ? opts.anchors : []).filter(Boolean);
+  const tiers = (Array.isArray(opts.tiers) ? opts.tiers : []).filter(Boolean);
+  const rel = String(opts.rel || '');
+  const fileName = String(opts.fileName || (rel ? rel.split(/[\\/]/).pop() : ''));
+  const server = opts.server || '62';
+
+  const parse = (stdout) => {
+    let sec = 'anchor';
+    const hits = [];
+    let hitStage = null;
+    for (const l of String(stdout || '').split(/\r?\n/)) {
+      if (l === 'SEC\ttier') sec = 'tier';
+      else if (l.startsWith('HIT\t')) {
+        hits.push(l.slice(4));
+        if (!hitStage) hitStage = sec;
+      }
+    }
+    return { hits, hitStage };
+  };
+
+  const script = flc.buildLocateScript({ anchors, rel, fileName, tiers });
+  if (!script || script === 'hits=0') {
+    return Promise.resolve({ hits: [], stage: 'none', timedOut: false });
+  }
+
+  let primaryTimedOut = false;
+  return _runSshScriptAsync(server, script, timeoutMs).then(async (r1) => {
+    primaryTimedOut = !!r1.timedOut;
+    const p1 = parse(r1.stdout);
+    if (p1.hits.length) {
+      return { hits: p1.hits, stage: p1.hitStage || 'anchor', timedOut: false };
+    }
+    const lrr = opts.lastResortRoot;
+    if (lrr && fileName) {
+      onStage('last_resort');
+      const lrScript = flc.buildLocateScript({ anchors: [], rel: '', fileName, tiers: [lrr] });
+      const r2 = await _runSshScriptAsync(server, lrScript, lastResortTimeoutMs);
+      const p2 = parse(r2.stdout);
+      if (p2.hits.length) return { hits: p2.hits, stage: 'last_resort', timedOut: !!r2.timedOut };
+      return { hits: [], stage: 'none', timedOut: primaryTimedOut || !!r2.timedOut };
+    }
+    return { hits: [], stage: 'none', timedOut: primaryTimedOut };
+  }).catch(() => ({ hits: [], stage: 'none', timedOut: false }));
 }
 
 function safeReadFileSync(filePath, encoding = 'utf8') {
@@ -17012,6 +17911,445 @@ class AgentVersionService {
   }
 }
 
+/**
+ * MagpieObservabilityService
+ * 安全桥接本机 Magpie 网关 (127.0.0.1:3425) 的只读内存快照接口，
+ * 提供订阅额度卡片、配速计算、OLS 线性回归耗尽预测、走势 SVG 生成与网关用量融合。
+ *
+ * 红线约束：
+ *  - 自动刷新/首页打开只允许读取纯内存快照端点
+ *    (GET /v1/magpie/quotas/cards、/v1/magpie/quotas?kept=1、/v1/magpie/quotas/history、/v1/magpie/usage)；
+ *  - 严禁在自动轮询中不带 ?kept=1 请求 /v1/magpie/quotas 触发上游厂商轮询；
+ *  - 仅用户手动点击刷新时才调用 POST /v1/magpie/quotas/refresh（服务端自带 30s 互斥锁）；
+ *  - 1500ms 短超时 + 全异步非阻塞 + 离线静默兜底（返回 lastGood 缓存）。
+ */
+class MagpieObservabilityService {
+  constructor(options = {}) {
+    this.baseUrl = (options.baseUrl || 'http://127.0.0.1:3425').replace(/\/+$/, '');
+    this.timeoutMs = options.timeoutMs || 1500;
+    // /v1/magpie/usage 服务端需扫描会话账本聚合，实测延迟 1.6s~8s；
+    // 额度卡/历史为纯内存快照(~ms级)仍走 1500ms，usage 单独放宽且全异步不阻塞首屏
+    this.usageTimeoutMs = options.usageTimeoutMs || 5000;
+    this.cacheTtlMs = options.cacheTtlMs || 8000;
+    this._snapshotCache = {
+      at: 0,
+      online: false,
+      cards: [],
+      histories: [],
+      usageByPeriod: {},
+      lastGoodCards: [],
+      lastGoodHistories: []
+    };
+  }
+
+  /**
+   * 映射工作台周期到 Magpie 周期参数
+   * workbench: 'today' | 'week' | 'month' | 'all'
+   * magpie:    'today' | '7d'   | '30d'   | 'all'
+   */
+  mapPeriod(range) {
+    if (range === 'today') return 'today';
+    if (range === 'week' || range === '7d') return '7d';
+    if (range === 'month' || range === '30d') return '30d';
+    return 'all';
+  }
+
+  /**
+   * 轻量异步 HTTP JSON 请求 (基于 Node 内置 http，1500ms 超时，绝不抛异常)
+   */
+  requestJson(method, urlPath, timeoutMs = this.timeoutMs) {
+    return new Promise((resolve) => {
+      try {
+        
+        const urlObj = new URL(urlPath, this.baseUrl);
+        const req = http.request(
+          {
+            hostname: urlObj.hostname,
+            port: urlObj.port || 3425,
+            path: urlObj.pathname + urlObj.search,
+            method: method || 'GET',
+            timeout: timeoutMs,
+            headers: {
+              Accept: 'application/json',
+              'User-Agent': 'TabonKB-Workbench-Observability/1.0'
+            }
+          },
+          (res) => {
+            let raw = '';
+            res.setEncoding('utf8');
+            res.on('data', (chunk) => { raw += chunk; });
+            res.on('end', () => {
+              if (res.statusCode >= 200 && res.statusCode < 300) {
+                try {
+                  resolve({ ok: true, status: res.statusCode, data: JSON.parse(raw) });
+                  return;
+                } catch (_) {}
+              }
+              resolve({ ok: false, status: res.statusCode || 0, data: null });
+            });
+          }
+        );
+        req.on('timeout', () => {
+          try { req.destroy(); } catch (_) {}
+          resolve({ ok: false, status: 0, data: null, timeout: true });
+        });
+        req.on('error', () => {
+          resolve({ ok: false, status: 0, data: null });
+        });
+        req.end();
+      } catch (_) {
+        resolve({ ok: false, status: 0, data: null });
+      }
+    });
+  }
+
+  /**
+   * 获取只读观测快照（纯内存读取：/v1/magpie/quotas/cards + /v1/magpie/quotas/history + /v1/magpie/usage）
+   * 绝不触发上游厂商 API 请求
+   */
+  async fetchSnapshot(range = 'week', force = false) {
+    const period = this.mapPeriod(range);
+    const now = Date.now();
+    if (!force && this._snapshotCache.at > 0 && (now - this._snapshotCache.at) < this.cacheTtlMs && this._snapshotCache.usageByPeriod[period]) {
+      return {
+        online: this._snapshotCache.online,
+        cards: this._snapshotCache.cards,
+        histories: this._snapshotCache.histories,
+        usage: this._snapshotCache.usageByPeriod[period] || null,
+        fromCache: true
+      };
+    }
+
+    const [cardsRes, keptRes, histRes, usageRes] = await Promise.all([
+      this.requestJson('GET', '/v1/magpie/quotas/cards'),
+      this.requestJson('GET', '/v1/magpie/quotas?kept=1'),
+      this.requestJson('GET', '/v1/magpie/quotas/history?days=30'),
+      this.requestJson('GET', `/v1/magpie/usage?period=${encodeURIComponent(period)}`, this.usageTimeoutMs)
+    ]);
+
+    const online = Boolean(cardsRes.ok || keptRes.ok || usageRes.ok);
+    let rawCards = [];
+    if (cardsRes.ok && cardsRes.data && Array.isArray(cardsRes.data.data)) {
+      rawCards = cardsRes.data.data;
+    } else if (keptRes.ok && keptRes.data && Array.isArray(keptRes.data.data)) {
+      rawCards = keptRes.data.data;
+    }
+
+    // 合并 keptRes 中的 Holds / LastServedAt 信息（如果 cards 中未带）
+    if (rawCards.length > 0 && keptRes.ok && keptRes.data && Array.isArray(keptRes.data.data)) {
+      const keptMap = new Map();
+      for (const kq of keptRes.data.data) {
+        keptMap.set(`${kq.provider || ''}|${String(kq.user || '').toLowerCase()}`, kq);
+      }
+      for (const c of rawCards) {
+        const match = keptMap.get(`${c.provider || ''}|${String(c.user || '').toLowerCase()}`);
+        if (match) {
+          if (!c.lastServedAt && match.lastServedAt) c.lastServedAt = match.lastServedAt;
+          if (Array.isArray(c.windows) && Array.isArray(match.windows)) {
+            c.windows.forEach((w, idx) => {
+              const mw = match.windows.find(x => x.name === w.name) || match.windows[idx];
+              if (mw) {
+                if (!w.holds && mw.holds) w.holds = mw.holds;
+                if (!w.holdsWhy && mw.holdsWhy) w.holdsWhy = mw.holdsWhy;
+                if (!w.remaining && mw.remaining) w.remaining = mw.remaining;
+              }
+            });
+          }
+        }
+      }
+    }
+
+    const histories = (histRes.ok && histRes.data && Array.isArray(histRes.data.data))
+      ? histRes.data.data
+      : this._snapshotCache.lastGoodHistories;
+
+    if (online) {
+      this._snapshotCache.at = now;
+      this._snapshotCache.online = true;
+      this._snapshotCache.cards = rawCards;
+      this._snapshotCache.histories = histories;
+      if (rawCards.length > 0) this._snapshotCache.lastGoodCards = rawCards;
+      if (histories && histories.length > 0) this._snapshotCache.lastGoodHistories = histories;
+      if (usageRes.ok && usageRes.data) {
+        this._snapshotCache.usageByPeriod[period] = usageRes.data;
+      }
+    } else {
+      this._snapshotCache.online = false;
+    }
+
+    return {
+      online,
+      cards: online ? rawCards : this._snapshotCache.lastGoodCards,
+      histories: online ? histories : this._snapshotCache.lastGoodHistories,
+      usage: (usageRes.ok && usageRes.data) ? usageRes.data : (this._snapshotCache.usageByPeriod[period] || null),
+      fromCache: false
+    };
+  }
+
+  /**
+   * 手动触发单个账号或全量卡片刷新 (对应 POST /v1/magpie/quotas/refresh，服务端自带 30s 节流)
+   */
+  async refreshQuotaCard(provider = '', user = '') {
+    let qs = '';
+    if (provider) {
+      qs = `?provider=${encodeURIComponent(provider)}&user=${encodeURIComponent(user || '')}`;
+    }
+    const res = await this.requestJson('POST', `/v1/magpie/quotas/refresh${qs}`, 8000);
+    this._snapshotCache.at = 0;
+    return res.ok;
+  }
+
+  /**
+   * 在 /v1/magpie/quotas/history 返回的 [{provider,user,lines:[{name,points}]}] 结构中，
+   * 定位某张额度卡片某个窗口对应的折线采样点数组。
+   */
+  findHistoryPoints(card, win, histories) {
+    const arr = Array.isArray(histories) ? histories : [];
+    const prov = String((card && card.provider) || '').toLowerCase();
+    const user = String((card && card.user) || '').toLowerCase();
+    const wname = String((win && win.name) || '').toLowerCase();
+    const cands = arr.filter(h => String(h.provider || '').toLowerCase() === prov);
+    const entry = cands.find(h => String(h.user || '').toLowerCase() === user) || cands[0];
+    if (!entry) return [];
+    const lines = Array.isArray(entry.lines) ? entry.lines : [];
+    const line = lines.find(l => String(l.name || '').toLowerCase() === wname)
+      || lines.find(l => {
+        const ln = String(l.name || '').toLowerCase();
+        return ln && wname && (ln.includes(wname) || wname.includes(ln));
+      })
+      || lines[0];
+    return (line && Array.isArray(line.points)) ? line.points : [];
+  }
+
+  /**
+   * 账号脱敏打码 (与 Magpie maskUser 一致:保留首尾字符)
+   */
+  maskUser(user, masked = false) {
+    const s = String(user || '').trim();
+    if (!s || !masked) return s;
+    const atIdx = s.indexOf('@');
+    if (atIdx > 1) {
+      const local = s.slice(0, atIdx);
+      const domain = s.slice(atIdx);
+      return local[0] + '***' + local[local.length - 1] + domain;
+    }
+    if (s.length <= 3) return s[0] + '**';
+    return s.slice(0, 2) + '***' + s.slice(-1);
+  }
+
+  /**
+   * 推断窗口周期起点与终点 (复刻 Magpie windowCycle / window_pace.go)
+   * resetsAt 缺失时回退 runsOutAt（WorkBuddy Credits 窗口语义：用尽日即窗口终点）
+   */
+  inferWindowCycle(win, points = [], nowMs = Date.now()) {
+    const resetMs = win && (win.resetsAt || win.runsOutAt) ? Date.parse(win.resetsAt || win.runsOutAt) : NaN;
+    let startMs = win && win.startsAt ? Date.parse(win.startsAt) : NaN;
+    if (!Number.isFinite(startMs) && Array.isArray(points) && points.length > 0) {
+      for (let i = points.length - 1; i >= 0; i--) {
+        if (points[i].start) {
+          const t = Date.parse(points[i].start);
+          if (Number.isFinite(t)) { startMs = t; break; }
+        }
+      }
+    }
+    if (!Number.isFinite(startMs) && Number.isFinite(resetMs)) {
+      const name = String((win && win.name) || '').toLowerCase();
+      let spanMs = 30 * 86400000; // 默认月度 30 天
+      if (name.includes('5h') || name.includes('5 小时') || name.includes('5-hour') || name.includes('five')) {
+        spanMs = 5 * 3600000;
+      } else if (name.includes('week') || name.includes('周') || name.includes('7d')) {
+        spanMs = 7 * 86400000;
+      } else if (name.includes('day') || name.includes('日') || name.includes('24h') || name === 'daily') {
+        spanMs = 86400000;
+      }
+      startMs = resetMs - spanMs;
+    }
+    if (!Number.isFinite(startMs) || !Number.isFinite(resetMs) || resetMs <= startMs) {
+      return null;
+    }
+    return { start: startMs, reset: resetMs, now: nowMs };
+  }
+
+  /**
+   * 计算配速 (复刻 Magpie internal/provider/window_pace.go: Pace = Used% - Even%)
+   */
+  computePace(win, points = [], nowMs = Date.now()) {
+    if (!win || win.unlimited) return null;
+    const used = Number(win.used);
+    if (!Number.isFinite(used)) return null;
+    const cycle = this.inferWindowCycle(win, points, nowMs);
+    if (!cycle) return null;
+    if (nowMs <= cycle.start || nowMs >= cycle.reset) return null;
+    const elapsedShare = (nowMs - cycle.start) / (cycle.reset - cycle.start);
+    if (elapsedShare < 0.02) return null; // 刚重置前 2% 周期不报配速
+    const evenPct = elapsedShare * 100;
+    const diff = Math.round(used - evenPct);
+    const sign = diff > 0 ? '+' : '';
+    return {
+      diff,
+      evenPct,
+      label: `配速 ${sign}${diff}%`,
+      status: diff > 15 ? 'fast' : diff < -10 ? 'slow' : 'even'
+    };
+  }
+
+  /**
+   * 提取当前重置周期内的折线采样点 (复刻 Magpie cycleSegments)
+   */
+  extractCurrentCyclePoints(points = [], cycle = null, currentLeft = null, nowMs = Date.now()) {
+    const valid = (points || [])
+      .map(p => ({
+        t: Date.parse(p.at),
+        left: Number(p.left),
+        start: p.start ? Date.parse(p.start) : NaN,
+        resetsAt: p.resetsAt ? Date.parse(p.resetsAt) : NaN
+      }))
+      .filter(p => Number.isFinite(p.t) && Number.isFinite(p.left));
+
+    let cur = [];
+    for (let i = 0; i < valid.length; i++) {
+      const p = valid[i];
+      if (cycle && p.t < cycle.start - 300000) continue;
+      if (cur.length > 0) {
+        const prev = cur[cur.length - 1];
+        // 检测周期重置跳变：剩余额度暴涨 > 20% 或 reset 时间后移超过间隔 + 5 分钟
+        const refilled = (p.left - prev.left) > 20;
+        const resetMoved = Number.isFinite(prev.resetsAt) && Number.isFinite(p.resetsAt) &&
+          (p.resetsAt - prev.resetsAt) > ((p.t - prev.t) + 300000);
+        if (refilled || resetMoved) cur = [];
+      }
+      cur.push(p);
+    }
+
+    if (Number.isFinite(currentLeft)) {
+      if (cur.length === 0 || Math.abs(nowMs - cur[cur.length - 1].t) > 10000) {
+        cur.push({ t: nowMs, left: Math.max(0, Math.min(100, currentLeft)) });
+      }
+    }
+    return cur;
+  }
+
+  /**
+   * OLS 一元线性回归预测耗尽时间 (完整移植 Magpie app.js:quotaEta)
+   */
+  computeQuotaEta(points = [], cycle = null, nowMs = Date.now()) {
+    if (!cycle || !Array.isArray(points) || points.length < 2) return null;
+    const span = points[points.length - 1].t - points[0].t;
+    if (span < 10 * 60 * 1000) return null; // 至少需要 10 分钟跨度的采样点
+
+    const t0 = points[0].t;
+    const n = points.length;
+    let sx = 0, sy = 0, sxx = 0, sxy = 0;
+    for (const p of points) {
+      const x = p.t - t0;
+      const y = p.left;
+      sx += x;
+      sy += y;
+      sxx += x * x;
+      sxy += x * y;
+    }
+    const denom = n * sxx - sx * sx;
+    if (denom <= 0) return null;
+    const slope = (n * sxy - sx * sy) / denom; // 每毫秒剩余百分比变化率
+    const cur = points[n - 1];
+
+    if (cur.left <= 0) return null;
+    // 斜率 >= 0 或预测耗尽时间超过重置时间 -> 能撑到重置
+    if (slope >= 0) {
+      return { safe: true, text: '按此速度，能撑到重置' };
+    }
+    const outMs = cur.t - cur.left / slope;
+    if (!Number.isFinite(outMs) || outMs <= nowMs) return null;
+    if (outMs >= cycle.reset) {
+      return { safe: true, text: '按此速度，能撑到重置' };
+    }
+    const dt = new Date(outMs);
+    const timeStr = `${dt.getMonth() + 1}月${dt.getDate()}日 ${String(dt.getHours()).padStart(2, '0')}:${String(dt.getMinutes()).padStart(2, '0')}`;
+    return { safe: false, outMs, text: `按此速度，将于 ${timeStr} 耗尽` };
+  }
+
+  /**
+   * 绘制 300×60 剩余额度走势 SVG (完整移植 Magpie app.js:drawQuotaPlot)
+   */
+  renderQuotaPlotSvg(win, rawPoints = [], nowMs = Date.now()) {
+    const used = Number(win && win.used);
+    const currentLeft = Number.isFinite(used) ? Math.max(0, Math.min(100, 100 - used)) : null;
+    const cycle = this.inferWindowCycle(win, rawPoints, nowMs);
+    const pts = this.extractCurrentCyclePoints(rawPoints, cycle, currentLeft, nowMs);
+    if (pts.length < 2 && !cycle) {
+      return { svg: '', eta: null };
+    }
+
+    const W = 300, H = 60, padX = 3, padY = 5;
+    const pw = W - padX * 2, ph = H - padY * 2;
+    const tMin = cycle ? Math.min(cycle.start, pts[0] ? pts[0].t : cycle.start) : pts[0].t;
+    const tMax = cycle ? Math.max(cycle.reset, nowMs) : Math.max(pts[pts.length - 1].t, nowMs + 60000);
+    const tSpan = Math.max(1, tMax - tMin);
+
+    const xOf = (t) => padX + Math.max(0, Math.min(1, (t - tMin) / tSpan)) * pw;
+    const yOf = (left) => padY + (1 - Math.max(0, Math.min(100, left)) / 100) * ph;
+
+    // 1. 理想匀速消耗参考虚线 (从周期起点 100% 到重置终点 0%)
+    let evenLine = '';
+    if (cycle) {
+      evenLine = `<line class="tw-mq-qc-even" x1="${xOf(cycle.start).toFixed(1)}" y1="${yOf(100).toFixed(1)}" x2="${xOf(cycle.reset).toFixed(1)}" y2="${yOf(0).toFixed(1)}" />`;
+    }
+
+    // 2. 当前时刻竖线
+    let nowLine = '';
+    if (cycle && nowMs >= cycle.start && nowMs <= cycle.reset) {
+      const nx = xOf(nowMs).toFixed(1);
+      nowLine = `<line class="tw-mq-qc-now" x1="${nx}" y1="${padY}" x2="${nx}" y2="${H - padY}" />`;
+    }
+
+    // 3. 实测剩余额度折线与渐变填充
+    let pathD = '', areaD = '', lastDot = '';
+    if (pts.length >= 1) {
+      const coords = pts.map(p => [xOf(p.t), yOf(p.left)]);
+      if (coords.length === 1 && cycle) {
+        coords.unshift([xOf(cycle.start), yOf(100)]);
+      }
+      if (coords.length >= 2) {
+        pathD = coords.map((c, i) => `${i === 0 ? 'M' : 'L'}${c[0].toFixed(1)},${c[1].toFixed(1)}`).join(' ');
+        const firstX = coords[0][0].toFixed(1);
+        const lastX = coords[coords.length - 1][0].toFixed(1);
+        const baseY = (H - padY).toFixed(1);
+        areaD = `${pathD} L${lastX},${baseY} L${firstX},${baseY} Z`;
+      }
+      const last = coords[coords.length - 1];
+      lastDot = `<circle class="tw-mq-qc-dot" cx="${last[0].toFixed(1)}" cy="${last[1].toFixed(1)}" r="2.8" />`;
+    }
+
+    const eta = this.computeQuotaEta(pts, cycle, nowMs);
+    const svg = `
+      <svg class="tw-mq-qc-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+        <line class="tw-mq-qc-grid" x1="${padX}" y1="${yOf(50).toFixed(1)}" x2="${W - padX}" y2="${yOf(50).toFixed(1)}" />
+        ${evenLine}
+        ${nowLine}
+        ${areaD ? `<path class="tw-mq-qc-area" d="${areaD}" />` : ''}
+        ${pathD ? `<path class="tw-mq-qc-line" d="${pathD}" />` : ''}
+        ${lastDot}
+      </svg>`;
+    return { svg, eta, cycle };
+  }
+
+  /**
+   * 格式化整窗容量预估文案 (复刻 Magpie window_holds.go 文案逻辑)
+   */
+  formatWindowHolds(win, fmtTokFn) {
+    if (!win) return '';
+    const fmt = typeof fmtTokFn === 'function' ? fmtTokFn : (n) => String(n);
+    if (win.holds && (win.holds.tokens > 0 || win.holds.calls > 0)) {
+      const parts = [];
+      if (win.holds.tokens > 0) parts.push(`≈${fmt(win.holds.tokens)} tok`);
+      if (win.holds.cost > 0.01) parts.push(`~$${Number(win.holds.cost).toFixed(2)}`);
+      else if (win.holds.calls > 0) parts.push(`${win.holds.calls} 次调用`);
+      return `整窗：${parts.join(' · ')}`;
+    }
+    return '整窗：数据不足';
+  }
+}
+
 /* ==========================================================================
    CodeViewerPanel — Agent 对话框右侧内嵌代码检视与编辑器组件 (双模引擎 + Notepad++ 查找)
    特性:
@@ -17023,6 +18361,7 @@ class AgentVersionService {
    6. 极简防御设计：默认只读模式防误触，支持一键切换编辑并 Ctrl+S 安全写回磁盘
    7. 外部双轨联动：一键调起本地 Notepad++ 或 VS Code 直达目标行
    ========================================================================== */
+
 
 
 
@@ -17063,6 +18402,14 @@ class CodeViewerPanel {
     this.remoteLinuxPath = '';
     this.remoteServer = null;
     this.isMonacoActive = false;
+
+    // 远程分层定位: 多命中候选 / 搜索阶段轨迹 / last_resort 计时 / 匹配浮层
+    this.remoteCandidates = [];
+    this._lastSearchStages = [];
+    this._lastOpenExtra = null;
+    this._locateTicker = null;
+    this._matchesPopEl = null;
+    this._matchesPopHandler = null;
 
     // Notepad++ 查找功能状态
     this.isSearchOpen = false;
@@ -17203,8 +18550,8 @@ class CodeViewerPanel {
     });
     this.bodyEl.appendChild(this.editWrapEl);
 
-    // 3.3 Background Monaco Iframe (通过本地 Companion 服务加载)
-    this.initMonacoIframe();
+    // 3.3 Monaco Iframe 懒加载：mount 时不拉起 —— 首次 openFile 小文件才创建 iframe，
+    //     避免工作台恢复/抽屉重建时后台白烧 ~10s Monaco 引擎初始化 (火图实测最大头)
 
     // 4. Notepad++ Style Bottom Search Dock
     this.searchDockEl = document.createElement('div');
@@ -17231,6 +18578,7 @@ class CodeViewerPanel {
   }
 
   initMonacoIframe() {
+    if (this.iframeEl) return; // 懒加载幂等守卫
     this.iframeEl = document.createElement('iframe');
     this.iframeEl.className = 'tw-code-monaco-iframe';
     this.iframeEl.setAttribute('frameborder', '0');
@@ -17244,6 +18592,7 @@ class CodeViewerPanel {
 
   renderHeader() {
     if (!this.headerEl) return;
+    this._matchesPopEl = null; // innerHTML 重建会销毁浮层 DOM, 同步清引用
     const baseName = this.currentFilePath ? path.basename(this.currentFilePath) : '未打开代码';
     const relDir = this.currentFilePath ? path.dirname(this.currentFilePath) : '';
     const lineLabel = this.currentLine && this.currentLine > 0 ? `L${this.currentLine}` : '';
@@ -17254,6 +18603,7 @@ class CodeViewerPanel {
         <span class="tw-code-file-name">${escapeHtml(baseName)}</span>
         ${lineLabel ? `<span class="tw-code-line-badge">${escapeHtml(lineLabel)}</span>` : ''}
         ${this.isRemote ? `<span class="tw-code-remote-badge" title="${escapeAttr(this.remoteSource)}">${this.remoteSource && this.remoteSource.includes('SSH') ? 'SSH' : '远端'}</span>` : ''}
+        ${(this.remoteCandidates && this.remoteCandidates.length > 1) ? `<button class="tw-code-matches-btn" id="twBtnCodeMatches" title="同名文件多处匹配，点击切换">${this.remoteCandidates.length} 处匹配 ▾</button>` : ''}
         ${this.isModified ? `<span class="tw-code-dirty-dot" title="有未保存修改">●</span>` : ''}
         <span class="tw-code-file-dir">${escapeHtml(relDir)}</span>
       </div>
@@ -17326,6 +18676,67 @@ class CodeViewerPanel {
           this.onClose();
         }
       };
+    }
+
+    const btnMatches = this.headerEl.querySelector('#twBtnCodeMatches');
+    if (btnMatches) {
+      btnMatches.onclick = (e) => {
+        e.stopPropagation();
+        this.toggleMatchesPopover(btnMatches);
+      };
+    }
+  }
+
+  /**
+   * 「N 处匹配」小浮层: 同名文件多命中时列出 Windows 路径, 点击切换
+   */
+  toggleMatchesPopover(anchorEl) {
+    if (this._matchesPopEl) { this._closeMatchesPopover(); return; }
+    const cands = this.remoteCandidates || [];
+    if (cands.length < 2 || !this.headerEl || !anchorEl) return;
+    const l2w = (typeof linuxPathToWindows === 'function') ? linuxPathToWindows : (p => p);
+
+    const pop = document.createElement('div');
+    pop.className = 'tw-code-matches-pop';
+    pop.innerHTML = cands.map((lp, i) => {
+      const wp = l2w(lp);
+      const short = wp.length > 72 ? wp.slice(0, 30) + '…' + wp.slice(-40) : wp;
+      return `<div class="tw-code-match-item ${i === 0 ? 'is-active' : ''}" data-lp="${escapeAttr(lp)}" title="${escapeAttr(wp)}">${escapeHtml(short)}</div>`;
+    }).join('');
+
+    this.headerEl.style.position = this.headerEl.style.position || 'relative';
+    const rect = anchorEl.getBoundingClientRect();
+    const hostRect = this.headerEl.getBoundingClientRect();
+    pop.style.left = Math.max(0, rect.left - hostRect.left) + 'px';
+    pop.style.top = (rect.bottom - hostRect.top + 4) + 'px';
+    this.headerEl.appendChild(pop);
+
+    pop.querySelectorAll('.tw-code-match-item').forEach(el => {
+      el.onclick = (e) => {
+        e.stopPropagation();
+        const lp = el.getAttribute('data-lp');
+        this._closeMatchesPopover();
+        if (lp) {
+          this.openFile(l2w(lp), this.currentLine, this._lastOpenExtra || {});
+        }
+      };
+    });
+
+    this._matchesPopEl = pop;
+    this._matchesPopHandler = (e) => {
+      if (pop && !pop.contains(e.target) && e.target !== anchorEl) this._closeMatchesPopover();
+    };
+    setTimeout(() => document.addEventListener('click', this._matchesPopHandler), 0);
+  }
+
+  _closeMatchesPopover() {
+    if (this._matchesPopEl) {
+      try { this._matchesPopEl.remove(); } catch (_) {}
+      this._matchesPopEl = null;
+    }
+    if (this._matchesPopHandler && typeof document !== 'undefined') {
+      document.removeEventListener('click', this._matchesPopHandler);
+      this._matchesPopHandler = null;
     }
   }
 
@@ -17782,6 +19193,23 @@ class CodeViewerPanel {
    */
   async openFile(filePath, targetLine = 1, extraOptions = {}) {
     if (!filePath) return;
+
+    // R1 修复: 百分号编码 (中文文件名) 先解码, 内嵌 :行号 统一拆分
+    if (typeof decodeTarget === 'function') {
+      filePath = decodeTarget(filePath);
+    }
+    if (typeof splitLine === 'function') {
+      const sl = splitLine(filePath);
+      if (sl.line) targetLine = sl.line;
+      filePath = sl.path || filePath;
+    }
+
+    this.remoteCandidates = [];
+    this._lastSearchStages = ['本地/SMB'];
+    this._lastOpenExtra = extraOptions || {};
+    this._stopLocateTicker();
+    this._closeMatchesPopover();
+
     this.currentFilePath = filePath;
     this.currentLine = parseInt(targetLine, 10) || 1;
     this.isModified = false;
@@ -17832,6 +19260,7 @@ class CodeViewerPanel {
 
     // 3. 若 SSH 亦未命中，智能尝试远端 OpenGrok HTTP 镜像拉取
     if (content === null) {
+      this._lastSearchStages.push('OpenGrok');
       const opengrokContent = await this.tryFetchFromOpenGrok(filePath, extraOptions);
       if (opengrokContent) {
         content = opengrokContent;
@@ -17840,15 +19269,26 @@ class CodeViewerPanel {
       }
     }
 
-    // 4. 兜底友善排查建议
+    this._stopLocateTicker();
+
+    // 4. 兜底友善排查建议 (按分类给出明确错误, 显示解码后的真实路径)
     if (content === null) {
+      const cls = extraOptions.classification ||
+        (typeof classifyTarget === 'function' ? classifyTarget(filePath, { vaultBase: this.vaultBasePath }) : null);
+      const clsHints = {
+        vault_abs: '知识库内文件存在但读取失败或已移动',
+        local_abs: '本地文件不存在或不可读',
+        server_abs: '服务器文件不存在, 或网络共享断开且 SSH 不可达',
+        rel_workspace: '未选中本地工程且各服务器工作区锚点均未定位到该相对路径',
+        rel_partial: '分层查找未命中 — 文件可能不存在或相对路径不完整',
+        bare: '按文件名在服务器分层目录中未找到 (可能为对话中虚构路径)'
+      };
+      const stages = (this._lastSearchStages && this._lastSearchStages.length)
+        ? this._lastSearchStages.join(' → ') : '本地/SMB → SSH → OpenGrok';
       content = `// 无法读取文件: ${filePath}
-// 原因: ${localReadError ? localReadError.message : '文件不存在或网络共享已断开'}
-// 
-// 💡 排查建议:
-// 1. 若为 Linux 服务器工程，请确认顶部工程下拉框选中了正确的工程目录。
-// 2. 当前系统已开启 SSH 秒级直连 (无需依赖 Windows SMB 网络共享挂载)。
-// 3. 点击右上角 [外部] 按钮，可直接调起本地 Notepad++ 或 VS Code 穿透打开。`;
+// ${clsHints[cls] || '文件不存在或网络共享已断开'}
+// 已搜索: ${stages}
+// 建议在对话中给出绝对路径 (如 Y:\\01\\pri_project\\... 或 D:\\work\\Mgmt\\TabonKB\\...)`;
     }
 
     this.currentContent = content;
@@ -17858,95 +19298,227 @@ class CodeViewerPanel {
     this.renderNativeCodeView(content, this.currentLine);
 
     // 6. 同步至 Monaco 增强引擎 (小文件接管显示；大文件保留原生视图避免双重渲染闪屏)
+    //    懒加载：仅小文件才值得拉起 iframe 引擎（与 syncToMonaco 大文件门控同阈值），
+    //    首次真实使用时才加载，启动/重建场景零成本
+    if ((content || '').length <= 2 * 1024 * 1024) {
+      this.initMonacoIframe();
+    }
     this.syncToMonaco();
   }
 
   /**
-   * 尝试通过 SSH 直接从远端 Linux 服务器秒级读取 (完全不依赖 Windows SMB 共享挂载)
-   * 单条 SSH 连接内完成全部候选路径探测与 find 兜底，杜绝多次 spawn 的握手叠加延迟。
+   * 尝试通过 SSH 直接从远端 Linux 服务器读取 (完全不依赖 Windows SMB 共享挂载)
+   * 分层定位: server_abs 直读 → 相对路径 anchors 精确探测 → tiers 分层 find → last_resort 整树
    */
   async tryFetchViaSsh(filePath, extraOptions = {}) {
     try {
-      const smartFn = (typeof readRemoteFileSmartAsync === 'function') ? readRemoteFileSmartAsync : null;
-      if (!smartFn) return null;
+      const svc = {
+        locate: (typeof locateRemoteFileAsync === 'function') ? locateRemoteFileAsync : null,
+        read: (typeof readRemoteFileViaSshAsync === 'function') ? readRemoteFileViaSshAsync : null,
+        w2l: (typeof windowsPathToLinux === 'function') ? windowsPathToLinux : null,
+        l2w: (typeof linuxPathToWindows === 'function') ? linuxPathToWindows : null,
+        servers: (typeof LOCAL_SERVERS !== 'undefined' && Array.isArray(LOCAL_SERVERS)) ? LOCAL_SERVERS : [],
+        rank: (typeof rankHits === 'function') ? rankHits : null,
+        classify: (typeof classifyTarget === 'function') ? classifyTarget : null,
+        getProjs: (typeof getAllAvailableLocalProjects === 'function') ? getAllAvailableLocalProjects : null
+      };
+      if (!svc.read) return null;
 
-      const activeProj = extraOptions.activeProject;
+      const activeProj = extraOptions.activeProject || null;
       const fileName = path.basename(filePath);
+      const classification = extraOptions.classification ||
+        (svc.classify ? svc.classify(filePath, { vaultBase: this.vaultBasePath }) : null);
+      const normPath = String(filePath).replace(/\\/g, '/');
+      const serverOf = (srvId) => svc.servers.find(s => s.id === srvId) || null;
+      const projServer = activeProj
+        ? (serverOf(activeProj.serverId) || {
+            id: activeProj.serverId || '62',
+            sshHost: activeProj.sshHost || activeProj.serverIp,
+            host: activeProj.sshHost || activeProj.serverIp,
+            user: activeProj.user,
+            name: activeProj.serverName || (activeProj.serverId ? `${activeProj.serverId} 服务器` : '')
+          })
+        : null;
 
-      let host = activeProj?.sshHost || activeProj?.serverIp;
-      let user = activeProj?.user || 'tankaikun';
-      let serverName = activeProj?.serverName || (activeProj?.serverId ? `${activeProj.serverId} 服务器` : '');
+      // —— server_abs: 路径映射后直接 cat, 不做 find ——
+      // 注意: resolveCodeFilePath 对相对路径会返回 "最佳猜测" 的 Y:\ 绝对路径,
+      // 此时分类仍是 rel_*/bare, 不得按 server_abs 短路, 否则分层定位永远不会执行
+      const isRelClass = (classification === 'rel_workspace' || classification === 'rel_partial' || classification === 'bare');
+      const isAbsRemote = !isRelClass &&
+        (classification === 'server_abs' || /^[YyZz]:\//.test(normPath) || normPath.startsWith('/dfb/') || normPath.startsWith('/home/'));
+      if (isAbsRemote) {
+        const linuxPath = svc.w2l ? svc.w2l(normPath) : normPath;
+        if (!linuxPath.startsWith('/')) return null;
+        let srv = projServer;
+        if (linuxPath.startsWith('/dfb/')) srv = serverOf('62') || srv;
+        else if (linuxPath.startsWith('/home/')) srv = serverOf('31') || srv;
+        const host = (srv && (srv.sshHost || srv.host)) || '192.168.1.62';
+        const user = (srv && srv.user) || 'tankaikun';
+        const serverName = (srv && (srv.name || srv.serverName)) || '62 服务器';
+        this._lastSearchStages.push('SSH直读');
+        const content = await svc.read(host, user, linuxPath, 20000);
+        if (typeof content === 'string' && content.length > 0) {
+          this.remoteCandidates = [linuxPath];
+          return { content, linuxPath, winPath: svc.l2w ? svc.l2w(linuxPath) : filePath, serverName, host, user };
+        }
+        return null;
+      }
+      if (!svc.locate) return null;
 
-      const normLower = filePath.toLowerCase().replace(/\\/g, '/');
-      if (!host) {
-        if (normLower.startsWith('y:') || normLower.startsWith('/dfb/')) {
-          host = '192.168.1.62';
-          serverName = '62 服务器';
-        } else if (normLower.startsWith('z:') || normLower.startsWith('/home/')) {
-          host = '192.168.1.31';
-          serverName = '31 服务器';
+      // —— 相对/裸名: 按服务器分组组装定位任务 (≤2 并发) ——
+      // rel 必须来自原始目标 (rawTarget), 而非决议后的 Y:\ 猜测路径
+      let relSrc = (isRelClass && extraOptions.rawTarget) ? extraOptions.rawTarget : filePath;
+      if (typeof decodeTarget === 'function') relSrc = decodeTarget(relSrc);
+      if (typeof splitLine === 'function') relSrc = splitLine(relSrc).path;
+      const rel = String(relSrc).replace(/\\/g, '/').replace(/^\.\//, '').replace(/^(\.\.\/)+/, '').replace(/^\/+/, '');
+      const jobs = [];
+      const mkJob = (srv, anchors, tiers, lastResortRoot, linuxRoot) => ({
+        srv, anchors, tiers, lastResortRoot, linuxRoot,
+        host: srv.sshHost || srv.host, user: srv.user || 'tankaikun',
+        serverName: srv.name || srv.serverName || '服务器'
+      });
+
+      if (activeProj && activeProj.linuxPath) {
+        const lp = activeProj;
+        const srv = projServer || { id: '62', sshHost: '192.168.1.62', host: '192.168.1.62', user: lp.user || 'tankaikun', name: '62 服务器' };
+        const tiers = [
+          lp.priDriverRel && `${lp.linuxPath}/${lp.priDriverRel}`,
+          lp.publicDriverRel && `${lp.linuxPath}/${lp.publicDriverRel}`,
+          `${lp.linuxPath}/vendor_w/kernel/kernel_device_modules-*`,
+          `${lp.linuxPath}/vendor_w`,
+          lp.platform && `${lp.linuxPath}/pri_project/driver/${lp.platform}`
+        ].filter(Boolean);
+        if (classification === 'rel_workspace') {
+          // 先做工程根锚点探测, 锚点失败再走分层目录 (私有 → 公共 → vendor_w 内核)
+          jobs.push(mkJob(srv, [lp.linuxPath], tiers, lp.linuxPath, lp.linuxPath));
         } else {
-          host = '192.168.1.62';
-          serverName = '62 服务器';
+          jobs.push(mkJob(srv, [], tiers, lp.linuxPath, lp.linuxPath));
         }
-      }
-
-      const w2lFn = (typeof windowsPathToLinux === 'function') ? windowsPathToLinux : (p => p.replace(/^[Yy]:/i, '/dfb/tankaikun/share/').replace(/^[Zz]:\/work/i, '/home/tankaikun/share/work/').replace(/\\/g, '/'));
-      const l2wFn = (typeof linuxPathToWindows === 'function') ? linuxPathToWindows : (p => p.replace('/dfb/tankaikun/share/', 'Y:\\').replace('/home/tankaikun/share/work/', 'Z:\\work\\').replace(/\//g, '\\'));
-
-      // 候选 Linux 路径：直达映射 -> Tier 2 项目定制 -> Tier 1 公共差分
-      const candidates = [];
-      const directLinuxPath = w2lFn(filePath);
-      if (directLinuxPath && directLinuxPath.startsWith('/')) {
-        candidates.push(directLinuxPath);
-      }
-      if (activeProj?.linuxPath) {
-        const cleanBase = filePath.replace(/^[A-Za-z]:[\\\/]/, '').replace(/^[\\\/]+/, '').replace(/^base[\\\/]/i, '').replace(/\\/g, '/');
-        if (activeProj.priDriverRel) {
-          candidates.push(`${activeProj.linuxPath}/${activeProj.priDriverRel}/${cleanBase}`);
-          candidates.push(`${activeProj.linuxPath}/${activeProj.priDriverRel}/bsp/kernel5.15/kernel5.15/drivers/misc/prize/hardware_info/${fileName}`);
-          candidates.push(`${activeProj.linuxPath}/${activeProj.priDriverRel}/bsp/kernel5.15/kernel5.15/drivers/misc/prize/${fileName}`);
-        }
-        if (activeProj.publicDriverRel) {
-          candidates.push(`${activeProj.linuxPath}/${activeProj.publicDriverRel}/${cleanBase}`);
-          candidates.push(`${activeProj.linuxPath}/${activeProj.publicDriverRel}/bsp/kernel5.15/kernel5.15/drivers/misc/prize/hardware_info/${fileName}`);
-        }
-      }
-
-      // find 兜底搜索根
-      const searchRoots = [];
-      if (activeProj?.linuxPath) {
-        if (activeProj.platform && activeProj.project) {
-          searchRoots.push(`${activeProj.linuxPath}/pri_project/driver/${activeProj.platform}/${activeProj.project}`);
-        }
-        searchRoots.push(`${activeProj.linuxPath}/pri_project/driver/public`);
-        searchRoots.push(activeProj.linuxPath);
       } else {
-        searchRoots.push('/dfb/tankaikun/share/W/01-sprd/pri_project/driver/public');
-        searchRoots.push('/dfb/tankaikun/share/W/03-mtk-ww/pri_project/driver/public');
-        searchRoots.push('/home/tankaikun/share/work/AndroidW/05-UW/pri_project/driver/public');
+        // R2 修复: 无活动工程 → anchors = 各服务器全部 LOCAL_SERVERS 工作区根 + 缓存工程 linuxPath
+        const cachedRoots = { '62': new Set(), '31': new Set() };
+        if (svc.getProjs) {
+          try {
+            for (const p of (svc.getProjs() || [])) {
+              if (p && p.linuxPath && cachedRoots[p.serverId]) cachedRoots[p.serverId].add(p.linuxPath);
+            }
+          } catch (_) {}
+        }
+        for (const srv of svc.servers) {
+          const wsRoots = (srv.workspaces || []).map(w => `${srv.linuxRoot}/${w.relPath}`);
+          for (const r of (cachedRoots[srv.id] || [])) wsRoots.push(r);
+          const uniq = [...new Set(wsRoots)];
+          if (!uniq.length) continue;
+          if (classification === 'rel_workspace') {
+            jobs.push(mkJob(srv, uniq, [], null, srv.linuxRoot));
+          } else {
+            const pubDirs = uniq.map(r => `${r}/pri_project/driver/public`);
+            // 整树兜底仅挂默认 62 的第一个工作区根, 避免多台服务器重复全树扫描
+            const lrr = (srv.id === '62') ? uniq[0] : null;
+            jobs.push(mkJob(srv, [], pubDirs, lrr, srv.linuxRoot));
+          }
+        }
+      }
+      if (!jobs.length) return null;
+
+      const results = await Promise.all(jobs.map(job =>
+        svc.locate({
+          server: job.srv,
+          anchors: job.anchors,
+          rel,
+          fileName,
+          tiers: job.tiers,
+          lastResortRoot: extraOptions.skipLastResort ? null : job.lastResortRoot,
+          timeoutMs: 15000,
+          lastResortTimeoutMs: 45000,
+          onStage: (st) => { this._onLocateStage && this._onLocateStage(st, job); }
+        }).then(r => ({ job, r })).catch(() => ({ job, r: { hits: [], stage: 'none', timedOut: false } }))
+      ));
+
+      for (const { job, r } of results) {
+        this._lastSearchStages.push(`SSH:${r.stage}${r.timedOut ? '(超时)' : ''}`);
       }
 
-      const res = await smartFn(host, user, {
-        candidates,
-        searchRoots,
-        fileName
-      }, 8000);
+      // 汇总各服务器命中并按项目上下文排序
+      const rankedItems = [];
+      results.forEach(({ job, r }, jobIdx) => {
+        if (!r || !r.hits || !r.hits.length) return;
+        const sorted = svc.rank ? svc.rank(r.hits, {
+          projectLinuxRoot: (activeProj && activeProj.linuxPath) ? activeProj.linuxPath : job.linuxRoot,
+          priDriverRel: activeProj ? activeProj.priDriverRel : null,
+          publicDriverRel: activeProj ? activeProj.publicDriverRel : null,
+          kernelVer: activeProj ? this._inferKernelVer(activeProj, r.hits) : null
+        }) : r.hits;
+        for (const h of sorted) rankedItems.push({ hit: h, job, jobIdx });
+      });
+      // 活动工程所在 job 的命中整体优先
+      if (activeProj) rankedItems.sort((a, b) => (a.jobIdx - b.jobIdx));
 
-      if (res && typeof res.content === 'string' && res.content.length > 0) {
-        const linuxPath = res.linuxPath || candidates[0] || '';
+      const seen = new Set();
+      const candidates = [];
+      for (const it of rankedItems) {
+        if (!seen.has(it.hit)) { seen.add(it.hit); candidates.push(it); }
+        if (candidates.length >= 12) break;
+      }
+      if (!candidates.length) return null;
+
+      this.remoteCandidates = candidates.map(it => it.hit);
+      const top = candidates[0];
+      this._lastSearchStages.push('SSH直读');
+      const content = await svc.read(top.job.host, top.job.user, top.hit, 20000);
+      if (typeof content === 'string' && content.length > 0) {
         return {
-          content: res.content,
-          linuxPath,
-          winPath: linuxPath ? l2wFn(linuxPath) : filePath,
-          serverName,
-          host,
-          user
+          content,
+          linuxPath: top.hit,
+          winPath: svc.l2w ? svc.l2w(top.hit) : filePath,
+          serverName: top.job.serverName,
+          host: top.job.host,
+          user: top.job.user
         };
       }
       return null;
     } catch (_) {
       return null;
+    }
+  }
+
+  /**
+   * 从命中列表推断当前工程实际使用的 kernel_device_modules 版本:
+   * 优先取 priDriverRel 下命中里出现的版本, 否则不加该排序级
+   */
+  _inferKernelVer(activeProj, hits) {
+    try {
+      const pri = activeProj && activeProj.linuxPath && activeProj.priDriverRel
+        ? `${activeProj.linuxPath}/${activeProj.priDriverRel}/` : null;
+      for (const h of (hits || [])) {
+        const s = String(h).replace(/\\/g, '/');
+        if (pri && !s.startsWith(pri)) continue;
+        const m = s.match(/kernel_device_modules-([\d.]+)/);
+        if (m) return m[1];
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  /**
+   * 远程定位阶段回调: last_resort 时显示「正在服务器上定位 …（N 秒）」并每秒刷新
+   */
+  _onLocateStage(stage, job) {
+    if (stage !== 'last_resort') return;
+    this._stopLocateTicker();
+    const t0 = Date.now();
+    this._renderLoadingState('正在服务器上定位 …');
+    this._locateTicker = setInterval(() => {
+      const el = this.nativeViewerEl && this.nativeViewerEl.querySelector('.tw-code-loading-text');
+      if (!el) { this._stopLocateTicker(); return; }
+      el.textContent = `正在服务器上定位 …（${Math.floor((Date.now() - t0) / 1000)} 秒）`;
+    }, 1000);
+  }
+
+  _stopLocateTicker() {
+    if (this._locateTicker) {
+      clearInterval(this._locateTicker);
+      this._locateTicker = null;
     }
   }
 
@@ -18013,16 +19585,17 @@ class CodeViewerPanel {
     }
   }
 
-  _renderLoadingState() {
+  _renderLoadingState(msg) {
     if (!this.nativeViewerEl) return;
     if (this.editWrapEl) this.editWrapEl.style.display = 'none';
     if (this.iframeEl) this.iframeEl.style.display = 'none';
     this.nativeViewerEl.style.display = 'block';
     this._nv = null;
+    const text = msg || `正在读取 ${path.basename(this.currentFilePath || '')} …`;
     this.nativeViewerEl.innerHTML = `
       <div class="tw-code-loading">
         <span class="tw-code-loading-dot"></span>
-        <span>正在读取 ${escapeHtml(path.basename(this.currentFilePath || ''))} …</span>
+        <span class="tw-code-loading-text">${escapeHtml(text)}</span>
       </div>
     `;
   }
@@ -18548,6 +20121,8 @@ class PiDrawerView {
     this._suppressPlanBarOnce = false;
     // 多步工具调用回合 Token 累加器：turn_end 每跳累加，杜绝只记最后一跳
     this.turnUsageAcc = null;
+    // 当前上下文占用 {tokens, contextWindow, percent}（tokens:null = pi 待下轮响应后可知）
+    this._ctxUsage = null;
     // pi .jsonl 孤儿回合恢复防重入
     this._piRecoverInFlight = false;
     this._tpFetchPromise = null;
@@ -18675,12 +20250,14 @@ class PiDrawerView {
   }
 
   async togglePermissionMode() {
-    const nextMode = this.permissionMode === 'readonly' ? 'readwrite' : 'readonly';
+    const order = ['readonly', 'readwrite', 'full'];
+    const idx = order.indexOf(this.permissionMode);
+    const nextMode = order[(idx + 1) % order.length];
     await this.setPermissionMode(nextMode);
   }
 
   async setPermissionMode(mode) {
-    if (mode !== 'readwrite' && mode !== 'readonly') return;
+    if (mode !== 'readonly' && mode !== 'readwrite' && mode !== 'full') return;
     if (mode === this.permissionMode) return;
     await this.hub.setPermissionMode(mode);
     this._hidePlanBar();
@@ -18691,16 +20268,19 @@ class PiDrawerView {
 
   updatePermBadge() {
     if (!this.permBadgeEl) return;
-    const isRW = this.permissionMode === 'readwrite';
-    this.permBadgeEl.className = `tw-perm-pill ${isRW ? 'readwrite' : 'readonly'}`;
+    const mode = this.permissionMode;
+    const conf = {
+      readonly: { icon: 'lock', name: '只读', title: '当前：只读模式（安全检索不修改），点击切换' },
+      readwrite: { icon: 'shield', name: '读写', title: '当前：读写模式（工程边界内可写），点击切换' },
+      full: { icon: 'lightning', name: '完全权限', title: '当前：完全权限（仍拦截高危操作），点击切换' }
+    }[mode] || { icon: 'shield', name: '读写', title: '当前：读写模式，点击切换' };
+    this.permBadgeEl.className = `tw-perm-pill ${mode}`;
     this.permBadgeEl.innerHTML = `
-      <span class="tw-perm-pill-icon">${getIconPark(isRW ? 'shield' : 'lock', 13)}</span>
-      <span class="tw-perm-pill-name">${isRW ? '完全权限' : '只读'}</span>
+      <span class="tw-perm-pill-icon">${getIconPark(conf.icon, 13)}</span>
+      <span class="tw-perm-pill-name">${conf.name}</span>
       <span class="tw-perm-pill-caret">${getIconPark('down', 10)}</span>
     `;
-    this.permBadgeEl.title = isRW
-      ? '当前：完全权限（支持新建与修改笔记），点击切换'
-      : '当前：只读模式（安全检索不修改），点击切换';
+    this.permBadgeEl.title = conf.title;
     if (this.permPopoverEl) {
       this.permPopoverEl.querySelectorAll('.tw-perm-opt').forEach((opt) => {
         opt.classList.toggle('on', opt.getAttribute('data-mode') === this.permissionMode);
@@ -18709,13 +20289,15 @@ class PiDrawerView {
   }
 
   updatePermHint() {
-    const isRW = this.permissionMode === 'readwrite';
+    const mode = this.permissionMode;
     const hintText = this.drawerEl ? this.drawerEl.querySelector('#twDrawerPermHint .tw-hint-text') : null;
+    const label = mode === 'readonly' ? '只读安全模式' : (mode === 'full' ? '完全权限模式' : '读写安全模式');
+    const fallback = mode === 'readonly' ? '只读模式' : (mode === 'full' ? '完全权限' : '读写模式');
     if (hintText) {
-      hintText.textContent = isRW ? '读写安全模式' : '只读安全模式';
+      hintText.textContent = label;
     } else {
       const hintEl = this.drawerEl ? this.drawerEl.querySelector('#twDrawerPermHint') : null;
-      if (hintEl) hintEl.textContent = isRW ? '读写模式' : '只读模式';
+      if (hintEl) hintEl.textContent = fallback;
     }
     const hintDot = this.drawerEl ? this.drawerEl.querySelector('#twDrawerPermHint .tw-hint-dot') : null;
     if (hintDot) {
@@ -18790,6 +20372,8 @@ class PiDrawerView {
     if (isFirstBuild || (!hasLiveUi && !this.currentAssistantMessage && !hubStreaming)) {
       this.restoreSessionMessages(this.hub.activeAgentId);
     }
+    // 上下文绑定按当前活跃会话恢复 (新建/无存档 → 未选中)
+    if (typeof this._applySessionContext === 'function') this._applySessionContext(this.hub.activeAgentId);
     this.updateStatus(this.hub.getStatus());
     this.ensureAgentConnected();
 
@@ -19340,16 +20924,21 @@ class PiDrawerView {
               </div>
             </div>
             <div class="tw-perm-wrap" id="twPermWrap">
-              <button class="tw-perm-pill" id="twPermPill" title="权限模式：切换读写 / 只读"></button>
+              <button class="tw-perm-pill" id="twPermPill" title="权限模式：切换只读 / 读写 / 完全权限"></button>
               <div class="tw-perm-popover" id="twPermPopover" style="display:none;">
-                <div class="tw-perm-opt" data-mode="readwrite" title="可新建与修改笔记 / 执行命令">
-                  <span class="tw-perm-opt-icon">${getIconPark('shield', 13)}</span>
-                  <span class="tw-perm-opt-name">完全权限</span>
-                  <span class="tw-perm-opt-check">${getIconPark('check-square', 12)}</span>
-                </div>
                 <div class="tw-perm-opt" data-mode="readonly" title="只读安全模式（不修改文件）">
                   <span class="tw-perm-opt-icon">${getIconPark('lock', 13)}</span>
                   <span class="tw-perm-opt-name">只读</span>
+                  <span class="tw-perm-opt-check">${getIconPark('check-square', 12)}</span>
+                </div>
+                <div class="tw-perm-opt" data-mode="readwrite" title="工程边界内可写 / 执行命令">
+                  <span class="tw-perm-opt-icon">${getIconPark('shield', 13)}</span>
+                  <span class="tw-perm-opt-name">读写</span>
+                  <span class="tw-perm-opt-check">${getIconPark('check-square', 12)}</span>
+                </div>
+                <div class="tw-perm-opt tw-perm-opt-full" data-mode="full" title="完全权限（仍拦截高危操作）">
+                  <span class="tw-perm-opt-icon">${getIconPark('lightning', 13)}</span>
+                  <span class="tw-perm-opt-name">完全权限</span>
                   <span class="tw-perm-opt-check">${getIconPark('check-square', 12)}</span>
                 </div>
               </div>
@@ -19357,6 +20946,26 @@ class PiDrawerView {
             <div class="tw-session-ctx" id="twSessionCtx" style="display:none;"></div>
           </div>
           <div class="tw-card-toolbar-right">
+            <div class="tw-ctx-wrap" id="twCtxWrap" style="display:none;">
+              <button class="tw-ctx-pill" id="twCtxPill" title="当前上下文占用">
+                <svg class="tw-ctx-pill-ring" viewBox="0 0 16 16" aria-hidden="true">
+                  <circle class="tw-ctx-ring-track" cx="8" cy="8" r="6.5"></circle>
+                  <circle class="tw-ctx-ring-val" id="twCtxRingVal" cx="8" cy="8" r="6.5"></circle>
+                </svg>
+                <span class="tw-ctx-pill-text" id="twCtxPillText">--</span>
+              </button>
+              <div class="tw-ctx-popover" id="twCtxPopover" style="display:none;">
+                <div class="tw-ctx-popover-head">
+                  <span class="tw-ctx-popover-title">上下文</span>
+                  <span class="tw-ctx-popover-pct" id="twCtxPct">--</span>
+                </div>
+                <div class="tw-ctx-popover-bar"><div class="tw-ctx-popover-fill" id="twCtxFill"></div></div>
+                <div class="tw-ctx-popover-detail" id="twCtxDetail">--</div>
+                <button class="tw-ctx-compact-btn" id="twCtxCompactBtn" title="压缩会话上下文">
+                  ${getIconPark('layers', 12)}<span>压缩</span>
+                </button>
+              </div>
+            </div>
             <div class="tw-card-model-wrap" id="twCardModelWrap">
               <button class="tw-card-model-pill" id="twCardModelPill" title="点击切换当前 AI 模型">
                 <span class="tw-card-model-icon" id="twCardModelIcon">${getOfficialModelSvg('gpt-5-6-thinking', 14)}</span>
@@ -19451,6 +21060,16 @@ class PiDrawerView {
     this.localProjNameEl = footer.querySelector('#twCardLocalProjName');
     this.localProjSearchInput = footer.querySelector('#twLocalProjSearchInput');
     this.localProjListEl = footer.querySelector('#twLocalProjPopoverList');
+    this.ctxWrapEl = footer.querySelector('#twCtxWrap');
+    this.ctxPillEl = footer.querySelector('#twCtxPill');
+    this.ctxRingValEl = footer.querySelector('#twCtxRingVal');
+    this.ctxPillTextEl = footer.querySelector('#twCtxPillText');
+    this.ctxPopoverEl = footer.querySelector('#twCtxPopover');
+    this.ctxPctEl = footer.querySelector('#twCtxPct');
+    this.ctxFillEl = footer.querySelector('#twCtxFill');
+    this.ctxDetailEl = footer.querySelector('#twCtxDetail');
+    this.ctxCompactBtnEl = footer.querySelector('#twCtxCompactBtn');
+
     this.localProjNavHeader = footer.querySelector('#twLocalProjNavHeader');
     this.localProjBackBtn = footer.querySelector('#twLocalProjBackBtn');
     this.localProjBackText = footer.querySelector('#twLocalProjBackText');
@@ -19472,6 +21091,7 @@ class PiDrawerView {
     this.updateModelSelectorPill();
     this.bindProjectSelectorEvents();
     this.bindPermEvents();
+    this.bindCtxEvents();
     this.updateProjectSelectorPill();
     this.updateContextCapsule();
     this._restoreChips(this.hub.activeAgentId);
@@ -19631,15 +21251,23 @@ class PiDrawerView {
   openReasoningPopover(anchorEl, modelId, modelName) {
     if (!this.reasoningPopoverEl || !anchorEl) return;
     const adapter = this.hub.getActiveAdapter();
-    const currentEffort = typeof adapter.getReasoningEffort === 'function' ? adapter.getReasoningEffort() : 'max';
+    let currentEffort = typeof adapter.getReasoningEffort === 'function' ? adapter.getReasoningEffort() : 'max';
 
-    const levels = [
+    let levels = [
       { id: 'off', label: '关闭', desc: '直接输出' },
       { id: 'low', label: '低', desc: '轻度思考' },
       { id: 'medium', label: '中', desc: '速度平衡' },
       { id: 'high', label: '高', desc: '深度思考' },
       { id: 'max', label: '极高', desc: '全量思考' }
     ];
+
+    // agy 档位族型号（gemini-3.8-flash）：等级即型号变体，仅提供真实存在的档位，
+    // 激活标记按 effort→tier 映射（低↔low、中↔medium、高/极高↔high、关闭↔low）
+    const tierLevels = typeof adapter.getModelTierLevels === 'function' ? adapter.getModelTierLevels(modelId) : null;
+    if (tierLevels) {
+      levels = levels.filter(l => tierLevels.includes(l.id));
+      if (typeof adapter.mapEffortToTier === 'function') currentEffort = adapter.mapEffortToTier(currentEffort);
+    }
 
     let html = '';
     for (const lvl of levels) {
@@ -19708,12 +21336,32 @@ class PiDrawerView {
   }
 
   _renderModelItem(m, currentId, adapter, categoryName = '') {
-    const isSelected = m.id === currentId;
+    // 档位族折叠型号（m.tiers）：当前生效的具体变体 id 也视为选中
+    const isSelected = m.id === currentId || (m.tiers && Object.values(m.tiers).indexOf(currentId) !== -1);
     const brandIcon = getOfficialModelSvg(m.brand || m.id || m.name, 14);
     const supportsReasoning = !!m.supportsReasoningEffort;
 
     let rightSideHtml = '';
-    if (supportsReasoning) {
+    // m.tiers → 档位族折叠型号，等级选择器标签显示当前 effort 映射到的档位；
+    // 无 tiers 但 getModelEffortConfig 命中 → 裸带档后缀 id，显示固定档位徽标
+    const tierCfg = typeof adapter.getModelEffortConfig === 'function' ? adapter.getModelEffortConfig(m.id) : null;
+    if (m.tiers) {
+      const label = (tierCfg && tierCfg.label) || '高推理';
+      rightSideHtml = `
+        <div class="tw-reasoning-trigger" data-model-id="${escapeAttr(m.id)}" data-model-name="${escapeAttr(m.name)}" title="选择推理等级">
+          <span class="tw-reasoning-label">${escapeHtml(label)}</span>
+          ${isSelected ? `<span class="tw-model-item-check">${getIconPark('check', 12)}</span>` : ''}
+          <span class="tw-reasoning-caret">${getIconPark('right', 9)}</span>
+        </div>
+      `;
+    } else if (tierCfg) {
+      rightSideHtml = `
+        <div class="tw-reasoning-badge" title="推理档位由型号固定">
+          <span class="tw-reasoning-label">${escapeHtml(tierCfg.label)}</span>
+          ${isSelected ? `<span class="tw-model-item-check">${getIconPark('check', 12)}</span>` : ''}
+        </div>
+      `;
+    } else if (supportsReasoning) {
       const effortConfig = typeof adapter.getReasoningEffortConfig === 'function'
         ? adapter.getReasoningEffortConfig()
         : { label: '极高' };
@@ -19729,7 +21377,7 @@ class PiDrawerView {
     }
 
     return `
-      <div class="tw-model-item ${isSelected ? 'active' : ''} ${supportsReasoning ? 'has-reasoning' : ''}" data-model-id="${escapeAttr(m.id)}" data-model-name="${escapeAttr(m.name)}" data-model-icon="${escapeAttr(m.id)}" data-supports-reasoning="${supportsReasoning ? 'true' : 'false'}">
+      <div class="tw-model-item ${isSelected ? 'active' : ''} ${supportsReasoning ? 'has-reasoning' : ''}" data-model-id="${escapeAttr(m.id)}" data-model-name="${escapeAttr(m.name)}" data-model-icon="${escapeAttr(m.id)}" data-supports-reasoning="${(m.tiers || (supportsReasoning && !tierCfg)) ? 'true' : 'false'}">
         <div class="tw-model-item-info">
           <div class="tw-model-item-title-row">
             <span>${brandIcon}</span>
@@ -19881,6 +21529,7 @@ class PiDrawerView {
     }
 
     this.updateModelSelectorPill();
+    this._refreshContextUsage();
     this.closeModelPopover();
 
     let levelSuffix = '';
@@ -19918,7 +21567,9 @@ class PiDrawerView {
 
     let displayName = current.name || current.id || 'GPT-5.6 Sol';
     if (typeof adapter.supportsReasoningEffort === 'function' && adapter.supportsReasoningEffort(current.id)) {
-      const effortConfig = typeof adapter.getReasoningEffortConfig === 'function' ? adapter.getReasoningEffortConfig() : null;
+      // 内建档位型号优先显示固定档位，否则显示会话可选 effort
+      const effortConfig = (typeof adapter.getModelEffortConfig === 'function' && adapter.getModelEffortConfig(current.id))
+        || (typeof adapter.getReasoningEffortConfig === 'function' ? adapter.getReasoningEffortConfig() : null);
       if (effortConfig && effortConfig.label) {
         displayName = `${displayName} · ${effortConfig.label}`;
       }
@@ -20093,6 +21744,54 @@ class PiDrawerView {
       };
       fs.writeFileSync(target, JSON.stringify(payload, null, 2), 'utf8');
     } catch (_) {}
+    this._syncCtxToSession();
+  }
+
+  _ctxSnapshot() {
+    return {
+      selectedProject: this.selectedProject || 'auto',
+      selectedGerritFilter: this.selectedGerritFilter || 'all',
+      selectedJiraIssue: this.selectedJiraIssue || null,
+      selectedLocalProject: this.selectedLocalProject || null
+    };
+  }
+
+  _syncCtxToSession() {
+    try {
+      const sm = this.hub && this.hub.sessionManager;
+      if (sm && typeof sm.setSessionContext === 'function') {
+        sm.setSessionContext(this.hub.activeAgentId, this._ctxSnapshot());
+      }
+    } catch (_) {}
+  }
+
+  // 上下文绑定随会话走: 会话已记 context → 按其恢复; 老会话无 context 字段 → 兼容回退全局存档;
+  // 全新会话 (尚无 session 对象) → 一律未选中。经 save* 写回以同步 localStorage/env/提示条 UI
+  _applySessionContext(agentId) {
+    const sm = this.hub && this.hub.sessionManager;
+    const sess = sm && typeof sm.getActiveSession === 'function' ? sm.getActiveSession(agentId) : null;
+    const defaults = { selectedProject: 'auto', selectedGerritFilter: 'all', selectedJiraIssue: null, selectedLocalProject: null };
+    let ctx;
+    if (sess) {
+      // 有 context 键 (含显式 null) → 会话自带状态; 老数据缺键 → 兼容回退全局存档
+      if (Object.prototype.hasOwnProperty.call(sess, 'context')) {
+        ctx = (sess.context && typeof sess.context === 'object') ? sess.context : defaults;
+      } else {
+        ctx = {
+          selectedProject: this.getSavedProject(),
+          selectedGerritFilter: this.getSavedGerritFilter(),
+          selectedJiraIssue: this.getSavedJiraIssue(),
+          selectedLocalProject: this.getSavedLocalProject()
+        };
+      }
+    } else {
+      const pending = sm && typeof sm.getSessionContext === 'function' ? sm.getSessionContext(agentId) : null;
+      ctx = pending || defaults;
+    }
+    this.saveProject(ctx.selectedProject);
+    this.saveGerritFilter(ctx.selectedGerritFilter);
+    this.saveJiraIssue(ctx.selectedJiraIssue);
+    this.saveLocalProject(ctx.selectedLocalProject);
   }
 
   bindPermEvents() {
@@ -20114,6 +21813,211 @@ class PiDrawerView {
       };
     });
     // 外部点击/Esc 关闭复用 bindProjectSelectorEvents 的 document 级处理器（不新增监听数）
+  }
+
+  bindCtxEvents() {
+    if (!this.ctxPillEl || !this.ctxPopoverEl) return;
+    this.ctxPillEl.onclick = (e) => {
+      e.stopPropagation();
+      const open = this.ctxPopoverEl.style.display === 'flex';
+      this.ctxPopoverEl.style.display = open ? 'none' : 'flex';
+      if (!open) {
+        if (this.permPopoverEl) this.permPopoverEl.style.display = 'none';
+        if (typeof this.closeProjectPopover === 'function') this.closeProjectPopover();
+        if (this.modelPopoverEl) this.modelPopoverEl.style.display = 'none';
+        this._renderCtxPopover();
+      }
+    };
+    if (this.ctxCompactBtnEl) {
+      this.ctxCompactBtnEl.onclick = (e) => {
+        e.stopPropagation();
+        this._runManualCompact();
+      };
+    }
+  }
+
+  /**
+   * Ctx 胶囊渲染：Devin 式圆环进度 + 百分比文案。仅实现 getContextUsage 的通道显示；
+   * 优先 RPC/transcript 权威值，turn/context_usage 实时值兜底。tokens:null 显示 --。
+   */
+  _updateCtxPill() {
+    if (!this.ctxWrapEl || !this.ctxPillTextEl) return;
+    const u = this._ctxUsage;
+    const pct = u && typeof u.percent === 'number' ? u.percent : null;
+    // 圆环：周长 2π·6.5 ≈ 40.84，dashoffset 越大剩余弧越短
+    if (this.ctxRingValEl) {
+      const C = 40.84;
+      this.ctxRingValEl.style.strokeDashoffset = pct !== null
+        ? String(C * (1 - Math.min(100, Math.max(0, pct)) / 100))
+        : String(C);
+    }
+    if (this.ctxPillEl) this.ctxPillEl.classList.toggle('warn', pct !== null && pct >= 85);
+    if (!u) {
+      this.ctxPillTextEl.textContent = '--';
+      this.ctxPillEl.title = '当前上下文占用';
+      return;
+    }
+    this.ctxPillTextEl.textContent = pct !== null
+      ? (pct < 10 ? `${pct.toFixed(1)}%` : `${Math.round(pct)}%`)
+      : (typeof u.tokens === 'number' ? this.formatTokensPill(u.tokens).replace(' tok', '') : '--');
+    const win = u.contextWindow > 0 ? u.contextWindow.toLocaleString() : '--';
+    const pctStr = pct !== null ? ` · ${pct.toFixed(1)}%` : '';
+    this.ctxPillEl.title = `上下文 ${typeof u.tokens === 'number' ? u.tokens.toLocaleString() : '--'} / ${win} tok${pctStr}`;
+    if (this.ctxPopoverEl && this.ctxPopoverEl.style.display === 'flex') this._renderCtxPopover();
+  }
+
+  /** 本地缓存键：agent + 会话维度，重载后先回填上次值再等权威刷新覆盖 */
+  _ctxCacheKey() {
+    const agentId = this.hub && this.hub.activeAgentId;
+    const sm = this.hub && this.hub.sessionManager;
+    const sid = sm && typeof sm.getActiveSessionId === 'function' ? sm.getActiveSessionId(agentId) : null;
+    return agentId ? `${agentId}:${sid || 'default'}` : null;
+  }
+
+  _loadCtxCache() {
+    const key = this._ctxCacheKey();
+    if (!key) return;
+    try {
+      const map = JSON.parse(localStorage.getItem('tabonkb-ctx-usage') || '{}');
+      const e = map[key];
+      if (e && typeof e === 'object') {
+        this._ctxUsage = {
+          tokens: typeof e.tokens === 'number' ? e.tokens : null,
+          contextWindow: e.contextWindow || 0,
+          percent: typeof e.percent === 'number' ? e.percent : null
+        };
+        this._updateCtxPill();
+      }
+    } catch (_) {}
+  }
+
+  _persistCtxUsage() {
+    const key = this._ctxCacheKey();
+    const u = this._ctxUsage;
+    if (!key || !u) return;
+    try {
+      const map = JSON.parse(localStorage.getItem('tabonkb-ctx-usage') || '{}');
+      map[key] = { tokens: u.tokens, contextWindow: u.contextWindow, percent: u.percent, updatedAt: Date.now() };
+      const keys = Object.keys(map);
+      if (keys.length > 30) {
+        keys.sort((a, b) => (map[a].updatedAt || 0) - (map[b].updatedAt || 0));
+        keys.slice(0, keys.length - 30).forEach(k => delete map[k]);
+      }
+      localStorage.setItem('tabonkb-ctx-usage', JSON.stringify(map));
+    } catch (_) {}
+  }
+
+  _renderCtxPopover() {
+    if (!this.ctxPopoverEl) return;
+    const u = this._ctxUsage;
+    const pct = u && typeof u.percent === 'number' ? u.percent : null;
+    if (this.ctxPctEl) this.ctxPctEl.textContent = pct !== null ? `${pct.toFixed(1)}%` : '--';
+    if (this.ctxFillEl) {
+      this.ctxFillEl.style.width = pct !== null ? `${Math.min(100, Math.max(0, pct))}%` : '0%';
+      this.ctxFillEl.classList.toggle('warn', pct !== null && pct >= 85);
+    }
+    if (this.ctxDetailEl) {
+      const tok = u && typeof u.tokens === 'number' ? u.tokens.toLocaleString() : '--';
+      const win = u && u.contextWindow > 0 ? u.contextWindow.toLocaleString() : '--';
+      this.ctxDetailEl.textContent = `${tok} / ${win} tok`;
+    }
+    // 压缩按钮仅对实现 compact() 的通道显示（pi RPC；agy print 模式无手动压缩通道）
+    if (this.ctxCompactBtnEl) {
+      const adapter = this.hub && this.hub.getActiveAdapter();
+      this.ctxCompactBtnEl.style.display = (adapter && typeof adapter.compact === 'function') ? '' : 'none';
+    }
+  }
+
+  /**
+   * 通道能力探测：pi 实现 getContextUsage 才显示胶囊；进程未起时静默保持现状不报错。
+   */
+  async _refreshContextUsage() {
+    const adapter = this.hub && this.hub.getActiveAdapter();
+    if (!adapter || typeof adapter.getContextUsage !== 'function') {
+      this._ctxUsage = null;
+      if (this.ctxWrapEl) this.ctxWrapEl.style.display = 'none';
+      return;
+    }
+    if (this.ctxWrapEl) this.ctxWrapEl.style.display = '';
+    // 重载/切会话时先回填本地缓存避免闪 --，权威值到达后覆盖
+    if (!this._ctxUsage) this._loadCtxCache();
+    try {
+      const cu = await adapter.getContextUsage();
+      if (cu) {
+        if (cu.tokens === null && this._ctxUsage && typeof this._ctxUsage.tokens === 'number') {
+          // 上游暂不可知（bridge 预热/compact 后）≠ 真实为 0：保留已知 tokens，窗口更新则重算占比
+          const win = cu.contextWindow || this._ctxUsage.contextWindow;
+          this._ctxUsage = {
+            tokens: this._ctxUsage.tokens,
+            contextWindow: win,
+            percent: win > 0 ? (this._ctxUsage.tokens / win) * 100 : this._ctxUsage.percent
+          };
+        } else {
+          this._ctxUsage = cu;
+        }
+        this._persistCtxUsage();
+      }
+    } catch (_) {}
+    this._updateCtxPill();
+  }
+
+  _clearCtxCache() {
+    const key = this._ctxCacheKey();
+    if (!key) return;
+    try {
+      const map = JSON.parse(localStorage.getItem('tabonkb-ctx-usage') || '{}');
+      if (key in map) {
+        delete map[key];
+        localStorage.setItem('tabonkb-ctx-usage', JSON.stringify(map));
+      }
+    } catch (_) {}
+  }
+
+  /**
+   * turn_end 每跳实时刷新：该跳 usage 的 in+out+cacheRead+cacheWrite 即当时上下文长度
+   * （与 pi calculateContextTokens 同口径），contextWindow 沿用 models.json。
+   */
+  _updateCtxFromTurnUsage(u) {
+    if (!u || typeof u !== 'object' || !this.ctxWrapEl || this.ctxWrapEl.style.display === 'none') return;
+    const inp = Math.max(0, u.input ?? u.inputTokens ?? u.input_tokens ?? u.prompt_tokens ?? u.promptTokens ?? 0);
+    const out = Math.max(0, u.output ?? u.outputTokens ?? u.output_tokens ?? u.completion_tokens ?? u.completionTokens ?? 0);
+    const cr = Math.max(0, u.cacheRead ?? u.cacheReadTokens ?? u.cache_read_tokens ?? 0);
+    const cw = Math.max(0, u.cacheWrite ?? u.cacheWriteTokens ?? u.cache_write_tokens ?? 0);
+    const tokens = Math.max(0, u.totalTokens ?? u.total_tokens ?? (inp + out + cr + cw));
+    if (!(tokens > 0)) return;
+    const adapter = this.hub && this.hub.getActiveAdapter();
+    const win = (adapter && typeof adapter.getContextWindow === 'function' ? adapter.getContextWindow() : 0)
+      || (this._ctxUsage && this._ctxUsage.contextWindow) || 0;
+    this._ctxUsage = {
+      tokens,
+      contextWindow: win,
+      percent: win > 0 ? (tokens / win) * 100 : null
+    };
+    this._persistCtxUsage();
+    this._updateCtxPill();
+  }
+
+  async _runManualCompact() {
+    const adapter = this.hub && this.hub.getActiveAdapter();
+    if (!adapter || typeof adapter.compact !== 'function') return;
+    const NoticeCls = typeof Notice !== 'undefined' ? Notice : (window.app?.Notice || class{});
+    if (this.hub.isStreaming && this.hub.isStreaming()) {
+      new NoticeCls('生成中，请待本轮结束后再压缩', 2500);
+      return;
+    }
+    const btn = this.ctxCompactBtnEl;
+    if (btn) { btn.disabled = true; btn.classList.add('busy'); }
+    try {
+      await adapter.compact();
+    } catch (err) {
+      if (btn) { btn.disabled = false; btn.classList.remove('busy'); }
+      if (this.ctxPillEl) this.ctxPillEl.classList.remove('busy');
+      // pi 校验失败也会先广播 compaction_end.errorMessage——1.5s 内已提示则不重复弹
+      if (!this._ctxCompactErrAt || Date.now() - this._ctxCompactErrAt > 1500) {
+        new NoticeCls(`压缩失败: ${err.message || err}`, 3000);
+      }
+    }
+    // 成功路径由 compaction_end 事件统一收尾（恢复按钮 + 刷新占用）
   }
 
   bindProjectSelectorEvents() {
@@ -20352,6 +22256,11 @@ class PiDrawerView {
         && this.permWrapEl && !this.permWrapEl.contains(e.target)) {
         this.permPopoverEl.style.display = 'none';
       }
+      // 上下文占用弹层独立关闭
+      if (this.ctxPopoverEl && this.ctxPopoverEl.style.display !== 'none'
+        && this.ctxWrapEl && !this.ctxWrapEl.contains(e.target)) {
+        this.ctxPopoverEl.style.display = 'none';
+      }
       if (!this.optionsPopoverEl || this.optionsPopoverEl.style.display === 'none') return;
 
       // 如果点击在浮窗内部，不关闭
@@ -20407,6 +22316,9 @@ class PiDrawerView {
       }
       if (this.permPopoverEl && this.permPopoverEl.style.display !== 'none') {
         this.permPopoverEl.style.display = 'none';
+      }
+      if (this.ctxPopoverEl && this.ctxPopoverEl.style.display !== 'none') {
+        this.ctxPopoverEl.style.display = 'none';
       }
     }, { signal: this._docEventsAbort ? this._docEventsAbort.signal : undefined });
   }
@@ -20568,6 +22480,7 @@ class PiDrawerView {
   openProjectPopover() {
     if (!this.optionsPopoverEl) return;
     this.closeModelPopover();
+    this.optionsPopoverEl.classList.remove('tw-panel-only');
     if (this.projectSearchInput) this.projectSearchInput.value = '';
     if (this.gerritSearchInput) this.gerritSearchInput.value = '';
     if (this.jiraSearchInput) this.jiraSearchInput.value = '';
@@ -20581,6 +22494,7 @@ class PiDrawerView {
 
   closeProjectPopover() {
     if (this.optionsPopoverEl) {
+      this.optionsPopoverEl.classList.remove('tw-panel-only');
       this.optionsPopoverEl.style.display = 'none';
     }
     this.closeProjectDropdown();
@@ -21384,10 +23298,15 @@ class PiDrawerView {
       if (!chip) return;
       el.onclick = (e) => {
         e.stopPropagation();
-        if (typeof this.openProjectPopover === 'function') this.openProjectPopover();
+        // 本地工程胶囊直达工程选择面板: 弹层进入 tw-panel-only 态, 隐藏外层选项菜单 (框1)
         if (chip.type === 'local' && typeof this.openLocalProjDropdown === 'function') {
+          if (typeof this.openProjectPopover === 'function') this.openProjectPopover();
+          if (this.optionsPopoverEl) this.optionsPopoverEl.classList.add('tw-panel-only');
           this.openLocalProjDropdown();
-        } else if (chip.type === 'jira' && typeof this.openJiraDropdown === 'function') {
+          return;
+        }
+        if (typeof this.openProjectPopover === 'function') this.openProjectPopover();
+        if (chip.type === 'jira' && typeof this.openJiraDropdown === 'function') {
           this.openJiraDropdown();
         } else if (chip.type === 'opengrok' && typeof this.openProjectDropdown === 'function') {
           this.openProjectDropdown();
@@ -21441,6 +23360,8 @@ class PiDrawerView {
 
     // 6. Restore Message History
     this.restoreSessionMessages(agentId);
+    // 上下文绑定跟随目标 Agent 的活跃会话恢复
+    if (typeof this._applySessionContext === 'function') this._applySessionContext(agentId);
     // 排队条/回显对账/方案条随 Agent 切换复位（pi 原生队列快照由 queue_update 事件同步）
     this._queueSnapshot = null;
     this._pendingSentWires = [];
@@ -21458,6 +23379,9 @@ class PiDrawerView {
     this.updateContextCapsule();
     this.updateCardAttachments();
     this.updateSendButtonState();
+    this._ctxUsage = null;
+    this._updateCtxPill();
+    this._refreshContextUsage();
     if (this.historyPanelEl) this.historyPanelEl.style.display = 'none';
 
     // 9. Update status LED & label immediately, and auto-start if disconnected
@@ -21531,6 +23455,13 @@ class PiDrawerView {
 
   restoreSessionMessages(agentId) {
     if (!this.messagesEl) return;
+    if (this._restoreChunkTimer) {
+      clearTimeout(this._restoreChunkTimer);
+      this._restoreChunkTimer = null;
+    }
+    this._restoreToken = (this._restoreToken || 0) + 1;
+    const restoreToken = this._restoreToken;
+
     this.messagesEl.innerHTML = '';
     this.activeToolCards.clear();
     this.currentAssistantMessage = null;
@@ -21554,17 +23485,57 @@ class PiDrawerView {
       return;
     }
 
-    for (const msg of messages) {
+    // 首屏极速恢复：消息超过 12 条时，首帧仅同步渲染末尾 10 条最新消息，早期历史按帧分批在顶部流式补齐
+    try { globalThis.__twBootMark && __twBootMark('restore:start'); } catch (_) {}
+    const INITIAL_BATCH = 10;
+    const CHUNK_SIZE = 6;
+    const total = messages.length;
+    const tailStart = total > 12 ? Math.max(0, total - INITIAL_BATCH) : 0;
+
+    for (let i = tailStart; i < total; i++) {
+      const msg = messages[i];
       if (msg.role === 'user') {
         this.renderPastUserMessage(msg);
       } else {
         this.renderPastAssistantMessage(msg);
       }
     }
+    try { globalThis.__twBootMark && __twBootMark('restore:tail-batch:' + (total - tailStart)); } catch (_) {}
     this._renderInterruptHintIfOrphaned(messages);
     this.scrollToBottom(true);
     if (typeof this.buildChatMinimap === 'function') this.buildChatMinimap();
     if (typeof this.updateStickyQuestion === 'function') this.updateStickyQuestion();
+
+    if (tailStart > 0) {
+      let cursor = tailStart;
+      const prependNextBatch = () => {
+        if (this._restoreToken !== restoreToken || !this.messagesEl) return;
+        const start = Math.max(0, cursor - CHUNK_SIZE);
+        const anchor = this.messagesEl.firstChild || null;
+        const prevScrollHeight = this.messagesEl.scrollHeight || 0;
+        for (let i = start; i < cursor; i++) {
+          const msg = messages[i];
+          if (msg.role === 'user') {
+            this.renderPastUserMessage(msg, anchor);
+          } else {
+            this.renderPastAssistantMessage(msg, anchor);
+          }
+        }
+        if (prevScrollHeight > 0 && this.messagesEl.scrollHeight > prevScrollHeight) {
+          this.messagesEl.scrollTop += (this.messagesEl.scrollHeight - prevScrollHeight);
+        }
+        cursor = start;
+        if (cursor > 0) {
+          this._restoreChunkTimer = setTimeout(prependNextBatch, 16);
+        } else {
+          this._restoreChunkTimer = null;
+          try { globalThis.__twBootMark && __twBootMark('restore:done'); } catch (_) {}
+          if (typeof this.buildChatMinimap === 'function') this.buildChatMinimap();
+          if (typeof this.updateStickyQuestion === 'function') this.updateStickyQuestion();
+        }
+      };
+      this._restoreChunkTimer = setTimeout(prependNextBatch, 24);
+    }
   }
 
   /**
@@ -21977,7 +23948,7 @@ class PiDrawerView {
     return relOrAbs;
   }
 
-  renderPastUserMessage(msg) {
+  renderPastUserMessage(msg, prependAnchor = null) {
     const bubbleWrap = document.createElement('div');
     bubbleWrap.className = 'tw-msg-bubble-wrap user';
 
@@ -22037,10 +24008,14 @@ class PiDrawerView {
 
     bubbleWrap._msgRef = msg;
     this._bindUserMsgActions(bubbleWrap, msg);
-    this.messagesEl.appendChild(bubbleWrap);
+    if (prependAnchor && prependAnchor.parentNode === this.messagesEl && typeof this.messagesEl.insertBefore === 'function') {
+      this.messagesEl.insertBefore(bubbleWrap, prependAnchor);
+    } else {
+      this.messagesEl.appendChild(bubbleWrap);
+    }
   }
 
-  renderPastAssistantMessage(msg) {
+  renderPastAssistantMessage(msg, prependAnchor = null) {
     const adapter = this.hub.getActiveAdapter();
     const bubbleWrap = document.createElement('div');
     bubbleWrap.className = 'tw-msg-bubble-wrap assistant';
@@ -22284,7 +24259,11 @@ class PiDrawerView {
     }
 
     bubbleWrap.appendChild(actionBar);
-    this.messagesEl.appendChild(bubbleWrap);
+    if (prependAnchor && prependAnchor.parentNode === this.messagesEl && typeof this.messagesEl.insertBefore === 'function') {
+      this.messagesEl.insertBefore(bubbleWrap, prependAnchor);
+    } else {
+      this.messagesEl.appendChild(bubbleWrap);
+    }
   }
 
   bindResizer() {
@@ -22607,8 +24586,26 @@ class PiDrawerView {
    * @param {string} rawTarget
    * @param {number} [targetLine=1]
    */
-  openCodeInSplitPane(rawTarget, targetLine = 1) {
+  async openCodeInSplitPane(rawTarget, targetLine = 1) {
     if (!rawTarget) return;
+
+    // 1. 决议目标文件的路径与行号 (零阻塞秒级决议, 含百分号解码 + vault 优先判定)
+    const resolved = this.resolveCodeFilePath(rawTarget, targetLine);
+
+    // 2. vault 内 Obsidian 原生文件 (md/canvas/图片/pdf) → 走 Obsidian 自身分栏打开,
+    //    不占右侧代码面板也不置 isSplitPaneOpen
+    if (resolved && resolved.isVault) {
+      const ext = String(resolved.filePath.split('.').pop() || '').toLowerCase();
+      const nativeSet = (typeof OBSIDIAN_NATIVE_EXTS !== 'undefined') ? OBSIDIAN_NATIVE_EXTS : null;
+      if (nativeSet && nativeSet.has(ext)) {
+        const tfile = this._resolveVaultTFile(resolved.filePath);
+        if (tfile) {
+          const leaf = await this.openVaultFileInSplit(tfile, resolved.line || 1);
+          // 分栏失败 (叶创建异常/已分离) 时回落右侧代码面板, 不让点击无反应
+          if (leaf) return;
+        }
+      }
+    }
 
     this.isSplitPaneOpen = true;
 
@@ -22638,18 +24635,93 @@ class PiDrawerView {
       this.codePanelWrap.style.display = 'flex';
     }
 
-    // 1. 决议目标文件的路径与行号 (零阻塞秒级决议)
-    const resolved = this.resolveCodeFilePath(rawTarget, targetLine);
     const activeProj = this.selectedLocalProject || (typeof this.getSavedLocalProject === 'function' ? this.getSavedLocalProject() : null);
 
     if (this.codeViewerPanel) {
-      const finalPath = resolved?.filePath || String(rawTarget).trim();
+      const finalPath = resolved?.filePath || ((typeof decodeTarget === 'function') ? decodeTarget(rawTarget) : String(rawTarget).trim());
       const finalLine = resolved?.line || targetLine || 1;
       this.codeViewerPanel.openFile(finalPath, finalLine, {
         rawTarget,
-        activeProject: activeProj
+        activeProject: activeProj,
+        classification: resolved?.classification || null,
+        isVault: !!resolved?.isVault
       });
     }
+  }
+
+  /**
+   * vault 绝对路径 → Obsidian TFile (供 openVaultFileInSplit 使用)
+   */
+  _resolveVaultTFile(absPath) {
+    try {
+      const vault = this.app && this.app.vault;
+      if (!vault || !absPath || !this.vaultBasePath) return null;
+      const rel = String(absPath).replace(/\\/g, '/')
+        .replace(new RegExp('^' + String(this.vaultBasePath).replace(/\\/g, '/').replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '/?', 'i'), '');
+      if (!rel || rel === absPath) return null;
+      if (typeof vault.getAbstractFileByPath === 'function') {
+        const f = vault.getAbstractFileByPath(rel);
+        if (f) return f;
+      }
+      const files = (typeof vault.getFiles === 'function') ? vault.getFiles() : [];
+      const relLow = rel.toLowerCase();
+      return files.find(f => String(f.path || '').toLowerCase() === relLow) || null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /**
+   * 在 Obsidian 原生分栏中打开 vault 内文件 (md/canvas/图片/pdf 等)。
+   * 复用 this._vaultSplitLeaf；缓存叶失效时按工作台叶重建分栏。
+   */
+  async openVaultFileInSplit(tfile, line = 1) {
+    const ws = this.app && this.app.workspace;
+    if (!ws || !tfile) return null;
+    const viewType = (typeof VIEW_TYPE_WORKBENCH !== 'undefined') ? VIEW_TYPE_WORKBENCH : 'tabonkb-workbench-view';
+
+    let leaf = this._vaultSplitLeaf || null;
+    let alive = false;
+    if (leaf) {
+      // 存活判断以工作区成员关系为准 (iterateAllLeaves 覆盖 markdown/pdf/canvas 等所有叶型,
+      // 且已 detach 的叶即使 view/parent 引用残留也不会误判存活); 老 API 缺失时回退旧判定
+      try {
+        if (typeof ws.iterateAllLeaves === 'function') {
+          ws.iterateAllLeaves((l) => { if (l === leaf) alive = true; });
+        } else {
+          const mdLeaves = (typeof ws.getLeavesOfType === 'function') ? (ws.getLeavesOfType('markdown') || []) : [];
+          alive = mdLeaves.includes(leaf) || Boolean(leaf.view && leaf.parent);
+        }
+      } catch (_) {
+        alive = Boolean(leaf.view && leaf.parent);
+      }
+    }
+    if (!alive) {
+      const wbLeaves = (typeof ws.getLeavesOfType === 'function') ? (ws.getLeavesOfType(viewType) || []) : [];
+      const anchor = wbLeaves[0] || ws.activeLeaf || null;
+      leaf = null;
+      try {
+        if (anchor && typeof ws.createLeafBySplit === 'function') {
+          leaf = await ws.createLeafBySplit(anchor, 'vertical', false);
+        } else if (typeof ws.getLeaf === 'function') {
+          leaf = ws.getLeaf('split', 'vertical');
+          if (leaf && typeof leaf.then === 'function') leaf = await leaf;
+        }
+      } catch (_) {
+        leaf = null;
+      }
+      this._vaultSplitLeaf = leaf;
+    }
+    if (!leaf || typeof leaf.openFile !== 'function') return null;
+    try {
+      await leaf.openFile(tfile, { active: false, eState: { line: Math.max(0, (line || 1) - 1) } });
+    } catch (_) {
+      try { await leaf.openFile(tfile); } catch (__) { return null; }
+    }
+    if (typeof ws.revealLeaf === 'function') {
+      try { ws.revealLeaf(leaf); } catch (_) {}
+    }
+    return leaf;
   }
 
   closeCodeSplitPane() {
@@ -22685,30 +24757,19 @@ class PiDrawerView {
    */
   resolveCodeFilePath(rawTarget, fallbackLine = 1) {
     if (!rawTarget) return null;
-    let clean = String(rawTarget).trim();
     let line = fallbackLine || 1;
 
-    // 1. 去除两端包裹字符
-    clean = clean.replace(/^[`"']|[`"']$/g, '');
-    clean = clean.replace(/^\[\[(.*?)\]\]$/, '$1'); // Wikilink
-    clean = clean.replace(/^file:\/\/\/?/i, '');
-
-    // 2. 提取行号锚点 (#L85 或 :85 或 :85:12)
-    const hashMatch = clean.match(/#L(\d+)/i);
-    if (hashMatch) {
-      line = parseInt(hashMatch[1], 10);
-      clean = clean.replace(/#L\d+(-L\d+)?/i, '');
-    } else {
-      const colonMatch = clean.match(/:(\d+)(?::\d+)?$/);
-      if (colonMatch) {
-        line = parseInt(colonMatch[1], 10);
-        clean = clean.replace(/:(\d+)(?::\d+)?$/, '');
-      }
-    }
+    // 1. R1 修复: 先解码百分号编码 / file:// / 包裹字符, 再统一拆分行号锚点
+    const dec = (typeof decodeTarget === 'function')
+      ? decodeTarget(rawTarget)
+      : String(rawTarget).trim().replace(/^file:\/\/\/?/i, '');
+    const sl = (typeof splitLine === 'function') ? splitLine(dec) : { path: dec, line: null };
+    let clean = sl.path;
+    if (sl.line) line = sl.line;
     // 清理尾部可能的冒号、句点或中文字符
     clean = clean.replace(/[:：\s，,。.]+$/, '');
 
-    // 3. Linux 远程服务器路径映射 (62 服务器与 31 服务器)
+    // 2. Linux 远程服务器路径映射 (62 服务器与 31 服务器)
     if (clean.startsWith('/dfb/tankaikun/share/')) {
       clean = clean.replace('/dfb/tankaikun/share/', 'Y:\\').replace(/\//g, '\\');
     } else if (clean.startsWith('/home/tankaikun/share/work/')) {
@@ -22717,23 +24778,69 @@ class PiDrawerView {
       clean = clean.replace('/home/tankaikun/', 'Z:\\').replace(/\//g, '\\');
     }
 
-    // 4. 标准化 Windows 路径分隔符
+    // 3. 标准化 Windows 路径分隔符
     let norm = clean.replace(/\//g, '\\');
 
-    // 5. 已知远程服务器绝对路径 (Y:\ / Z:\ / UNC)：直接返回，交由 openFile 异步竞速读 + SSH 兜底。
+    const classification = (typeof classifyTarget === 'function')
+      ? classifyTarget(norm, { vaultBase: this.vaultBasePath })
+      : null;
+
+    // 4. 已知远程服务器绝对路径 (Y:\ / Z:\ / UNC)：直接返回，交由 openFile 异步竞速读 + SSH 兜底。
     //    绝不对 SMB 挂载点做同步 existsSync/statSync——盘符离线时 Windows 会挂起主线程数秒尝试重连。
     if (/^[YyZz]:[\\\/]/i.test(norm) || norm.startsWith('\\\\192.168.1.')) {
-      return { filePath: norm, line };
+      return { filePath: norm, line, classification: classification || 'server_abs' };
     }
 
-    // 6. 若已是绝对路径且在磁盘物理存在，直接返回 (仅本地盘符)
+    const isAbsWin = /^[A-Za-z]:[\\\/]/.test(norm);
+    const isRelPath = !isAbsWin && !norm.startsWith('\\\\') && !norm.startsWith('/dfb/') && !norm.startsWith('/home/') && !norm.startsWith('/');
+
+    // 5. R4 修复: vault 知识库文件优先于工程分支判定 (选中本地工程时不再被远端候选截胡)
+    if (this.vaultBasePath) {
+      const vbNorm = this.vaultBasePath.replace(/[\\\/]+$/, '').replace(/\//g, '\\');
+      if (isAbsWin && norm.toLowerCase().startsWith(vbNorm.toLowerCase() + '\\')) {
+        try {
+          if (fs.existsSync(norm) && fs.statSync(norm).isFile()) {
+            return { filePath: norm, line, isVault: true, classification: classification || 'vault_abs' };
+          }
+        } catch (_) {}
+      } else if (isRelPath) {
+        // 相对路径: 先按 vault 相对路径探测 (03-Driver/... .obsidian/... 99-Meta/... 等)
+        const candVault = path.join(vbNorm, norm);
+        try {
+          if (fs.existsSync(candVault) && fs.statSync(candVault).isFile()) {
+            return { filePath: candVault, line, isVault: true, classification };
+          }
+        } catch (_) {}
+        // 未带 .md 后缀时尝试补齐
+        if (!norm.toLowerCase().endsWith('.md')) {
+          try {
+            const candMd = path.join(vbNorm, `${norm}.md`);
+            if (fs.existsSync(candMd) && fs.statSync(candMd).isFile()) {
+              return { filePath: candMd, line, isVault: true, classification };
+            }
+          } catch (_) {}
+        }
+        // vault 文件名唯一匹配 (INDEX-by-Platform.md 等 bare 文件名)
+        try {
+          const bName = path.basename(norm).toLowerCase();
+          const bNameMd = bName.endsWith('.md') ? bName : `${bName}.md`;
+          const vFiles = this.app?.vault?.getFiles?.() || [];
+          const hits = vFiles.filter(vf => vf.name?.toLowerCase() === bName || vf.name?.toLowerCase() === bNameMd);
+          if (hits.length === 1) {
+            return { filePath: path.join(vbNorm, hits[0].path), line, isVault: true, classification };
+          }
+        } catch (_) {}
+      }
+    }
+
+    // 6. 若已是本地绝对路径且在磁盘物理存在，直接返回 (仅本地盘符)
     try {
-      if (path.isAbsolute(norm) && fs.existsSync(norm) && fs.statSync(norm).isFile()) {
-        return { filePath: norm, line };
+      if (isAbsWin && fs.existsSync(norm) && fs.statSync(norm).isFile()) {
+        return { filePath: norm, line, classification };
       }
     } catch (_) {}
 
-    // 6. 结合当前激活的本地工程 (selectedLocalProject) 与候选子目录前缀
+    // 7. 结合当前激活的本地工程 (selectedLocalProject) 与候选子目录前缀
     const activeProj = this.selectedLocalProject || (typeof this.getSavedLocalProject === 'function' ? this.getSavedLocalProject() : null);
 
     // 挂载盘离线快检 (30s TTL)：盘符不在线时直接走远端候选，跳过 ~40 次同步 SMB 探测
@@ -22763,6 +24870,29 @@ class PiDrawerView {
       baseName
     ];
 
+    // kernel_device_modules-<ver> 候选目录 (R3: 原候选只有 bsp/kernel5.15):
+    // ver 从当前工程已实存的 kernel_device_modules-* 目录推断, 推断不到则不加
+    if (activeProj && activeProj.fullPathWin && projDriveOnline) {
+      const kernelRoots = [
+        activeProj.publicDriverRel && path.join(activeProj.fullPathWin, activeProj.publicDriverRel.replace(/\//g, '\\'), 'kernel'),
+        activeProj.priDriverRel && path.join(activeProj.fullPathWin, activeProj.priDriverRel.replace(/\//g, '\\'), 'kernel'),
+        path.join(activeProj.fullPathWin, 'vendor_w', 'kernel')
+      ].filter(Boolean);
+      const verSet = new Set();
+      for (const kr of kernelRoots) {
+        try {
+          for (const ent of fs.readdirSync(kr)) {
+            const m = String(ent && ent.name !== undefined ? ent.name : ent).match(/^kernel_device_modules-([\d.]+)/i);
+            if (m) verSet.add(m[1]);
+          }
+        } catch (_) {}
+      }
+      for (const v of [...verSet].slice(0, 4)) {
+        subBranches.push(path.join('kernel', `kernel_device_modules-${v}`, cleanNormWithoutBase));
+        subBranches.push(path.join('kernel', `kernel_device_modules-${v}`, 'drivers', 'power', 'supply', baseName));
+      }
+    }
+
     if (activeProj && activeProj.fullPathWin && projDriveOnline) {
       // 单次决议探测总耗时封顶 800ms：SMB 延迟叠加的连环 stat 不再拖慢打开
       const probeStart = Date.now();
@@ -22785,7 +24915,7 @@ class PiDrawerView {
           const cand = prefix ? path.join(activeProj.fullPathWin, prefix, targetCand) : path.join(activeProj.fullPathWin, targetCand);
           try {
             if (fs.existsSync(cand) && fs.statSync(cand).isFile()) {
-              return { filePath: cand, line };
+              return { filePath: cand, line, classification };
             }
           } catch (_) {}
         }
@@ -22800,7 +24930,7 @@ class PiDrawerView {
           const cand = path.join(priDir, sub);
           try {
             if (fs.existsSync(cand) && fs.statSync(cand).isFile()) {
-              return { filePath: cand, line };
+              return { filePath: cand, line, classification };
             }
           } catch (_) {}
         }
@@ -22814,7 +24944,7 @@ class PiDrawerView {
           const cand = path.join(pubDir, sub);
           try {
             if (fs.existsSync(cand) && fs.statSync(cand).isFile()) {
-              return { filePath: cand, line };
+              return { filePath: cand, line, classification };
             }
           } catch (_) {}
         }
@@ -22822,38 +24952,21 @@ class PiDrawerView {
 
       // 6.4 若本地 SMB 未命中，构造优先路径直接返回，交给后续 SSH 秒级查找
       const defaultPri = activeProj.priDriverRel ? path.join(activeProj.fullPathWin, activeProj.priDriverRel.replace(/\//g, '\\'), cleanNormWithoutBase) : path.join(activeProj.fullPathWin, strippedNorm);
-      return { filePath: defaultPri, line, isRemoteCandidate: true };
+      return { filePath: defaultPri, line, isRemoteCandidate: true, classification };
     }
 
-    // 7. 检查 TabonKB 知识库内部 (vaultBasePath)
-    if (this.vaultBasePath) {
-      const candVault = path.join(this.vaultBasePath, norm);
-      try {
-        if (fs.existsSync(candVault) && fs.statSync(candVault).isFile()) return { filePath: candVault, line };
-      } catch (_) {}
-
-      // 如果未带 .md 后缀，尝试补齐
-      if (!norm.toLowerCase().endsWith('.md')) {
-        const candMd = path.join(this.vaultBasePath, `${norm}.md`);
-        try {
-          if (fs.existsSync(candMd) && fs.statSync(candMd).isFile()) return { filePath: candMd, line };
-        } catch (_) {}
-      }
-
-      // 在 vault 中匹配文件名
-      try {
-        const bName = path.basename(norm).toLowerCase();
-        const bNameMd = bName.endsWith('.md') ? bName : `${bName}.md`;
-        const vFiles = this.app?.vault?.getFiles?.() || [];
-        for (const vf of vFiles) {
-          if (vf.name?.toLowerCase() === bName || vf.name?.toLowerCase() === bNameMd) {
-            return { filePath: path.join(this.vaultBasePath, vf.path), line };
-          }
-        }
-      } catch (_) {}
+    // 7. R2 修复: 未选工程时, 用缓存工程记录 + LOCAL_SERVERS 工作区根做 SMB 锚点探测
+    if (isRelPath && (classification === 'rel_workspace' || classification === 'rel_partial')) {
+      const anchorHit = this._probeWorkspaceAnchors(strippedNorm);
+      if (anchorHit) return { filePath: anchorHit, line, classification };
     }
 
-    return { filePath: norm, line };
+    // 8. 兜底: 附分类与远端候选标记, 交给 code-viewer-panel 走 SSH 分层定位
+    if (activeProj && activeProj.fullPathWin) {
+      const defaultPri = activeProj.priDriverRel ? path.join(activeProj.fullPathWin, activeProj.priDriverRel.replace(/\//g, '\\'), cleanNormWithoutBase) : path.join(activeProj.fullPathWin, strippedNorm);
+      return { filePath: defaultPri, line, isRemoteCandidate: true, classification };
+    }
+    return { filePath: norm, line, isRemoteCandidate: isRelPath, classification };
   }
 
   /**
@@ -22871,6 +24984,91 @@ class PiDrawerView {
     try { online = !!fs.existsSync(`${key}:\\`); } catch (_) { online = false; }
     this._driveOnlineCache[key] = { online, ts: Date.now() };
     return online;
+  }
+
+  /**
+   * 加载本地工程缓存 (getAllAvailableLocalProjects 或 local-projects-cache.json)
+   * 供未选工程时的工作区锚点探测使用
+   */
+  _loadLocalProjectCache() {
+    if (this._lpCacheProjs) return this._lpCacheProjs;
+    this._lpCacheProjs = [];
+    try {
+      let all = null;
+      if (typeof getAllAvailableLocalProjects === 'function') {
+        all = getAllAvailableLocalProjects();
+      }
+      if ((!all || !all.length) && typeof require !== 'undefined') {
+        try {
+          
+          if (svc && svc.getAllAvailableLocalProjects) all = svc.getAllAvailableLocalProjects();
+        } catch (_) {}
+      }
+      if (!all || !all.length) {
+        const basePath = this.vaultBasePath || this.app?.vault?.adapter?.basePath || '';
+        const cachePath = path.join(basePath, '.obsidian', 'plugins', 'tabonkb-workbench', 'local-projects-cache.json');
+        if (basePath && fs.existsSync(cachePath)) {
+          all = JSON.parse(fs.readFileSync(cachePath, 'utf8')) || [];
+        }
+      }
+      this._lpCacheProjs = Array.isArray(all) ? all : [];
+    } catch (_) {}
+    return this._lpCacheProjs;
+  }
+
+  /**
+   * R2 修复: 未选工程时, 跨缓存工程 + LOCAL_SERVERS 工作区根做 SMB 锚点探测。
+   * 仅服务 rel_workspace/rel_partial; 盘符离线的工作区回退 UNC 变体。
+   * 主线程同步 stat 设 800ms 总预算——超时直接返回 null 交给 SSH 分层定位, 绝不挂死 UI。
+   */
+  _probeWorkspaceAnchors(relPath) {
+    if (!relPath) return null;
+    const t0 = Date.now();
+    const expired = () => (Date.now() - t0) > 800;
+    const roots = [];
+    const seen = new Set();
+    const push = (p) => {
+      const k = String(p || '').toLowerCase();
+      if (p && !seen.has(k)) { seen.add(k); roots.push(p); }
+    };
+    // 同一工作区盘符与 UNC 互斥: 盘符在线只探测盘符路径; 离线才回退 UNC 直访
+    const pushWs = (winPath, uncPath) => {
+      if (winPath && this._isDriveLikelyOnline(winPath)) { push(winPath); return; }
+      if (uncPath) push(uncPath);
+    };
+    // 优先探测当前会话/上次使用的工程工作区, 再探其余缓存工程
+    const activeProj = this.selectedLocalProject || (typeof this.getSavedLocalProject === 'function' ? this.getSavedLocalProject() : null);
+    if (activeProj && activeProj.fullPathWin) pushWs(activeProj.fullPathWin, activeProj.uncPath);
+    for (const pr of this._loadLocalProjectCache()) {
+      if (pr && pr.fullPathWin) pushWs(pr.fullPathWin, pr.uncPath);
+    }
+    try {
+      if (typeof LOCAL_SERVERS !== 'undefined' && Array.isArray(LOCAL_SERVERS)) {
+        for (const srv of LOCAL_SERVERS) {
+          for (const wsp of (srv.workspaces || [])) {
+            const rel = String(wsp.relPath || '').replace(/\//g, '\\');
+            pushWs(
+              srv.winRoot ? srv.winRoot.replace(/[\\\/]+$/, '') + '\\' + rel : null,
+              srv.uncRoot ? srv.uncRoot.replace(/[\\\/]+$/, '') + '\\' + rel : null
+            );
+          }
+        }
+      }
+    } catch (_) {}
+
+    let probed = 0;
+    for (const root of roots) {
+      if (probed >= 40 || expired()) return null;
+      probed++;
+      const cand = path.join(root, relPath);
+      try {
+        const ok = (typeof this._statFileProbe === 'function')
+          ? this._statFileProbe(cand)
+          : (fs.existsSync(cand) && fs.statSync(cand).isFile());
+        if (ok) return cand;
+      } catch (_) {}
+    }
+    return null;
   }
 
   bindDragAndDropEvents() {
@@ -24532,6 +26730,11 @@ class PiDrawerView {
       if (d) {
         const u = d.message?.usage || d.usage || d.turn?.usage;
         this._accumulateTurnUsage(u);
+        // 仅 per-call 口径通道（pi）用 turn_end 驱动 Ctx 胶囊；agy 回合聚合口径由 context_usage/settle 校准
+        const _ctxAdapter = this.hub.getActiveAdapter();
+        if (_ctxAdapter && _ctxAdapter.usageReflectsContext === true) {
+          this._updateCtxFromTurnUsage(u);
+        }
       }
       if (!this.hub.isStreaming()) {
         this.finishAssistantMessage();
@@ -24550,6 +26753,43 @@ class PiDrawerView {
       this._runAborted = false;
       this.updateSendButtonState();
       this._updatePlanBar();
+      this._refreshContextUsage();
+    });
+
+    this.hub.on('compaction_start', () => {
+      if (this.ctxPillEl) this.ctxPillEl.classList.add('busy');
+    });
+
+    // agy 等通道逐步 DONE 广播的 per-call usage（snake_case），即当时上下文长度
+    this.hub.on('context_usage', (u) => {
+      this._updateCtxFromTurnUsage(u);
+    });
+
+    // 通道重连/进程就绪后补一次权威刷新（重载预热竞态：首次查询常在 bridge 起来前返回 tokens:null）
+    this.hub.on('status_change', (d) => {
+      if (d && d.status === 'connected') this._refreshContextUsage();
+    });
+
+    // 上游模型列表变更（agy models 拉取完成）：刷新模型胶囊 + 浮层内若已开则重渲染
+    this.hub.on('model_list_change', () => {
+      this.updateModelSelectorPill();
+      if (this.modelPopoverEl && this.modelPopoverEl.style.display === 'flex') {
+        this.renderModelPopover(this.modelSearchInput ? this.modelSearchInput.value.trim() : '');
+      }
+    });
+
+    this.hub.on('compaction_end', (d) => {
+      if (this.ctxPillEl) this.ctxPillEl.classList.remove('busy');
+      if (this.ctxCompactBtnEl) { this.ctxCompactBtnEl.disabled = false; this.ctxCompactBtnEl.classList.remove('busy'); }
+      if (d && d.errorMessage) {
+        this._ctxCompactErrAt = Date.now();
+        const NoticeCls = typeof Notice !== 'undefined' ? Notice : (window.app?.Notice || class{});
+        new NoticeCls(`压缩失败: ${d.errorMessage}`, 3000);
+      }
+      // compact 使旧值失效：显式清空 + 删缓存，权威值（可能 tokens:null → --）直接采信
+      this._ctxUsage = null;
+      this._clearCtxCache();
+      this._refreshContextUsage();
     });
 
     this.hub.on('aborted', () => {
@@ -24601,6 +26841,9 @@ class PiDrawerView {
       if (this.messagesEl) {
         this.messagesEl.innerHTML = '';
       }
+      this._ctxUsage = null;
+      this._updateCtxPill();
+      this._refreshContextUsage();
     });
 
     this.hub.on('error', (err) => {
@@ -24642,7 +26885,8 @@ class PiDrawerView {
     const currentModel = typeof adapter.getModel === 'function' ? adapter.getModel() : null;
     let authorName = (currentModel && currentModel.name) ? currentModel.name : adapter.displayName;
     if (typeof adapter.supportsReasoningEffort === 'function' && adapter.supportsReasoningEffort(currentModel?.id)) {
-      const effortConfig = typeof adapter.getReasoningEffortConfig === 'function' ? adapter.getReasoningEffortConfig() : null;
+      const effortConfig = (typeof adapter.getModelEffortConfig === 'function' && adapter.getModelEffortConfig(currentModel?.id))
+        || (typeof adapter.getReasoningEffortConfig === 'function' ? adapter.getReasoningEffortConfig() : null);
       if (effortConfig && effortConfig.label) authorName += ` · ${effortConfig.label}`;
     }
 
@@ -25191,7 +27435,8 @@ class PiDrawerView {
       // 模型名与思考档位解耦落库：纯净 modelId/modelName + 独立 reasoningEffort
       realUsage.modelId = (currentModel && currentModel.id) || null;
       realUsage.modelName = (currentModel && currentModel.name) || authorModel;
-      realUsage.reasoningEffort = (typeof adapter.getReasoningEffort === 'function' ? adapter.getReasoningEffort() : null) || null;
+      realUsage.reasoningEffort = (typeof adapter.builtinEffortTier === 'function' ? adapter.builtinEffortTier(adapter.activeModelId) : null)
+        || (typeof adapter.getReasoningEffort === 'function' ? adapter.getReasoningEffort() : null) || null;
       realUsage.agentId = this.hub.activeAgentId || null;
     }
 
@@ -25329,7 +27574,8 @@ class PiDrawerView {
       const fbModel = fbAdapter && typeof fbAdapter.getModel === 'function' ? fbAdapter.getModel() : null;
       usageData.modelId = (fbModel && fbModel.id) || null;
       usageData.modelName = model || (fbModel && fbModel.name) || null;
-      usageData.reasoningEffort = (fbAdapter && typeof fbAdapter.getReasoningEffort === 'function' ? fbAdapter.getReasoningEffort() : null) || null;
+      usageData.reasoningEffort = (fbAdapter && typeof fbAdapter.builtinEffortTier === 'function' ? fbAdapter.builtinEffortTier(fbAdapter.activeModelId) : null)
+        || (fbAdapter && typeof fbAdapter.getReasoningEffort === 'function' ? fbAdapter.getReasoningEffort() : null) || null;
       usageData.agentId = this.hub.activeAgentId || null;
     }
     usageData.providerAndModel = providerAndModel;
@@ -25403,8 +27649,11 @@ class PiDrawerView {
           );
         }
         this.postProcessRenderedMarkdown(el);
-        setTimeout(() => this.postProcessRenderedMarkdown(el), 60);
-        setTimeout(() => this.postProcessRenderedMarkdown(el), 250);
+        // 仅当包含 Mermaid 异步图表块时才需要延时二次后处理，避免普通消息恢复时触发 3 倍 DOM 遍历风暴
+        if (normalizedText.includes('mermaid')) {
+          setTimeout(() => this.postProcessRenderedMarkdown(el), 60);
+          setTimeout(() => this.postProcessRenderedMarkdown(el), 250);
+        }
         return;
       } catch (e) {
         console.warn('[PiDrawerView] MarkdownRenderer failed, falling back to simple format:', e);
@@ -25631,19 +27880,38 @@ class PiDrawerView {
 
       if (isFileUri || isCodeHref || isCodeText || isInternalNote) {
         const targetCandidate = isFileUri ? href : (isCodeHref ? href : (isCodeText ? text : (a.getAttribute('data-href') || href || text)));
+        // R1 修复: href 里的百分号编码 (中文文件名) 在打开前先解码
+        const decodedTarget = (typeof decodeTarget === 'function') ? decodeTarget(targetCandidate) : targetCandidate;
+        // 重渲染时 displayText 已缩短为 basename, 需以首次解析的完整路径为准
+        const fullTarget = a.dataset.twPath || decodedTarget;
+        a.dataset.twPath = fullTarget;
         a.classList.add('tw-clickable-file-link');
         a.classList.remove('external-link'); // Remove external-link so Obsidian does not inject external icon or right padding
-        a.title = `点击在右侧分屏查看: ${targetCandidate}`;
+        if (isInternalNote && !isFileUri && !isCodeHref && !isCodeText) {
+          // 库内笔记链接: 保留 href (Obsidian 悬停预览/ctrl+点击依赖) 与原 title 提示
+          a.title = `完整路径: ${decodedTarget}\n点击在右侧打开`;
+        } else {
+          // 文件/代码链接: 同时去掉 title 原生浅框与 href 的 file:/// URL 预览框 (双浮窗问题),
+          // 统一走 aria-label → Obsidian 深色 tooltip, 内容为解码后的完整路径
+          a.removeAttribute('title');
+          a.removeAttribute('href');
+          a.setAttribute('aria-label', fullTarget);
+        }
         a.onclick = (e) => {
           e.preventDefault();
           e.stopPropagation();
-          this.openCodeInSplitPane(targetCandidate);
+          this.openCodeInSplitPane(a.dataset.twPath || decodedTarget).catch(() => {});
         };
 
         if (!a.querySelector('.tw-file-type-icon')) {
           const info = this.getFileTypeInfo(targetCandidate, text);
-          const rawDisplayText = text || (targetCandidate ? targetCandidate.split(/[/\\]/).pop() : '');
-          const displayText = rawDisplayText.replace(/^[`"']|[`"']$/g, '');
+          const rawDisplayText = text || (decodedTarget ? decodedTarget.split(/[/\\]/).pop() : '');
+          let displayText = rawDisplayText.replace(/^[`"']|[`"']$/g, '');
+          // 链接文本本身是路径时缩短为 basename(:line), 完整路径留在 title
+          if (typeof shortenPathLabel === 'function') {
+            const short = shortenPathLabel(displayText);
+            if (short && short.label && short.label !== displayText) displayText = short.label;
+          }
 
           a.innerHTML = '';
           const iconSpan = document.createElement('span');
@@ -25681,16 +27949,20 @@ class PiDrawerView {
       if (codeEl.closest('pre') || codeEl.closest('a')) return; // skip multi-line blocks & already linked code
       const codeText = (codeEl.textContent || '').trim().replace(/^[`"']|[`"']$/g, '');
       if (this.isLikelyCodeFile(codeText)) {
+        const decodedCode = (typeof decodeTarget === 'function') ? decodeTarget(codeText) : codeText;
+        const fullTarget = codeEl.dataset.twPath || decodedCode;
+        codeEl.dataset.twPath = fullTarget;
         codeEl.classList.add('tw-clickable-file-link');
-        codeEl.title = `点击在右侧分屏打开: ${codeText}`;
+        codeEl.setAttribute('aria-label', fullTarget);
         codeEl.onclick = (e) => {
           e.preventDefault();
           e.stopPropagation();
-          this.openCodeInSplitPane(codeText);
+          this.openCodeInSplitPane(codeEl.dataset.twPath || decodedCode).catch(() => {});
         };
 
         if (!codeEl.querySelector('.tw-file-type-icon')) {
           const info = this.getFileTypeInfo(codeText);
+          const shortLabel = (typeof shortenPathLabel === 'function') ? shortenPathLabel(codeText).label : codeText;
           codeEl.innerHTML = '';
           const iconSpan = document.createElement('span');
           iconSpan.className = `tw-file-type-icon tw-file-type-${info.label}`;
@@ -25699,7 +27971,7 @@ class PiDrawerView {
 
           const nameSpan = document.createElement('span');
           nameSpan.className = 'tw-file-name';
-          nameSpan.textContent = codeText;
+          nameSpan.textContent = shortLabel;
 
           codeEl.appendChild(iconSpan);
           codeEl.appendChild(document.createTextNode(' '));
@@ -26910,6 +29182,8 @@ class PiDrawerView {
     if (this.hub && this.hub.sessionManager) {
       this.hub.sessionManager.switchSession(agentId, sessionId);
     }
+    // 上下文绑定跟随目标会话恢复
+    if (typeof this._applySessionContext === 'function') this._applySessionContext(agentId);
     const adapter = this.hub.getActiveAdapter();
     if (adapter && typeof adapter._syncSessionConversation === 'function') {
       adapter._syncSessionConversation();
@@ -26935,6 +29209,7 @@ class PiDrawerView {
           adapter._syncSessionConversation();
         }
         this.restoreSessionMessages(agentId);
+        if (typeof this._applySessionContext === 'function') this._applySessionContext(agentId);
       }
       const app = this.app || (typeof window !== 'undefined' ? window.app : null);
       const NoticeCls = typeof Notice !== 'undefined' ? Notice : (app?.Notice || class{});
@@ -27373,6 +29648,8 @@ class PiDrawerView {
     if (this.hub.sessionManager) {
       this.hub.sessionManager.newSession(agentId);
     }
+    // 新会话上下文绑定复位未选中 (save* 链同步 env/localStorage/提示条)
+    if (typeof this._applySessionContext === 'function') this._applySessionContext(agentId);
     this.currentAssistantMessage = null;
     // 新会话瞬态复位：回显台账/排队映射/分段缓冲/中止标记不得带入下一会话
     this._pendingSentWires = [];
@@ -27622,6 +29899,7 @@ class PiDrawerView {
 
     // Ensure active agent is detected and connected on open
     this.ensureAgentConnected();
+    this._refreshContextUsage();
 
     setTimeout(() => {
       if (this.inputEl && typeof this.inputEl.focus === 'function') {
@@ -27925,9 +30203,16 @@ function formatMarkdownFallback(text) {
 }
 
 /**
- * Returns configured Gerrit base URL from data.json or fallback default
+ * Returns configured Gerrit base URL from data.json or fallback default (with 30s in-memory cache)
  */
+let _gerritBaseUrlCache = { basePath: '', url: '', at: 0 };
 function getGerritBaseUrl(vaultBasePath) {
+  const now = Date.now();
+  const key = String(vaultBasePath || '');
+  if (_gerritBaseUrlCache.url && _gerritBaseUrlCache.basePath === key && (now - _gerritBaseUrlCache.at) < 30000) {
+    return _gerritBaseUrlCache.url;
+  }
+  let resolved = 'http://192.168.1.17:8090';
   try {
     
     
@@ -27937,12 +30222,13 @@ function getGerritBaseUrl(vaultBasePath) {
       if (fs.existsSync(dataFile)) {
         const d = JSON.parse(fs.readFileSync(dataFile, 'utf8'));
         if (d && d.gerrit && d.gerrit.baseUrl) {
-          return d.gerrit.baseUrl.replace(/\/+$/, '');
+          resolved = d.gerrit.baseUrl.replace(/\/+$/, '');
         }
       }
     }
   } catch (e) {}
-  return 'http://192.168.1.17:8090';
+  _gerritBaseUrlCache = { basePath: key, url: resolved, at: now };
+  return resolved;
 }
 
 /**
@@ -44399,109 +46685,285 @@ class ClipImageInliner {
   }
 }
 
-/* ==========================================================================
-   Notion AI Embed — Notion AI 官方页面嵌入组件（探索页子项）
-   特性:
-   1. 内嵌 https://app.notion.com/ai（Notion AI 官方入口）
-   2. Electron 环境下经 WebRequestBridge 剥除 notion 域名的 x-frame-options / CSP
-   3. 顶部工具栏: 地址指示/编辑、刷新重载、系统浏览器打开
-   4. 加载占位符: iframe 加载期间显示动效
-   ========================================================================== */
-
-const NOTION_AI_DEFAULT_URL = 'https://app.notion.com/ai';
-
-class NotionAiEmbed {
+/**
+ * ExploreCommandPalette: 探索页搜索面板 (Ctrl+F 唤起)
+ * - 屏幕中央毛玻璃搜索框 + 压暗模糊遮罩
+ * - 输入实时过滤, 匹配文字高亮
+ * - ↑↓ 选择, Enter 执行, Esc/点击遮罩关闭
+ * 挂在 document.body 顶层, 不受工作台内部 backdrop-filter 包含块影响
+ */
+class ExploreCommandPalette {
   /**
-   * @param {HTMLElement} parentEl
-   * @param {object} options
+   * @param {object[]} commands 空查询时显示的默认项: { id, label, desc, keywords, icon, badge, run }
+   * @param {function} getIconPark 图标渲染函数
+   * @param {function} [onQuery] 非空查询的异步数据源: async (q) => items[]
    */
-  constructor(parentEl, options = {}) {
-    this.parentEl = parentEl;
-    this.defaultUrl = options.url || NOTION_AI_DEFAULT_URL;
-    this.containerEl = null;
-    this.iframeEl = null;
+  constructor(commands = [], getIconPark = null, onQuery = null) {
+    this.commands = commands;
+    this.getIconPark = getIconPark;
+    this.onQuery = onQuery;
+    this.overlayEl = null;
+    this.inputEl = null;
+    this.listEl = null;
+    this.activeIndex = 0;
+    this.filtered = [];
+    this._querySeq = 0;
+    this._queryTimer = 0;
+    this._history = this._loadHistory();
 
-    // 确保 Electron 响应头拦截器已安装（notion 域名豁免在 dsh-daemon-manager 白名单内）
-    try {
-      if (typeof getTabonKbWebRequestBridge === 'function') {
-        getTabonKbWebRequestBridge()?.ensureInstalled?.();
-      }
-    } catch (_) {}
-
-    this.initDOM();
+    this._onInputKeydown = this._onInputKeydown.bind(this);
+    this._onOverlayMousedown = this._onOverlayMousedown.bind(this);
+    this._onDocKeydown = this._onDocKeydown.bind(this);
   }
 
-  _esc(str) {
-    return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+  get isOpen() {
+    return Boolean(this.overlayEl && this.overlayEl.isConnected);
   }
 
-  initDOM() {
-    this.containerEl = document.createElement('div');
-    this.containerEl.className = 'tw-weknora-webview-wrap tw-notion-embed-wrap';
-    this.parentEl.appendChild(this.containerEl);
+  toggle() {
+    if (this.isOpen) this.close(); else this.open();
+  }
 
-    this.containerEl.innerHTML = `
-      <div class="tw-webview-topbar">
-        <div class="tw-webview-url-box">
-          <span style="color:#8B8B8B; font-size:12px; margin-right:2px;">●</span>
-          <input type="text" class="tw-webview-url-input" value="${this._esc(this.defaultUrl)}" title="按回车键前往指定地址" />
+  open() {
+    if (this.isOpen) { this.inputEl?.focus(); return; }
+    this.activeIndex = 0;
+
+    const overlay = document.createElement('div');
+    overlay.className = 'tw-cmdk-overlay';
+    overlay.innerHTML = `
+      <div class="tw-cmdk-panel" role="dialog" aria-label="命令面板">
+        <div class="tw-cmdk-head">
+          <div class="tw-search-wrap tw-cmdk-search-wrap">
+            <svg class="tw-search-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+            </svg>
+            <input type="text" class="tw-search-input tw-cmdk-input" placeholder="Omnisearch 全文检索…" spellcheck="false" autocomplete="off">
+          </div>
         </div>
-        <div class="tw-webview-actions">
-          <button class="tw-chip" data-act="reload" title="重新加载网页">🔄 刷新</button>
-          <button class="tw-chip is-cta" data-act="external" title="在系统默认外部浏览器中打开">↗ 浏览器打开</button>
-        </div>
-      </div>
-      <div class="tw-webview-frame-container">
-        <div class="tw-webview-loading">
-          <div class="tw-drawer-spinner" style="margin-bottom:10px;"></div>
-          <span>正在连接 Notion AI...</span>
-        </div>
-        <iframe class="tw-weknora-iframe" src="${this._esc(this.defaultUrl)}" frameborder="0"
-          allow="clipboard-read; clipboard-write"></iframe>
+        <div class="tw-cmdk-history"></div>
+        <div class="tw-cmdk-list" role="listbox" style="display:none"></div>
       </div>
     `;
+    document.body.appendChild(overlay);
+    this.overlayEl = overlay;
+    this.inputEl = overlay.querySelector('.tw-cmdk-input');
+    this.listEl = overlay.querySelector('.tw-cmdk-list');
+    this.histEl = overlay.querySelector('.tw-cmdk-history');
 
-    this.iframeEl = this.containerEl.querySelector('iframe');
-    const loadingEl = this.containerEl.querySelector('.tw-webview-loading');
-    const urlInput = this.containerEl.querySelector('.tw-webview-url-input');
+    this.inputEl.addEventListener('input', () => {
+      // 有异步数据源时防抖触发检索, 否则同步过滤默认命令项
+      clearTimeout(this._queryTimer);
+      const q = this.inputEl.value.trim();
+      if (this.onQuery && q) {
+        this._queryTimer = setTimeout(() => this._renderList(), 140);
+      } else {
+        this._renderList();
+      }
+      this._renderHistory();
+    });
+    this.inputEl.addEventListener('keydown', this._onInputKeydown);
+    overlay.addEventListener('mousedown', this._onOverlayMousedown);
+    document.addEventListener('keydown', this._onDocKeydown, true);
 
-    if (this.iframeEl && loadingEl) {
-      this.iframeEl.onload = () => { loadingEl.style.display = 'none'; };
-    }
-    if (urlInput) {
-      urlInput.onkeydown = (e) => {
-        if (e.key === 'Enter' && urlInput.value.trim()) {
-          if (loadingEl) loadingEl.style.display = 'flex';
-          this.iframeEl.src = urlInput.value.trim();
-        }
-      };
-    }
-    const reloadBtn = this.containerEl.querySelector('[data-act="reload"]');
-    if (reloadBtn) {
-      reloadBtn.onclick = () => {
-        if (loadingEl) loadingEl.style.display = 'flex';
-        this.iframeEl.src = urlInput ? urlInput.value.trim() : this.defaultUrl;
-      };
-    }
-    const extBtn = this.containerEl.querySelector('[data-act="external"]');
-    if (extBtn) {
-      extBtn.onclick = () => {
-        const u = urlInput ? urlInput.value.trim() : this.defaultUrl;
-        try {
-          if (typeof require !== 'undefined') {
-            
-            if (shell && shell.openExternal) { shell.openExternal(u); return; }
-          }
-        } catch (e) {}
-        window.open(u, '_blank');
-      };
+    this._renderList();
+    this._renderHistory();
+    requestAnimationFrame(() => this.inputEl && this.inputEl.focus());
+  }
+
+  close() {
+    if (!this.overlayEl) return;
+    document.removeEventListener('keydown', this._onDocKeydown, true);
+    this.overlayEl.remove();
+    this.overlayEl = null;
+    this.inputEl = null;
+    this.listEl = null;
+    this.histEl = null;
+  }
+
+  _onOverlayMousedown(e) {
+    if (e.target === this.overlayEl) this.close();
+  }
+
+  _onDocKeydown(e) {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
+      this.close();
     }
   }
 
-  dispose() {
-    if (this.iframeEl) this.iframeEl.src = 'about:blank';
-    if (this.containerEl) this.containerEl.remove();
+  _onInputKeydown(e) {
+    // 面板打开期间吞掉全部按键, 防止底层工作台/Obsidian 热键响应
+    e.stopPropagation();
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      const n = this.filtered.length;
+      if (!n) return;
+      this.activeIndex = (this.activeIndex + (e.key === 'ArrowDown' ? 1 : -1) + n) % n;
+      this._syncActive();
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      const item = this.filtered[this.activeIndex];
+      if (item) {
+        this._recordQuery(this.inputEl ? this.inputEl.value : '');
+        this.close();
+        try { item.run(); } catch (err) { console.error('[cmdk] run failed:', err); }
+      }
+    }
+  }
+
+  /**
+   * 搜索框下方的最近搜索字串: 空查询时显示最近 5 条, 点击回填输入框并立即检索
+   */
+  _renderHistory() {
+    if (!this.histEl) return;
+    const q = (this.inputEl ? this.inputEl.value : '').trim();
+    this.histEl.innerHTML = '';
+    if (q || !this._history.length) {
+      this.histEl.style.display = 'none';
+      return;
+    }
+    this.histEl.style.display = '';
+    this._history.slice(0, 5).forEach(h => {
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'tw-cmdk-hist-chip';
+      chip.textContent = h;
+      chip.title = h;
+      chip.addEventListener('mousedown', e => e.preventDefault());
+      chip.addEventListener('click', () => {
+        if (!this.inputEl) return;
+        this.inputEl.value = h;
+        this.inputEl.focus();
+        this._renderHistory();
+        this._renderList();
+      });
+      this.histEl.appendChild(chip);
+    });
+  }
+
+  _loadHistory() {
+    try {
+      const raw = (typeof localStorage !== 'undefined') ? localStorage.getItem('tabonkb-explore-palette-history') : null;
+      const arr = raw ? JSON.parse(raw) : [];
+      return Array.isArray(arr) ? arr.filter(s => typeof s === 'string' && s.trim()).slice(0, 5) : [];
+    } catch (_) { return []; }
+  }
+
+  _recordQuery(q) {
+    q = String(q || '').trim();
+    if (!q) return;
+    this._history = [q, ...this._history.filter(s => s !== q)].slice(0, 5);
+    try {
+      if (typeof localStorage !== 'undefined') localStorage.setItem('tabonkb-explore-palette-history', JSON.stringify(this._history));
+    } catch (_) {}
+  }
+
+  _matches(cmd, q) {
+    if (!q) return true;
+    const hay = (cmd.label + ' ' + (cmd.desc || '') + ' ' + (cmd.keywords || '')).toLowerCase();
+    return hay.includes(q.toLowerCase());
+  }
+
+  async _renderList() {
+    if (!this.listEl) return;
+    const q = (this.inputEl ? this.inputEl.value : '').trim();
+    const seq = ++this._querySeq;
+
+    let items;
+    if (q && this.onQuery) {
+      // 异步数据源 (Omnisearch): 先显示检索中占位, 结果回来后若非最新查询则丢弃
+      this.listEl.style.display = '';
+      this.listEl.innerHTML = `<div class="tw-cmdk-empty">检索中…</div>`;
+      try {
+        items = await this.onQuery(q);
+      } catch (err) {
+        console.error('[cmdk] query failed:', err);
+        items = [];
+      }
+      if (seq !== this._querySeq || !this.listEl) return;
+    } else {
+      items = this.commands.filter(c => this._matches(c, q));
+    }
+    this.filtered = items || [];
+    if (this.activeIndex >= this.filtered.length) this.activeIndex = Math.max(0, this.filtered.length - 1);
+
+    if (!this.filtered.length) {
+      // 空查询时整块列表隐藏 (默认命令项已精简); 有查询但无结果时保留「无匹配结果」占位
+      if (!q) {
+        this.listEl.style.display = 'none';
+        this.listEl.innerHTML = '';
+        return;
+      }
+      this.listEl.innerHTML = `<div class="tw-cmdk-empty">无匹配结果</div>`;
+      return;
+    }
+    this.listEl.style.display = '';
+    let lastGroup = null;
+    this.listEl.innerHTML = this.filtered.map((c, i) => {
+      const g = c.group || (q ? '文档' : '命令');
+      const head = g !== lastGroup ? `<div class="tw-cmdk-group">${this._esc(g)}</div>` : '';
+      lastGroup = g;
+      return `${head}
+      <div class="tw-cmdk-item ${i === this.activeIndex ? 'active' : ''} ${c.pinned ? 'pinned' : ''}" data-idx="${i}" role="option">
+        <span class="tw-cmdk-item-icon">${this._icon(c.icon || 'link', 16)}</span>
+        <span class="tw-cmdk-item-text">
+          <span class="tw-cmdk-item-label">${this._hl(c.label, q)}</span>
+          ${c.excerpt ? `<span class="tw-cmdk-item-excerpt">${this._hl(c.excerpt, q)}</span>` : ''}
+          ${c.desc ? `<span class="tw-cmdk-item-desc">${this._hl(c.desc, q)}</span>` : ''}
+        </span>
+        ${c.badge ? `<span class="tw-cmdk-badge">${this._esc(c.badge)}</span>` : ''}
+      </div>`;
+    }).join('');
+
+    for (const btn of this.listEl.querySelectorAll('.tw-cmdk-item')) {
+      const idx = Number(btn.dataset.idx);
+      btn.addEventListener('mousemove', () => {
+        if (this.activeIndex !== idx) { this.activeIndex = idx; this._syncActive(); }
+      });
+      btn.addEventListener('mousedown', (e) => e.preventDefault());
+      btn.addEventListener('click', () => {
+        const item = this.filtered[idx];
+        if (item) {
+          this._recordQuery(this.inputEl ? this.inputEl.value : '');
+          this.close();
+          try { item.run(); } catch (err) { console.error('[cmdk] run failed:', err); }
+        }
+      });
+    }
+  }
+
+  _syncActive() {
+    if (!this.listEl) return;
+    const items = this.listEl.querySelectorAll('.tw-cmdk-item');
+    items.forEach((el, i) => {
+      el.classList.toggle('active', i === this.activeIndex);
+    });
+    const active = items[this.activeIndex];
+    if (active) active.scrollIntoView({ block: 'nearest' });
+  }
+
+  _esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  _hl(text, q) {
+    if (!q) return this._esc(text);
+    const idx = String(text).toLowerCase().indexOf(q.toLowerCase());
+    if (idx < 0) return this._esc(text);
+    return this._esc(text.slice(0, idx))
+      + '<span class="tw-cmdk-hl">' + this._esc(text.slice(idx, idx + q.length)) + '</span>'
+      + this._esc(text.slice(idx + q.length));
+  }
+
+  _icon(name, size) {
+    try {
+      if (typeof this.getIconPark === 'function') return this.getIconPark(name, size);
+      if (typeof getIconPark === 'function') return getIconPark(name, size);
+    } catch (_) {}
+    return '·';
   }
 }
 
@@ -44554,13 +47016,140 @@ class ExploreView {
     this.isLiveSource = false;
     this.selectedCategoryTab = 'all';
     this.liveSearchError = null;
+
+    // 搜索面板 (Ctrl+F 唤起): 纯 Omnisearch 全文检索, 不再携带默认命令项 (子页经导航栏直达)
+    this._palette = (typeof ExploreCommandPalette === 'function')
+      ? new ExploreCommandPalette(
+          [],
+          (n, s) => getIconPark(n, s),
+          (q) => this._paletteOmniItems(q)
+        )
+      : null;
+
+    // Ctrl+F 全局唤起: 仅当本视图仍挂在文档树中 (即探索页激活) 才响应
+    this._altKHandler = (e) => {
+      if (e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey && e.code === 'KeyF') {
+        if (!this.containerEl || !this.containerEl.isConnected) return;
+        e.preventDefault();
+        e.stopPropagation();
+        this.togglePalette();
+      }
+    };
+    if (typeof document !== 'undefined') {
+      document.addEventListener('keydown', this._altKHandler, true);
+    }
+
+    // Obsidian Keymap 在 window 捕获阶段先于 document 处理按键: Ctrl+F 属于已绑定的系统热键, 命中后会
+    // preventDefault+stopPropagation, document 级监听收不到 (Alt+K 无绑定故此前可用)。
+    // 因此额外在 app.scope 注册并置顶; 非探索页激活时临时摘除自身并转交原链路, 不影响其它视图的 Ctrl+F。
+    this._scopeKey = null;
+    try {
+      const scope = this.app && this.app.scope;
+      if (scope && typeof scope.register === 'function' && Array.isArray(scope.keys)) {
+        const handler = scope.register(['Ctrl'], 'f', (evt, info) => {
+          if (this.containerEl && this.containerEl.isConnected) {
+            this.togglePalette();
+            return false;
+          }
+          const idx = scope.keys.indexOf(handler);
+          if (idx < 0) return undefined;
+          scope.keys.splice(idx, 1);
+          try {
+            return scope.handleKey(evt, info);
+          } finally {
+            scope.keys.splice(idx, 0, handler);
+          }
+        });
+        const pos = scope.keys.indexOf(handler);
+        if (pos > 0) { scope.keys.splice(pos, 1); scope.keys.unshift(handler); }
+        this._scopeKey = { scope, handler };
+      }
+    } catch (_) {}
+  }
+
+  togglePalette() {
+    if (this._palette) this._palette.toggle();
+  }
+
+  /** 释放: 工作台 onClose 时调用, 移除全局键盘监听并关闭面板 */
+  dispose() {
+    if (this._altKHandler && typeof document !== 'undefined') {
+      document.removeEventListener('keydown', this._altKHandler, true);
+      this._altKHandler = null;
+    }
+    if (this._scopeKey) {
+      try { this._scopeKey.scope.unregister(this._scopeKey.handler); } catch (_) {}
+      this._scopeKey = null;
+    }
+    if (this._palette) {
+      this._palette.close();
+      this._palette = null;
+    }
+  }
+
+  /**
+   * 命令面板的异步数据源: Omnisearch 全文检索 → 文档跳转项 + 末尾原生大窗兜底项;
+   * Omnisearch 插件缺失时回退 vault 文件名/路径子串检索
+   */
+  async _paletteOmniItems(q) {
+    const openDoc = (p) => () => this.app.workspace.openLinkText(p, '', 'tab');
+    const omniAllItem = () => ({
+      id: '__omni_all', label: `在 Omnisearch 中检索「${q}」`, desc: '唤起原生全库大窗',
+      icon: 'lightning', group: '更多', pinned: true, run: () => {
+        if (this.app?.plugins?.plugins?.omnisearch) {
+          this.app.commands.executeCommandById('omnisearch:show-modal');
+          setTimeout(() => {
+            const omniInput = document.querySelector('.omnisearch-modal input, .prompt-input');
+            if (omniInput) {
+              omniInput.value = q;
+              omniInput.dispatchEvent(new Event('input', { bubbles: true }));
+            }
+          }, 120);
+        } else {
+          this.app.commands.executeCommandById('global-search:open');
+        }
+      }
+    });
+
+    const omni = (typeof globalThis !== 'undefined' && globalThis.omnisearch)
+      || this.app?.plugins?.plugins?.omnisearch?.api;
+
+    if (omni && typeof omni.search === 'function') {
+      const raw = await omni.search(q);
+      const items = (raw || []).slice(0, 8).map(r => {
+        const scorePercent = Math.min(Math.round((r.score || 0) * 100), 99);
+        const dir = (r.path || '').split('/').slice(0, -1).join(' / ');
+        const excerpt = String(r.excerpt || '').replace(/\s+/g, ' ').trim().slice(0, 140);
+        return {
+          id: r.path,
+          label: r.basename || (r.path || '').split('/').pop(),
+          excerpt,
+          desc: dir || r.path,
+          icon: 'file-text',
+          badge: scorePercent > 0 ? `${scorePercent}%` : 'Match',
+          run: openDoc(r.path)
+        };
+      });
+      items.push(omniAllItem());
+      return items;
+    }
+
+    // 无 Omnisearch: 本地文件名/路径子串检索
+    const ql = q.toLowerCase();
+    const files = (this.app?.vault?.getMarkdownFiles?.() || [])
+      .filter(f => (f.basename + ' ' + f.path).toLowerCase().includes(ql))
+      .slice(0, 8);
+    return files.map(f => ({
+      id: f.path, label: f.basename, desc: f.path, icon: 'file-text',
+      run: openDoc(f.path)
+    }));
   }
 
   getSavedSubTab() {
     try {
       if (typeof localStorage !== 'undefined') {
         const s = localStorage.getItem('tabonkb-explore-subtab');
-        if (s === 'ai' || s === 'search' || s === 'notion') return s;
+        if (s === 'ai' || s === 'search') return s;
       }
     } catch (_) {}
     return 'ai';
@@ -44598,11 +47187,6 @@ class ExploreView {
 
   render() {
     if (!this.containerEl) return;
-    // 切走 Notion 子页时释放 iframe 内嵌页（停止后台加载/会话）
-    if (this.notionEmbed) {
-      try { this.notionEmbed.dispose(); } catch (_) {}
-      this.notionEmbed = null;
-    }
     this.containerEl.empty();
 
     const wrap = this.containerEl.createDiv({ cls: 'tw-explore-container' });
@@ -44615,30 +47199,8 @@ class ExploreView {
 
     if (this.activeSubTab === 'search') {
       this.renderSearchSubView(stageBody);
-    } else if (this.activeSubTab === 'notion') {
-      this.renderNotionSubView(stageBody);
     } else {
       this.renderAiSubView(stageBody);
-    }
-  }
-
-  /**
-   * Render Sub-view 3: Notion AI 官方页面内嵌 (iframe + 头剥离豁免)
-   */
-  renderNotionSubView(parentEl) {
-    if (this.notionEmbed) {
-      try { this.notionEmbed.dispose(); } catch (_) {}
-      this.notionEmbed = null;
-    }
-    if (typeof NotionAiEmbed === 'function') {
-      this.notionEmbed = new NotionAiEmbed(parentEl);
-    } else {
-      parentEl.innerHTML = `
-        <div class="tw-card" style="padding: 32px; text-align: center; color: var(--text-muted);">
-          <div style="font-size: 32px; margin-bottom: 8px;">📓</div>
-          <div>Notion AI 组件未加载</div>
-        </div>
-      `;
     }
   }
 
@@ -60010,7 +62572,12 @@ globalThis.__twBootFlush = function (vaultPath) {
     const fs = require('fs'); const path = require('path');
     fs.writeFileSync(
       path.join(vaultPath, '.obsidian', 'plugins', 'tabonkb-workbench', '.startup-profile.json'),
-      JSON.stringify({ t0: new Date(w.t0).toISOString(), marks: w.marks }, null, 1)
+      JSON.stringify({
+        t0: new Date(w.t0).toISOString(),
+        navMs: globalThis.__twBootNavMs || 0,        // reload→bundle-eval 盲区耗时 (渲染进程初始化+前置插件链)
+        uptimeMs: globalThis.__twBootUptimeMs || -1, // 进程启动→bundle-eval (整进程视角)
+        marks: w.marks
+      }, null, 1)
     );
   } catch (e) {}
 };
@@ -61998,6 +64565,19 @@ class TabonKBWorkbenchView extends ItemView {
     this._auLastTrend = [];
     this._agyQuotaCache = null; // @deprecated 额度功能已下线，字段保留置空防残留引用
 
+    // Magpie Observability Bridge (127.0.0.1:3425, 只读快照 + 本地兜底)
+    this.magpieObs = new MagpieObservabilityService();
+    this._mqMaskAccounts = false;          // 是否对账号邮箱打码
+    this._mqIncludeCache = true;           // TOKEN 统计是否含缓存读取
+    this._mqQuotaCollapsed = false;        // 「额度」区块是否折叠
+    this._mqTrendExpanded = new Set();     // 「剩余额度走势」被折叠的卡片 key 集合 (默认全展开)
+    this._mqRankTab = 'agents';            // 底部维度切换: 'agents' | 'models' | 'accounts'
+    this._mqAutoRefreshSec = 0;            // 自动刷新间隔: 0(关) | 5(5秒)
+    this._mqAutoRefreshTimer = null;
+    this._mqLastSnapshot = null;
+    this._mqRenderedOnce = false;
+    this._mqFetching = null;
+
     // Multi-Agent Hub Integration (Pi, Hermes, Gemini)
     const vaultPath = this.app?.vault?.adapter?.basePath || 'd:\\work\\Mgmt\\TabonKB';
     const plugin = this.app.plugins?.getPlugin?.('tabonkb-workbench') || this.app.plugins?.plugins?.['tabonkb-workbench'];
@@ -62049,6 +64629,10 @@ class TabonKBWorkbenchView extends ItemView {
         try { this.toolsView.dispose(); } catch (_) {}
         this.toolsView = null;
       }
+    }
+    // 离开首页时停掉 Magpie 观测自动刷新定时器
+    if (this.activeTab === 'home' && tab !== 'home' && typeof this._mqClearAutoRefresh === 'function') {
+      this._mqClearAutoRefresh();
     }
     // 离开的页面记住自己的搜索词，进入的页面恢复各自缓存，互不串页
     if (this.activeTab) this.tabKeywords[this.activeTab] = this.keyword || '';
@@ -62580,6 +65164,10 @@ class TabonKBWorkbenchView extends ItemView {
   }
 
   loadAiOplogEvents() {
+    const now = Date.now();
+    if (this._aiOplogCache && this._aiOplogCache.events && (now - this._aiOplogCache.at) < 15000) {
+      return this._aiOplogCache.events;
+    }
     const eventsByDate = {};
     try {
       const fs = require('fs');
@@ -62621,6 +65209,7 @@ class TabonKBWorkbenchView extends ItemView {
     } catch (e) {
       console.warn('[TabonKB Workbench] loadAiOplogEvents error:', e);
     }
+    this._aiOplogCache = { at: now, events: eventsByDate };
     return eventsByDate;
   }
 
@@ -63157,7 +65746,7 @@ class TabonKBWorkbenchView extends ItemView {
     try {
       if (typeof localStorage !== 'undefined') {
         const r = localStorage.getItem('tabonkb-agent-usage-range');
-        if (r === 'today' || r === 'week' || r === 'all') return r;
+        if (r === 'today' || r === 'week' || r === 'month' || r === 'all') return r;
       }
     } catch (e) {}
     return 'week';
@@ -63406,11 +65995,27 @@ class TabonKBWorkbenchView extends ItemView {
     return map;
   }
 
-  // 跨源账本扫描: 10s 内存缓存 + 文件 mtimeMs 增量校验
-  _auLedgerScan() {
-    const cache = this._auLedgerCache || (this._auLedgerCache = { at: 0, fileMtimes: {}, records: null });
+  // 跨源账本扫描: 10s 内存缓存 + 文件 mtimeMs 增量校验 + 首帧冷启动异步预热让出主线程
+  _auLedgerScan(allowSyncColdScan = false) {
+    const cache = this._auLedgerCache || (this._auLedgerCache = { at: 0, fileMtimes: {}, records: null, warming: false });
     const now = Date.now();
     if (cache.records && (now - cache.at) < 10000) return cache.records;
+    // 首屏同步渲染阶段若磁盘账本尚未预热，先返回空集并用内存会话极速出首屏，后台异步完成 zstd/jsonl 扫描后自动刷新卡片
+    if (!cache.records && !allowSyncColdScan && typeof window !== 'undefined' && this._isInitialRenderPass) {
+      if (!cache.warming) {
+        cache.warming = true;
+        setTimeout(() => {
+          try {
+            this._auLedgerScan(true);
+            if (this.agentUsageCardEl && this.agentUsageCardEl.isConnected) this.updateAgentUsageCard();
+            if (this.homeHeatCardEl && this.homeHeatCardEl.isConnected) this.updateHomeHeatmapCard();
+          } catch (_) {} finally {
+            cache.warming = false;
+          }
+        }, 180);
+      }
+      return { piGroups: [], dsh: [] };
+    }
     const out = { piGroups: [], dsh: [] };
     try {
       const fs = require('fs'); const path = require('path');
@@ -63470,6 +66075,8 @@ class TabonKBWorkbenchView extends ItemView {
       startTs = d0.getTime();
     } else if (range === 'week') {
       startTs = now - 7 * 86400000;
+    } else if (range === 'month') {
+      startTs = now - 30 * 86400000;
     }
 
     // ── 统一归一化消费记录 ──
@@ -63567,6 +66174,7 @@ class TabonKBWorkbenchView extends ItemView {
     const rowMap = new Map();
     const daily = new Map();   // dateKey → {in,out,cr,tot,net,tools,turns,cost}
     const hourly = new Map();  // hourKey → 同上 (today 视图 24h 桶)
+    const bucketAg = new Map(); // 周期桶键(today→hourKey/其它→dayKey) → Map(agentId → acc)，Magpie 在线时用于合并未代理本地差额
     const totals = {
       tokens: 0, input: 0, output: 0, cache: 0, cacheW: 0, net: 0,
       turns: 0, sessions: 0, tools: 0, toolErrs: 0,
@@ -63641,6 +66249,15 @@ class TabonKBWorkbenchView extends ItemView {
         hb.turns += turns; hb.cost += costUsd;
         hourly.set(hk2, hb);
       }
+      const bk = range === 'today' ? hk2 : dk;
+      if (bk) {
+        let am = bucketAg.get(bk);
+        if (!am) { am = new Map(); bucketAg.set(bk, am); }
+        const ad = am.get(r.agentId) || { in: 0, out: 0, cr: 0, tot: 0, net: 0, tools: 0, turns: 0, cost: 0 };
+        ad.in += r.in; ad.out += r.out; ad.cr += r.cr; ad.tot += r.tot; ad.net += r.net;
+        ad.tools += r.toolN; ad.turns += turns; ad.cost += costUsd;
+        am.set(r.agentId, ad);
+      }
     }
     totals.sessions = sessSet.size;
 
@@ -63705,7 +66322,7 @@ class TabonKBWorkbenchView extends ItemView {
       toolsPerTurn: totals.turns > 0 ? totals.tools / totals.turns : 0
     };
 
-    return { rows, totals, kpis, trend, daily, maxMetric, metric, range, momPct };
+    return { rows, totals, kpis, trend, daily, bucketAg, maxMetric, metric, range, momPct };
   }
 
   // 热力图「AI 协同」维度数据源: 按日聚合的 Agent 对话事件
@@ -63731,6 +66348,7 @@ class TabonKBWorkbenchView extends ItemView {
 
   renderAgentUsageCard(parentEl) {
     this.agentUsageCardEl = parentEl.createDiv({ cls: 'tw-card tw-agent-usage-card' });
+    this._mqRenderedOnce = false;
     this.updateAgentUsageCard();
     // Agent 回合结束后自动重算（仅在首页卡片仍挂载时），无需手动刷新
     if (!this._agentUsageBound && this.agentHub && typeof this.agentHub.on === 'function') {
@@ -63739,10 +66357,49 @@ class TabonKBWorkbenchView extends ItemView {
         if (this.agentUsageCardEl && this.agentUsageCardEl.isConnected) {
           if (this._auLedgerCache) this._auLedgerCache.at = 0; // 回合结束强制作废账本缓存
           setTimeout(() => this.updateAgentUsageCard(), 400);
+          this.refreshMagpieObservability(true); // 网关账本同步过期
         }
       };
       this.agentHub.on('turn_end', schedule);
       this.agentHub.on('agent_settled', schedule);
+    }
+  }
+
+  // ── Magpie 观测桥接：异步非阻塞拉取只读快照，完成后重渲染（skipRemoteFetch 防死循环）──
+  refreshMagpieObservability(force = false) {
+    if (!this.magpieObs) return Promise.resolve(null);
+    if (this._mqFetching) return this._mqFetching;
+    this._mqFetching = this.magpieObs.fetchSnapshot(this.agentUsageRange, force)
+      .then((snap) => {
+        this._mqLastSnapshot = snap;
+        const needRender = !this._mqRenderedOnce || force || (snap && snap.fromCache !== true);
+        if (needRender && this.agentUsageCardEl && this.agentUsageCardEl.isConnected) {
+          this.updateAgentUsageCard(true);
+        }
+        return snap;
+      })
+      .catch(() => null)
+      .finally(() => { this._mqFetching = null; });
+    return this._mqFetching;
+  }
+
+  _mqClearAutoRefresh() {
+    if (this._mqAutoRefreshTimer) {
+      clearInterval(this._mqAutoRefreshTimer);
+      this._mqAutoRefreshTimer = null;
+    }
+    this._mqAutoRefreshSec = 0;
+  }
+
+  _mqSetAutoRefresh(sec) {
+    this._mqClearAutoRefresh();
+    if (sec > 0) {
+      this._mqAutoRefreshSec = sec;
+      this._mqAutoRefreshTimer = setInterval(() => {
+        if (this.agentUsageCardEl && this.agentUsageCardEl.isConnected) {
+          this.refreshMagpieObservability(true);
+        }
+      }, sec * 1000);
     }
   }
 
@@ -63850,8 +66507,197 @@ class TabonKBWorkbenchView extends ItemView {
     pop.hidden = false;
   }
 
-  updateAgentUsageCard() {
+  // 供应商图标：优先官方品牌 SVG（icon 字段去 -color 后缀），未知供应商回退首字母徽章
+  _mqProviderIcon(card, size = 14) {
+    const raw = String((card && (card.icon || card.provider)) || '').toLowerCase().replace(/-color$/, '');
+    const KNOWN = { claude: 1, deepseek: 1, qwen: 1, kimi: 1, doubao: 1, gemini: 1, grok: 1, antigravity: 1, openai: 1, glm: 1, minimax: 1, longcat: 1, mimo: 1, hunyuan: 1, hermes: 1, niceaigc: 1, science: 1 };
+    try {
+      if (raw === 'pi') return getAgentBrandSvg('pi', size);
+      if (KNOWN[raw]) return getOfficialModelSvg(raw, size);
+    } catch (e) {}
+    const letter = escapeHtml(String((card && (card.name || card.provider)) || '?').trim().charAt(0).toUpperCase() || '?');
+    return `<span class="tw-mq-qbrand-fb">${letter}</span>`;
+  }
+
+  // 单个额度窗口行: 名称 + 已用%/重置/配速 + 进度条 + 整窗容量/到期 + 剩余额度走势 SVG
+  _mqWindowHtml(card, win, snap) {
+    const obs = this.magpieObs;
+    const used = Number(win && win.used);
+    const hasUsed = Number.isFinite(used);
+    const resetMs = Date.parse((win && (win.resetsAt || win.runsOutAt)) || '');
+    let metaTxt = hasUsed ? `已用 ${used.toFixed(1)}%` : '';
+    if (Number.isFinite(resetMs)) {
+      const d = new Date(resetMs);
+      metaTxt += ` · ${d.getMonth() + 1}月${d.getDate()}日重置`;
+    }
+    const pts = obs ? obs.findHistoryPoints(card, win, snap && snap.histories) : [];
+    const pace = obs ? obs.computePace(win, pts, Date.now()) : null;
+    const paceHtml = pace ? ` · <span class="tw-mq-pace is-${pace.status}">${escapeHtml(pace.label)}</span>` : '';
+    const disp = win && win.display ? `<span class="tw-mq-win-disp"> · ${escapeHtml(String(win.display))}</span>` : '';
+    const pct = hasUsed ? Math.max(0, Math.min(100, used)) : 0;
+    const barCls = pct >= 80 ? ' is-danger' : pct >= 50 ? ' is-warn' : '';
+    const holds = obs ? obs.formatWindowHolds(win, (n) => this.fmtUsageTok(n)) : '';
+    const expMs = Date.parse((card && (card.expiresAt || card.planEndsAt)) || '');
+    let expTxt = '';
+    if (Number.isFinite(expMs)) {
+      const ed = new Date(expMs);
+      expTxt = `${ed.getFullYear()}年${ed.getMonth() + 1}月${ed.getDate()}日到期`;
+    }
+    const key = `${(card && card.provider) || ''}|${(card && card.user) || ''}|${(win && win.name) || ''}`;
+    const open = !this._mqTrendExpanded.has(key);
+    const plot = (open && obs) ? obs.renderQuotaPlotSvg(win, pts, Date.now()) : { svg: '', eta: null };
+    const etaHtml = plot.eta ? `<div class="tw-mq-eta-text${plot.eta.safe === false ? ' is-warn' : ''}">${escapeHtml(plot.eta.text)}</div>` : '';
+    return `
+      <div class="tw-mq-win-row">
+        <div class="tw-mq-win-top"><span class="tw-mq-win-name">${escapeHtml((win && win.name) || '窗口')}</span><span class="tw-mq-win-meta">${metaTxt}${paceHtml}${disp}</span></div>
+        <div class="tw-mq-bar-track"><div class="tw-mq-bar-fill${barCls}" style="width:${pct.toFixed(1)}%"></div></div>
+        <div class="tw-mq-win-sub"><span>${escapeHtml(holds)}</span><span>${escapeHtml(expTxt)}</span></div>
+        <div class="tw-mq-trend-box">
+          <div class="tw-mq-trend-head" data-mqtrend="${escapeHtml(key)}"><span>${open ? '▾' : '▸'} 剩余额度走势</span><span>${pts.length} 点</span></div>
+          ${open ? `${plot.svg}${etaHtml}` : ''}
+        </div>
+      </div>`;
+  }
+
+  _mqQuotaCardHtml(card, snap) {
+    const icon = this._mqProviderIcon(card, 14);
+    const plan = card && card.plan ? `<span class="tw-mq-plan-tag">${escapeHtml(card.plan)}</span>` : '';
+    const user = this.magpieObs ? this.magpieObs.maskUser(card && card.user, this._mqMaskAccounts) : String((card && card.user) || '');
+    const wins = (card && Array.isArray(card.windows)) ? card.windows.map(w => this._mqWindowHtml(card, w, snap)).join('') : '';
+    return `
+      <div class="tw-mq-qcard" data-mqprov="${escapeHtml((card && card.provider) || '')}" data-mquser="${escapeHtml((card && card.user) || '')}">
+        <div class="tw-mq-qcard-head">
+          <span class="tw-mq-qcard-brand">${icon}${escapeHtml((card && (card.name || card.provider)) || '')}${plan}</span>
+          <span class="tw-mq-qcard-user" title="${escapeHtml((card && card.user) || '')}">${escapeHtml(user)}<button class="tw-mq-card-refresh" title="刷新该账号额度">↻</button></span>
+        </div>
+        ${wins}
+      </div>`;
+  }
+
+  // 「额度」折叠区块: 头部开关 + 账号打码 + 卡片网格
+  _mqQuotaSectionHtml(snap) {
+    const cards = (snap && snap.cards) || [];
+    if (!cards.length) return '';
+    const collapsed = this._mqQuotaCollapsed;
+    const grid = collapsed ? '' : `<div class="tw-mq-quota-grid">${cards.map(c => this._mqQuotaCardHtml(c, snap)).join('')}</div>`;
+    return `
+      <div class="tw-mq-quota-section">
+        <div class="tw-mq-sec-bar">
+          <span class="tw-mq-sec-toggle" data-mqsec="1">${collapsed ? '▸' : '▾'} 额度 <i>${cards.length}</i></span>
+          <button class="tw-mq-mask-btn" data-mqmask="1">${this._mqMaskAccounts ? '已打码' : '账号打码'}</button>
+        </div>
+        ${grid}
+      </div>`;
+  }
+
+  // 网关单行（agent/model/account）归一化为本地 row 形态，供排行渲染统一消费
+  _mqNormGwRow(o, kind) {
+    const inV = Math.max(0, o.input || 0), outV = Math.max(0, o.output || 0);
+    const crV = Math.max(0, o.cache_read || 0), cwV = Math.max(0, o.cache_write || 0);
+    const timed = Math.max(0, o.timed || 0);
+    return {
+      id: o.id || o.model || o.account || '',
+      name: o.name || o.model || o.account || o.id || '',
+      sub: o.sub || '',
+      iconKey: o.icon || o.provider || '',
+      tokens: inV + outV + crV + cwV,
+      net: inV + outV + cwV,
+      input: inV, output: outV, cache: crV, cacheW: cwV,
+      reas: Math.max(0, o.reasoning || 0),
+      calls: Math.max(0, o.calls || 0),
+      errors: Math.max(0, o.errors || 0),
+      retried: Math.max(0, o.retried || 0),
+      tools: 0,
+      turns: Math.max(0, o.calls || 0),
+      costUsd: Math.max(0, o.cost || 0),
+      ttftAvg: timed > 0 ? (o.ttft_ms || 0) / timed / 1000 : 0,
+      gw: true, kind
+    };
+  }
+
+  // 三维排行数据: agents(网关+本地未代理差额) / models / accounts; 离线回退本地账本
+  _mqRankRows(mu, stats, gwIds) {
+    const tab = this._mqRankTab;
+    const rows = [];
+    const seen = new Set();
+    if (mu) {
+      if (tab === 'agents') {
+        for (const a of (mu.agents || [])) {
+          const r = this._mqNormGwRow(a, 'agent');
+          if (r.name === r.id) { const nm = { pi: 'Pi Agent', dsh: 'Harness', antigravity: 'Antigravity', niceaigc: 'NiceAIGC', codex: 'Codex', gemini: 'Gemini', hermes: 'Hermes' }; if (nm[r.id]) r.name = nm[r.id]; }
+          rows.push(r); seen.add(r.id);
+        }
+      } else if (tab === 'models') {
+        for (const m of (mu.models || [])) { rows.push(this._mqNormGwRow(m, 'model')); seen.add(String(m.model || m.id || '').toLowerCase()); }
+      } else {
+        for (const a of (mu.accounts || [])) {
+          const r = this._mqNormGwRow(a, 'account');
+          r.name = this.magpieObs ? this.magpieObs.maskUser(a.account || a.name, this._mqMaskAccounts) : (a.account || a.name);
+          rows.push(r);
+        }
+      }
+    }
+    // 本地账本：离线全量 / 在线仅未走网关的 Agent 差额（杜绝双计）
+    const localRows = mu ? stats.rows.filter(r => !gwIds.has(r.id)) : stats.rows;
+    if (tab === 'agents') {
+      for (const r of localRows) {
+        if (seen.has(r.id)) continue;
+        r.gw = false; rows.push(r);
+      }
+    } else if (tab === 'models') {
+      const merged = new Map();
+      for (const r of localRows) {
+        for (const m of (r.modelList || [])) {
+          const key = String(m.name || '').toLowerCase();
+          const acc = merged.get(key) || { id: 'lm|' + key, name: m.name, sub: '', iconKey: '', tokens: 0, net: 0, input: 0, output: 0, cache: 0, cacheW: 0, reas: 0, calls: 0, errors: 0, retried: 0, tools: 0, turns: 0, costUsd: 0, ttftAvg: 0, gw: false, kind: 'model' };
+          acc.tokens += m.tokens; acc.input += m.in || 0; acc.output += m.out || 0; acc.cache += m.cr || 0;
+          acc.net += (m.in || 0) + (m.out || 0); acc.turns += m.turns || 0; acc.calls += m.turns || 0;
+          merged.set(key, acc);
+        }
+      }
+      for (const r of merged.values()) { if (!seen.has(String(r.name).toLowerCase())) rows.push(r); }
+    }
+    rows.sort((a, b) => (b.tokens - a.tokens) || (b.calls - a.calls));
+    return rows;
+  }
+
+  // 排行行展开明细: 网关行显示输入/输出/缓存/推理/调用/失败/TTFT 明细行；本地行沿用模型清单
+  _mqRowExpandHtml(r, fmt, full) {
+    if (r.gw) {
+      const parts = [`输入 ${fmt(r.input)}`, `输出 ${fmt(r.output)}`];
+      if (r.cache > 0) parts.push(`缓存 ${fmt(r.cache)}`);
+      if (r.cacheW > 0) parts.push(`缓存写 ${fmt(r.cacheW)}`);
+      if (r.reas > 0) parts.push(`推理 ${fmt(r.reas)}`);
+      const line2 = [`${full(r.calls)} 调用`];
+      if (r.errors > 0) line2.push(`${r.errors} 失败`);
+      if (r.retried > 0) line2.push(`${r.retried} 重试成功`);
+      if (r.ttftAvg > 0) line2.push(`TTFT ${r.ttftAvg.toFixed(1)}s`);
+      if (r.costUsd > 0.001) line2.push(`~$${r.costUsd.toFixed(2)}`);
+      return `<div class="tw-au-expand"><div class="tw-au-model-line"><span class="tw-au-model-name">${escapeHtml(parts.join(' · '))}</span><span class="tw-au-model-meta"><b class="mm-tok">${escapeHtml(line2.join(' · '))}</b></span></div></div>`;
+    }
+    const list = r.modelList || [];
+    if (!list.length) {
+      const fb = r.kind === 'model'
+        ? `${r.turns || 0} 轮 · ${fmt(r.tokens)} tok${r.costUsd > 0.001 ? ` · ~$${r.costUsd.toFixed(2)}` : ''}`
+        : '无模型用量记录';
+      return `<div class="tw-au-expand"><div class="tw-au-model-line"><span class="tw-au-model-name">${escapeHtml(fb)}</span><span>—</span></div></div>`;
+    }
+    const modelRows = list.map(m => {
+      const mw = list[0].tokens > 0 ? Math.max(3, m.tokens / list[0].tokens * 100) : 0;
+      const perTurn = m.turns > 0 ? fmt(Math.round(m.tokens / m.turns)) : '—';
+      const mSum = Math.max(1, (m.in || 0) + (m.out || 0) + (m.cr || 0));
+      const wI = ((m.in || 0) / mSum) * 100;
+      const wO = ((m.out || 0) / mSum) * 100;
+      const wC = Math.max(0, 100 - wI - wO);
+      return `<div class="tw-au-model-line"><span class="tw-au-model-name">${escapeHtml(m.name)}${m.effort ? `<i class="tw-au-effort">${escapeHtml(m.effort)}</i>` : ''}</span><span class="tw-au-model-bar-wrap"><span class="tw-au-mbar" style="width:${mw.toFixed(0)}%"><i class="in" style="width:${wI.toFixed(1)}%"></i><i class="out" style="width:${wO.toFixed(1)}%"></i><i class="cache" style="width:${wC.toFixed(1)}%"></i></span></span><span class="tw-au-model-meta"><b class="mm-tok">${fmt(m.tokens)}</b><i class="mm-per">${perTurn}/轮</i><i class="mm-turns">${m.turns}轮</i></span></div>`;
+    }).join('');
+    return `<div class="tw-au-expand">${modelRows}</div>`;
+  }
+
+  updateAgentUsageCard(skipRemoteFetch = false) {
     if (!this.agentUsageCardEl) return;
+    // 异步非阻塞桥接 Magpie 快照 (1500ms 超时 + 8s TTL + 离线静默兜底), 绝不阻塞首屏渲染栈
+    if (!skipRemoteFetch) this.refreshMagpieObservability(false);
     const stats = this.collectAgentUsageStats();
     const range = stats.range;
     const metric = stats.metric;
@@ -63859,140 +66705,310 @@ class TabonKBWorkbenchView extends ItemView {
     const full = (n) => (Number(n) || 0).toLocaleString();
     const k = stats.kpis, t = stats.totals;
 
-    // ── 层1: 标题 + 周期摘要 + 指标切换 + 周期选择 + 刷新 ──
-    const rangeLabel = { today: '今日', week: '近7天', all: '全部' }[range] || range;
-    const momHtml = stats.momPct != null
-      ? ` · 环比 <b class="${stats.momPct >= 0 ? 'tw-au-up' : 'tw-au-down'}">${stats.momPct >= 0 ? '+' : ''}${stats.momPct.toFixed(0)}%</b>` : '';
+    // ── 双源融合: Magpie 网关精确账本 + 本地未代理 Agent 差额; 离线 100% 本地账本 ──
+    const snap = this._mqLastSnapshot;
+    const gwOnline = !!(snap && snap.online);
+    // usage.period 必须与当前周期一致，防止切周期瞬间短暂渲染旧周期缓存
+    const mu = (snap && snap.online && snap.usage && this.magpieObs &&
+      snap.usage.period === this.magpieObs.mapPeriod(range)) ? snap.usage : null;
+    const gwIds = new Set();
+    if (mu && Array.isArray(mu.agents)) for (const a of mu.agents) gwIds.add(a.id);
+    const ng = { input: 0, output: 0, cache: 0, cacheW: 0, turns: 0, tools: 0, toolErrs: 0, costUsd: 0, savedUsd: 0, tokens: 0, net: 0 };
+    if (mu) {
+      for (const r of stats.rows) {
+        if (gwIds.has(r.id)) continue;
+        ng.input += r.input; ng.output += r.output; ng.cache += r.cache; ng.cacheW += r.cacheW;
+        ng.turns += r.turns; ng.tools += r.tools; ng.toolErrs += r.toolErrs;
+        ng.costUsd += r.costUsd; ng.savedUsd += r.savedUsd; ng.tokens += r.tokens; ng.net += r.net;
+      }
+    }
+    const tokIn = mu ? (mu.input || 0) + ng.input : t.input;
+    const tokOut = mu ? (mu.output || 0) + ng.output : t.output;
+    const tokCr = mu ? (mu.cache_read || 0) + ng.cache : t.cache;
+    const tokCw = mu ? (mu.cache_write || 0) + ng.cacheW : t.cacheW;
+    const tokReas = mu ? Math.max(0, mu.reasoning || 0) : 0;
+    const callsN = mu ? (mu.calls || 0) + ng.turns : k.turns;
+    const errN = mu ? (mu.errors || 0) : t.toolErrs;
+    const retriedN = mu ? (mu.retried || 0) : 0;
+    const costUsd = mu ? (mu.cost || 0) + ng.costUsd : t.costUsd;
+    const hitDenom = tokIn + tokCr + tokCw;
+    const hitPct = hitDenom > 0 ? (tokCr / hitDenom * 100) : 0;
+    let savedUsd = mu ? ng.savedUsd : k.savedUsd;
+    if (mu) {
+      for (const m of (mu.models || [])) {
+        const pr = this._auModelPricing(m.model);
+        savedUsd += Math.max(0, ((m.cache_read || 0) / 1e6) * (pr.in - pr.cacheRead));
+      }
+    }
+    const ttftAvg = (mu && (mu.timed || 0) > 0) ? (mu.ttft_ms || 0) / mu.timed / 1000 : 0;
+
+    // ── 层1: 顶栏 = 标题 + 网关状态胶囊 + 生效价格 + 周期按钮组 + 5秒自动刷新 + 手动刷新 ──
+    const rangeSeg = `
+      <div class="tw-au-metric-seg" role="tablist">
+        <button type="button" class="tw-au-metric-btn tw-au-range-btn${range === 'today' ? ' active' : ''}" data-r="today">今天</button>
+        <button type="button" class="tw-au-metric-btn tw-au-range-btn${range === 'week' ? ' active' : ''}" data-r="week">7天</button>
+        <button type="button" class="tw-au-metric-btn tw-au-range-btn${range === 'month' ? ' active' : ''}" data-r="month">30天</button>
+        <button type="button" class="tw-au-metric-btn tw-au-range-btn${range === 'all' ? ' active' : ''}" data-r="all">全部</button>
+      </div>`;
     const metricSeg = `
       <div class="tw-au-metric-seg" role="tablist">
         <button type="button" class="tw-au-metric-btn${metric === 'tokens' ? ' active' : ''}" data-m="tokens">总Token</button>
         <button type="button" class="tw-au-metric-btn${metric === 'net' ? ' active' : ''}" data-m="net">净计费</button>
         <button type="button" class="tw-au-metric-btn${metric === 'tools' ? ' active' : ''}" data-m="tools">工具</button>
       </div>`;
+    const momHtml = stats.momPct != null
+      ? `<span class="tw-au-mom">环比 <b class="${stats.momPct >= 0 ? 'tw-au-up' : 'tw-au-down'}">${stats.momPct >= 0 ? '+' : ''}${stats.momPct.toFixed(0)}%</b></span>` : '';
 
-    // ── 层2: 四格 KPI（图标徽章 + 大数字 + 左标签右微胶囊）──
-    const hitPct = (k.hitRate * 100).toFixed(1);
-    const okPct = k.toolOkRate == null ? '—' : (k.toolOkRate * 100).toFixed(1) + '%';
+    // ── 层2: Magpie 同款 4 大核心 KPI ──
     const ic = (n) => { try { return getIconPark(n, 12); } catch (e) { return ''; } };
+    const tokMain = this._mqIncludeCache ? (tokIn + tokOut + tokCr + tokCw) : (tokIn + tokOut);
+    const kpiTokSub = `${fmt(tokIn)} 输入 · ${fmt(tokOut)} 输出`;
+    const kpiCacheSub = `${hitPct.toFixed(1)}% 命中率${savedUsd > 0.001 ? `<span class="tw-au-sub-pill p-green">省 ~$${savedUsd.toFixed(1)}</span>` : ''}`;
+    let kpiReasMain, kpiReasSub;
+    if (tokReas > 0) {
+      kpiReasMain = `${fmt(tokReas)}<i> tok</i>`;
+      kpiReasSub = `输出内含 ${tokOut > 0 ? (tokReas / tokOut * 100).toFixed(1) : '0.0'}%`;
+    } else if (ttftAvg > 0) {
+      kpiReasMain = `${ttftAvg.toFixed(1)}<i> s</i>`;
+      kpiReasSub = `平均首字延迟${mu && mu.timed ? ` · ${mu.timed} 次计时` : ''}`;
+    } else {
+      kpiReasMain = `${k.avgDurS > 0 ? k.avgDurS.toFixed(1) : '0.0'}<i> s</i>`;
+      kpiReasSub = '平均轮次耗时';
+    }
+    const errPill = errN > 0 ? `<span class="tw-au-sub-pill p-red">${errN} 失败</span>` : '';
+    const retryPill = retriedN > 0 ? `<span class="tw-au-sub-pill p-amber">${retriedN} 重试后成功</span>` : '';
+    const kpiCallsSub = `${errPill}${retryPill}<span class="lab">${mu ? '' : `${k.sessions} 会话 · `}${t.tools} 工具</span>`;
     const kpiHtml = `
       <div class="tw-au-kpis">
         <div class="tw-au-kpi">
-          <div class="tw-au-kpi-head"><span class="tw-au-kpi-label">总消耗 Token</span><i class="tw-au-kpi-ic ic-blue">${ic('database')}</i></div>
-          <b class="tw-au-kpi-val">${fmt(k.tokens)}<i> tok</i></b>
-          <span class="tw-au-kpi-sub"><span class="lab">净计费 ${fmt(k.net)}</span>${k.inOutRatio != null ? `<span class="tw-au-sub-pill p-blue">入/出 ${k.inOutRatio.toFixed(1)}:1</span>` : ''}</span></div>
+          <div class="tw-au-kpi-head"><span class="tw-au-kpi-label">TOKEN</span><span class="tw-mq-mini-seg"><button type="button" class="${this._mqIncludeCache ? 'active' : ''}" data-mqcache="1">含缓存</button><button type="button" class="${this._mqIncludeCache ? '' : 'active'}" data-mqcache="0">不含缓存</button></span></div>
+          <b class="tw-au-kpi-val">${fmt(tokMain)}<i> tok</i></b>
+          <span class="tw-au-kpi-sub"><span class="lab">${kpiTokSub}</span></span></div>
         <div class="tw-au-kpi">
-          <div class="tw-au-kpi-head"><span class="tw-au-kpi-label">缓存命中与降本</span><i class="tw-au-kpi-ic ic-purple">${ic('pie')}</i></div>
-          <b class="tw-au-kpi-val">${hitPct}<i>%</i></b>
-          <span class="tw-au-kpi-sub"><span class="lab">缓存读 ${fmt(k.cacheRead)}</span><span class="tw-au-sub-pill p-green">省 ~$${k.savedUsd.toFixed(1)}</span></span></div>
+          <div class="tw-au-kpi-head"><span class="tw-au-kpi-label">缓存读取</span><i class="tw-au-kpi-ic ic-purple">${ic('pie')}</i></div>
+          <b class="tw-au-kpi-val">${fmt(tokCr)}<i> tok</i></b>
+          <span class="tw-au-kpi-sub"><span class="lab">${kpiCacheSub}</span></span></div>
         <div class="tw-au-kpi">
-          <div class="tw-au-kpi-head"><span class="tw-au-kpi-label">对话轮次与时效</span><i class="tw-au-kpi-ic ic-cyan">${ic('time')}</i></div>
-          <b class="tw-au-kpi-val">${k.turns}<i> 轮</i></b>
-          <span class="tw-au-kpi-sub"><span class="lab">${k.sessions} 会话</span>${k.avgDurS > 0 ? `<span class="tw-au-sub-pill p-slate">均耗 ${this._auFmtDur(k.avgDurS).replace(' / 轮', '/轮')}</span>` : ''}</span></div>
+          <div class="tw-au-kpi-head"><span class="tw-au-kpi-label">推理</span><i class="tw-au-kpi-ic ic-cyan">${ic('brain')}</i></div>
+          <b class="tw-au-kpi-val">${kpiReasMain}</b>
+          <span class="tw-au-kpi-sub"><span class="lab">${kpiReasSub}</span></span></div>
         <div class="tw-au-kpi">
-          <div class="tw-au-kpi-head"><span class="tw-au-kpi-label">工具调用与成功率</span><i class="tw-au-kpi-ic ic-orange">${ic('tool')}</i></div>
-          <b class="tw-au-kpi-val">${full(k.tools)}<i> 次</i></b>
-          <span class="tw-au-kpi-sub"><span class="lab">${k.toolsPerTurn.toFixed(1)} 次/轮</span>${k.toolOkRate != null ? `<span class="tw-au-sub-pill p-green">成功率 ${okPct}</span>` : ''}</span></div>
+          <div class="tw-au-kpi-head"><span class="tw-au-kpi-label">次调用</span><i class="tw-au-kpi-ic ic-orange">${ic('tool')}</i></div>
+          <b class="tw-au-kpi-val">${full(callsN)}<i> 次</i></b>
+          <span class="tw-au-kpi-sub">${kpiCallsSub}</span></div>
       </div>`;
 
-    // ── 层3: 左趋势 SVG + 右效能排行矩阵 ──
+    // ── 层3: 左分时堆叠柱状图(网关 series 优先, 合并未代理本地桶) + 右三维排行 ──
+    const dayKeyOf = (ts) => {
+      const d = new Date(ts);
+      return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    };
+    const hourKeyOf = (ts) => dayKeyOf(ts) + 'T' + String(new Date(ts).getHours()).padStart(2, '0');
+    let trendData = stats.trend || [];
+    if (mu && Array.isArray(mu.series) && mu.series.length) {
+      trendData = mu.series.map(s => {
+        const ts = Date.parse(s.time);
+        const key = Number.isFinite(ts) ? (mu.bucket === 'hour' ? hourKeyOf(ts) : dayKeyOf(ts)) : String(s.label || '');
+        const b = {
+          key, label: s.label || key,
+          in: Math.max(0, s.input || 0), out: Math.max(0, s.output || 0), cr: Math.max(0, s.cache_read || 0),
+          tot: Math.max(0, (s.input || 0) + (s.output || 0) + (s.cache_read || 0) + (s.cache_write || 0)),
+          net: Math.max(0, (s.input || 0) + (s.output || 0) + (s.cache_write || 0)),
+          tools: 0, turns: Math.max(0, s.calls || 0), cost: Math.max(0, s.cost || 0)
+        };
+        const m = stats.bucketAg && stats.bucketAg.get(key);
+        if (m) {
+          for (const [agId, ad] of m.entries()) {
+            if (gwIds.has(agId)) continue;
+            b.in += ad.in; b.out += ad.out; b.cr += ad.cr; b.tot += ad.tot; b.net += ad.net;
+            b.tools += ad.tools; b.turns += ad.turns; b.cost += ad.cost;
+          }
+        }
+        return b;
+      });
+    }
+    const hasData = mu ? (trendData.length > 0 || (mu.agents || []).length > 0 || stats.rows.length > 0) : stats.rows.length > 0;
     let mainHtml = '';
-    if (stats.rows.length === 0) {
+    if (!hasData) {
       mainHtml = '<div class="tw-au-empty">该周期暂无用量记录</div>';
     } else {
-      this._auLastTrend = stats.trend || [];
-      const trendHtml = `<div class="tw-au-trend"><div class="tw-au-trend-title">每日用量趋势<span class="tw-au-mini-legend"><i class="lg-in"></i>输入<i class="lg-out"></i>输出<i class="lg-cr"></i>缓存</span></div>${this._auTrendChart(stats.trend, metric)}</div>`;
-      const metricOf = (r) => metric === 'net' ? r.net : metric === 'tools' ? r.tools : r.tokens;
-      const rowsHtml = stats.rows.map((r) => {
-        const wIn = (r.input / r.segSum) * 100;
-        const wOut = (r.output / r.segSum) * 100;
+      this._auLastTrend = trendData;
+      const trendTitle = range === 'today' ? '逐时用量趋势' : '每日用量趋势';
+      const trendHtml = `<div class="tw-au-trend"><div class="tw-au-trend-title">${trendTitle}<span class="tw-au-mini-legend"><i class="lg-in"></i>输入<i class="lg-out"></i>输出<i class="lg-cr"></i>缓存</span>${momHtml}${metricSeg}</div>${this._auTrendChart(trendData, metric)}</div>`;
+
+      const rankRows = this._mqRankRows(mu, stats, gwIds);
+      const metricOf = (r) => metric === 'net' ? r.net : metric === 'tools' ? (r.tools || 0) : r.tokens;
+      const maxMv = Math.max(1, ...rankRows.map(metricOf));
+      const rowsHtml = rankRows.length ? rankRows.map((r) => {
+        const segSum = Math.max(1, r.input + r.output + r.cache);
+        const wIn = (r.input / segSum) * 100;
+        const wOut = (r.output / segSum) * 100;
         const wCache = Math.max(0, 100 - wIn - wOut);
         const mv = metricOf(r);
-        const barW = mv > 0 ? Math.max(2, (mv / stats.maxMetric) * 100) : 0;
+        const barW = mv > 0 ? Math.max(2, (mv / maxMv) * 100) : 0;
         const segsHtml = r.tokens > 0 ? `<span class="tw-au-seg tw-au-seg-in" style="width:${wIn.toFixed(1)}%"></span><span class="tw-au-seg tw-au-seg-out" style="width:${wOut.toFixed(1)}%"></span><span class="tw-au-seg tw-au-seg-cache" style="width:${wCache.toFixed(1)}%"></span>` : '';
-        const expanded = this._agentUsageExpanded.has(r.id);
+        const rk = `mq|${this._mqRankTab}|${r.id || r.name}`;
+        const expanded = this._agentUsageExpanded.has(rk);
         let icon = '';
-        try { icon = getAgentBrandSvg(r.id, 12); } catch (e) {}
-        let expandHtml = '';
-        if (expanded) {
-          const modelRows = r.modelList.length ? r.modelList.map(m => {
-            const mw = r.modelList[0].tokens > 0 ? Math.max(3, m.tokens / r.modelList[0].tokens * 100) : 0;
-            const perTurn = m.turns > 0 ? fmt(Math.round(m.tokens / m.turns)) : '—';
-            const mSum = Math.max(1, (m.in || 0) + (m.out || 0) + (m.cr || 0));
-            const wI = ((m.in || 0) / mSum) * 100;
-            const wO = ((m.out || 0) / mSum) * 100;
-            const wC = Math.max(0, 100 - wI - wO);
-            return `<div class="tw-au-model-line"><span class="tw-au-model-name">${escapeHtml(m.name)}${m.effort ? `<i class="tw-au-effort">${escapeHtml(m.effort)}</i>` : ''}</span><span class="tw-au-model-bar-wrap"><span class="tw-au-mbar" style="width:${mw.toFixed(0)}%"><i class="in" style="width:${wI.toFixed(1)}%"></i><i class="out" style="width:${wO.toFixed(1)}%"></i><i class="cache" style="width:${wC.toFixed(1)}%"></i></span></span><span class="tw-au-model-meta"><b class="mm-tok">${fmt(m.tokens)}</b><i class="mm-per">${perTurn}/轮</i><i class="mm-turns">${m.turns}轮</i></span></div>`;
-          }).join('') : '<div class="tw-au-model-line"><span class="tw-au-model-name">无模型用量记录</span><span>—</span></div>';
-          expandHtml = `<div class="tw-au-expand">${modelRows}</div>`;
+        if (r.gw) {
+          icon = this._mqProviderIcon({ icon: r.iconKey, provider: r.iconKey, name: r.name }, 12);
+        } else {
+          try { icon = getAgentBrandSvg(r.id, 12); } catch (e) {}
+          if (!icon) icon = this._mqProviderIcon({ icon: '', provider: '', name: r.name }, 12);
         }
+        const subTxt = r.sub ? `<i class="tw-mq-row-sub">${escapeHtml(r.sub)}</i>` : '';
+        const cntTxt = r.gw ? `${r.calls}调用` : `${r.turns}轮`;
+        const expandHtml = expanded ? this._mqRowExpandHtml(r, fmt, full) : '';
         const tip = `输入 ${full(r.input)} · 输出 ${full(r.output)} · 缓存 ${full(r.cache)}${r.costUsd > 0.001 ? ' · ~$' + r.costUsd.toFixed(2) : ''}`;
         return `
-          <div class="tw-au-row${expanded ? ' expanded' : ''}" data-agent="${r.id}" title="${escapeHtml(tip)}">
+          <div class="tw-au-row${expanded ? ' expanded' : ''}" data-rk="${escapeHtml(rk)}" title="${escapeHtml(tip)}">
             <div class="tw-au-row-main">
-              <span class="tw-au-name">${icon}<span>${escapeHtml(r.name)}</span></span>
+              <span class="tw-au-name">${icon}<span>${escapeHtml(r.name)}</span>${subTxt}</span>
               <div class="tw-au-bar-wrap"><div class="tw-au-bar" style="width:${barW.toFixed(1)}%">${segsHtml}</div></div>
-              <span class="tw-au-meta"><b>${fmt(mv)}</b>${metric === 'tools' ? ' 次' : ' tok'} · ${r.turns}轮<span class="tw-au-caret">›</span></span>
+              <span class="tw-au-meta"><b>${fmt(mv)}</b>${metric === 'tools' ? ' 次' : ' tok'} · ${cntTxt}<span class="tw-au-caret">›</span></span>
             </div>
             ${expandHtml}
           </div>`;
-      }).join('');
-      mainHtml = `<div class="tw-au-main">${trendHtml}<div class="tw-au-rank">${rowsHtml}</div></div>`;
+      }).join('') : (this._mqRankTab === 'accounts'
+        ? '<div class="tw-au-empty">本地账本不含账号维度 · 启动 Magpie 网关后可见</div>'
+        : '<div class="tw-au-empty">该周期暂无用量记录</div>');
+      const rankHead = `
+        <div class="tw-mq-rank-head">
+          <div class="tw-au-metric-seg" role="tablist">
+            <button type="button" class="tw-au-metric-btn tw-mq-tab-btn${this._mqRankTab === 'agents' ? ' active' : ''}" data-t="agents">AGENT</button>
+            <button type="button" class="tw-au-metric-btn tw-mq-tab-btn${this._mqRankTab === 'models' ? ' active' : ''}" data-t="models">模型</button>
+            <button type="button" class="tw-au-metric-btn tw-mq-tab-btn${this._mqRankTab === 'accounts' ? ' active' : ''}" data-t="accounts">账号</button>
+          </div>
+        </div>`;
+      mainHtml = `<div class="tw-au-main">${trendHtml}<div class="tw-au-rank">${rankHead}${rowsHtml}</div></div>`;
     }
 
-    // ── 层4: 页脚合计 + 精确度占比 + 等效成本 + 图例 ──
-    const totalTok = Math.max(1, t.exactTok + t.estTok);
-    const exactPct = Math.round(t.exactTok / totalTok * 100);
+    // ── 层4: 页脚合计 + 精确度占比(离线)/网关调用(在线) + 等效成本 + 图例 ──
+    const fusedTot = tokIn + tokOut + tokCr + tokCw;
+    let footerAccHtml;
+    if (mu) {
+      footerAccHtml = `<i class="tw-au-acc2">网关 ${full(mu.calls || 0)} 调用 · ${mu.sessionCount || (mu.sessions || []).length || 0} 会话</i>`;
+    } else {
+      const totalTok = Math.max(1, t.exactTok + t.estTok);
+      const exactPct = Math.round(t.exactTok / totalTok * 100);
+      footerAccHtml = `<i class="tw-au-acc2">精确 ${exactPct}% / 估算 ${100 - exactPct}%</i>`;
+    }
     const footerHtml = `
       <div class="tw-au-footer">
-        <span class="tw-au-total">合计 <b>${fmt(t.tokens)}</b> tok <i class="tw-au-acc2">精确 ${exactPct}% / 估算 ${100 - exactPct}%</i>${t.costUsd > 0.001 ? ` · 等效 ~$${t.costUsd.toFixed(2)}` : ''}</span>
+        <span class="tw-au-total">合计 <b>${fmt(fusedTot)}</b> tok ${footerAccHtml}${costUsd > 0.001 ? ` · 等效 ~$${costUsd.toFixed(2)}` : ''}</span>
         <span class="tw-au-legend">
-          <span><i class="tw-au-dot" style="background:var(--g-blue,#2563EB)"></i>未缓存输入 ${fmt(t.input)}</span>
-          <span><i class="tw-au-dot" style="background:var(--g-green,#10B981)"></i>输出 ${fmt(t.output)}</span>
-          <span><i class="tw-au-dot tw-au-dot-hatch" style="background:#8B5CF6"></i>缓存读 ${fmt(t.cache)}</span>
+          <span><i class="tw-au-dot" style="background:var(--g-blue,#2563EB)"></i>未缓存输入 ${fmt(tokIn)}</span>
+          <span><i class="tw-au-dot" style="background:var(--g-green,#10B981)"></i>输出 ${fmt(tokOut)}</span>
+          <span><i class="tw-au-dot tw-au-dot-hatch" style="background:#8B5CF6"></i>缓存读 ${fmt(tokCr)}</span>
         </span>
       </div>`;
 
+    const quotaHtml = this._mqQuotaSectionHtml(snap);
+    const statusBadge = `<span class="tw-mq-status-badge${gwOnline ? ' is-online' : ''}">${gwOnline ? 'Magpie 网关' : '本地账本'}</span>`;
+    const pricePill = costUsd > 0.001 ? `<span class="tw-mq-price-pill">≈$${costUsd.toFixed(3)} 生效价格</span>` : '';
+
     this.agentUsageCardEl.innerHTML = `
       <div class="tw-card-header tw-au-header">
-        <span>Agent 用量与效能看板</span>
-        <span class="tw-au-period">${rangeLabel}累计 <b>${fmt(t.tokens)}</b> tok${momHtml}</span>
+        <span>观测 · 用量与额度概览</span>
+        ${statusBadge}
+        ${pricePill}
         <div class="tw-trend-controls-right">
-          ${metricSeg}
-          <select class="tw-trend-range-select tw-au-range-select" title="切换统计周期">
-            <option value="today" ${range === 'today' ? 'selected' : ''}>今日</option>
-            <option value="week" ${range === 'week' ? 'selected' : ''}>近7天</option>
-            <option value="all" ${range === 'all' ? 'selected' : ''}>全部</option>
-          </select>
-          <button class="tw-trend-refresh-btn" id="btnRefreshAgentUsage" title="刷新用量统计">${getIconPark('refresh', 12)}</button>
+          ${rangeSeg}
+          <button type="button" class="tw-mq-auto-btn${this._mqAutoRefreshSec === 5 ? ' active' : ''}" id="btnMqAuto" title="每 5 秒自动刷新">5秒</button>
+          <button class="tw-trend-refresh-btn" id="btnRefreshAgentUsage" title="刷新用量统计">↻</button>
         </div>
       </div>
+      ${quotaHtml}
       ${kpiHtml}
       ${mainHtml}
-      ${stats.rows.length ? footerHtml : ''}
+      ${hasData ? footerHtml : ''}
     `;
 
-    const rangeSelect = this.agentUsageCardEl.querySelector('.tw-au-range-select');
-    if (rangeSelect) {
-      rangeSelect.onchange = () => {
-        this.saveAgentUsageRange(rangeSelect.value);
+    this.agentUsageCardEl.querySelectorAll('.tw-au-range-btn').forEach(el => {
+      el.onclick = () => {
+        this.saveAgentUsageRange(el.dataset.r);
         this.updateAgentUsageCard();
       };
-    }
+    });
 
-    this.agentUsageCardEl.querySelectorAll('.tw-au-metric-btn').forEach(el => {
+    this.agentUsageCardEl.querySelectorAll('.tw-au-metric-btn[data-m]').forEach(el => {
       el.onclick = () => {
         this.saveAgentUsageMetric(el.dataset.m);
         this.updateAgentUsageCard();
       };
     });
 
+    this.agentUsageCardEl.querySelectorAll('.tw-mq-tab-btn').forEach(el => {
+      el.onclick = () => {
+        this._mqRankTab = el.dataset.t || 'agents';
+        this.updateAgentUsageCard(true);
+      };
+    });
+
+    this.agentUsageCardEl.querySelectorAll('[data-mqcache]').forEach(el => {
+      el.onclick = () => {
+        this._mqIncludeCache = el.dataset.mqcache === '1';
+        this.updateAgentUsageCard(true);
+      };
+    });
+
+    const secToggle = this.agentUsageCardEl.querySelector('[data-mqsec]');
+    if (secToggle) {
+      secToggle.onclick = () => {
+        this._mqQuotaCollapsed = !this._mqQuotaCollapsed;
+        this.updateAgentUsageCard(true);
+      };
+    }
+    const maskBtn = this.agentUsageCardEl.querySelector('[data-mqmask]');
+    if (maskBtn) {
+      maskBtn.onclick = () => {
+        this._mqMaskAccounts = !this._mqMaskAccounts;
+        this.updateAgentUsageCard(true);
+      };
+    }
+
+    this.agentUsageCardEl.querySelectorAll('.tw-mq-trend-head').forEach(el => {
+      el.onclick = () => {
+        const k2 = el.dataset.mqtrend;
+        if (!k2) return;
+        if (this._mqTrendExpanded.has(k2)) this._mqTrendExpanded.delete(k2);
+        else this._mqTrendExpanded.add(k2);
+        this.updateAgentUsageCard(true);
+      };
+    });
+
+    this.agentUsageCardEl.querySelectorAll('.tw-mq-card-refresh').forEach(el => {
+      el.onclick = (e) => {
+        e.stopPropagation();
+        const card = el.closest('.tw-mq-qcard');
+        if (!card || !this.magpieObs) return;
+        el.classList.add('spinning');
+        this.magpieObs.refreshQuotaCard(card.dataset.mqprov || '', card.dataset.mquser || '')
+          .finally(() => this.refreshMagpieObservability(true));
+      };
+    });
+
+    const autoBtn = this.agentUsageCardEl.querySelector('#btnMqAuto');
+    if (autoBtn) {
+      autoBtn.onclick = () => {
+        this._mqSetAutoRefresh(this._mqAutoRefreshSec === 5 ? 0 : 5);
+        this.updateAgentUsageCard(true);
+      };
+    }
+
     const refreshBtn = this.agentUsageCardEl.querySelector('#btnRefreshAgentUsage');
     if (refreshBtn) {
       refreshBtn.onclick = () => {
         refreshBtn.classList.add('spinning');
         if (this._auLedgerCache) this._auLedgerCache.at = 0;
-        // 额度功能已下线，手动刷新仅重建统计数据
-        this.updateAgentUsageCard();
+        // 手动刷新走节流端点 (服务端 30s 互斥锁): 在线先 POST refresh 再重拉快照; 离线仅本地重建 + 静默重试探测
+        if (mu && this.magpieObs) {
+          this.magpieObs.refreshQuotaCard()
+            .finally(() => this.refreshMagpieObservability(true));
+        } else {
+          this.updateAgentUsageCard(true);
+          this.refreshMagpieObservability(true);
+        }
         setTimeout(() => refreshBtn.classList.remove('spinning'), 500);
       };
     }
@@ -64017,15 +67033,17 @@ class TabonKBWorkbenchView extends ItemView {
       }, true);
     }
 
-    this.agentUsageCardEl.querySelectorAll('.tw-au-row').forEach(el => {
+    this.agentUsageCardEl.querySelectorAll('.tw-au-row[data-rk]').forEach(el => {
       el.onclick = () => {
-        const id = el.dataset.agent;
+        const id = el.dataset.rk;
         if (!id) return;
         if (this._agentUsageExpanded.has(id)) this._agentUsageExpanded.delete(id);
         else this._agentUsageExpanded.add(id);
-        this.updateAgentUsageCard();
+        this.updateAgentUsageCard(true);
       };
     });
+
+    this._mqRenderedOnce = true;
   }
 
   getViewType() {
@@ -64083,21 +67101,59 @@ class TabonKBWorkbenchView extends ItemView {
     try {
       globalThis.__twBootMark && __twBootMark('onOpen:start');
       this.setupCustomHeader();
-      this.render();
+      // 让出首帧给 Obsidian 原生侧边栏文件树 (File Explorer) 完成虚拟滚动测量与绘制，消除重载时左侧文件树白屏
+      await new Promise(resolve => {
+        if (typeof requestAnimationFrame === 'function') {
+          requestAnimationFrame(() => setTimeout(resolve, 0));
+        } else {
+          setTimeout(resolve, 0);
+        }
+      });
+      this._isInitialRenderPass = true;
+      try {
+        this.render();
+      } finally {
+        this._isInitialRenderPass = false;
+      }
       globalThis.__twBootMark && __twBootMark('onOpen:first-render');
+
+      // Ctrl+←/Ctrl+→ 隐藏/展示导航栏: 核心 Keymap 未绑定 Ctrl+方向键, document 捕获即可覆盖全部页签;
+      // 输入框内保留原生跳词行为 (不劫持)
+      this._navRailKeyHandler = (e) => {
+        if (!e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) return;
+        if (e.code !== 'ArrowLeft' && e.code !== 'ArrowRight') return;
+        if (!this.containerEl || !this.containerEl.isConnected) return;
+        const t = e.target;
+        if (t && t.closest && t.closest('input, textarea, [contenteditable=""], [contenteditable="true"]')) return;
+        e.preventDefault();
+        e.stopPropagation();
+        this.setNavRailCollapsed(e.code === 'ArrowLeft');
+      };
+      document.addEventListener('keydown', this._navRailKeyHandler, true);
+      // DSH iframe (Harness 页) 内按键到不了父文档, 由注入桥接脚本 postMessage 转发
+      this._navRailMsgHandler = (e) => {
+        try {
+          const d = e.data;
+          if (d && d.type === 'tabonkb-navrail') this.setNavRailCollapsed(d.dir === 'hide');
+        } catch (_) {}
+      };
+      window.addEventListener('message', this._navRailMsgHandler);
     } catch (err) {
+      this._isInitialRenderPass = false;
       console.error('[TabonKB Workbench] Initial render failed:', err);
     }
 
-    // 文档扫描让给空闲期: 首渲染已呈现工作台骨架, 与 Obsidian 冷启动索引争主线程
-    // 毫无意义——空闲再扫, 扫完增量渲染 (数据晚到零点几秒, 可交互性大幅提前)
-    const _scheduleScan = (typeof requestIdleCallback === 'function')
-      ? (fn) => requestIdleCallback(fn, { timeout: 1200 })
-      : (fn) => setTimeout(fn, 300);
-    _scheduleScan(() => {
+    // 文档扫描推迟至首屏稳定后执行，且扫描完成后仅当仍处于 home 页签且无流式任务时才局部刷新，
+    // 严禁在 explore(AI助手) / harness(DSH) / tools 等页签触发二次整页 container.empty() 重建！
+    setTimeout(() => {
       this.loadVaultDocs().then(() => {
         try {
-          this.render();
+          const hubBusy = !!(this.agentHub && typeof this.agentHub.isStreaming === 'function' && this.agentHub.isStreaming());
+          const drawerBusy = !!(this.agentDrawer && (this.agentDrawer._sendInFlight === true ||
+            (this.agentDrawer.hub && typeof this.agentDrawer.hub.isStreaming === 'function' && this.agentDrawer.hub.isStreaming())));
+          if (!hubBusy && !drawerBusy && this.activeTab === 'home') {
+            this.render();
+          }
         } catch (err) {
           console.error('[TabonKB Workbench] Post-scan render failed:', err);
           try { wkTopoWriteLog(this.app.vault.adapter.basePath, 'POSTSCAN-RENDER: ' + (err && err.stack || err)); } catch (e) {}
@@ -64108,7 +67164,7 @@ class TabonKBWorkbenchView extends ItemView {
         console.error('[TabonKB Workbench] Vault scan failed:', err);
         globalThis.__twBootFlush && __twBootFlush(this.app?.vault?.adapter?.basePath);
       });
-    });
+    }, 1200);
   }
 
   async refreshVaultDocs() {
@@ -64131,8 +67187,21 @@ class TabonKBWorkbenchView extends ItemView {
   }
 
   async onClose() {
+    if (this._mqAutoRefreshTimer) {
+      clearInterval(this._mqAutoRefreshTimer);
+      this._mqAutoRefreshTimer = null;
+    }
+    if (this._navRailKeyHandler) {
+      document.removeEventListener('keydown', this._navRailKeyHandler, true);
+      this._navRailKeyHandler = null;
+    }
+    if (this._navRailMsgHandler) {
+      window.removeEventListener('message', this._navRailMsgHandler);
+      this._navRailMsgHandler = null;
+    }
     this.closeHeatmapPopover();
     if (this.exploreView) {
+      try { this.exploreView.dispose && this.exploreView.dispose(); } catch (_) {}
       this.exploreView = null;
     }
     if (this.rssCenter) {
@@ -64196,7 +67265,12 @@ class TabonKBWorkbenchView extends ItemView {
       });
 
       const docs = [];
-      for (const file of mdFiles) {
+      let _fallbackReads = 0;
+      for (let _fIdx = 0; _fIdx < mdFiles.length; _fIdx++) {
+        const file = mdFiles[_fIdx];
+        if (_fIdx > 0 && _fIdx % 25 === 0) {
+          await new Promise(r => setTimeout(r, 0));
+        }
         try {
           const cache = (this.app.metadataCache && typeof this.app.metadataCache.getFileCache === 'function') 
             ? (this.app.metadataCache.getFileCache(file) || {}) 
@@ -64218,7 +67292,7 @@ class TabonKBWorkbenchView extends ItemView {
           try {
             // 仅当 frontmatter 缺摘要时才全文读取——此前无条件 cachedRead 每个文件，
             // 冷启动与 Obsidian 索引器抢盘是启动卡顿主因
-            if (typeof vault.cachedRead === 'function' && !summary) {
+            if (typeof vault.cachedRead === 'function' && !summary && this.activeTab === 'home' && _fallbackReads < 15) { _fallbackReads++;
               fileContent = await vault.cachedRead(file);
               if (!summary) {
                 let body = fileContent;
@@ -64500,7 +67574,7 @@ class TabonKBWorkbenchView extends ItemView {
     try {
       if (typeof localStorage !== 'undefined') {
         const s = localStorage.getItem('tabonkb-explore-subtab');
-        if (s === 'ai' || s === 'search' || s === 'notion') return s;
+        if (s === 'ai' || s === 'search') return s;
       }
     } catch (e) {}
     return 'ai';
@@ -64530,8 +67604,7 @@ class TabonKBWorkbenchView extends ItemView {
     const cur = this.getExploreSubTab();
     const subs = [
       { id: 'ai', label: 'AI助手', icon: 'robot' },
-      { id: 'search', label: '平台资源检索', icon: 'search' },
-      { id: 'notion', label: 'Notion AI', icon: 'book' }
+      { id: 'search', label: '平台资源检索', icon: 'search' }
     ];
     const menu = container.createDiv({ cls: 'tw-explore-submenu' });
     for (const s of subs) {
@@ -64684,8 +67757,20 @@ class TabonKBWorkbenchView extends ItemView {
     if (menu) menu.remove();
   }
 
+  // Ctrl+← 隐藏 / Ctrl+→ 展示 左侧导航栏: 折叠态存在视图实例上, 切页重渲染后自动恢复
+  setNavRailCollapsed(collapsed) {
+    this._navCollapsed = !!collapsed;
+    const rail = this.containerEl && this.containerEl.querySelector('.tabonkb-workbench-layout > .tw-nav-rail');
+    if (rail) rail.classList.toggle('tw-nav-collapsed', this._navCollapsed);
+  }
+
+  toggleNavRail() {
+    this.setNavRailCollapsed(!this._navCollapsed);
+  }
+
   renderNavRail(parentEl) {
     const rail = parentEl.createDiv({ cls: 'tw-nav-rail' });
+    if (this._navCollapsed) rail.addClass('tw-nav-collapsed');
 
     // Top Section: Brand + Navigation Items
     const topSec = rail.createDiv({ cls: 'tw-nav-rail-top' });
@@ -64812,6 +67897,7 @@ class TabonKBWorkbenchView extends ItemView {
       this.app.setting?.open?.();
       this.app.setting?.openTabById?.('tabonkb-workbench');
     };
+
   }
 
   renderTopBar(parentEl) {
@@ -66232,7 +69318,12 @@ module.exports = class TabonKBWorkbenchPlugin extends Plugin {
         profile: this.settings?.dsh?.profile || 'tabonkb'
       });
       if (this.settings?.dsh?.autoStart !== false) {
-        this.dshDaemon.start().catch((e) => console.warn('[TabonKB] DSH Daemon auto-start failed:', e));
+        // 延迟 1200ms 后台预热连接（若当前在 Harness 页签则由视图立即触发复用），避免与首屏渲染抢占主线程与进程句柄
+        setTimeout(() => {
+          if (this.dshDaemon) {
+            this.dshDaemon.start().catch((e) => console.warn('[TabonKB] DSH Daemon auto-start failed:', e));
+          }
+        }, 1200);
       }
     }
     try { globalThis.__twBootMark && __twBootMark('onload:dsh'); } catch (e) {}
@@ -66377,6 +69468,16 @@ module.exports = class TabonKBWorkbenchPlugin extends Plugin {
     }));
 
     try { globalThis.__twBootMark && __twBootMark('onload:end'); } catch (e) {}
+
+    // Debug probe: layout-ready mark + trailing flush to capture late async marks (dsh reuse ~1.5s, restore chunks)
+    try {
+      this.app.workspace.onLayoutReady(() => {
+        try { globalThis.__twBootMark && __twBootMark('layout:ready'); } catch (e) {}
+      });
+      setTimeout(() => {
+        try { globalThis.__twBootFlush && __twBootFlush(this.app?.vault?.adapter?.basePath); } catch (e) {}
+      }, 6500);
+    } catch (e) {}
   }
 
   async getSecret(secretName) {

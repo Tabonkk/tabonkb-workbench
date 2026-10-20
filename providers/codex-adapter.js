@@ -16,7 +16,7 @@ class CodexAdapter extends AgentAdapter {
       displayName: 'Codex',
       icon: getAgentBrandSvg('codex', 16),
       vaultBasePath: options.vaultBasePath || '',
-      permissionMode: options.permissionMode || 'readonly'
+      permissionMode: options.permissionMode || 'readwrite'
     });
 
     this.threadId = null;
@@ -125,7 +125,9 @@ class CodexAdapter extends AgentAdapter {
     this.emit('turn_start');
 
     const bin = this.resolveCodexBinary();
-    const sandbox = this.permissionMode === 'readwrite' ? 'workspace-write' : 'read-only';
+    // 三档映射: readonly→read-only / readwrite→workspace-write / full→danger-full-access
+    const sandbox = this.permissionMode === 'readonly' ? 'read-only'
+      : (this.permissionMode === 'full' ? 'danger-full-access' : 'workspace-write');
     const vaultPath = this.vaultBasePath || process.cwd();
 
     let args = [];

@@ -44,8 +44,10 @@ files = [
     f"{plugin_dir}\\agent-session-manager.js",
     f"{plugin_dir}\\agent-hub.js",
     f"{plugin_dir}\\agent-context-provider.js",
+    f"{plugin_dir}\\services\\file-locator-core.js",
     f"{plugin_dir}\\services\\local-project-service.js",
     f"{plugin_dir}\\services\\agent-version-service.js",
+    f"{plugin_dir}\\services\\magpie-observability-service.js",
     f"{plugin_dir}\\components\\code-viewer-panel.js",
     f"{plugin_dir}\\pi-drawer-view.js",
     f"{plugin_dir}\\services\\jira-service.js",
@@ -66,7 +68,7 @@ files = [
     f"{plugin_dir}\\components\\weknora-manage\\webview-embed.js",
     f"{plugin_dir}\\components\\weknora-manage\\manage-view.js",
     f"{plugin_dir}\\services\\clip-image-inliner.js",
-    f"{plugin_dir}\\components\\notion-embed.js",
+    f"{plugin_dir}\\components\\explore-palette.js",
     f"{plugin_dir}\\components\\explore-view.js",
     f"{plugin_dir}\\components\\phone-competitor-view.js",
     f"{plugin_dir}\\components\\dsh-studio-view.js",
@@ -218,6 +220,19 @@ new_constructor = """class TabonKBWorkbenchView extends ItemView {
     this._auLastTrend = [];
     this._agyQuotaCache = null; // @deprecated 额度功能已下线，字段保留置空防残留引用
 
+    // Magpie Observability Bridge (127.0.0.1:3425, 只读快照 + 本地兜底)
+    this.magpieObs = new MagpieObservabilityService();
+    this._mqMaskAccounts = false;          // 是否对账号邮箱打码
+    this._mqIncludeCache = true;           // TOKEN 统计是否含缓存读取
+    this._mqQuotaCollapsed = false;        // 「额度」区块是否折叠
+    this._mqTrendExpanded = new Set();     // 「剩余额度走势」被折叠的卡片 key 集合 (默认全展开)
+    this._mqRankTab = 'agents';            // 底部维度切换: 'agents' | 'models' | 'accounts'
+    this._mqAutoRefreshSec = 0;            // 自动刷新间隔: 0(关) | 5(5秒)
+    this._mqAutoRefreshTimer = null;
+    this._mqLastSnapshot = null;
+    this._mqRenderedOnce = false;
+    this._mqFetching = null;
+
     // Multi-Agent Hub Integration (Pi, Hermes, Gemini)
     const vaultPath = this.app?.vault?.adapter?.basePath || 'd:\\\\work\\\\Mgmt\\\\TabonKB';
     const plugin = this.app.plugins?.getPlugin?.('tabonkb-workbench') || this.app.plugins?.plugins?.['tabonkb-workbench'];
@@ -269,6 +284,10 @@ new_constructor = """class TabonKBWorkbenchView extends ItemView {
         try { this.toolsView.dispose(); } catch (_) {}
         this.toolsView = null;
       }
+    }
+    // 离开首页时停掉 Magpie 观测自动刷新定时器
+    if (this.activeTab === 'home' && tab !== 'home' && typeof this._mqClearAutoRefresh === 'function') {
+      this._mqClearAutoRefresh();
     }
     // 离开的页面记住自己的搜索词，进入的页面恢复各自缓存，互不串页
     if (this.activeTab) this.tabKeywords[this.activeTab] = this.keyword || '';
@@ -800,6 +819,10 @@ new_constructor = """class TabonKBWorkbenchView extends ItemView {
   }
 
   loadAiOplogEvents() {
+    const now = Date.now();
+    if (this._aiOplogCache && this._aiOplogCache.events && (now - this._aiOplogCache.at) < 15000) {
+      return this._aiOplogCache.events;
+    }
     const eventsByDate = {};
     try {
       const fs = require('fs');
@@ -841,6 +864,7 @@ new_constructor = """class TabonKBWorkbenchView extends ItemView {
     } catch (e) {
       console.warn('[TabonKB Workbench] loadAiOplogEvents error:', e);
     }
+    this._aiOplogCache = { at: now, events: eventsByDate };
     return eventsByDate;
   }
 
@@ -1377,7 +1401,7 @@ new_constructor = """class TabonKBWorkbenchView extends ItemView {
     try {
       if (typeof localStorage !== 'undefined') {
         const r = localStorage.getItem('tabonkb-agent-usage-range');
-        if (r === 'today' || r === 'week' || r === 'all') return r;
+        if (r === 'today' || r === 'week' || r === 'month' || r === 'all') return r;
       }
     } catch (e) {}
     return 'week';
@@ -1626,11 +1650,27 @@ new_constructor = """class TabonKBWorkbenchView extends ItemView {
     return map;
   }
 
-  // 跨源账本扫描: 10s 内存缓存 + 文件 mtimeMs 增量校验
-  _auLedgerScan() {
-    const cache = this._auLedgerCache || (this._auLedgerCache = { at: 0, fileMtimes: {}, records: null });
+  // 跨源账本扫描: 10s 内存缓存 + 文件 mtimeMs 增量校验 + 首帧冷启动异步预热让出主线程
+  _auLedgerScan(allowSyncColdScan = false) {
+    const cache = this._auLedgerCache || (this._auLedgerCache = { at: 0, fileMtimes: {}, records: null, warming: false });
     const now = Date.now();
     if (cache.records && (now - cache.at) < 10000) return cache.records;
+    // 首屏同步渲染阶段若磁盘账本尚未预热，先返回空集并用内存会话极速出首屏，后台异步完成 zstd/jsonl 扫描后自动刷新卡片
+    if (!cache.records && !allowSyncColdScan && typeof window !== 'undefined' && this._isInitialRenderPass) {
+      if (!cache.warming) {
+        cache.warming = true;
+        setTimeout(() => {
+          try {
+            this._auLedgerScan(true);
+            if (this.agentUsageCardEl && this.agentUsageCardEl.isConnected) this.updateAgentUsageCard();
+            if (this.homeHeatCardEl && this.homeHeatCardEl.isConnected) this.updateHomeHeatmapCard();
+          } catch (_) {} finally {
+            cache.warming = false;
+          }
+        }, 180);
+      }
+      return { piGroups: [], dsh: [] };
+    }
     const out = { piGroups: [], dsh: [] };
     try {
       const fs = require('fs'); const path = require('path');
@@ -1690,6 +1730,8 @@ new_constructor = """class TabonKBWorkbenchView extends ItemView {
       startTs = d0.getTime();
     } else if (range === 'week') {
       startTs = now - 7 * 86400000;
+    } else if (range === 'month') {
+      startTs = now - 30 * 86400000;
     }
 
     // ── 统一归一化消费记录 ──
@@ -1787,6 +1829,7 @@ new_constructor = """class TabonKBWorkbenchView extends ItemView {
     const rowMap = new Map();
     const daily = new Map();   // dateKey → {in,out,cr,tot,net,tools,turns,cost}
     const hourly = new Map();  // hourKey → 同上 (today 视图 24h 桶)
+    const bucketAg = new Map(); // 周期桶键(today→hourKey/其它→dayKey) → Map(agentId → acc)，Magpie 在线时用于合并未代理本地差额
     const totals = {
       tokens: 0, input: 0, output: 0, cache: 0, cacheW: 0, net: 0,
       turns: 0, sessions: 0, tools: 0, toolErrs: 0,
@@ -1861,6 +1904,15 @@ new_constructor = """class TabonKBWorkbenchView extends ItemView {
         hb.turns += turns; hb.cost += costUsd;
         hourly.set(hk2, hb);
       }
+      const bk = range === 'today' ? hk2 : dk;
+      if (bk) {
+        let am = bucketAg.get(bk);
+        if (!am) { am = new Map(); bucketAg.set(bk, am); }
+        const ad = am.get(r.agentId) || { in: 0, out: 0, cr: 0, tot: 0, net: 0, tools: 0, turns: 0, cost: 0 };
+        ad.in += r.in; ad.out += r.out; ad.cr += r.cr; ad.tot += r.tot; ad.net += r.net;
+        ad.tools += r.toolN; ad.turns += turns; ad.cost += costUsd;
+        am.set(r.agentId, ad);
+      }
     }
     totals.sessions = sessSet.size;
 
@@ -1925,7 +1977,7 @@ new_constructor = """class TabonKBWorkbenchView extends ItemView {
       toolsPerTurn: totals.turns > 0 ? totals.tools / totals.turns : 0
     };
 
-    return { rows, totals, kpis, trend, daily, maxMetric, metric, range, momPct };
+    return { rows, totals, kpis, trend, daily, bucketAg, maxMetric, metric, range, momPct };
   }
 
   // 热力图「AI 协同」维度数据源: 按日聚合的 Agent 对话事件
@@ -1951,6 +2003,7 @@ new_constructor = """class TabonKBWorkbenchView extends ItemView {
 
   renderAgentUsageCard(parentEl) {
     this.agentUsageCardEl = parentEl.createDiv({ cls: 'tw-card tw-agent-usage-card' });
+    this._mqRenderedOnce = false;
     this.updateAgentUsageCard();
     // Agent 回合结束后自动重算（仅在首页卡片仍挂载时），无需手动刷新
     if (!this._agentUsageBound && this.agentHub && typeof this.agentHub.on === 'function') {
@@ -1959,10 +2012,49 @@ new_constructor = """class TabonKBWorkbenchView extends ItemView {
         if (this.agentUsageCardEl && this.agentUsageCardEl.isConnected) {
           if (this._auLedgerCache) this._auLedgerCache.at = 0; // 回合结束强制作废账本缓存
           setTimeout(() => this.updateAgentUsageCard(), 400);
+          this.refreshMagpieObservability(true); // 网关账本同步过期
         }
       };
       this.agentHub.on('turn_end', schedule);
       this.agentHub.on('agent_settled', schedule);
+    }
+  }
+
+  // ── Magpie 观测桥接：异步非阻塞拉取只读快照，完成后重渲染（skipRemoteFetch 防死循环）──
+  refreshMagpieObservability(force = false) {
+    if (!this.magpieObs) return Promise.resolve(null);
+    if (this._mqFetching) return this._mqFetching;
+    this._mqFetching = this.magpieObs.fetchSnapshot(this.agentUsageRange, force)
+      .then((snap) => {
+        this._mqLastSnapshot = snap;
+        const needRender = !this._mqRenderedOnce || force || (snap && snap.fromCache !== true);
+        if (needRender && this.agentUsageCardEl && this.agentUsageCardEl.isConnected) {
+          this.updateAgentUsageCard(true);
+        }
+        return snap;
+      })
+      .catch(() => null)
+      .finally(() => { this._mqFetching = null; });
+    return this._mqFetching;
+  }
+
+  _mqClearAutoRefresh() {
+    if (this._mqAutoRefreshTimer) {
+      clearInterval(this._mqAutoRefreshTimer);
+      this._mqAutoRefreshTimer = null;
+    }
+    this._mqAutoRefreshSec = 0;
+  }
+
+  _mqSetAutoRefresh(sec) {
+    this._mqClearAutoRefresh();
+    if (sec > 0) {
+      this._mqAutoRefreshSec = sec;
+      this._mqAutoRefreshTimer = setInterval(() => {
+        if (this.agentUsageCardEl && this.agentUsageCardEl.isConnected) {
+          this.refreshMagpieObservability(true);
+        }
+      }, sec * 1000);
     }
   }
 
@@ -2070,8 +2162,197 @@ new_constructor = """class TabonKBWorkbenchView extends ItemView {
     pop.hidden = false;
   }
 
-  updateAgentUsageCard() {
+  // 供应商图标：优先官方品牌 SVG（icon 字段去 -color 后缀），未知供应商回退首字母徽章
+  _mqProviderIcon(card, size = 14) {
+    const raw = String((card && (card.icon || card.provider)) || '').toLowerCase().replace(/-color$/, '');
+    const KNOWN = { claude: 1, deepseek: 1, qwen: 1, kimi: 1, doubao: 1, gemini: 1, grok: 1, antigravity: 1, openai: 1, glm: 1, minimax: 1, longcat: 1, mimo: 1, hunyuan: 1, hermes: 1, niceaigc: 1, science: 1 };
+    try {
+      if (raw === 'pi') return getAgentBrandSvg('pi', size);
+      if (KNOWN[raw]) return getOfficialModelSvg(raw, size);
+    } catch (e) {}
+    const letter = escapeHtml(String((card && (card.name || card.provider)) || '?').trim().charAt(0).toUpperCase() || '?');
+    return `<span class="tw-mq-qbrand-fb">${letter}</span>`;
+  }
+
+  // 单个额度窗口行: 名称 + 已用%/重置/配速 + 进度条 + 整窗容量/到期 + 剩余额度走势 SVG
+  _mqWindowHtml(card, win, snap) {
+    const obs = this.magpieObs;
+    const used = Number(win && win.used);
+    const hasUsed = Number.isFinite(used);
+    const resetMs = Date.parse((win && (win.resetsAt || win.runsOutAt)) || '');
+    let metaTxt = hasUsed ? `已用 ${used.toFixed(1)}%` : '';
+    if (Number.isFinite(resetMs)) {
+      const d = new Date(resetMs);
+      metaTxt += ` · ${d.getMonth() + 1}月${d.getDate()}日重置`;
+    }
+    const pts = obs ? obs.findHistoryPoints(card, win, snap && snap.histories) : [];
+    const pace = obs ? obs.computePace(win, pts, Date.now()) : null;
+    const paceHtml = pace ? ` · <span class="tw-mq-pace is-${pace.status}">${escapeHtml(pace.label)}</span>` : '';
+    const disp = win && win.display ? `<span class="tw-mq-win-disp"> · ${escapeHtml(String(win.display))}</span>` : '';
+    const pct = hasUsed ? Math.max(0, Math.min(100, used)) : 0;
+    const barCls = pct >= 80 ? ' is-danger' : pct >= 50 ? ' is-warn' : '';
+    const holds = obs ? obs.formatWindowHolds(win, (n) => this.fmtUsageTok(n)) : '';
+    const expMs = Date.parse((card && (card.expiresAt || card.planEndsAt)) || '');
+    let expTxt = '';
+    if (Number.isFinite(expMs)) {
+      const ed = new Date(expMs);
+      expTxt = `${ed.getFullYear()}年${ed.getMonth() + 1}月${ed.getDate()}日到期`;
+    }
+    const key = `${(card && card.provider) || ''}|${(card && card.user) || ''}|${(win && win.name) || ''}`;
+    const open = !this._mqTrendExpanded.has(key);
+    const plot = (open && obs) ? obs.renderQuotaPlotSvg(win, pts, Date.now()) : { svg: '', eta: null };
+    const etaHtml = plot.eta ? `<div class="tw-mq-eta-text${plot.eta.safe === false ? ' is-warn' : ''}">${escapeHtml(plot.eta.text)}</div>` : '';
+    return `
+      <div class="tw-mq-win-row">
+        <div class="tw-mq-win-top"><span class="tw-mq-win-name">${escapeHtml((win && win.name) || '窗口')}</span><span class="tw-mq-win-meta">${metaTxt}${paceHtml}${disp}</span></div>
+        <div class="tw-mq-bar-track"><div class="tw-mq-bar-fill${barCls}" style="width:${pct.toFixed(1)}%"></div></div>
+        <div class="tw-mq-win-sub"><span>${escapeHtml(holds)}</span><span>${escapeHtml(expTxt)}</span></div>
+        <div class="tw-mq-trend-box">
+          <div class="tw-mq-trend-head" data-mqtrend="${escapeHtml(key)}"><span>${open ? '▾' : '▸'} 剩余额度走势</span><span>${pts.length} 点</span></div>
+          ${open ? `${plot.svg}${etaHtml}` : ''}
+        </div>
+      </div>`;
+  }
+
+  _mqQuotaCardHtml(card, snap) {
+    const icon = this._mqProviderIcon(card, 14);
+    const plan = card && card.plan ? `<span class="tw-mq-plan-tag">${escapeHtml(card.plan)}</span>` : '';
+    const user = this.magpieObs ? this.magpieObs.maskUser(card && card.user, this._mqMaskAccounts) : String((card && card.user) || '');
+    const wins = (card && Array.isArray(card.windows)) ? card.windows.map(w => this._mqWindowHtml(card, w, snap)).join('') : '';
+    return `
+      <div class="tw-mq-qcard" data-mqprov="${escapeHtml((card && card.provider) || '')}" data-mquser="${escapeHtml((card && card.user) || '')}">
+        <div class="tw-mq-qcard-head">
+          <span class="tw-mq-qcard-brand">${icon}${escapeHtml((card && (card.name || card.provider)) || '')}${plan}</span>
+          <span class="tw-mq-qcard-user" title="${escapeHtml((card && card.user) || '')}">${escapeHtml(user)}<button class="tw-mq-card-refresh" title="刷新该账号额度">↻</button></span>
+        </div>
+        ${wins}
+      </div>`;
+  }
+
+  // 「额度」折叠区块: 头部开关 + 账号打码 + 卡片网格
+  _mqQuotaSectionHtml(snap) {
+    const cards = (snap && snap.cards) || [];
+    if (!cards.length) return '';
+    const collapsed = this._mqQuotaCollapsed;
+    const grid = collapsed ? '' : `<div class="tw-mq-quota-grid">${cards.map(c => this._mqQuotaCardHtml(c, snap)).join('')}</div>`;
+    return `
+      <div class="tw-mq-quota-section">
+        <div class="tw-mq-sec-bar">
+          <span class="tw-mq-sec-toggle" data-mqsec="1">${collapsed ? '▸' : '▾'} 额度 <i>${cards.length}</i></span>
+          <button class="tw-mq-mask-btn" data-mqmask="1">${this._mqMaskAccounts ? '已打码' : '账号打码'}</button>
+        </div>
+        ${grid}
+      </div>`;
+  }
+
+  // 网关单行（agent/model/account）归一化为本地 row 形态，供排行渲染统一消费
+  _mqNormGwRow(o, kind) {
+    const inV = Math.max(0, o.input || 0), outV = Math.max(0, o.output || 0);
+    const crV = Math.max(0, o.cache_read || 0), cwV = Math.max(0, o.cache_write || 0);
+    const timed = Math.max(0, o.timed || 0);
+    return {
+      id: o.id || o.model || o.account || '',
+      name: o.name || o.model || o.account || o.id || '',
+      sub: o.sub || '',
+      iconKey: o.icon || o.provider || '',
+      tokens: inV + outV + crV + cwV,
+      net: inV + outV + cwV,
+      input: inV, output: outV, cache: crV, cacheW: cwV,
+      reas: Math.max(0, o.reasoning || 0),
+      calls: Math.max(0, o.calls || 0),
+      errors: Math.max(0, o.errors || 0),
+      retried: Math.max(0, o.retried || 0),
+      tools: 0,
+      turns: Math.max(0, o.calls || 0),
+      costUsd: Math.max(0, o.cost || 0),
+      ttftAvg: timed > 0 ? (o.ttft_ms || 0) / timed / 1000 : 0,
+      gw: true, kind
+    };
+  }
+
+  // 三维排行数据: agents(网关+本地未代理差额) / models / accounts; 离线回退本地账本
+  _mqRankRows(mu, stats, gwIds) {
+    const tab = this._mqRankTab;
+    const rows = [];
+    const seen = new Set();
+    if (mu) {
+      if (tab === 'agents') {
+        for (const a of (mu.agents || [])) {
+          const r = this._mqNormGwRow(a, 'agent');
+          if (r.name === r.id) { const nm = { pi: 'Pi Agent', dsh: 'Harness', antigravity: 'Antigravity', niceaigc: 'NiceAIGC', codex: 'Codex', gemini: 'Gemini', hermes: 'Hermes' }; if (nm[r.id]) r.name = nm[r.id]; }
+          rows.push(r); seen.add(r.id);
+        }
+      } else if (tab === 'models') {
+        for (const m of (mu.models || [])) { rows.push(this._mqNormGwRow(m, 'model')); seen.add(String(m.model || m.id || '').toLowerCase()); }
+      } else {
+        for (const a of (mu.accounts || [])) {
+          const r = this._mqNormGwRow(a, 'account');
+          r.name = this.magpieObs ? this.magpieObs.maskUser(a.account || a.name, this._mqMaskAccounts) : (a.account || a.name);
+          rows.push(r);
+        }
+      }
+    }
+    // 本地账本：离线全量 / 在线仅未走网关的 Agent 差额（杜绝双计）
+    const localRows = mu ? stats.rows.filter(r => !gwIds.has(r.id)) : stats.rows;
+    if (tab === 'agents') {
+      for (const r of localRows) {
+        if (seen.has(r.id)) continue;
+        r.gw = false; rows.push(r);
+      }
+    } else if (tab === 'models') {
+      const merged = new Map();
+      for (const r of localRows) {
+        for (const m of (r.modelList || [])) {
+          const key = String(m.name || '').toLowerCase();
+          const acc = merged.get(key) || { id: 'lm|' + key, name: m.name, sub: '', iconKey: '', tokens: 0, net: 0, input: 0, output: 0, cache: 0, cacheW: 0, reas: 0, calls: 0, errors: 0, retried: 0, tools: 0, turns: 0, costUsd: 0, ttftAvg: 0, gw: false, kind: 'model' };
+          acc.tokens += m.tokens; acc.input += m.in || 0; acc.output += m.out || 0; acc.cache += m.cr || 0;
+          acc.net += (m.in || 0) + (m.out || 0); acc.turns += m.turns || 0; acc.calls += m.turns || 0;
+          merged.set(key, acc);
+        }
+      }
+      for (const r of merged.values()) { if (!seen.has(String(r.name).toLowerCase())) rows.push(r); }
+    }
+    rows.sort((a, b) => (b.tokens - a.tokens) || (b.calls - a.calls));
+    return rows;
+  }
+
+  // 排行行展开明细: 网关行显示输入/输出/缓存/推理/调用/失败/TTFT 明细行；本地行沿用模型清单
+  _mqRowExpandHtml(r, fmt, full) {
+    if (r.gw) {
+      const parts = [`输入 ${fmt(r.input)}`, `输出 ${fmt(r.output)}`];
+      if (r.cache > 0) parts.push(`缓存 ${fmt(r.cache)}`);
+      if (r.cacheW > 0) parts.push(`缓存写 ${fmt(r.cacheW)}`);
+      if (r.reas > 0) parts.push(`推理 ${fmt(r.reas)}`);
+      const line2 = [`${full(r.calls)} 调用`];
+      if (r.errors > 0) line2.push(`${r.errors} 失败`);
+      if (r.retried > 0) line2.push(`${r.retried} 重试成功`);
+      if (r.ttftAvg > 0) line2.push(`TTFT ${r.ttftAvg.toFixed(1)}s`);
+      if (r.costUsd > 0.001) line2.push(`~$${r.costUsd.toFixed(2)}`);
+      return `<div class="tw-au-expand"><div class="tw-au-model-line"><span class="tw-au-model-name">${escapeHtml(parts.join(' · '))}</span><span class="tw-au-model-meta"><b class="mm-tok">${escapeHtml(line2.join(' · '))}</b></span></div></div>`;
+    }
+    const list = r.modelList || [];
+    if (!list.length) {
+      const fb = r.kind === 'model'
+        ? `${r.turns || 0} 轮 · ${fmt(r.tokens)} tok${r.costUsd > 0.001 ? ` · ~$${r.costUsd.toFixed(2)}` : ''}`
+        : '无模型用量记录';
+      return `<div class="tw-au-expand"><div class="tw-au-model-line"><span class="tw-au-model-name">${escapeHtml(fb)}</span><span>—</span></div></div>`;
+    }
+    const modelRows = list.map(m => {
+      const mw = list[0].tokens > 0 ? Math.max(3, m.tokens / list[0].tokens * 100) : 0;
+      const perTurn = m.turns > 0 ? fmt(Math.round(m.tokens / m.turns)) : '—';
+      const mSum = Math.max(1, (m.in || 0) + (m.out || 0) + (m.cr || 0));
+      const wI = ((m.in || 0) / mSum) * 100;
+      const wO = ((m.out || 0) / mSum) * 100;
+      const wC = Math.max(0, 100 - wI - wO);
+      return `<div class="tw-au-model-line"><span class="tw-au-model-name">${escapeHtml(m.name)}${m.effort ? `<i class="tw-au-effort">${escapeHtml(m.effort)}</i>` : ''}</span><span class="tw-au-model-bar-wrap"><span class="tw-au-mbar" style="width:${mw.toFixed(0)}%"><i class="in" style="width:${wI.toFixed(1)}%"></i><i class="out" style="width:${wO.toFixed(1)}%"></i><i class="cache" style="width:${wC.toFixed(1)}%"></i></span></span><span class="tw-au-model-meta"><b class="mm-tok">${fmt(m.tokens)}</b><i class="mm-per">${perTurn}/轮</i><i class="mm-turns">${m.turns}轮</i></span></div>`;
+    }).join('');
+    return `<div class="tw-au-expand">${modelRows}</div>`;
+  }
+
+  updateAgentUsageCard(skipRemoteFetch = false) {
     if (!this.agentUsageCardEl) return;
+    // 异步非阻塞桥接 Magpie 快照 (1500ms 超时 + 8s TTL + 离线静默兜底), 绝不阻塞首屏渲染栈
+    if (!skipRemoteFetch) this.refreshMagpieObservability(false);
     const stats = this.collectAgentUsageStats();
     const range = stats.range;
     const metric = stats.metric;
@@ -2079,140 +2360,310 @@ new_constructor = """class TabonKBWorkbenchView extends ItemView {
     const full = (n) => (Number(n) || 0).toLocaleString();
     const k = stats.kpis, t = stats.totals;
 
-    // ── 层1: 标题 + 周期摘要 + 指标切换 + 周期选择 + 刷新 ──
-    const rangeLabel = { today: '今日', week: '近7天', all: '全部' }[range] || range;
-    const momHtml = stats.momPct != null
-      ? ` · 环比 <b class="${stats.momPct >= 0 ? 'tw-au-up' : 'tw-au-down'}">${stats.momPct >= 0 ? '+' : ''}${stats.momPct.toFixed(0)}%</b>` : '';
+    // ── 双源融合: Magpie 网关精确账本 + 本地未代理 Agent 差额; 离线 100% 本地账本 ──
+    const snap = this._mqLastSnapshot;
+    const gwOnline = !!(snap && snap.online);
+    // usage.period 必须与当前周期一致，防止切周期瞬间短暂渲染旧周期缓存
+    const mu = (snap && snap.online && snap.usage && this.magpieObs &&
+      snap.usage.period === this.magpieObs.mapPeriod(range)) ? snap.usage : null;
+    const gwIds = new Set();
+    if (mu && Array.isArray(mu.agents)) for (const a of mu.agents) gwIds.add(a.id);
+    const ng = { input: 0, output: 0, cache: 0, cacheW: 0, turns: 0, tools: 0, toolErrs: 0, costUsd: 0, savedUsd: 0, tokens: 0, net: 0 };
+    if (mu) {
+      for (const r of stats.rows) {
+        if (gwIds.has(r.id)) continue;
+        ng.input += r.input; ng.output += r.output; ng.cache += r.cache; ng.cacheW += r.cacheW;
+        ng.turns += r.turns; ng.tools += r.tools; ng.toolErrs += r.toolErrs;
+        ng.costUsd += r.costUsd; ng.savedUsd += r.savedUsd; ng.tokens += r.tokens; ng.net += r.net;
+      }
+    }
+    const tokIn = mu ? (mu.input || 0) + ng.input : t.input;
+    const tokOut = mu ? (mu.output || 0) + ng.output : t.output;
+    const tokCr = mu ? (mu.cache_read || 0) + ng.cache : t.cache;
+    const tokCw = mu ? (mu.cache_write || 0) + ng.cacheW : t.cacheW;
+    const tokReas = mu ? Math.max(0, mu.reasoning || 0) : 0;
+    const callsN = mu ? (mu.calls || 0) + ng.turns : k.turns;
+    const errN = mu ? (mu.errors || 0) : t.toolErrs;
+    const retriedN = mu ? (mu.retried || 0) : 0;
+    const costUsd = mu ? (mu.cost || 0) + ng.costUsd : t.costUsd;
+    const hitDenom = tokIn + tokCr + tokCw;
+    const hitPct = hitDenom > 0 ? (tokCr / hitDenom * 100) : 0;
+    let savedUsd = mu ? ng.savedUsd : k.savedUsd;
+    if (mu) {
+      for (const m of (mu.models || [])) {
+        const pr = this._auModelPricing(m.model);
+        savedUsd += Math.max(0, ((m.cache_read || 0) / 1e6) * (pr.in - pr.cacheRead));
+      }
+    }
+    const ttftAvg = (mu && (mu.timed || 0) > 0) ? (mu.ttft_ms || 0) / mu.timed / 1000 : 0;
+
+    // ── 层1: 顶栏 = 标题 + 网关状态胶囊 + 生效价格 + 周期按钮组 + 5秒自动刷新 + 手动刷新 ──
+    const rangeSeg = `
+      <div class="tw-au-metric-seg" role="tablist">
+        <button type="button" class="tw-au-metric-btn tw-au-range-btn${range === 'today' ? ' active' : ''}" data-r="today">今天</button>
+        <button type="button" class="tw-au-metric-btn tw-au-range-btn${range === 'week' ? ' active' : ''}" data-r="week">7天</button>
+        <button type="button" class="tw-au-metric-btn tw-au-range-btn${range === 'month' ? ' active' : ''}" data-r="month">30天</button>
+        <button type="button" class="tw-au-metric-btn tw-au-range-btn${range === 'all' ? ' active' : ''}" data-r="all">全部</button>
+      </div>`;
     const metricSeg = `
       <div class="tw-au-metric-seg" role="tablist">
         <button type="button" class="tw-au-metric-btn${metric === 'tokens' ? ' active' : ''}" data-m="tokens">总Token</button>
         <button type="button" class="tw-au-metric-btn${metric === 'net' ? ' active' : ''}" data-m="net">净计费</button>
         <button type="button" class="tw-au-metric-btn${metric === 'tools' ? ' active' : ''}" data-m="tools">工具</button>
       </div>`;
+    const momHtml = stats.momPct != null
+      ? `<span class="tw-au-mom">环比 <b class="${stats.momPct >= 0 ? 'tw-au-up' : 'tw-au-down'}">${stats.momPct >= 0 ? '+' : ''}${stats.momPct.toFixed(0)}%</b></span>` : '';
 
-    // ── 层2: 四格 KPI（图标徽章 + 大数字 + 左标签右微胶囊）──
-    const hitPct = (k.hitRate * 100).toFixed(1);
-    const okPct = k.toolOkRate == null ? '—' : (k.toolOkRate * 100).toFixed(1) + '%';
+    // ── 层2: Magpie 同款 4 大核心 KPI ──
     const ic = (n) => { try { return getIconPark(n, 12); } catch (e) { return ''; } };
+    const tokMain = this._mqIncludeCache ? (tokIn + tokOut + tokCr + tokCw) : (tokIn + tokOut);
+    const kpiTokSub = `${fmt(tokIn)} 输入 · ${fmt(tokOut)} 输出`;
+    const kpiCacheSub = `${hitPct.toFixed(1)}% 命中率${savedUsd > 0.001 ? `<span class="tw-au-sub-pill p-green">省 ~$${savedUsd.toFixed(1)}</span>` : ''}`;
+    let kpiReasMain, kpiReasSub;
+    if (tokReas > 0) {
+      kpiReasMain = `${fmt(tokReas)}<i> tok</i>`;
+      kpiReasSub = `输出内含 ${tokOut > 0 ? (tokReas / tokOut * 100).toFixed(1) : '0.0'}%`;
+    } else if (ttftAvg > 0) {
+      kpiReasMain = `${ttftAvg.toFixed(1)}<i> s</i>`;
+      kpiReasSub = `平均首字延迟${mu && mu.timed ? ` · ${mu.timed} 次计时` : ''}`;
+    } else {
+      kpiReasMain = `${k.avgDurS > 0 ? k.avgDurS.toFixed(1) : '0.0'}<i> s</i>`;
+      kpiReasSub = '平均轮次耗时';
+    }
+    const errPill = errN > 0 ? `<span class="tw-au-sub-pill p-red">${errN} 失败</span>` : '';
+    const retryPill = retriedN > 0 ? `<span class="tw-au-sub-pill p-amber">${retriedN} 重试后成功</span>` : '';
+    const kpiCallsSub = `${errPill}${retryPill}<span class="lab">${mu ? '' : `${k.sessions} 会话 · `}${t.tools} 工具</span>`;
     const kpiHtml = `
       <div class="tw-au-kpis">
         <div class="tw-au-kpi">
-          <div class="tw-au-kpi-head"><span class="tw-au-kpi-label">总消耗 Token</span><i class="tw-au-kpi-ic ic-blue">${ic('database')}</i></div>
-          <b class="tw-au-kpi-val">${fmt(k.tokens)}<i> tok</i></b>
-          <span class="tw-au-kpi-sub"><span class="lab">净计费 ${fmt(k.net)}</span>${k.inOutRatio != null ? `<span class="tw-au-sub-pill p-blue">入/出 ${k.inOutRatio.toFixed(1)}:1</span>` : ''}</span></div>
+          <div class="tw-au-kpi-head"><span class="tw-au-kpi-label">TOKEN</span><span class="tw-mq-mini-seg"><button type="button" class="${this._mqIncludeCache ? 'active' : ''}" data-mqcache="1">含缓存</button><button type="button" class="${this._mqIncludeCache ? '' : 'active'}" data-mqcache="0">不含缓存</button></span></div>
+          <b class="tw-au-kpi-val">${fmt(tokMain)}<i> tok</i></b>
+          <span class="tw-au-kpi-sub"><span class="lab">${kpiTokSub}</span></span></div>
         <div class="tw-au-kpi">
-          <div class="tw-au-kpi-head"><span class="tw-au-kpi-label">缓存命中与降本</span><i class="tw-au-kpi-ic ic-purple">${ic('pie')}</i></div>
-          <b class="tw-au-kpi-val">${hitPct}<i>%</i></b>
-          <span class="tw-au-kpi-sub"><span class="lab">缓存读 ${fmt(k.cacheRead)}</span><span class="tw-au-sub-pill p-green">省 ~$${k.savedUsd.toFixed(1)}</span></span></div>
+          <div class="tw-au-kpi-head"><span class="tw-au-kpi-label">缓存读取</span><i class="tw-au-kpi-ic ic-purple">${ic('pie')}</i></div>
+          <b class="tw-au-kpi-val">${fmt(tokCr)}<i> tok</i></b>
+          <span class="tw-au-kpi-sub"><span class="lab">${kpiCacheSub}</span></span></div>
         <div class="tw-au-kpi">
-          <div class="tw-au-kpi-head"><span class="tw-au-kpi-label">对话轮次与时效</span><i class="tw-au-kpi-ic ic-cyan">${ic('time')}</i></div>
-          <b class="tw-au-kpi-val">${k.turns}<i> 轮</i></b>
-          <span class="tw-au-kpi-sub"><span class="lab">${k.sessions} 会话</span>${k.avgDurS > 0 ? `<span class="tw-au-sub-pill p-slate">均耗 ${this._auFmtDur(k.avgDurS).replace(' / 轮', '/轮')}</span>` : ''}</span></div>
+          <div class="tw-au-kpi-head"><span class="tw-au-kpi-label">推理</span><i class="tw-au-kpi-ic ic-cyan">${ic('brain')}</i></div>
+          <b class="tw-au-kpi-val">${kpiReasMain}</b>
+          <span class="tw-au-kpi-sub"><span class="lab">${kpiReasSub}</span></span></div>
         <div class="tw-au-kpi">
-          <div class="tw-au-kpi-head"><span class="tw-au-kpi-label">工具调用与成功率</span><i class="tw-au-kpi-ic ic-orange">${ic('tool')}</i></div>
-          <b class="tw-au-kpi-val">${full(k.tools)}<i> 次</i></b>
-          <span class="tw-au-kpi-sub"><span class="lab">${k.toolsPerTurn.toFixed(1)} 次/轮</span>${k.toolOkRate != null ? `<span class="tw-au-sub-pill p-green">成功率 ${okPct}</span>` : ''}</span></div>
+          <div class="tw-au-kpi-head"><span class="tw-au-kpi-label">次调用</span><i class="tw-au-kpi-ic ic-orange">${ic('tool')}</i></div>
+          <b class="tw-au-kpi-val">${full(callsN)}<i> 次</i></b>
+          <span class="tw-au-kpi-sub">${kpiCallsSub}</span></div>
       </div>`;
 
-    // ── 层3: 左趋势 SVG + 右效能排行矩阵 ──
+    // ── 层3: 左分时堆叠柱状图(网关 series 优先, 合并未代理本地桶) + 右三维排行 ──
+    const dayKeyOf = (ts) => {
+      const d = new Date(ts);
+      return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    };
+    const hourKeyOf = (ts) => dayKeyOf(ts) + 'T' + String(new Date(ts).getHours()).padStart(2, '0');
+    let trendData = stats.trend || [];
+    if (mu && Array.isArray(mu.series) && mu.series.length) {
+      trendData = mu.series.map(s => {
+        const ts = Date.parse(s.time);
+        const key = Number.isFinite(ts) ? (mu.bucket === 'hour' ? hourKeyOf(ts) : dayKeyOf(ts)) : String(s.label || '');
+        const b = {
+          key, label: s.label || key,
+          in: Math.max(0, s.input || 0), out: Math.max(0, s.output || 0), cr: Math.max(0, s.cache_read || 0),
+          tot: Math.max(0, (s.input || 0) + (s.output || 0) + (s.cache_read || 0) + (s.cache_write || 0)),
+          net: Math.max(0, (s.input || 0) + (s.output || 0) + (s.cache_write || 0)),
+          tools: 0, turns: Math.max(0, s.calls || 0), cost: Math.max(0, s.cost || 0)
+        };
+        const m = stats.bucketAg && stats.bucketAg.get(key);
+        if (m) {
+          for (const [agId, ad] of m.entries()) {
+            if (gwIds.has(agId)) continue;
+            b.in += ad.in; b.out += ad.out; b.cr += ad.cr; b.tot += ad.tot; b.net += ad.net;
+            b.tools += ad.tools; b.turns += ad.turns; b.cost += ad.cost;
+          }
+        }
+        return b;
+      });
+    }
+    const hasData = mu ? (trendData.length > 0 || (mu.agents || []).length > 0 || stats.rows.length > 0) : stats.rows.length > 0;
     let mainHtml = '';
-    if (stats.rows.length === 0) {
+    if (!hasData) {
       mainHtml = '<div class="tw-au-empty">该周期暂无用量记录</div>';
     } else {
-      this._auLastTrend = stats.trend || [];
-      const trendHtml = `<div class="tw-au-trend"><div class="tw-au-trend-title">每日用量趋势<span class="tw-au-mini-legend"><i class="lg-in"></i>输入<i class="lg-out"></i>输出<i class="lg-cr"></i>缓存</span></div>${this._auTrendChart(stats.trend, metric)}</div>`;
-      const metricOf = (r) => metric === 'net' ? r.net : metric === 'tools' ? r.tools : r.tokens;
-      const rowsHtml = stats.rows.map((r) => {
-        const wIn = (r.input / r.segSum) * 100;
-        const wOut = (r.output / r.segSum) * 100;
+      this._auLastTrend = trendData;
+      const trendTitle = range === 'today' ? '逐时用量趋势' : '每日用量趋势';
+      const trendHtml = `<div class="tw-au-trend"><div class="tw-au-trend-title">${trendTitle}<span class="tw-au-mini-legend"><i class="lg-in"></i>输入<i class="lg-out"></i>输出<i class="lg-cr"></i>缓存</span>${momHtml}${metricSeg}</div>${this._auTrendChart(trendData, metric)}</div>`;
+
+      const rankRows = this._mqRankRows(mu, stats, gwIds);
+      const metricOf = (r) => metric === 'net' ? r.net : metric === 'tools' ? (r.tools || 0) : r.tokens;
+      const maxMv = Math.max(1, ...rankRows.map(metricOf));
+      const rowsHtml = rankRows.length ? rankRows.map((r) => {
+        const segSum = Math.max(1, r.input + r.output + r.cache);
+        const wIn = (r.input / segSum) * 100;
+        const wOut = (r.output / segSum) * 100;
         const wCache = Math.max(0, 100 - wIn - wOut);
         const mv = metricOf(r);
-        const barW = mv > 0 ? Math.max(2, (mv / stats.maxMetric) * 100) : 0;
+        const barW = mv > 0 ? Math.max(2, (mv / maxMv) * 100) : 0;
         const segsHtml = r.tokens > 0 ? `<span class="tw-au-seg tw-au-seg-in" style="width:${wIn.toFixed(1)}%"></span><span class="tw-au-seg tw-au-seg-out" style="width:${wOut.toFixed(1)}%"></span><span class="tw-au-seg tw-au-seg-cache" style="width:${wCache.toFixed(1)}%"></span>` : '';
-        const expanded = this._agentUsageExpanded.has(r.id);
+        const rk = `mq|${this._mqRankTab}|${r.id || r.name}`;
+        const expanded = this._agentUsageExpanded.has(rk);
         let icon = '';
-        try { icon = getAgentBrandSvg(r.id, 12); } catch (e) {}
-        let expandHtml = '';
-        if (expanded) {
-          const modelRows = r.modelList.length ? r.modelList.map(m => {
-            const mw = r.modelList[0].tokens > 0 ? Math.max(3, m.tokens / r.modelList[0].tokens * 100) : 0;
-            const perTurn = m.turns > 0 ? fmt(Math.round(m.tokens / m.turns)) : '—';
-            const mSum = Math.max(1, (m.in || 0) + (m.out || 0) + (m.cr || 0));
-            const wI = ((m.in || 0) / mSum) * 100;
-            const wO = ((m.out || 0) / mSum) * 100;
-            const wC = Math.max(0, 100 - wI - wO);
-            return `<div class="tw-au-model-line"><span class="tw-au-model-name">${escapeHtml(m.name)}${m.effort ? `<i class="tw-au-effort">${escapeHtml(m.effort)}</i>` : ''}</span><span class="tw-au-model-bar-wrap"><span class="tw-au-mbar" style="width:${mw.toFixed(0)}%"><i class="in" style="width:${wI.toFixed(1)}%"></i><i class="out" style="width:${wO.toFixed(1)}%"></i><i class="cache" style="width:${wC.toFixed(1)}%"></i></span></span><span class="tw-au-model-meta"><b class="mm-tok">${fmt(m.tokens)}</b><i class="mm-per">${perTurn}/轮</i><i class="mm-turns">${m.turns}轮</i></span></div>`;
-          }).join('') : '<div class="tw-au-model-line"><span class="tw-au-model-name">无模型用量记录</span><span>—</span></div>';
-          expandHtml = `<div class="tw-au-expand">${modelRows}</div>`;
+        if (r.gw) {
+          icon = this._mqProviderIcon({ icon: r.iconKey, provider: r.iconKey, name: r.name }, 12);
+        } else {
+          try { icon = getAgentBrandSvg(r.id, 12); } catch (e) {}
+          if (!icon) icon = this._mqProviderIcon({ icon: '', provider: '', name: r.name }, 12);
         }
+        const subTxt = r.sub ? `<i class="tw-mq-row-sub">${escapeHtml(r.sub)}</i>` : '';
+        const cntTxt = r.gw ? `${r.calls}调用` : `${r.turns}轮`;
+        const expandHtml = expanded ? this._mqRowExpandHtml(r, fmt, full) : '';
         const tip = `输入 ${full(r.input)} · 输出 ${full(r.output)} · 缓存 ${full(r.cache)}${r.costUsd > 0.001 ? ' · ~$' + r.costUsd.toFixed(2) : ''}`;
         return `
-          <div class="tw-au-row${expanded ? ' expanded' : ''}" data-agent="${r.id}" title="${escapeHtml(tip)}">
+          <div class="tw-au-row${expanded ? ' expanded' : ''}" data-rk="${escapeHtml(rk)}" title="${escapeHtml(tip)}">
             <div class="tw-au-row-main">
-              <span class="tw-au-name">${icon}<span>${escapeHtml(r.name)}</span></span>
+              <span class="tw-au-name">${icon}<span>${escapeHtml(r.name)}</span>${subTxt}</span>
               <div class="tw-au-bar-wrap"><div class="tw-au-bar" style="width:${barW.toFixed(1)}%">${segsHtml}</div></div>
-              <span class="tw-au-meta"><b>${fmt(mv)}</b>${metric === 'tools' ? ' 次' : ' tok'} · ${r.turns}轮<span class="tw-au-caret">›</span></span>
+              <span class="tw-au-meta"><b>${fmt(mv)}</b>${metric === 'tools' ? ' 次' : ' tok'} · ${cntTxt}<span class="tw-au-caret">›</span></span>
             </div>
             ${expandHtml}
           </div>`;
-      }).join('');
-      mainHtml = `<div class="tw-au-main">${trendHtml}<div class="tw-au-rank">${rowsHtml}</div></div>`;
+      }).join('') : (this._mqRankTab === 'accounts'
+        ? '<div class="tw-au-empty">本地账本不含账号维度 · 启动 Magpie 网关后可见</div>'
+        : '<div class="tw-au-empty">该周期暂无用量记录</div>');
+      const rankHead = `
+        <div class="tw-mq-rank-head">
+          <div class="tw-au-metric-seg" role="tablist">
+            <button type="button" class="tw-au-metric-btn tw-mq-tab-btn${this._mqRankTab === 'agents' ? ' active' : ''}" data-t="agents">AGENT</button>
+            <button type="button" class="tw-au-metric-btn tw-mq-tab-btn${this._mqRankTab === 'models' ? ' active' : ''}" data-t="models">模型</button>
+            <button type="button" class="tw-au-metric-btn tw-mq-tab-btn${this._mqRankTab === 'accounts' ? ' active' : ''}" data-t="accounts">账号</button>
+          </div>
+        </div>`;
+      mainHtml = `<div class="tw-au-main">${trendHtml}<div class="tw-au-rank">${rankHead}${rowsHtml}</div></div>`;
     }
 
-    // ── 层4: 页脚合计 + 精确度占比 + 等效成本 + 图例 ──
-    const totalTok = Math.max(1, t.exactTok + t.estTok);
-    const exactPct = Math.round(t.exactTok / totalTok * 100);
+    // ── 层4: 页脚合计 + 精确度占比(离线)/网关调用(在线) + 等效成本 + 图例 ──
+    const fusedTot = tokIn + tokOut + tokCr + tokCw;
+    let footerAccHtml;
+    if (mu) {
+      footerAccHtml = `<i class="tw-au-acc2">网关 ${full(mu.calls || 0)} 调用 · ${mu.sessionCount || (mu.sessions || []).length || 0} 会话</i>`;
+    } else {
+      const totalTok = Math.max(1, t.exactTok + t.estTok);
+      const exactPct = Math.round(t.exactTok / totalTok * 100);
+      footerAccHtml = `<i class="tw-au-acc2">精确 ${exactPct}% / 估算 ${100 - exactPct}%</i>`;
+    }
     const footerHtml = `
       <div class="tw-au-footer">
-        <span class="tw-au-total">合计 <b>${fmt(t.tokens)}</b> tok <i class="tw-au-acc2">精确 ${exactPct}% / 估算 ${100 - exactPct}%</i>${t.costUsd > 0.001 ? ` · 等效 ~$${t.costUsd.toFixed(2)}` : ''}</span>
+        <span class="tw-au-total">合计 <b>${fmt(fusedTot)}</b> tok ${footerAccHtml}${costUsd > 0.001 ? ` · 等效 ~$${costUsd.toFixed(2)}` : ''}</span>
         <span class="tw-au-legend">
-          <span><i class="tw-au-dot" style="background:var(--g-blue,#2563EB)"></i>未缓存输入 ${fmt(t.input)}</span>
-          <span><i class="tw-au-dot" style="background:var(--g-green,#10B981)"></i>输出 ${fmt(t.output)}</span>
-          <span><i class="tw-au-dot tw-au-dot-hatch" style="background:#8B5CF6"></i>缓存读 ${fmt(t.cache)}</span>
+          <span><i class="tw-au-dot" style="background:var(--g-blue,#2563EB)"></i>未缓存输入 ${fmt(tokIn)}</span>
+          <span><i class="tw-au-dot" style="background:var(--g-green,#10B981)"></i>输出 ${fmt(tokOut)}</span>
+          <span><i class="tw-au-dot tw-au-dot-hatch" style="background:#8B5CF6"></i>缓存读 ${fmt(tokCr)}</span>
         </span>
       </div>`;
 
+    const quotaHtml = this._mqQuotaSectionHtml(snap);
+    const statusBadge = `<span class="tw-mq-status-badge${gwOnline ? ' is-online' : ''}">${gwOnline ? 'Magpie 网关' : '本地账本'}</span>`;
+    const pricePill = costUsd > 0.001 ? `<span class="tw-mq-price-pill">≈$${costUsd.toFixed(3)} 生效价格</span>` : '';
+
     this.agentUsageCardEl.innerHTML = `
       <div class="tw-card-header tw-au-header">
-        <span>Agent 用量与效能看板</span>
-        <span class="tw-au-period">${rangeLabel}累计 <b>${fmt(t.tokens)}</b> tok${momHtml}</span>
+        <span>观测 · 用量与额度概览</span>
+        ${statusBadge}
+        ${pricePill}
         <div class="tw-trend-controls-right">
-          ${metricSeg}
-          <select class="tw-trend-range-select tw-au-range-select" title="切换统计周期">
-            <option value="today" ${range === 'today' ? 'selected' : ''}>今日</option>
-            <option value="week" ${range === 'week' ? 'selected' : ''}>近7天</option>
-            <option value="all" ${range === 'all' ? 'selected' : ''}>全部</option>
-          </select>
-          <button class="tw-trend-refresh-btn" id="btnRefreshAgentUsage" title="刷新用量统计">${getIconPark('refresh', 12)}</button>
+          ${rangeSeg}
+          <button type="button" class="tw-mq-auto-btn${this._mqAutoRefreshSec === 5 ? ' active' : ''}" id="btnMqAuto" title="每 5 秒自动刷新">5秒</button>
+          <button class="tw-trend-refresh-btn" id="btnRefreshAgentUsage" title="刷新用量统计">↻</button>
         </div>
       </div>
+      ${quotaHtml}
       ${kpiHtml}
       ${mainHtml}
-      ${stats.rows.length ? footerHtml : ''}
+      ${hasData ? footerHtml : ''}
     `;
 
-    const rangeSelect = this.agentUsageCardEl.querySelector('.tw-au-range-select');
-    if (rangeSelect) {
-      rangeSelect.onchange = () => {
-        this.saveAgentUsageRange(rangeSelect.value);
+    this.agentUsageCardEl.querySelectorAll('.tw-au-range-btn').forEach(el => {
+      el.onclick = () => {
+        this.saveAgentUsageRange(el.dataset.r);
         this.updateAgentUsageCard();
       };
-    }
+    });
 
-    this.agentUsageCardEl.querySelectorAll('.tw-au-metric-btn').forEach(el => {
+    this.agentUsageCardEl.querySelectorAll('.tw-au-metric-btn[data-m]').forEach(el => {
       el.onclick = () => {
         this.saveAgentUsageMetric(el.dataset.m);
         this.updateAgentUsageCard();
       };
     });
 
+    this.agentUsageCardEl.querySelectorAll('.tw-mq-tab-btn').forEach(el => {
+      el.onclick = () => {
+        this._mqRankTab = el.dataset.t || 'agents';
+        this.updateAgentUsageCard(true);
+      };
+    });
+
+    this.agentUsageCardEl.querySelectorAll('[data-mqcache]').forEach(el => {
+      el.onclick = () => {
+        this._mqIncludeCache = el.dataset.mqcache === '1';
+        this.updateAgentUsageCard(true);
+      };
+    });
+
+    const secToggle = this.agentUsageCardEl.querySelector('[data-mqsec]');
+    if (secToggle) {
+      secToggle.onclick = () => {
+        this._mqQuotaCollapsed = !this._mqQuotaCollapsed;
+        this.updateAgentUsageCard(true);
+      };
+    }
+    const maskBtn = this.agentUsageCardEl.querySelector('[data-mqmask]');
+    if (maskBtn) {
+      maskBtn.onclick = () => {
+        this._mqMaskAccounts = !this._mqMaskAccounts;
+        this.updateAgentUsageCard(true);
+      };
+    }
+
+    this.agentUsageCardEl.querySelectorAll('.tw-mq-trend-head').forEach(el => {
+      el.onclick = () => {
+        const k2 = el.dataset.mqtrend;
+        if (!k2) return;
+        if (this._mqTrendExpanded.has(k2)) this._mqTrendExpanded.delete(k2);
+        else this._mqTrendExpanded.add(k2);
+        this.updateAgentUsageCard(true);
+      };
+    });
+
+    this.agentUsageCardEl.querySelectorAll('.tw-mq-card-refresh').forEach(el => {
+      el.onclick = (e) => {
+        e.stopPropagation();
+        const card = el.closest('.tw-mq-qcard');
+        if (!card || !this.magpieObs) return;
+        el.classList.add('spinning');
+        this.magpieObs.refreshQuotaCard(card.dataset.mqprov || '', card.dataset.mquser || '')
+          .finally(() => this.refreshMagpieObservability(true));
+      };
+    });
+
+    const autoBtn = this.agentUsageCardEl.querySelector('#btnMqAuto');
+    if (autoBtn) {
+      autoBtn.onclick = () => {
+        this._mqSetAutoRefresh(this._mqAutoRefreshSec === 5 ? 0 : 5);
+        this.updateAgentUsageCard(true);
+      };
+    }
+
     const refreshBtn = this.agentUsageCardEl.querySelector('#btnRefreshAgentUsage');
     if (refreshBtn) {
       refreshBtn.onclick = () => {
         refreshBtn.classList.add('spinning');
         if (this._auLedgerCache) this._auLedgerCache.at = 0;
-        // 额度功能已下线，手动刷新仅重建统计数据
-        this.updateAgentUsageCard();
+        // 手动刷新走节流端点 (服务端 30s 互斥锁): 在线先 POST refresh 再重拉快照; 离线仅本地重建 + 静默重试探测
+        if (mu && this.magpieObs) {
+          this.magpieObs.refreshQuotaCard()
+            .finally(() => this.refreshMagpieObservability(true));
+        } else {
+          this.updateAgentUsageCard(true);
+          this.refreshMagpieObservability(true);
+        }
         setTimeout(() => refreshBtn.classList.remove('spinning'), 500);
       };
     }
@@ -2237,15 +2688,17 @@ new_constructor = """class TabonKBWorkbenchView extends ItemView {
       }, true);
     }
 
-    this.agentUsageCardEl.querySelectorAll('.tw-au-row').forEach(el => {
+    this.agentUsageCardEl.querySelectorAll('.tw-au-row[data-rk]').forEach(el => {
       el.onclick = () => {
-        const id = el.dataset.agent;
+        const id = el.dataset.rk;
         if (!id) return;
         if (this._agentUsageExpanded.has(id)) this._agentUsageExpanded.delete(id);
         else this._agentUsageExpanded.add(id);
-        this.updateAgentUsageCard();
+        this.updateAgentUsageCard(true);
       };
     });
+
+    this._mqRenderedOnce = true;
   }"""
 
 if old_constructor in workbench_part:
@@ -2253,6 +2706,146 @@ if old_constructor in workbench_part:
     print("Replaced constructor and added tab helpers")
 else:
     print("Warning: old_constructor not found in workbench_part!")
+
+# 1b. Update onOpen & refreshVaultDocs & loadVaultDocs to prevent main-thread starvation and double full-page teardown
+old_on_open_block = """  async onOpen() {
+    try {
+      globalThis.__twBootMark && __twBootMark('onOpen:start');
+      this.setupCustomHeader();
+      this.render();
+      globalThis.__twBootMark && __twBootMark('onOpen:first-render');
+    } catch (err) {
+      console.error('[TabonKB Workbench] Initial render failed:', err);
+    }
+
+    // 文档扫描让给空闲期: 首渲染已呈现工作台骨架, 与 Obsidian 冷启动索引争主线程
+    // 毫无意义——空闲再扫, 扫完增量渲染 (数据晚到零点几秒, 可交互性大幅提前)
+    const _scheduleScan = (typeof requestIdleCallback === 'function')
+      ? (fn) => requestIdleCallback(fn, { timeout: 1200 })
+      : (fn) => setTimeout(fn, 300);
+    _scheduleScan(() => {
+      this.loadVaultDocs().then(() => {
+        try {
+          this.render();
+        } catch (err) {
+          console.error('[TabonKB Workbench] Post-scan render failed:', err);
+          try { wkTopoWriteLog(this.app.vault.adapter.basePath, 'POSTSCAN-RENDER: ' + (err && err.stack || err)); } catch (e) {}
+        }
+        globalThis.__twBootMark && __twBootMark('onOpen:postscan-render');
+        globalThis.__twBootFlush && __twBootFlush(this.app?.vault?.adapter?.basePath);
+      }).catch(err => {
+        console.error('[TabonKB Workbench] Vault scan failed:', err);
+        globalThis.__twBootFlush && __twBootFlush(this.app?.vault?.adapter?.basePath);
+      });
+    });
+  }"""
+
+new_on_open_block = """  async onOpen() {
+    try {
+      globalThis.__twBootMark && __twBootMark('onOpen:start');
+      this.setupCustomHeader();
+      // 让出首帧给 Obsidian 原生侧边栏文件树 (File Explorer) 完成虚拟滚动测量与绘制，消除重载时左侧文件树白屏
+      await new Promise(resolve => {
+        if (typeof requestAnimationFrame === 'function') {
+          requestAnimationFrame(() => setTimeout(resolve, 0));
+        } else {
+          setTimeout(resolve, 0);
+        }
+      });
+      this._isInitialRenderPass = true;
+      try {
+        this.render();
+      } finally {
+        this._isInitialRenderPass = false;
+      }
+      globalThis.__twBootMark && __twBootMark('onOpen:first-render');
+
+      // Ctrl+←/Ctrl+→ 隐藏/展示导航栏: 核心 Keymap 未绑定 Ctrl+方向键, document 捕获即可覆盖全部页签;
+      // 输入框内保留原生跳词行为 (不劫持)
+      this._navRailKeyHandler = (e) => {
+        if (!e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) return;
+        if (e.code !== 'ArrowLeft' && e.code !== 'ArrowRight') return;
+        if (!this.containerEl || !this.containerEl.isConnected) return;
+        const t = e.target;
+        if (t && t.closest && t.closest('input, textarea, [contenteditable=""], [contenteditable="true"]')) return;
+        e.preventDefault();
+        e.stopPropagation();
+        this.setNavRailCollapsed(e.code === 'ArrowLeft');
+      };
+      document.addEventListener('keydown', this._navRailKeyHandler, true);
+      // DSH iframe (Harness 页) 内按键到不了父文档, 由注入桥接脚本 postMessage 转发
+      this._navRailMsgHandler = (e) => {
+        try {
+          const d = e.data;
+          if (d && d.type === 'tabonkb-navrail') this.setNavRailCollapsed(d.dir === 'hide');
+        } catch (_) {}
+      };
+      window.addEventListener('message', this._navRailMsgHandler);
+    } catch (err) {
+      this._isInitialRenderPass = false;
+      console.error('[TabonKB Workbench] Initial render failed:', err);
+    }
+
+    // 文档扫描推迟至首屏稳定后执行，且扫描完成后仅当仍处于 home 页签且无流式任务时才局部刷新，
+    // 严禁在 explore(AI助手) / harness(DSH) / tools 等页签触发二次整页 container.empty() 重建！
+    setTimeout(() => {
+      this.loadVaultDocs().then(() => {
+        try {
+          const hubBusy = !!(this.agentHub && typeof this.agentHub.isStreaming === 'function' && this.agentHub.isStreaming());
+          const drawerBusy = !!(this.agentDrawer && (this.agentDrawer._sendInFlight === true ||
+            (this.agentDrawer.hub && typeof this.agentDrawer.hub.isStreaming === 'function' && this.agentDrawer.hub.isStreaming())));
+          if (!hubBusy && !drawerBusy && this.activeTab === 'home') {
+            this.render();
+          }
+        } catch (err) {
+          console.error('[TabonKB Workbench] Post-scan render failed:', err);
+          try { wkTopoWriteLog(this.app.vault.adapter.basePath, 'POSTSCAN-RENDER: ' + (err && err.stack || err)); } catch (e) {}
+        }
+        globalThis.__twBootMark && __twBootMark('onOpen:postscan-render');
+        globalThis.__twBootFlush && __twBootFlush(this.app?.vault?.adapter?.basePath);
+      }).catch(err => {
+        console.error('[TabonKB Workbench] Vault scan failed:', err);
+        globalThis.__twBootFlush && __twBootFlush(this.app?.vault?.adapter?.basePath);
+      });
+    }, 1200);
+  }"""
+
+if old_on_open_block in workbench_part:
+    workbench_part = workbench_part.replace(old_on_open_block, new_on_open_block, 1)
+    print("Replaced onOpen with frame-yielding and tab-guarded post-scan render")
+else:
+    print("Warning: old_on_open_block not found in workbench_part!")
+
+# 1c. Throttle loadVaultDocs full-file cachedRead fallback and yield every 25 files
+old_load_vault_loop = """      const docs = [];
+      for (const file of mdFiles) {
+        try {
+          const cache = (this.app.metadataCache && typeof this.app.metadataCache.getFileCache === 'function') 
+            ? (this.app.metadataCache.getFileCache(file) || {}) 
+            : {};"""
+
+new_load_vault_loop = """      const docs = [];
+      let _fallbackReads = 0;
+      for (let _fIdx = 0; _fIdx < mdFiles.length; _fIdx++) {
+        const file = mdFiles[_fIdx];
+        if (_fIdx > 0 && _fIdx % 25 === 0) {
+          await new Promise(r => setTimeout(r, 0));
+        }
+        try {
+          const cache = (this.app.metadataCache && typeof this.app.metadataCache.getFileCache === 'function') 
+            ? (this.app.metadataCache.getFileCache(file) || {}) 
+            : {};"""
+
+if old_load_vault_loop in workbench_part:
+    workbench_part = workbench_part.replace(old_load_vault_loop, new_load_vault_loop, 1)
+    workbench_part = workbench_part.replace(
+        "if (typeof vault.cachedRead === 'function' && !summary) {",
+        "if (typeof vault.cachedRead === 'function' && !summary && this.activeTab === 'home' && _fallbackReads < 15) { _fallbackReads++;",
+        1,
+    )
+    print("Updated loadVaultDocs with time-slice yielding and capped cold-start cachedRead")
+else:
+    print("Warning: old_load_vault_loop not found in workbench_part!")
 
 # 2. Update onClose
 old_on_close = """  async onClose() {
@@ -2262,8 +2855,21 @@ old_on_close = """  async onClose() {
   }"""
 
 new_on_close = """  async onClose() {
+    if (this._mqAutoRefreshTimer) {
+      clearInterval(this._mqAutoRefreshTimer);
+      this._mqAutoRefreshTimer = null;
+    }
+    if (this._navRailKeyHandler) {
+      document.removeEventListener('keydown', this._navRailKeyHandler, true);
+      this._navRailKeyHandler = null;
+    }
+    if (this._navRailMsgHandler) {
+      window.removeEventListener('message', this._navRailMsgHandler);
+      this._navRailMsgHandler = null;
+    }
     this.closeHeatmapPopover();
     if (this.exploreView) {
+      try { this.exploreView.dispose && this.exploreView.dispose(); } catch (_) {}
       this.exploreView = null;
     }
     if (this.rssCenter) {
@@ -2804,7 +3410,7 @@ if idx_render != -1 and idx_cpanel != -1:
     try {
       if (typeof localStorage !== 'undefined') {
         const s = localStorage.getItem('tabonkb-explore-subtab');
-        if (s === 'ai' || s === 'search' || s === 'notion') return s;
+        if (s === 'ai' || s === 'search') return s;
       }
     } catch (e) {}
     return 'ai';
@@ -2834,8 +3440,7 @@ if idx_render != -1 and idx_cpanel != -1:
     const cur = this.getExploreSubTab();
     const subs = [
       { id: 'ai', label: 'AI助手', icon: 'robot' },
-      { id: 'search', label: '平台资源检索', icon: 'search' },
-      { id: 'notion', label: 'Notion AI', icon: 'book' }
+      { id: 'search', label: '平台资源检索', icon: 'search' }
     ];
     const menu = container.createDiv({ cls: 'tw-explore-submenu' });
     for (const s of subs) {
@@ -2988,8 +3593,20 @@ if idx_render != -1 and idx_cpanel != -1:
     if (menu) menu.remove();
   }
 
+  // Ctrl+← 隐藏 / Ctrl+→ 展示 左侧导航栏: 折叠态存在视图实例上, 切页重渲染后自动恢复
+  setNavRailCollapsed(collapsed) {
+    this._navCollapsed = !!collapsed;
+    const rail = this.containerEl && this.containerEl.querySelector('.tabonkb-workbench-layout > .tw-nav-rail');
+    if (rail) rail.classList.toggle('tw-nav-collapsed', this._navCollapsed);
+  }
+
+  toggleNavRail() {
+    this.setNavRailCollapsed(!this._navCollapsed);
+  }
+
   renderNavRail(parentEl) {
     const rail = parentEl.createDiv({ cls: 'tw-nav-rail' });
+    if (this._navCollapsed) rail.addClass('tw-nav-collapsed');
 
     // Top Section: Brand + Navigation Items
     const topSec = rail.createDiv({ cls: 'tw-nav-rail-top' });
@@ -3116,6 +3733,7 @@ if idx_render != -1 and idx_cpanel != -1:
       this.app.setting?.open?.();
       this.app.setting?.openTabById?.('tabonkb-workbench');
     };
+
   }
 
   renderTopBar(parentEl) {
@@ -3613,7 +4231,12 @@ module.exports = class TabonKBWorkbenchPlugin extends Plugin {
         profile: this.settings?.dsh?.profile || 'tabonkb'
       });
       if (this.settings?.dsh?.autoStart !== false) {
-        this.dshDaemon.start().catch((e) => console.warn('[TabonKB] DSH Daemon auto-start failed:', e));
+        // 延迟 1200ms 后台预热连接（若当前在 Harness 页签则由视图立即触发复用），避免与首屏渲染抢占主线程与进程句柄
+        setTimeout(() => {
+          if (this.dshDaemon) {
+            this.dshDaemon.start().catch((e) => console.warn('[TabonKB] DSH Daemon auto-start failed:', e));
+          }
+        }, 1200);
       }
     }
     try { globalThis.__twBootMark && __twBootMark('onload:dsh'); } catch (e) {}
@@ -3758,6 +4381,16 @@ module.exports = class TabonKBWorkbenchPlugin extends Plugin {
     }));
 
     try { globalThis.__twBootMark && __twBootMark('onload:end'); } catch (e) {}
+
+    // Debug probe: layout-ready mark + trailing flush to capture late async marks (dsh reuse ~1.5s, restore chunks)
+    try {
+      this.app.workspace.onLayoutReady(() => {
+        try { globalThis.__twBootMark && __twBootMark('layout:ready'); } catch (e) {}
+      });
+      setTimeout(() => {
+        try { globalThis.__twBootFlush && __twBootFlush(this.app?.vault?.adapter?.basePath); } catch (e) {}
+      }, 6500);
+    } catch (e) {}
   }
 
   async getSecret(secretName) {

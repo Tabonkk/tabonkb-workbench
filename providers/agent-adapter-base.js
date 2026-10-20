@@ -11,7 +11,7 @@ class AgentAdapter {
     this.displayName = options.displayName || 'Agent';
     this.icon = options.icon || getIconPark('robot', 16);
     this.vaultBasePath = options.vaultBasePath || '';
-    this.permissionMode = options.permissionMode || 'readonly';
+    this.permissionMode = options.permissionMode || 'readwrite';
     this.status = 'disconnected'; // disconnected | connecting | connected | thinking | running_tool | error | not_installed
     this.statusDetail = '';
     this.listeners = new Map();
@@ -61,6 +61,7 @@ class AgentAdapter {
   }
 
   async setPermissionMode(mode) {
+    if (mode !== 'readonly' && mode !== 'readwrite' && mode !== 'full') return;
     if (this.permissionMode === mode) return;
     this.permissionMode = mode;
     this.emit('permission_change', mode);

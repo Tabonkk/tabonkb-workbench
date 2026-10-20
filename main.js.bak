@@ -3301,7 +3301,12 @@ globalThis.__twBootFlush = function (vaultPath) {
     const fs = require('fs'); const path = require('path');
     fs.writeFileSync(
       path.join(vaultPath, '.obsidian', 'plugins', 'tabonkb-workbench', '.startup-profile.json'),
-      JSON.stringify({ t0: new Date(w.t0).toISOString(), marks: w.marks }, null, 1)
+      JSON.stringify({
+        t0: new Date(w.t0).toISOString(),
+        navMs: globalThis.__twBootNavMs || 0,        // reload→bundle-eval 盲区耗时 (渲染进程初始化+前置插件链)
+        uptimeMs: globalThis.__twBootUptimeMs || -1, // 进程启动→bundle-eval (整进程视角)
+        marks: w.marks
+      }, null, 1)
     );
   } catch (e) {}
 };

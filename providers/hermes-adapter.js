@@ -18,7 +18,7 @@ class HermesAdapter extends AgentAdapter {
       displayName: 'Hermes CLI',
       icon: getAgentBrandSvg('hermes', 16),
       vaultBasePath: options.vaultBasePath || '',
-      permissionMode: options.permissionMode || 'readonly'
+      permissionMode: options.permissionMode || 'readwrite'
     });
     this.process = null;
     this.stdoutBuffer = '';

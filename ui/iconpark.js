@@ -8,6 +8,9 @@
 
 // Boot profiler epoch: bundled first — all marks measure elapsed from bundle eval start
 globalThis.__twBootT0 = Date.now();
+// 绝对时间锚: performance.now() = 距导航开始(reload)的毫秒数 → 暴露"重载开始→本插件被求值"盲区耗时
+globalThis.__twBootNavMs = (typeof performance !== 'undefined' && performance.now) ? Math.round(performance.now() * 10) / 10 : 0;
+globalThis.__twBootUptimeMs = (typeof process !== 'undefined' && process.uptime) ? Math.round(process.uptime() * 1000) : -1;
 
 const ICON_PARK_PATHS = {
   // Navigation & Actions

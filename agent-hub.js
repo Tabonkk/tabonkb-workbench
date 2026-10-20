@@ -38,7 +38,8 @@ class AgentHub {
     try {
       if (typeof localStorage !== 'undefined') {
         const saved = localStorage.getItem('tabonkb-agent-permission-mode');
-        if (saved === 'readonly' || saved === 'readwrite') return saved;
+        // 三档: readonly/readwrite/full; 旧存档 'readwrite' 保留为读写档语义
+        if (saved === 'readonly' || saved === 'readwrite' || saved === 'full') return saved;
       }
     } catch (e) {}
     return 'readwrite';
@@ -203,6 +204,18 @@ class AgentHub {
       adapter.on('queue_cleared', (d) => {
         if (isCurrentActive()) this.emit('queue_cleared', d);
       });
+      adapter.on('compaction_start', (d) => {
+        if (isCurrentActive()) this.emit('compaction_start', d);
+      });
+      adapter.on('compaction_end', (d) => {
+        if (isCurrentActive()) this.emit('compaction_end', d);
+      });
+      adapter.on('context_usage', (d) => {
+        if (isCurrentActive()) this.emit('context_usage', d);
+      });
+      adapter.on('model_list_change', (d) => {
+        if (isCurrentActive()) this.emit('model_list_change', d);
+      });
       adapter.on('error', (d) => {
         if (isCurrentActive()) this.emit('error', d);
       });
@@ -333,6 +346,7 @@ class AgentHub {
   }
 
   async setPermissionMode(mode) {
+    if (mode !== 'readonly' && mode !== 'readwrite' && mode !== 'full') return;
     this.permissionMode = mode;
     try {
       if (typeof localStorage !== 'undefined') {

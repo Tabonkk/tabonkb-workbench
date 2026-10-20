@@ -124,11 +124,12 @@ class PiAgentBridge {
     this.activeModelId = (typeof localStorage !== 'undefined' && localStorage.getItem('tabonkb-pi-active-model')) || 'deepseek-v4-flash';
     this.activeReasoningEffort = (typeof localStorage !== 'undefined' && localStorage.getItem('tabonkb-pi-reasoning-effort')) || 'max';
 
-    this.permissionMode = options.permissionMode || 'readwrite';
+    // 三档权限: readonly(只读) / readwrite(读写, 默认) / full(完全权限); 旧存档 'readwrite' 语义保留为读写档
+    this.permissionMode = ['readonly', 'readwrite', 'full'].includes(options.permissionMode) ? options.permissionMode : 'readwrite';
     try {
       if (typeof localStorage !== 'undefined') {
         const saved = localStorage.getItem('tabonkb-agent-permission-mode');
-        if (saved === 'readonly' || saved === 'readwrite') {
+        if (saved === 'readonly' || saved === 'readwrite' || saved === 'full') {
           this.permissionMode = saved;
         }
       }
@@ -215,6 +216,7 @@ class PiAgentBridge {
   }
 
   async setPermissionMode(mode) {
+    if (mode !== 'readonly' && mode !== 'readwrite' && mode !== 'full') return;
     if (this.permissionMode === mode) return;
     this.permissionMode = mode;
     this.emit('permission_change', mode);
@@ -237,7 +239,7 @@ class PiAgentBridge {
   // 返回所有可用的 Pi 原生扩展路径 (vendor-portal + weknora-portal + opengrok-portal + gerrit-portal + codegraph-portal)
   // 优先级: .pi/extensions > plugin/extensions; 供 --extension 多次传入
   getExtensionPaths() {
-    const names = ['vendor-portal.ts', 'weknora-portal.ts', 'opengrok-portal.ts', 'gerrit-portal.ts', 'jira-portal.ts', 'codegraph-portal.ts', 'drawio-portal.ts', 'local-project-portal.ts'];
+    const names = ['vendor-portal.ts', 'weknora-portal.ts', 'opengrok-portal.ts', 'gerrit-portal.ts', 'jira-portal.ts', 'codegraph-portal.ts', 'drawio-portal.ts', 'local-project-portal.ts', 'remote-exec-portal.ts'];
     const result = [];
     for (const name of names) {
       const candidates = [
@@ -260,17 +262,21 @@ class PiAgentBridge {
    * Determine launch executable: direct node + bundle cli.js (cleanest) or fallback to pi.cmd
    */
   resolveLaunchCommand() {
-    const baseTools = this.permissionMode === 'readwrite'
-      ? 'read,write,edit,grep,find,ls'
-      : 'read,grep,find,ls';
+    // baseTools: 只读档无 write/edit; 读写与完全权限档保留本地写能力
+    const baseTools = this.permissionMode === 'readonly'
+      ? 'read,grep,find,ls'
+      : 'read,write,edit,grep,find,ls';
     const weknoraTools = ',weknora_list_knowledge_bases,weknora_search,weknora_ask,weknora_list_documents,weknora_read_document,weknora_add_document,weknora_update_document,weknora_delete_document';
     const opengrokTools = ',opengrok_list_projects,opengrok_search_code,opengrok_read_file';
     const gerritTools = ',gerrit_search_changes,gerrit_get_change,gerrit_get_diff,gerrit_get_comments,gerrit_list_projects';
     const jiraTools = ',jira_search_issues,jira_get_issue,jira_get_comments,jira_list_attachments,jira_download_attachment';
     const codegraphTools = ',codegraph_explore';
     const drawioTools = ',drawio_create,drawio_load,drawio_get,drawio_edit,drawio_export,drawio_list_pages,drawio_add_page,drawio_rename_page,drawio_delete_page';
-    const localProjectTools = ',project_read_file,project_edit_file,project_compile';
-    const tools = `${baseTools},vendor_portal_search,vendor_portal_get_detail${weknoraTools}${opengrokTools}${gerritTools}${jiraTools}${codegraphTools}${drawioTools}${localProjectTools}`;
+    // project_edit_file/project_compile 仅非只读档放行; remote_exec 各档均注册由 checkCommand 把关
+    const localProjectTools = this.permissionMode === 'readonly'
+      ? ',project_read_file'
+      : ',project_read_file,project_edit_file,project_compile';
+    const tools = `${baseTools},remote_exec,vendor_portal_search,vendor_portal_get_detail${weknoraTools}${opengrokTools}${gerritTools}${jiraTools}${codegraphTools}${drawioTools}${localProjectTools}`;
 
     const extPaths = this.getExtensionPaths();
     const extArgs = [];
@@ -596,7 +602,8 @@ class PiAgentBridge {
           WEKNORA_API_KEY: weknoraKey,
           WEKNORA_DEFAULT_KB: weknoraKb,
           OPENGROK_BASE_URL: opengrokBase,
-          OPENGROK_DEFAULT_PROJECT: opengrokProject
+          OPENGROK_DEFAULT_PROJECT: opengrokProject,
+          TABONKB_PERM_MODE: this.permissionMode
         }),
         stdio: ['pipe', 'pipe', 'pipe']
       });
@@ -778,6 +785,18 @@ class PiAgentBridge {
         steering: Array.isArray(data.steering) ? data.steering.slice() : [],
         followUp: Array.isArray(data.followUp) ? data.followUp.slice() : []
       });
+      return;
+    }
+
+    if (type === 'compaction_start') {
+      this.setStatus('thinking', '正在压缩上下文...');
+      this.emit('compaction_start', data);
+      return;
+    }
+
+    if (type === 'compaction_end') {
+      this.setStatus('connected', '已就绪');
+      this.emit('compaction_end', data);
       return;
     }
 
@@ -1133,6 +1152,31 @@ class PiAgentBridge {
       console.warn('[PiAgentBridge] get_commands failed:', e);
       return [];
     }
+  }
+
+  /**
+   * 会话统计（含 contextUsage：当前上下文 tokens / 窗口 / 占比）。
+   * compact 后首个 LLM 响应前 pi 返回 tokens:null —— 压缩前 usage 不可信。
+   */
+  async getSessionStats() {
+    if (!this.process || this.process.killed) return null;
+    try {
+      const res = await this.sendCommand({ type: 'get_session_stats' }, 8000);
+      return (res && res.data) || null;
+    } catch (e) {
+      console.warn('[PiAgentBridge] get_session_stats failed:', e);
+      return null;
+    }
+  }
+
+  /**
+   * 手动压缩会话上下文（pi RPC compact，内部走 LLM 摘要，耗时较长故放宽超时）。
+   */
+  async compact(customInstructions) {
+    if (!this.process || this.process.killed) {
+      throw new Error('Pi 核心进程未就绪或已断开');
+    }
+    return await this.sendCommand({ type: 'compact', customInstructions }, 120000);
   }
 
   /**

@@ -1,5 +1,5 @@
 {
-  "workbenchTheme": "bento",
+  "workbenchTheme": "mdn-prism",
   "workbenchThemeMode": "light",
   "workbenchWallpaper": "aurora",
   "dsviewFollowTheme": false,
@@ -117,7 +117,7 @@
     "topoLimit": 400,
     "topoTtlHours": 24,
     "syncFolders": [
-      "09-Hardware"
+      "03-Driver"
     ]
   },
   "clipInliner": {

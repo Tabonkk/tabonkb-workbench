@@ -32,7 +32,7 @@ async function runAllSuites() {
   console.log('>>> Suite 1: Code Integrity & Manifest Verification');
   const manifest = JSON.parse(fs.readFileSync(path.join(pluginDir, 'manifest.json'), 'utf8'));
   assert(manifest.id === 'tabonkb-workbench', 'manifest.json has correct id');
-  assert(manifest.version === '1.6.0', 'manifest.json has version 1.6.0');
+  assert(manifest.version === '1.7.0', 'manifest.json has version 1.7.0');
   assert(fs.existsSync(path.join(pluginDir, 'main.js')), 'main.js exists');
   assert(fs.existsSync(path.join(pluginDir, 'styles.css')), 'styles.css exists');
 
@@ -2068,6 +2068,602 @@ async function runAllSuites() {
     assert(innerChild.style.background === 'transparent', 'MERMAID-07: badge inner child transparent');
     assert(span.style['font-size'] === '13px', 'MERMAID-08: edgeLabel badge font-size is 13px');
     assert(nodeTxt.style['font-size'] === '14px', 'MERMAID-09: node label font-size is 14px');
+  }
+
+  // --- Suite 26: Reload Performance & Non-Blocking Startup (RELOAD-PERF-01) ---
+  console.log('\n--- Suite 26: RELOAD-PERF-01 ---');
+  {
+    // 1. DshDaemonManager.destroy() default soft-detach preserves daemon & lockfile on plugin reload
+    const reloadDaemon = new DshDaemonManager({ vaultBasePath: pluginDir, port: 3080 });
+    let stopCalledOnSoftDestroy = false;
+    const origStop = reloadDaemon.stop.bind(reloadDaemon);
+    reloadDaemon.stop = async () => { stopCalledOnSoftDestroy = true; return origStop(); };
+    reloadDaemon.process = {
+      pid: 88888,
+      stdout: { removeAllListeners() {} },
+      stderr: { removeAllListeners() {} },
+      removeAllListeners() {},
+      unref() {}
+    };
+    reloadDaemon._ownedPid = 88888;
+    reloadDaemon.destroy(); // default killDaemon = false
+    assert(stopCalledOnSoftDestroy === false, 'RELOAD-PERF-01: destroy() soft-detaches without killing daemon on plugin reload');
+    assert(reloadDaemon.process === null && reloadDaemon._ownedPid === null, 'RELOAD-PERF-01: destroy() clears local process handles cleanly');
+
+    // Explicit destroy(true) still invokes stop()
+    let stopCalledOnHardDestroy = false;
+    reloadDaemon.stop = async () => { stopCalledOnHardDestroy = true; return true; };
+    reloadDaemon.destroy(true);
+    assert(stopCalledOnHardDestroy === true, 'RELOAD-PERF-02: destroy(true) explicitly stops daemon when requested');
+
+    // 2. Progressive restoreSessionMessages for large sessions (>12 messages)
+    const { hub: hubPerf } = makeStubHub24();
+    const manyMsgs = [];
+    for (let i = 0; i < 24; i++) {
+      manyMsgs.push(i % 2 === 0
+        ? { role: 'user', text: '提问 ' + i, timestamp: Date.now() - (24 - i) * 1000 }
+        : { role: 'assistant', text: '回答 ' + i, timestamp: Date.now() - (24 - i) * 1000 });
+    }
+    hubPerf.sessionManager._msgs = manyMsgs;
+    const drawerPerf = new PiDrawerView({ hub: hubPerf, app: mockApp23, contextProvider: ctxProvider23, vaultBasePath: '' });
+    const layoutPerf = MockDocument23.createElement('div');
+    drawerPerf.mount(layoutPerf);
+    drawerPerf.restoreSessionMessages('pi');
+    assert(drawerPerf.messagesEl.children.length === 10, 'RELOAD-PERF-03: restoreSessionMessages renders tail 10 messages synchronously on first frame (got ' + drawerPerf.messagesEl.children.length + ')');
+    await new Promise(r => setTimeout(r, 120));
+    assert(drawerPerf.messagesEl.children.length === 24, 'RELOAD-PERF-04: restoreSessionMessages progressively prepends remaining history in background chunks (got ' + drawerPerf.messagesEl.children.length + ')');
+
+    // 3. Verify build.py & main.js contain frame-yielding onOpen, guarded post-scan render, and cached getGerritBaseUrl
+    const mainJsContent = fs.readFileSync(path.join(pluginDir, 'main.js'), 'utf8');
+    assert(mainJsContent.includes('_gerritBaseUrlCache'), 'RELOAD-PERF-05: main.js includes in-memory cache for getGerritBaseUrl');
+    assert(mainJsContent.includes('_isInitialRenderPass'), 'RELOAD-PERF-06: main.js defers cold _auLedgerScan off initial synchronous render pass');
+    assert(mainJsContent.includes("if (!hubBusy && !drawerBusy && this.activeTab === 'home')"), 'RELOAD-PERF-07: onOpen post-scan render is guarded to home tab only');
+
+    // 4. Monaco iframe must be lazy: mount() must NOT eagerly call initMonacoIframe (startup cost ~10s measured)
+    {
+      const mountStart = mainJsContent.indexOf('  mount(parentEl) {');
+      const mountEnd = mainJsContent.indexOf('initMonacoIframe()', mountStart);
+      const renderHeaderIdx = mainJsContent.indexOf('this.renderHeader();', mountStart);
+      assert(mountStart > 0 && (mountEnd < 0 || mountEnd > renderHeaderIdx), 'RELOAD-PERF-08: CodeViewerPanel.mount() does not eagerly spawn Monaco iframe');
+      assert(mainJsContent.includes('if (this.iframeEl) return; // 懒加载幂等守卫'), 'RELOAD-PERF-08: initMonacoIframe is idempotent for lazy mounting');
+      assert(mainJsContent.includes('this.initMonacoIframe();'), 'RELOAD-PERF-08: openFile lazily initializes Monaco iframe on first use');
+    }
+  }
+
+  // --- Suite 27: MAGPIE-OBS-01 —— Magpie 观测桥接、配速/OLS 耗尽预测、走势 SVG、只读安全约束 ---
+  console.log('\n--- Suite 27: MAGPIE-OBS-01 (Magpie Observability Bridge) ---');
+  {
+    const { MagpieObservabilityService } = require(path.join(pluginDir, 'services', 'magpie-observability-service.js'));
+    const obs = new MagpieObservabilityService({ baseUrl: 'http://127.0.0.1:9', timeoutMs: 600 });
+
+    // OBS-01: computePace 周期过半(50%)实际仅耗 10% → diff=-40 / 'slow'
+    {
+      const nowMs = Date.now();
+      const win = { name: 'month', used: 10, resetsAt: new Date(nowMs + 15 * 86400000).toISOString(), startsAt: new Date(nowMs - 15 * 86400000).toISOString() };
+      const pace = obs.computePace(win, [], nowMs);
+      assert(pace && pace.diff === -40 && pace.label === '配速 -40%' && pace.status === 'slow',
+        `MAGPIE-OBS-01: computePace slow pace (got: ${JSON.stringify(pace)})`);
+    }
+
+    // OBS-02: computeQuotaEta OLS 回归 —— 平缓消耗安全 / 陡峭消耗给出耗尽时间
+    {
+      const nowMs = Date.now();
+      // 平缓斜率(-1.5%/h → ~63.7h 耗尽) 在 24h 后重置的窗口内是安全的；陡峭斜率(-15%/h → ~1h 耗尽) 必预警
+      const cycle = { start: nowMs - 10 * 86400000, reset: nowMs + 86400000, now: nowMs };
+      const gentle = [
+        { t: nowMs - 3600000, left: 97 }, { t: nowMs - 2400000, left: 96.5 },
+        { t: nowMs - 1200000, left: 96 }, { t: nowMs, left: 95.5 }
+      ];
+      const eta1 = obs.computeQuotaEta(gentle, cycle, nowMs);
+      assert(eta1 && eta1.safe === true && eta1.text === '按此速度，能撑到重置',
+        `MAGPIE-OBS-02: gentle slope predicts safe-to-reset (got: ${JSON.stringify(eta1)})`);
+      const steep = [
+        { t: nowMs - 3600000, left: 60 }, { t: nowMs - 2400000, left: 45 },
+        { t: nowMs - 1200000, left: 30 }, { t: nowMs, left: 15 }
+      ];
+      const eta2 = obs.computeQuotaEta(steep, cycle, nowMs);
+      assert(eta2 && eta2.safe === false && eta2.outMs > nowMs && eta2.text.includes('耗尽'),
+        `MAGPIE-OBS-02: steep slope predicts exhaustion time (got: ${JSON.stringify(eta2)})`);
+    }
+
+    // OBS-03: renderQuotaPlotSvg 输出含 even/line/now 元素的合法 SVG
+    {
+      const nowMs = Date.now();
+      const win = { name: 'month', used: 40, resetsAt: new Date(nowMs + 18 * 86400000).toISOString(), startsAt: new Date(nowMs - 12 * 86400000).toISOString() };
+      const pts = [
+        { at: new Date(nowMs - 7200000).toISOString(), left: 62, start: win.startsAt, resetsAt: win.resetsAt },
+        { at: new Date(nowMs - 3600000).toISOString(), left: 61, start: win.startsAt, resetsAt: win.resetsAt }
+      ];
+      const { svg } = obs.renderQuotaPlotSvg(win, pts, nowMs);
+      assert(svg.includes('tw-mq-qc-even') && svg.includes('tw-mq-qc-line') && svg.includes('tw-mq-qc-now') && svg.includes('<svg'),
+        'MAGPIE-OBS-03: quota plot SVG contains even/line/now elements');
+    }
+
+    // OBS-04: maskUser 邮箱打码规则
+    assert(obs.maskUser('bjut_1@163.com', true) === 'b***1@163.com',
+      `MAGPIE-OBS-04: maskUser email (got: ${obs.maskUser('bjut_1@163.com', true)})`);
+
+    // OBS-05: fetchSnapshot 只读安全 —— 仅请求 cards/?kept=1/history/usage; 不可达时 1500ms 内静默 online:false
+    {
+      const requested = [];
+      const spy = new MagpieObservabilityService({ baseUrl: 'http://127.0.0.1:9', timeoutMs: 600 });
+      spy.requestJson = (m, p) => { requested.push(`${m} ${p}`); return Promise.resolve({ ok: false, status: 0, data: null }); };
+      const t0 = Date.now();
+      const snap = await spy.fetchSnapshot('week', true);
+      const elapsed = Date.now() - t0;
+      assert(snap && snap.online === false && elapsed < 1500,
+        `MAGPIE-OBS-05: offline snapshot silent-fallback within 1500ms (elapsed: ${elapsed}ms)`);
+      const paths = requested.join('|');
+      assert(requested.length === 4 && paths.includes('/v1/magpie/quotas/cards') && paths.includes('/v1/magpie/quotas?kept=1')
+        && paths.includes('/v1/magpie/quotas/history') && paths.includes('/v1/magpie/usage?period=7d')
+        && !requested.some(r => r.startsWith('POST') || (r.includes('/v1/magpie/quotas') && !r.includes('?kept=1') && !r.includes('cards') && !r.includes('history'))),
+        `MAGPIE-OBS-05: only read-only memory-snapshot endpoints requested (got: ${paths})`);
+      const realObs = new MagpieObservabilityService({ baseUrl: 'http://127.0.0.1:9', timeoutMs: 400 });
+      const t1 = Date.now();
+      const snap2 = await realObs.fetchSnapshot('week', true);
+      assert(snap2 && snap2.online === false && (Date.now() - t1) < 1500,
+        `MAGPIE-OBS-05: unreachable 127.0.0.1:9 returns {online:false} without throwing (${Date.now() - t1}ms)`);
+    }
+
+    // OBS-06: main.js 首页卡片包含额度区 / 4 KPI 含缓存切换 / 三维切换 的集成标记
+    {
+      const mainJsContent27 = fs.readFileSync(path.join(pluginDir, 'main.js'), 'utf8');
+      assert(mainJsContent27.includes('tw-mq-quota-section') && mainJsContent27.includes('观测 · 用量与额度概览'),
+        'MAGPIE-OBS-06: card renders quota section & observability header');
+      assert(mainJsContent27.includes('data-mqcache') && mainJsContent27.includes('_mqIncludeCache'),
+        'MAGPIE-OBS-06: TOKEN KPI has include/exclude-cache toggle');
+      assert(mainJsContent27.includes("data-t=\"agents\"") && mainJsContent27.includes("data-t=\"models\"") && mainJsContent27.includes("data-t=\"accounts\""),
+        'MAGPIE-OBS-06: AGENT/模型/账号 three-dimension rank tabs present');
+      assert(mainJsContent27.includes('refreshMagpieObservability') && mainJsContent27.includes('/v1/magpie/quotas/cards'),
+        'MAGPIE-OBS-06: refreshMagpieObservability bridge wired into bundle');
+    }
+  }
+
+  // --- Suite 28: REMOTE-EXEC —— SSH 执行器纯逻辑内核 (remote-exec-core.js) ---
+  console.log('\n--- Suite 28: REMOTE-EXEC (SSH Executor Core) ---');
+  {
+    const rex = require(path.join(pluginDir, 'services', 'remote-exec-core.js'));
+    const { windowsPathToLinux, linuxPathToWindows } = require(path.join(pluginDir, 'services', 'local-project-service.js'));
+    const WROOTS = ['/dfb/tankaikun/share/01/pri_project/driver/mt6858/K90GF2', '/dfb/tankaikun/share/01/pri_project/driver/public'];
+    const ctxRW = { writeRoots: WROOTS };
+
+    // REX-01: 动态超时公式 clamp(60,600,60+fileCount/250) 取整, 异常值兜底 180; 探测超时哨兵 1e9 → 600
+    assert(rex.calcTimeoutSec(0) === 60, 'REX-01: calcTimeoutSec(0) = 60');
+    assert(rex.calcTimeoutSec(49129) === 256, `REX-01: calcTimeoutSec(49129) = 256 (got ${rex.calcTimeoutSec(49129)})`);
+    assert(rex.calcTimeoutSec(1e6) === 600, 'REX-01: calcTimeoutSec(1e6) = 600 (cap)');
+    assert(rex.calcTimeoutSec(1e9) === 600, 'REX-01: calcTimeoutSec(1e9) = 600 (probe-timeout sentinel)');
+    assert(rex.calcTimeoutSec(NaN) === 180 && rex.calcTimeoutSec(-5) === 180, 'REX-01: NaN/negative fileCount fallback = 180');
+
+    // REX-01b: clampTimeoutSec 显式超时夹取 —— 生产默认 [60,600], 测试可传 minSec 或经 env 调低
+    assert(rex.clampTimeoutSec(3) === 60, 'REX-01b: clampTimeoutSec(3) = 60 (production default min)');
+    assert(rex.clampTimeoutSec(9999) === 600, 'REX-01b: clampTimeoutSec(9999) = 600 (cap)');
+    assert(rex.clampTimeoutSec(3, 1) === 3, 'REX-01b: clampTimeoutSec(3, 1) = 3 (explicit minSec override)');
+
+    // REX-02: 路径映射往返 (Y:/Z:/UNC ↔ linux)
+    assert(windowsPathToLinux('Y:\\01\\pri_project\\driver\\public\\x.c') === '/dfb/tankaikun/share/01/pri_project/driver/public/x.c',
+      'REX-02: Y:\\...\\x.c → /dfb/tankaikun/share/01/.../x.c');
+    assert(linuxPathToWindows('/dfb/tankaikun/share/01/pri_project/driver/public/x.c') === 'Y:\\01\\pri_project\\driver\\public\\x.c',
+      'REX-02: /dfb/.../x.c → Y:\\01\\...\\x.c');
+    assert(linuxPathToWindows(windowsPathToLinux('Y:\\01\\pri_project\\driver\\public\\x.c')) === 'Y:\\01\\pri_project\\driver\\public\\x.c',
+      'REX-02: Y: round-trip identity');
+    assert(windowsPathToLinux('Z:\\work\\k90\\a.c') === '/home/tankaikun/share/work/k90/a.c',
+      'REX-02: Z:\\work → /home/tankaikun/share/work');
+    assert(linuxPathToWindows('/home/tankaikun/share/work/k90/a.c') === 'Z:\\work\\k90\\a.c',
+      'REX-02: /home/.../work → Z:\\work');
+    assert(windowsPathToLinux('\\\\192.168.1.62\\tankaikun\\01\\x.c') === '/dfb/tankaikun/share/01/x.c',
+      'REX-02: UNC 62 → /dfb/tankaikun/share');
+    assert(windowsPathToLinux('\\\\192.168.1.31\\tankaikun\\work\\k90\\a.c') === '/home/tankaikun/share/work/k90/a.c',
+      'REX-02: UNC 31 → /home/tankaikun/share/work');
+
+    // REX-03: resolveServer 映射
+    assert(rex.resolveServer('Y:\\01') && rex.resolveServer('Y:\\01').id === '62', 'REX-03: Y: → server 62');
+    assert(rex.resolveServer('Z:\\work\\x') && rex.resolveServer('Z:\\work\\x').id === '31', 'REX-03: Z:\\work → server 31');
+    assert(rex.resolveServer('\\\\192.168.1.62\\tankaikun\\01') && rex.resolveServer('\\\\192.168.1.62\\tankaikun\\01').id === '62',
+      'REX-03: UNC 62 → server 62');
+    assert(rex.resolveServer('/dfb/tankaikun/share/01') && rex.resolveServer('/dfb/tankaikun/share/01').id === '62', 'REX-03: /dfb linux path → 62');
+    assert(rex.resolveServer('62') && rex.resolveServer('62').id === '62' && rex.resolveServer('31').id === '31', 'REX-03: server id string resolves');
+    assert(rex.resolveServer('') && rex.resolveServer('').id === '62', 'REX-03: empty defaults to 62');
+    assert(rex.resolveServer('C:\\local\\x') === null, 'REX-03: non-mapped path returns null');
+
+    // REX-04: buildRemoteCommand 注入安全 —— 原文不得出现于 shell 命令, 仅 base64
+    const injectCmds = ["'; rm -rf / ;'", "echo 'a'\"b`id`$(id)' && rm -rf ~", 'line1\nrm -rf /dfb\nline2', 'cat $(echo /etc/passwd)'];
+    for (const ic of injectCmds) {
+      const rc = rex.buildRemoteCommand({ cmd: ic, timeoutSec: 90, marker: 'mk_test' });
+      const b64 = Buffer.from(ic, 'utf8').toString('base64');
+      assert(rc.indexOf(ic) === -1 && !/rm -rf/.test(rc) && Buffer.from(b64, 'base64').toString('utf8') === ic,
+        `REX-04: injected cmd not leaked to shell (b64 only): ${JSON.stringify(ic).slice(0, 40)}`);
+      assert(rc === `timeout -k 5 90 bash -c "$(echo ${b64} | base64 -d)" mk_test`,
+        'REX-04: remote cmd shape = timeout -k 5 T bash -c "$(echo B64|base64 -d)" marker');
+    }
+
+    // REX-05: buildSshArgs 结构
+    const s62 = rex.resolveServer('62');
+    const sshArgs = rex.buildSshArgs(s62, 'echo hi');
+    assert(sshArgs[0] === '-T' && sshArgs.includes('BatchMode=yes') && sshArgs.includes('ConnectTimeout=10')
+      && sshArgs[sshArgs.length - 2] === 'tankaikun@192.168.1.62' && sshArgs[sshArgs.length - 1] === 'echo hi',
+      'REX-05: ssh args = -T BatchMode keepalive user@host remoteCmd');
+
+    // REX-06: shellQuote 单引号转义
+    assert(rex.shellQuote("a'b") === "'a'\\''b'", `REX-06: shellQuote escapes single quotes (got ${rex.shellQuote("a'b")})`);
+    assert(rex.shellQuote('plain') === "'plain'", 'REX-06: shellQuote plain string');
+
+    // REX-07: checkCommand —— readonly 档 (权威对抗性用例集, 期望值以 adv-test.js 为准)
+    const ctxAdv = { writeRoots: ['/dfb/tankaikun/share/01/pri_project/driver/mt6858/K90GF2/', '/dfb/tankaikun/share/01/pri_project/driver/public'] };
+    const roCases = [
+      // 只读档应拦 (这些都能写文件或执行命令)
+      ['git diff --output=/tmp/x', false],
+      ['git log --output=/tmp/x', false],
+      ["git -c core.fsmonitor='touch /tmp/pwn' status", false],
+      ["git -c diff.external='touch /tmp/pwn' diff --ext-diff", false],
+      ["sed -n 's/a/b/e;p' /etc/hosts", false],
+      ["sed -n 's/a/b/w /tmp/x' /etc/hosts", false],
+      ['tree -o /tmp/x /dfb', false],
+      ['uniq /dev/null /tmp/x', false],
+      ['repo manifest -o /tmp/m.xml', false],
+      ['head -c 10 /etc/hosts | tee /tmp/x', false],
+      ['sort -o /tmp/x /etc/hosts', false],
+      ['find . -fprint /tmp/x', false],
+      ['git diff --no-index a b', true],
+      ['grep -rn foo /dfb/tankaikun/share/01/pri_project | head -20', true],
+      ['git -C /dfb/tankaikun/share/01/pri_project/build log --oneline -3', true],
+      // 补充用例
+      ['grep -rnI foo /dfb/tankaikun/share/01', true],
+      ['find /dfb/tankaikun/share/01 -name a.c', true],
+      ["sed -n '1,5p' /dfb/x.c", true],
+      ["sed -n '/foo/p' /dfb/x.c", true],
+      ["awk '{print $1}' /tmp/f", true],
+      ['awk -F: {print $1} /tmp/f', true],
+      ['grep x > /tmp/a', false],
+      ['echo $(id)', false],
+      ['sed -i s/a/b/ /tmp/x', false],
+      ['git reset --hard', false],
+      ["python3 -c 'print(1)'", false],
+      ['rm -rf /tmp/x', false],
+      // —— adv2 权威对抗集 (readonly) ——
+      ['git log --pretty=format:%h -n3', true],
+      ['git diff HEAD~1 -- drivers/a.c', true],
+      ['git --git-dir=/x/.git status', false],
+      ['git log --format=%H --output /tmp/x', false],
+      ["sed -n '10,20p' /dfb/x.c", true],
+      ["sed -n -e 's/a/b/e' /dfb/x.c", false],
+      ["sed --expression='1e id' -n /dfb/x.c", false],
+      ['awk \'BEGIN{system("id")}\' /dev/null', false],
+      ['awk \'{print > "/tmp/x"}\' /etc/hosts', false],
+      ['cat /etc/hosts; id', false],
+      ['ls && touch /tmp/x', false],
+      ['ls | xargs rm', false],
+      ['find /dfb -name "*.c" -exec rm {} +', false],
+      ['ls $(echo /tmp)', false],
+      ['ls "$(id)"', false],
+      ['echo hi >/tmp/x', false],
+      ['FOO=1 bash -c id', false],
+      ['/usr/bin/env id', false],
+      ['command -v id', false],
+      ['time id', false],
+      // —— 第二轮评审补充用例 (引号语义/git -C/凭据保护) ——
+      ["ls '$(id)'", true],
+      ['ls "`id`"', false],
+      ['ls "$HOME"', true],
+      ['git -C /tmp/x status', false],
+      ['git -C /dfb/tankaikun/share/01/pri_project/build status', true],
+      ['sort --compress-program=/tmp/sh /etc/hosts', false],
+      ['cat /home/tankaikun/.ssh/id_rsa', false],
+      ['grep -rn id_rsa /dfb/tankaikun/share/01/pri_project', true],
+      ['find /dfb -name id_rsa', true]
+    ];
+    roCases.forEach(([c, ok], i) => {
+      const r = rex.checkCommand(c, 'readonly', ctxAdv);
+      assert(r.ok === ok, `REX-07-${i}: readonly ${ok ? 'allows' : 'rejects'} ${JSON.stringify(c).slice(0, 44)}${r.ok === ok ? '' : ' (reason: ' + (r.reason || 'allowed') + ')'}`);
+    });
+
+    // REX-07b: readonly 敏感路径硬拦截 (.ssh/id_rsa 全档拒绝; git -C /tmp 拒绝)
+    {
+      const r7b = rex.checkCommand('git -C /tmp/evil status', 'readonly', ctxAdv);
+      assert(!r7b.ok && /git -C|tmp/.test(r7b.reason || ''), `REX-07b: readonly git -C /tmp denied (got: ${r7b.reason})`);
+    }
+
+    // REX-08: checkCommand —— readwrite 档 (白名单模型: 只读集 + 受限写动词, 写目标限 writeRoots//tmp)
+    const rwCases = [
+      // 写边界外的写动作应拦
+      ['dd if=/dev/zero of=/dfb/tankaikun/share/01/vendor_w/x bs=1 count=1', false],
+      ['truncate -s 0 /dfb/tankaikun/share/01/vendor_w/kernel/a.c', false],
+      ['gzip /dfb/tankaikun/share/01/vendor_w/kernel/a.c', false],
+      ['shred -u /dfb/tankaikun/share/01/vendor_w/kernel/a.c', false],
+      ['zip /tmp/a.zip /etc/hosts', false],
+      ['unlink /dfb/tankaikun/share/01/vendor_w/kernel/a.c', false],
+      ['awk -i inplace "{print}" /dfb/tankaikun/share/01/vendor_w/a.c', false],
+      ['printf x > /dfb/tankaikun/share/01/vendor_w/a.c', false],
+      ['mkdir -p /tmp/a', true],
+      ['cp /etc/hosts /tmp/hosts.bak', true],
+      ["sed -i 's/a/b/' /dfb/tankaikun/share/01/pri_project/driver/mt6858/K90GF2/base/x.c", true],
+      // 补充用例
+      [`echo hi > ${WROOTS[1]}/note.txt`, true],
+      ['rm /tmp/a.bak', true],
+      ['tee /tmp/a.txt', true],
+      [`mv ${WROOTS[1]}/a ${WROOTS[1]}/b`, true],
+      ['rm -rf /dfb/tankaikun/share/01', false],
+      ['git push', false],
+      ['sudo ls', false],
+      ['echo hi > /etc/x', false],
+      ['rm -rf /tmp/abc', false],
+      ['mv /etc/passwd /tmp/x', false],
+      ['sed -i s/a/b/w /tmp/f.c', false],
+      ["sed -i 's/a/b/e' /tmp/f.c", false],
+      ['df -h', false],
+      ['sleep 5', false],
+      // —— adv2 权威对抗集 (readwrite) ——
+      ['cp /etc/hosts /dfb/tankaikun/share/01/pri_project/driver/mt6858/K90GF2/base/hosts.bak', true],
+      ['cp /etc/hosts /dfb/tankaikun/share/01/vendor_w/hosts', false],
+      ['mv /dfb/tankaikun/share/01/vendor_w/a.c /tmp/a.c', false],
+      ['cp /etc/hosts /dfb/tankaikun/share/01/pri_project/driver/mt6858/K90GF2/../../../../vendor_w/x', false],
+      ['tee /dfb/tankaikun/share/01/vendor_w/x < /etc/hosts', false],
+      ['rm /dfb/tankaikun/share/01/pri_project/driver/mt6858/K90GF2/base/a.c', false],
+      ['rm /tmp/x.tmp', true],
+      ['make -j8', false],
+      // —— 第二轮评审补充用例 ——
+      ['git -C /tmp/x status', false],
+      ['git -C /dfb/tankaikun/share/01/pri_project/build status', true],
+      ['tee /dfb/tankaikun/share/01/pri_project/driver/public/.git/config', false],
+      ['cat /home/tankaikun/.ssh/id_rsa', false],
+      ['cat ~/.ssh/id_rsa', false],
+      ['tee /tmp/x < /home/u/.ssh/id_rsa', false]
+    ];
+    rwCases.forEach(([c, ok], i) => {
+      const r = rex.checkCommand(c, 'readwrite', ctxRW);
+      assert(r.ok === ok, `REX-08-${i}: readwrite ${ok ? 'allows' : 'rejects'} ${JSON.stringify(c).slice(0, 50)}${r.ok === ok ? '' : ' (reason: ' + (r.reason || 'allowed') + ')'}`);
+    });
+
+    // REX-08c: ctx.cwd=/tmp 时 git/repo 有效目录防护 (readwrite 拒绝; full 放行)
+    {
+      const ctxTmp = { writeRoots: ['/x'], cwd: '/tmp/evil' };
+      assert(!rex.checkCommand('git status', 'readwrite', ctxTmp).ok, 'REX-08c: readwrite git status with cwd=/tmp/evil denied');
+      assert(rex.checkCommand('git status', 'full', ctxTmp).ok, 'REX-08c: full git status with cwd=/tmp/evil allowed');
+    }
+
+    // REX-08b: 读写档非白名单命令的统一拒绝文案 (提示需完全权限模式)
+    {
+      const rr = rex.checkCommand('dd if=/dev/zero of=/tmp/x bs=1 count=1', 'readwrite', ctxRW);
+      assert(!rr.ok && /完全权限模式/.test(rr.reason || ''), `REX-08b: non-whitelisted cmd rejection mentions 完全权限模式 (got: ${rr.reason})`);
+      const rr2 = rex.checkCommand('kill -9 1234', 'readwrite', ctxRW);
+      assert(!rr2.ok && /完全权限模式/.test(rr2.reason || ''), `REX-08b: kill rejection mentions 完全权限模式 (got: ${rr2.reason})`);
+    }
+
+    // REX-09: checkCommand —— full 档 (仅硬拦截灾难级)
+    const fullCases = [
+      ['git reset --hard', true],
+      ['rm -rf /dfb/tankaikun/share/01/old_bak', true],
+      ['python3 -c "print(1)"', true],
+      ['find /dfb -name x -delete', true],
+      ['git push origin main', true],
+      ['df -h /', true],
+      ['sleep 30', true],
+      ['sudo ls', false],
+      ['su root', false],
+      ['rm -rf /', false],
+      ['rm -rf ~', false],
+      ['rm -rf /dfb', false],
+      ['mkfs.ext4 /dev/sda', false],
+      ['dd if=/dev/zero of=/dev/sda', false],
+      ['reboot', false],
+      [':(){ :|:& };:', false],
+      ['echo x > /dev/sda', false],
+      // —— adv2 权威对抗集 (full) + 凭据全档硬拦截 ——
+      ['make -j8', true],
+      ['rm -rf /dfb/tankaikun/share', false],
+      ['rm -rf /dfb/tankaikun/share/01/out', true],
+      ['cat /home/tankaikun/.ssh/id_rsa', false],
+      ['head /etc/shadow', false],
+      ['cp /home/tankaikun/.netrc /tmp/x', false],
+      ['cat ~/.aws/credentials', false]
+    ];
+    fullCases.forEach(([c, ok], i) => {
+      const r = rex.checkCommand(c, 'full', ctxRW);
+      assert(r.ok === ok, `REX-09-${i}: full ${ok ? 'allows' : 'rejects'} ${JSON.stringify(c).slice(0, 44)}${r.ok === ok ? '' : ' (reason: ' + (r.reason || 'allowed') + ')'}`);
+    });
+  }
+
+  // --- Suite 29: FILE-LOCATE — AI 文件链接定位内核 (R1-R4 修复回归) ---
+  console.log('\n>>> Suite 29: FILE-LOCATE (File Link Resolution Core)');
+  {
+    const flc = require('../services/file-locator-core.js');
+    const { decodeTarget, splitLine, classifyTarget, shortenPathLabel, rankHits, buildLocateScript, OBSIDIAN_NATIVE_EXTS } = flc;
+
+    // FL-01: decodeTarget (R1 百分号编码)
+    const vaultAbsReal = 'D:/work/Mgmt/TabonKB/03-Driver/05-Charger/04-Debug-Case/MT6789-MT6366库仑计休眠频繁唤醒排障_v1.0_20261019_MTK_CHG_CASE.md';
+    const encReal = vaultAbsReal.replace(/[^\x00-\x7f]+/g, m => encodeURIComponent(m));
+    assert(decodeTarget(encReal) === vaultAbsReal, 'FL-01a: decodeTarget decodes real percent-encoded Chinese vault path');
+    assert(decodeTarget('a%ZZb') === 'a%ZZb', 'FL-01b: invalid %ZZ sequence unchanged');
+    assert(decodeTarget('100% sure') === '100% sure', 'FL-01c: isolated % unchanged');
+    assert(decodeTarget(vaultAbsReal) === vaultAbsReal, 'FL-01d: already-decoded Chinese path unchanged');
+    assert(decodeTarget('file:///D:/x%20y.md') === 'D:/x y.md', 'FL-01e: file:/// prefix stripped and decoded');
+    assert(decodeTarget('`x.c`') === 'x.c' && decodeTarget('[[x.c]]') === 'x.c', 'FL-01f: backtick/wikilink wrappers stripped');
+
+    // FL-02: splitLine (行号锚点)
+    assert(splitLine('a.c:85').line === 85 && splitLine('a.c:85').path === 'a.c', 'FL-02a: a.c:85 -> line 85');
+    assert(splitLine('a.c#L85-L90').line === 85 && splitLine('a.c#L85-L90').path === 'a.c', 'FL-02b: #L85-L90 -> line 85');
+    assert(splitLine('D:\\x\\a.c').line === null && splitLine('D:\\x\\a.c').path === 'D:\\x\\a.c', 'FL-02c: drive colon not a line suffix');
+    assert(splitLine('D:\\x\\a.c:12:3').line === 12 && splitLine('D:\\x\\a.c:12:3').path === 'D:\\x\\a.c', 'FL-02d: :12:3 -> line 12');
+
+    // FL-03: classifyTarget
+    const vb = 'D:\\work\\Mgmt\\TabonKB';
+    assert(classifyTarget(vaultAbsReal, { vaultBase: vb }) === 'vault_abs', 'FL-03a: vault abs path -> vault_abs');
+    assert(classifyTarget('pri_project\\driver\\mt6789\\K90\\base\\kernel\\kernel_device_modules-6.12\\x.dtsi', { vaultBase: vb }) === 'rel_workspace', 'FL-03b: pri_project rel -> rel_workspace');
+    assert(classifyTarget('drivers/power/supply/mtk_pe5.c', { vaultBase: vb }) === 'rel_partial', 'FL-03c: drivers/... -> rel_partial');
+    assert(classifyTarget('mtk_battery.c', { vaultBase: vb }) === 'bare', 'FL-03d: bare filename -> bare');
+    assert(classifyTarget('Y:\\01\\pri_project\\x.c', { vaultBase: vb }) === 'server_abs', 'FL-03e: Y: -> server_abs');
+    assert(classifyTarget('C:\\x\\a.c', { vaultBase: vb }) === 'local_abs', 'FL-03f: C: -> local_abs');
+    assert(classifyTarget('\\\\192.168.1.62\\tankaikun\\01\\x.c', { vaultBase: vb }) === 'server_abs', 'FL-03g: UNC -> server_abs');
+    assert(classifyTarget('.obsidian/community-plugins.json', { vaultBase: vb }) === 'rel_partial', 'FL-03h: .obsidian rel -> rel_partial (vault 优先判定在 resolver)');
+
+    // FL-04: shortenPathLabel
+    assert(shortenPathLabel('pri_project/driver/a/b/c.c').label === 'c.c', 'FL-04a: long path -> basename');
+    assert(shortenPathLabel('drivers/x/y.c:85').label === 'y.c:85', 'FL-04b: line suffix preserved');
+    assert(shortenPathLabel('foo.c').label === 'foo.c', 'FL-04c: non-path text unchanged');
+    assert(shortenPathLabel('vendor_w/.../bat_setting/x.dtsi').label === 'x.dtsi', 'FL-04d: ellipsis path -> last meaningful segment');
+
+    // FL-05: rankHits (pri > public > kernelVer > root > other)
+    const hits29 = [
+      '/dfb/tankaikun/share/01/vendor_w/kernel/kernel_device_modules-6.18/drivers/power/supply/mtk_pe5.c',
+      '/dfb/tankaikun/share/01/vendor_w/kernel/kernel_device_modules-6.12/drivers/power/supply/mtk_pe5.c',
+      '/dfb/tankaikun/share/01/pri_project/driver/public/drivers/power/supply/mtk_pe5.c',
+      '/dfb/tankaikun/share/01/pri_project/driver/mt6858/K90GF2/base/drivers/power/supply/mtk_pe5.c',
+      '/other/root/mtk_pe5.c'
+    ];
+    const ranked29 = rankHits(hits29, { projectLinuxRoot: '/dfb/tankaikun/share/01', priDriverRel: 'pri_project/driver/mt6858/K90GF2/base', publicDriverRel: 'pri_project/driver/public', kernelVer: '6.12' });
+    assert(ranked29[0].includes('/K90GF2/base/'), 'FL-05a: pri project hit ranks first');
+    assert(ranked29[1].includes('/driver/public/'), 'FL-05b: public hit ranks second');
+    assert(ranked29[2].includes('kernel_device_modules-6.12'), 'FL-05c: kernelVer 6.12 ranks before 6.18');
+
+    // FL-06: buildLocateScript (安全转义 + 分层提前停)
+    const sc29 = buildLocateScript({ anchors: ['/dfb/tankaikun/share/01'], rel: 'pri_project/driver/x.c', fileName: 'x.c', tiers: ['/dfb/tankaikun/share/01/pri_project/driver/mt6858/K90GF2/base', '/dfb/tankaikun/share/01/vendor_w/kernel/kernel_device_modules-*'] });
+    assert(sc29.includes('-path "*/'), 'FL-06a: script uses -path "*/..." suffix matching');
+    assert(/"\$hits" -gt 0 \] && break/.test(sc29), 'FL-06b: tier loop stops on first non-empty hits');
+    assert(sc29.includes("'/dfb/tankaikun/share/01'"), 'FL-06c: anchors shell-quoted');
+    const scEvil = buildLocateScript({ rel: "a'b $(id).c", tiers: ['/x'] });
+    assert(scEvil.includes('\\$(id)') && !scEvil.includes('`'), 'FL-06d: $(...) escaped, no unescaped injection fragments');
+    const scSp = buildLocateScript({ fileName: 'a b.c', tiers: ['/x y; rm -rf /'] });
+    assert(scSp.includes("'/x y; rm -rf /'"), 'FL-06e: tier with spaces/semicolon safely quoted');
+    const scName = buildLocateScript({ fileName: 'mtk_pe5.c', tiers: ['/a'] });
+    assert(scName.includes('-name "mtk_pe5.c"'), 'FL-06f: bare filename uses -name matching');
+    assert(OBSIDIAN_NATIVE_EXTS.has('md') && OBSIDIAN_NATIVE_EXTS.has('pdf') && !OBSIDIAN_NATIVE_EXTS.has('c'), 'FL-06g: OBSIDIAN_NATIVE_EXTS covers md/pdf, excludes code ext');
+
+    // FL-07: locateRemoteFileAsync 导出与失败兜底 (不可达服务器不悬挂)
+    const lps = require('../services/local-project-service.js');
+    assert(typeof lps.locateRemoteFileAsync === 'function', 'FL-07a: locateRemoteFileAsync exported');
+    const lr29 = await lps.locateRemoteFileAsync({ server: { sshHost: '127.0.0.1', user: 'nobody' }, anchors: ['/x'], rel: 'a/b.c', fileName: 'b.c', timeoutMs: 200 });
+    assert(lr29 && Array.isArray(lr29.hits) && ['anchor', 'tier', 'last_resort', 'none'].includes(lr29.stage), 'FL-07b: unreachable server resolves {hits,stage} without hanging');
+
+    // FL-08: 提示词 [文件引用] 注入 + 剥离还原
+    const { AgentContextProvider } = require('../agent-context-provider.js');
+    const cp29 = Object.create(AgentContextProvider.prototype);
+    cp29.selectedNode = { id: 'n1', title: 'T', module: 'M', platform: 'P', type: 't', path: 'x.md', connections: [] };
+    cp29.activeFilter = ''; cp29.searchKeyword = ''; cp29.activeFile = null; cp29.app = null;
+    const wire29 = cp29.formatPromptWithContext('用户原文');
+    assert(wire29.includes('[文件引用]'), 'FL-08a: injected prompt contains [文件引用] rule');
+    const { PiDrawerView } = require(path.join(pluginDir, 'pi-drawer-view.js'));
+    const stripped29 = PiDrawerView.prototype._extractUserTextFromWire.call({}, wire29);
+    assert(stripped29 === '用户原文', 'FL-08b: wire extraction restores user text without [文件引用] residue');
+
+    // FL-09: openVaultFileInSplit —— 建分栏/复用/失效重建/anchor 回退/失败回落 (stub workspace)
+    const Drawer29 = Object.create(PiDrawerView.prototype);
+    let created29 = 0, revealed29 = 0, getLeafCalls29 = 0;
+    const opened29 = [];
+    const anchorLeaf29 = { view: {}, parent: {} };
+    const ws29 = {
+      _all: [anchorLeaf29],
+      getLeavesOfType(t) { return this._all.filter(l => t === 'markdown' ? l._isMd : l._vt === t); },
+      iterateAllLeaves(fn) { this._all.slice().forEach(fn); },
+      createLeafBySplit: async (anchor) => {
+        if (!anchor) throw new Error('anchor required');
+        created29++;
+        const l = { view: {}, parent: {}, _isMd: true, openFile: async (tf, st) => { opened29.push([tf, st]); } };
+        ws29._all.push(l);
+        return l;
+      },
+      getLeaf() {
+        getLeafCalls29++;
+        const l = { view: {}, parent: {}, _isMd: true, openFile: async (tf, st) => { opened29.push([tf, st]); } };
+        ws29._all.push(l);
+        return l;
+      },
+      revealLeaf() { revealed29++; },
+      activeLeaf: anchorLeaf29
+    };
+    Drawer29.app = { workspace: ws29 };
+    Drawer29._vaultSplitLeaf = null;
+    const tf29 = { path: 'a/b.md' };
+    await Drawer29.openVaultFileInSplit(tf29, 5);
+    assert(created29 === 1 && opened29.length === 1 && revealed29 === 1, 'FL-09a: first call creates split leaf, opens file, reveals');
+    await Drawer29.openVaultFileInSplit(tf29, 9);
+    assert(created29 === 1 && opened29.length === 2, 'FL-09b: second call reuses cached leaf');
+    // 缓存叶被 detach: view/parent 引用残留但已不在 iterateAllLeaves → 必须重建
+    const deadLeaf29 = Drawer29._vaultSplitLeaf;
+    ws29._all = ws29._all.filter(l => l !== deadLeaf29);
+    assert(deadLeaf29.view && deadLeaf29.parent, 'FL-09c0: detached leaf retains stale view/parent refs');
+    await Drawer29.openVaultFileInSplit(tf29, 1);
+    assert(created29 === 2, 'FL-09c: detached cached leaf triggers recreation');
+    assert(opened29[0][1] && opened29[0][1].eState && opened29[0][1].eState.line === 4 && opened29[0][1].active === false, 'FL-09d: eState line = target-1, active:false');
+    // 缓存叶为 pdf 视图叶 (不在 markdown 列表) 但仍在工作区 → 复用
+    const pdfLeaf29 = { view: {}, parent: {}, _vt: 'pdf', openFile: async (tf, st) => { opened29.push([tf, st]); } };
+    ws29._all.push(pdfLeaf29);
+    Drawer29._vaultSplitLeaf = pdfLeaf29;
+    await Drawer29.openVaultFileInSplit(tf29, 2);
+    assert(created29 === 2 && opened29.length === 4, 'FL-09e: non-markdown cached leaf still in workspace is reused');
+    // anchor 缺失 (无工作台叶且无 activeLeaf) → getLeaf 回退
+    const ws29b = {
+      _all: [],
+      getLeavesOfType() { return []; },
+      iterateAllLeaves(fn) { this._all.slice().forEach(fn); },
+      createLeafBySplit: async () => { throw new Error('should not be called'); },
+      getLeaf() { getLeafCalls29++; const l = { view: {}, parent: {}, openFile: async () => {} }; ws29b._all.push(l); return l; },
+      revealLeaf() {},
+      activeLeaf: null
+    };
+    const Drawer29b = Object.create(PiDrawerView.prototype);
+    Drawer29b.app = { workspace: ws29b };
+    Drawer29b._vaultSplitLeaf = null;
+    const leafB = await Drawer29b.openVaultFileInSplit(tf29, 1);
+    assert(leafB && getLeafCalls29 === 1, 'FL-09f: null anchor falls back to getLeaf');
+    // createLeafBySplit 抛错 → 返回 null, openCodeInSplitPane 回落代码面板
+    const ws29c = {
+      _all: [],
+      getLeavesOfType() { return []; },
+      iterateAllLeaves(fn) { this._all.slice().forEach(fn); },
+      createLeafBySplit: async () => { throw new Error('boom'); },
+      getLeaf() { throw new Error('boom2'); },
+      revealLeaf() {},
+      activeLeaf: { view: {} }
+    };
+    const Drawer29c = Object.create(PiDrawerView.prototype);
+    Drawer29c.app = { workspace: ws29c };
+    Drawer29c._vaultSplitLeaf = null;
+    const leafC = await Drawer29c.openVaultFileInSplit(tf29, 1);
+    assert(leafC === null, 'FL-09g: createLeafBySplit error returns null');
+    const panelCalls29 = [];
+    Drawer29c.resolveCodeFilePath = () => ({ filePath: 'D:/work/Mgmt/TabonKB/a/b.md', line: 3, isVault: true, classification: 'vault_abs' });
+    Drawer29c._resolveVaultTFile = () => tf29;
+    Drawer29c.vaultBasePath = 'D:/work/Mgmt/TabonKB';
+    Drawer29c.codeViewerPanel = { openFile: (...a) => panelCalls29.push(a) };
+    Drawer29c.selectedLocalProject = null;
+    Drawer29c.getSavedLocalProject = () => null;
+    await Drawer29c.openCodeInSplitPane('a/b.md', 3);
+    assert(panelCalls29.length === 1 && panelCalls29[0][0].endsWith('b.md'), 'FL-09h: vault split failure falls back to code panel');
+
+    // FL-10: _probeWorkspaceAnchors —— 800ms 预算 / 盘符-UNC 互斥 / 命中返回 (stub fs 探测)
+    const Drawer29d = Object.create(PiDrawerView.prototype);
+    Drawer29d.selectedLocalProject = null;
+    Drawer29d.getSavedLocalProject = () => null;
+    Drawer29d.vaultBasePath = 'D:/work/Mgmt/TabonKB';
+    Drawer29d.app = null;
+    Drawer29d._driveOnlineCache = {};
+    const probedPaths29 = [];
+    Drawer29d._statFileProbe = (p) => { probedPaths29.push(p); return false; };
+    Drawer29d._isDriveLikelyOnline = (root) => !/^\\\\/.test(String(root)) && /^[Yy]/.test(String(root)); // Y 在线
+    Drawer29d._lpCacheProjs = [
+      { fullPathWin: 'Y:\\01', uncPath: '\\\\192.168.1.62\\tankaikun\\01' },
+      { fullPathWin: 'Y:\\W\\03-mtk-ww', uncPath: '\\\\192.168.1.62\\tankaikun\\W\\03-mtk-ww' }
+    ];
+    Drawer29d._probeWorkspaceAnchors('pri_project\\a.c');
+    assert(probedPaths29.every(p => !p.startsWith('\\\\')), 'FL-10a: UNC variant skipped while drive letter online');
+    // 盘符离线 → 回退 UNC 变体
+    probedPaths29.length = 0;
+    Drawer29d._isDriveLikelyOnline = () => false;
+    Drawer29d._probeWorkspaceAnchors('pri_project\\a.c');
+    assert(probedPaths29.length > 0 && probedPaths29.every(p => p.startsWith('\\\\192.168.1.62')), 'FL-10b: drive offline falls back to UNC variant');
+    // 命中返回第一个命中
+    probedPaths29.length = 0;
+    Drawer29d._statFileProbe = (p) => { probedPaths29.push(p); return /Y:\\01\\pri_project\\a\.c$/i.test(p); };
+    Drawer29d._isDriveLikelyOnline = () => true;
+    const hit29 = Drawer29d._probeWorkspaceAnchors('pri_project\\a.c');
+    assert(hit29 && /Y:\\01\\pri_project\\a\.c$/i.test(hit29), 'FL-10c: first hit path returned');
+    // 预算耗尽 → <800ms+单次余量 内返回 null (stat 每次模拟 60ms 阻塞)
+    probedPaths29.length = 0;
+    Drawer29d._lpCacheProjs = Array.from({ length: 40 }, (_, i) => ({ fullPathWin: `Y:\\ws${i}`, uncPath: `\\\\192.168.1.62\\t\\ws${i}` }));
+    Drawer29d._statFileProbe = (p) => { probedPaths29.push(p); const s = Date.now(); while (Date.now() - s < 60) {} return false; };
+    const bt0 = Date.now();
+    const r29 = Drawer29d._probeWorkspaceAnchors('pri_project\\a.c');
+    const bt1 = Date.now() - bt0;
+    assert(r29 === null && bt1 < 1500 && probedPaths29.length < 40, `FL-10d: budget exhaustion returns null in time (took ${bt1}ms, probed ${probedPaths29.length})`);
   }
 
   // Summary

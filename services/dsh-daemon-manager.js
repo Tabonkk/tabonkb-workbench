@@ -114,9 +114,8 @@ function getTabonKbWebRequestBridge() {
             const headers = Object.assign({}, details.responseHeaders);
             const url = (details.url || '').toLowerCase();
 
-            // WeKnora / Notion 嵌入拦截剥除（iframe 需剥 x-frame-options 与 CSP frame-ancestors）
-            if (url.includes(':8088') || url.includes(':8080') || url.includes('192.168.1.62') || url.includes('weknora')
-                || url.includes('notion.so') || url.includes('notion.com') || url.includes('notion.site')) {
+            // WeKnora 嵌入拦截剥除（iframe 需剥 x-frame-options 与 CSP frame-ancestors）
+            if (url.includes(':8088') || url.includes(':8080') || url.includes('192.168.1.62') || url.includes('weknora')) {
               for (const k of Object.keys(headers)) {
                 const lk = k.toLowerCase();
                 if (lk === 'x-frame-options' || lk === 'content-security-policy') {
@@ -644,6 +643,68 @@ function getDshFileBridgeScript() {
       }
     }
   });
+
+  // 4. 选区右键: 拦截 Obsidian/Electron 原生菜单 (其 Copy role 自带不可去除的 Ctrl+C accelerator),
+  //    改为极简单项「复制」自绘菜单; 输入框/可编辑区保持原生菜单 (需要粘贴/剪切等)
+  var _twCopyMenu = null;
+  function closeTwCopyMenu() {
+    if (_twCopyMenu && _twCopyMenu.parentNode) _twCopyMenu.parentNode.removeChild(_twCopyMenu);
+    _twCopyMenu = null;
+  }
+  function isEditableTarget(t) {
+    if (!t || !t.closest) return false;
+    return !!t.closest('input, textarea, [contenteditable=""], [contenteditable="true"], [data-lexical-editor]');
+  }
+  function copyText(text) {
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).catch(function() { document.execCommand('copy'); });
+        return;
+      }
+    } catch (_) {}
+    try { document.execCommand('copy'); } catch (_) {}
+  }
+  document.addEventListener('contextmenu', function(e) {
+    if (isEditableTarget(e.target)) return;
+    var sel = window.getSelection && window.getSelection();
+    var text = sel ? sel.toString() : '';
+    if (!text || !text.trim()) return;
+    e.preventDefault();
+    e.stopPropagation();
+    closeTwCopyMenu();
+    var m = document.createElement('div');
+    m.id = 'tabonkb-copy-menu';
+    m.textContent = '\u590d\u5236';
+    m.style.cssText = 'position:fixed;z-index:2147483647;padding:6px 18px;font-size:13px;line-height:20px;border-radius:8px;cursor:pointer;user-select:none;'
+      + 'color:var(--dsw-alias-label-primary,#1f2328);background:var(--dsw-specific-menu,rgba(255,255,255,.96));'
+      + 'box-shadow:0 6px 20px rgba(0,0,0,.14),0 0 0 .5px rgba(128,128,128,.25);backdrop-filter:blur(16px);';
+    m.onmouseenter = function() { m.style.background = 'var(--dsw-alias-interactive-bg-hover,rgba(128,128,128,.14))'; };
+    m.onmouseleave = function() { m.style.background = 'var(--dsw-specific-menu,rgba(255,255,255,.96))'; };
+    m.onmousedown = function(ev) { ev.preventDefault(); };
+    m.onclick = function(ev) { ev.stopPropagation(); copyText(text); closeTwCopyMenu(); };
+    m.oncontextmenu = function(ev) { ev.preventDefault(); };
+    document.body.appendChild(m);
+    var w = m.offsetWidth, h = m.offsetHeight;
+    m.style.left = Math.max(4, Math.min(e.clientX, window.innerWidth - w - 4)) + 'px';
+    m.style.top = Math.max(4, Math.min(e.clientY, window.innerHeight - h - 4)) + 'px';
+    _twCopyMenu = m;
+  }, true);
+  document.addEventListener('mousedown', function(e) {
+    if (_twCopyMenu && !_twCopyMenu.contains(e.target)) closeTwCopyMenu();
+  }, true);
+  document.addEventListener('keydown', function(e) { if (e.key === 'Escape') closeTwCopyMenu(); }, true);
+  window.addEventListener('blur', closeTwCopyMenu);
+  window.addEventListener('wheel', closeTwCopyMenu, { passive: true, capture: true });
+
+  // 5. 快捷键桥接: Ctrl+← 隐藏 / Ctrl+→ 展示 工作台导航栏 (iframe 内按键到不了父文档, 转 postMessage)
+  document.addEventListener('keydown', function(e) {
+    if (!e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) return;
+    if (e.code !== 'ArrowLeft' && e.code !== 'ArrowRight') return;
+    if (isEditableTarget(e.target)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    try { window.parent.postMessage({ type: 'tabonkb-navrail', dir: e.code === 'ArrowLeft' ? 'hide' : 'show' }, '*'); } catch (_) {}
+  }, true);
 
   // Notify parent Obsidian Workbench that DSH iframe bridge is ready for theme sync
   function notifyReady() {
@@ -2407,18 +2468,20 @@ class DshDaemonManager {
     try {
       this.ensureVaultWorkspace();
 
-      // 1. 检查锁文件与已有进程
+      // 1. 检查锁文件与已有进程 (热重载秒级复用: 只要锁文件进程存活且签名确认为 DSH 即直接复用)
       const lock = this.readLockFile();
       if (lock && lock.port && this.isProcessAlive(lock.pid)) {
         const probe = await this.probeDshSignature(lock.port);
-        if (probe.isDsh && (probe.authenticated || (lock.authUrl && lock.authUrl.includes('token=')))) {
+        if (probe.isDsh && (probe.authenticated || (lock.authUrl && lock.authUrl.includes('token=')) || lock.authCookie)) {
           this.actualPort = lock.port;
           this.authUrl = lock.authUrl || `http://127.0.0.1:${lock.port}/`;
-          this._ownedPid = lock.pid; // R3: 复用实例同样登记归属, 保证 stop() 能回收
+          if (lock.authCookie && !this.authCookie) this.authCookie = lock.authCookie;
+          this._ownedPid = lock.pid; // R3: 复用实例同样登记归属, 保证显式 stop()/restart() 能回收
           await this.refreshAuthCookie(this.authUrl);
           await this.startProxy(this.actualPort);
           this.registerBridgePorts();
           this.setStatus('running', '复用已运行实例');
+          try { globalThis.__twBootMark && __twBootMark('dsh:lock-reused'); } catch (_) {}
           this._isStarting = false;
           this.emit('auth_ready', { authUrl: this.authUrl, studioUrl: this.studioUrl, port: this.actualPort, adopted: true });
           return true;
@@ -2477,6 +2540,7 @@ class DshDaemonManager {
       env.Path = envPath;
 
       // 6. 拉起子进程
+      try { globalThis.__twBootMark && __twBootMark('dsh:cold-spawn'); } catch (_) {}
       const proc = child_process.spawn(spawnCmd, spawnArgs, {
         cwd: this.vaultBasePath || process.cwd(),
         env,
@@ -2484,6 +2548,7 @@ class DshDaemonManager {
         stdio: ['ignore', 'pipe', 'pipe']
       });
 
+      try { proc.unref(); } catch (_) {}
       this.process = proc;
       this._ownedPid = proc.pid; // R3: 登记归属, 供 stop()/失败路径回收整棵进程树
       let stdoutBuffer = '';
@@ -2660,8 +2725,35 @@ class DshDaemonManager {
     return await this.start();
   }
 
-  destroy() {
-    this.stop().catch(() => {});
+  /**
+   * 插件卸载/热重载时默认仅解绑当前前端代理与事件监听器，保留后台 DSH 守护进程与 daemon.lock，
+   * 使重载后 _doStart() 可在 <50ms 内秒级热复用，彻底消除每次重载 8~10s 的冷启动与主线程 taskkill 阻塞。
+   * 如需彻底强杀后台守护进程，显式传入 destroy(true) 或调用 stop() / restart()。
+   */
+  destroy(killDaemon = false) {
+    if (killDaemon) {
+      this.stop().catch(() => {});
+      this.listeners.clear();
+      return;
+    }
+    if (this.proxyServer) {
+      try { this.proxyServer.close(); } catch (_) {}
+      this.proxyServer = null;
+      this.proxyPort = null;
+      this.studioUrl = null;
+    }
+    if (this.process) {
+      try {
+        if (this.process.stdout) this.process.stdout.removeAllListeners();
+        if (this.process.stderr) this.process.stderr.removeAllListeners();
+        this.process.removeAllListeners();
+        if (typeof this.process.unref === 'function') this.process.unref();
+      } catch (_) {}
+      this.process = null;
+    }
+    this._ownedPid = null;
+    this._startPromise = null;
+    this._isStarting = false;
     this.listeners.clear();
   }
 }

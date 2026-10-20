@@ -197,6 +197,8 @@ ${jsonBlock}
 
 ${contextSummary}
 
+[文件引用] 引用文件一律用绝对路径：服务器 Y:\... / Z:\work\...，知识库 D:\work\Mgmt\TabonKB\...；禁止相对路径与省略号；行号写作 路径:行号。界面会自动缩短显示。
+
 [研发人员提问]
 ${userPrompt}`;
   }

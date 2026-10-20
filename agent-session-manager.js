@@ -42,6 +42,8 @@ class AgentSessionManager {
         draft: '',
         currentAssistantMessage: null,
         activeToolCards: new Map(),
+        // 会话级上下文绑定 (OpenGrok/Gerrit/Jira/本地工程): 尚无会话对象 (新会话待发首条消息) 时的暂存区
+        pendingContext: null,
         updatedAt: Date.now()
       });
     }
@@ -192,7 +194,8 @@ class AgentSessionManager {
     }
     if (touched > 0) {
       try { console.info('[AgentSessionManager] Migrated/normalized legacy usage records:', touched); } catch (_) {}
-      this.saveSessions();
+      // 避免在构造函数同步加载栈中阻塞写盘，统一走防抖延迟落盘
+      this.saveSessionsDebounced(1500);
     }
   }
 
@@ -223,6 +226,8 @@ class AgentSessionManager {
         // 服务端会话 ID (NiceAIGC conversation_id / 叶子消息链): 必须随白名单序列化, 否则落盘即丢无法续接
         conversationId: s.conversationId || null,
         lastMessageId: s.lastMessageId || null,
+        // 会话级上下文绑定快照: 随会话持久化, 切换/新建会话时恢复或复位
+        context: s.context || null,
         messages: (s.messages || []).slice(-100).map(m => ({
           id: m.id || Math.random().toString(36).slice(2),
           role: m.role,
@@ -428,8 +433,11 @@ class AgentSessionManager {
       title: title,
       createdAt: Date.now(),
       updatedAt: Date.now(),
+      // 新会话物化时接管待发区的上下文绑定 (无待发即为默认未选中)
+      context: agent.pendingContext || null,
       messages: []
     };
+    agent.pendingContext = null;
     agent.sessions.unshift(newSession);
     agent.activeSessionId = newSession.id;
     agent.updatedAt = Date.now();
@@ -452,6 +460,7 @@ class AgentSessionManager {
     agent.currentAssistantMessage = null;
     agent.activeToolCards.clear();
     agent.draft = '';
+    agent.pendingContext = null;
     agent.updatedAt = Date.now();
     this.saveSessions();
   }
@@ -481,6 +490,27 @@ class AgentSessionManager {
     active.lastMessageId = lastMsgId || null;
     active.updatedAt = Date.now();
     this.saveSessions();
+  }
+
+  // 会话级上下文绑定 (OpenGrok/Gerrit/Jira/本地工程快照): 有活跃会话写到 session.context,
+  // 无会话 (新建待首条消息) 暂存 agent.pendingContext, 由 createSession 接管物化
+  setSessionContext(agentId, ctx) {
+    const agent = this.getAgent(agentId);
+    const active = this.getActiveSession(agentId);
+    if (active) {
+      active.context = ctx || null;
+      active.updatedAt = Date.now();
+    } else {
+      agent.pendingContext = ctx || null;
+    }
+    this.saveSessionsDebounced(400);
+  }
+
+  getSessionContext(agentId) {
+    const active = this.getActiveSession(agentId);
+    if (active) return active.context || null;
+    const agent = this.getAgent(agentId);
+    return agent.pendingContext || null;
   }
 
   getSessionConversation(agentId) {

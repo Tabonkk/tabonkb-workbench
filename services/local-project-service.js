@@ -335,6 +335,140 @@ function readRemoteFileSmartAsync(sshHost, user, opts = {}, timeoutMs = 8000) {
   });
 }
 
+/**
+ * 惰性加载 remote-exec-core (避免顶层 require 循环依赖:
+ * remote-exec-core 顶层已 require 本模块)。打包进 main.js 后
+ * remote-exec-core 未内联, 运行时按插件目录相对路径解析。
+ */
+function _remoteExecCore() {
+  if (typeof buildRemoteCommand === 'function' && typeof buildSshArgs === 'function' &&
+      typeof shellQuote === 'function' && typeof resolveServer === 'function') {
+    return { buildRemoteCommand, buildSshArgs, shellQuote, resolveServer };
+  }
+  try { return require('./remote-exec-core.js'); } catch (_) {}
+  try { return require('./services/remote-exec-core.js'); } catch (_) {}
+  try { return require(path.join(__dirname, 'remote-exec-core.js')); } catch (_) {}
+  return null;
+}
+
+/**
+ * 惰性加载 file-locator-core (打包后为全局函数; 独立 require 时按同目录模块加载)
+ */
+function _fileLocatorCore() {
+  if (typeof buildLocateScript === 'function') return { buildLocateScript };
+  try { return require('./file-locator-core.js'); } catch (_) {}
+  try { return require('./services/file-locator-core.js'); } catch (_) {}
+  try { return require(path.join(__dirname, 'file-locator-core.js')); } catch (_) {}
+  return null;
+}
+
+/**
+ * spawn 一条 SSH 连接执行远端脚本 (buildRemoteCommand 已含远端 timeout -k 5 硬限时,
+ * 本地看门狗 = timeoutMs + 10s, 杀不死也 resolve 不悬挂)。
+ * @returns {Promise<{ok:boolean, timedOut:boolean, code:number, stdout:string, stderr:string}>}
+ */
+function _runSshScriptAsync(server, scriptText, timeoutMs) {
+  return new Promise((resolve) => {
+    const rex = _remoteExecCore();
+    if (!rex) return resolve({ ok: false, timedOut: false, code: -1, stdout: '', stderr: 'remote-exec-core unavailable' });
+    const remoteCmd = rex.buildRemoteCommand({ cmd: scriptText, timeoutSec: Math.max(5, Math.ceil(timeoutMs / 1000)) });
+    const sshArgs = rex.buildSshArgs(server, remoteCmd);
+    let out = '', err = '', done = false, killed = false;
+    let cp;
+    try {
+      cp = child_process.spawn(getWinSshBin(), sshArgs, { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+    } catch (e) {
+      return resolve({ ok: false, timedOut: false, code: -1, stdout: '', stderr: String(e && e.message || e) });
+    }
+    const watchdog = setTimeout(() => {
+      killed = true;
+      try { cp.kill('SIGKILL'); } catch (_) {}
+    }, Math.max(1000, timeoutMs) + 10000);
+    if (cp.stdout) cp.stdout.on('data', d => { out += d; });
+    if (cp.stderr) cp.stderr.on('data', d => { err += d; });
+    cp.on('error', (e) => {
+      if (done) return;
+      done = true;
+      clearTimeout(watchdog);
+      resolve({ ok: false, timedOut: killed, code: -1, stdout: out, stderr: String(e && e.message || e) });
+    });
+    cp.on('close', (code) => {
+      if (done) return;
+      done = true;
+      clearTimeout(watchdog);
+      resolve({ ok: true, timedOut: killed || code === 124, code: code || 0, stdout: out, stderr: err });
+    });
+  });
+}
+
+/**
+ * 分层远程文件定位 (单次 SSH 完成 anchors 精确探测 + tiers 分层 find;
+ * 无命中且给了 lastResortRoot 时再做一次整树 -name find, 独立长超时)。
+ * @param {object} opts
+ * @param {object|string} opts.server   LOCAL_SERVERS 条目 / '62'/'31' / {sshHost,user}
+ * @param {string[]} [opts.anchors]     精确探测根目录 (linux 绝对路径)
+ * @param {string}   [opts.rel]         相对路径 (含目录走 -path 尾缀, 无目录走 -name)
+ * @param {string}   [opts.fileName]    文件名 (last_resort 恒用 -name)
+ * @param {string[]} [opts.tiers]       有序分层根目录 (含 * 视为 glob)
+ * @param {string}   [opts.lastResortRoot] 整树兜底根 (剪枝 .git/.repo/out)
+ * @param {number}   [opts.timeoutMs=15000]
+ * @param {number}   [opts.lastResortTimeoutMs=60000]
+ * @param {function} [opts.onStage]     阶段回调 ('last_resort' 等)
+ * @returns {Promise<{hits:string[], stage:'anchor'|'tier'|'last_resort'|'none', timedOut:boolean}>}
+ */
+function locateRemoteFileAsync(opts = {}) {
+  const flc = _fileLocatorCore();
+  if (!flc || !flc.buildLocateScript) {
+    return Promise.resolve({ hits: [], stage: 'none', timedOut: false });
+  }
+  const timeoutMs = opts.timeoutMs || 15000;
+  const lastResortTimeoutMs = opts.lastResortTimeoutMs || 60000;
+  const onStage = typeof opts.onStage === 'function' ? opts.onStage : () => {};
+  const anchors = (Array.isArray(opts.anchors) ? opts.anchors : []).filter(Boolean);
+  const tiers = (Array.isArray(opts.tiers) ? opts.tiers : []).filter(Boolean);
+  const rel = String(opts.rel || '');
+  const fileName = String(opts.fileName || (rel ? rel.split(/[\\/]/).pop() : ''));
+  const server = opts.server || '62';
+
+  const parse = (stdout) => {
+    let sec = 'anchor';
+    const hits = [];
+    let hitStage = null;
+    for (const l of String(stdout || '').split(/\r?\n/)) {
+      if (l === 'SEC\ttier') sec = 'tier';
+      else if (l.startsWith('HIT\t')) {
+        hits.push(l.slice(4));
+        if (!hitStage) hitStage = sec;
+      }
+    }
+    return { hits, hitStage };
+  };
+
+  const script = flc.buildLocateScript({ anchors, rel, fileName, tiers });
+  if (!script || script === 'hits=0') {
+    return Promise.resolve({ hits: [], stage: 'none', timedOut: false });
+  }
+
+  let primaryTimedOut = false;
+  return _runSshScriptAsync(server, script, timeoutMs).then(async (r1) => {
+    primaryTimedOut = !!r1.timedOut;
+    const p1 = parse(r1.stdout);
+    if (p1.hits.length) {
+      return { hits: p1.hits, stage: p1.hitStage || 'anchor', timedOut: false };
+    }
+    const lrr = opts.lastResortRoot;
+    if (lrr && fileName) {
+      onStage('last_resort');
+      const lrScript = flc.buildLocateScript({ anchors: [], rel: '', fileName, tiers: [lrr] });
+      const r2 = await _runSshScriptAsync(server, lrScript, lastResortTimeoutMs);
+      const p2 = parse(r2.stdout);
+      if (p2.hits.length) return { hits: p2.hits, stage: 'last_resort', timedOut: !!r2.timedOut };
+      return { hits: [], stage: 'none', timedOut: primaryTimedOut || !!r2.timedOut };
+    }
+    return { hits: [], stage: 'none', timedOut: primaryTimedOut };
+  }).catch(() => ({ hits: [], stage: 'none', timedOut: false }));
+}
+
 function safeReadFileSync(filePath, encoding = 'utf8') {
   try {
     return fs.readFileSync(filePath, encoding);
@@ -815,6 +949,7 @@ module.exports = {
   readRemoteFileViaSsh,
   readRemoteFileViaSshAsync,
   readRemoteFileSmartAsync,
+  locateRemoteFileAsync,
   writeRemoteFileViaSsh,
   findRemoteFileViaSsh,
   getLocalProjectsCacheFile,

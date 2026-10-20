@@ -1,5 +1,5 @@
 const { getIconPark } = require('../ui/iconpark.js');
-const { NotionAiEmbed } = require('./notion-embed.js');
+const { ExploreCommandPalette } = require('./explore-palette.js');
 
 /**
  * ExploreView: Handles the "探索" tab inside TabonKB Workbench.
@@ -46,13 +46,140 @@ class ExploreView {
     this.isLiveSource = false;
     this.selectedCategoryTab = 'all';
     this.liveSearchError = null;
+
+    // 搜索面板 (Ctrl+F 唤起): 纯 Omnisearch 全文检索, 不再携带默认命令项 (子页经导航栏直达)
+    this._palette = (typeof ExploreCommandPalette === 'function')
+      ? new ExploreCommandPalette(
+          [],
+          (n, s) => getIconPark(n, s),
+          (q) => this._paletteOmniItems(q)
+        )
+      : null;
+
+    // Ctrl+F 全局唤起: 仅当本视图仍挂在文档树中 (即探索页激活) 才响应
+    this._altKHandler = (e) => {
+      if (e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey && e.code === 'KeyF') {
+        if (!this.containerEl || !this.containerEl.isConnected) return;
+        e.preventDefault();
+        e.stopPropagation();
+        this.togglePalette();
+      }
+    };
+    if (typeof document !== 'undefined') {
+      document.addEventListener('keydown', this._altKHandler, true);
+    }
+
+    // Obsidian Keymap 在 window 捕获阶段先于 document 处理按键: Ctrl+F 属于已绑定的系统热键, 命中后会
+    // preventDefault+stopPropagation, document 级监听收不到 (Alt+K 无绑定故此前可用)。
+    // 因此额外在 app.scope 注册并置顶; 非探索页激活时临时摘除自身并转交原链路, 不影响其它视图的 Ctrl+F。
+    this._scopeKey = null;
+    try {
+      const scope = this.app && this.app.scope;
+      if (scope && typeof scope.register === 'function' && Array.isArray(scope.keys)) {
+        const handler = scope.register(['Ctrl'], 'f', (evt, info) => {
+          if (this.containerEl && this.containerEl.isConnected) {
+            this.togglePalette();
+            return false;
+          }
+          const idx = scope.keys.indexOf(handler);
+          if (idx < 0) return undefined;
+          scope.keys.splice(idx, 1);
+          try {
+            return scope.handleKey(evt, info);
+          } finally {
+            scope.keys.splice(idx, 0, handler);
+          }
+        });
+        const pos = scope.keys.indexOf(handler);
+        if (pos > 0) { scope.keys.splice(pos, 1); scope.keys.unshift(handler); }
+        this._scopeKey = { scope, handler };
+      }
+    } catch (_) {}
+  }
+
+  togglePalette() {
+    if (this._palette) this._palette.toggle();
+  }
+
+  /** 释放: 工作台 onClose 时调用, 移除全局键盘监听并关闭面板 */
+  dispose() {
+    if (this._altKHandler && typeof document !== 'undefined') {
+      document.removeEventListener('keydown', this._altKHandler, true);
+      this._altKHandler = null;
+    }
+    if (this._scopeKey) {
+      try { this._scopeKey.scope.unregister(this._scopeKey.handler); } catch (_) {}
+      this._scopeKey = null;
+    }
+    if (this._palette) {
+      this._palette.close();
+      this._palette = null;
+    }
+  }
+
+  /**
+   * 命令面板的异步数据源: Omnisearch 全文检索 → 文档跳转项 + 末尾原生大窗兜底项;
+   * Omnisearch 插件缺失时回退 vault 文件名/路径子串检索
+   */
+  async _paletteOmniItems(q) {
+    const openDoc = (p) => () => this.app.workspace.openLinkText(p, '', 'tab');
+    const omniAllItem = () => ({
+      id: '__omni_all', label: `在 Omnisearch 中检索「${q}」`, desc: '唤起原生全库大窗',
+      icon: 'lightning', group: '更多', pinned: true, run: () => {
+        if (this.app?.plugins?.plugins?.omnisearch) {
+          this.app.commands.executeCommandById('omnisearch:show-modal');
+          setTimeout(() => {
+            const omniInput = document.querySelector('.omnisearch-modal input, .prompt-input');
+            if (omniInput) {
+              omniInput.value = q;
+              omniInput.dispatchEvent(new Event('input', { bubbles: true }));
+            }
+          }, 120);
+        } else {
+          this.app.commands.executeCommandById('global-search:open');
+        }
+      }
+    });
+
+    const omni = (typeof globalThis !== 'undefined' && globalThis.omnisearch)
+      || this.app?.plugins?.plugins?.omnisearch?.api;
+
+    if (omni && typeof omni.search === 'function') {
+      const raw = await omni.search(q);
+      const items = (raw || []).slice(0, 8).map(r => {
+        const scorePercent = Math.min(Math.round((r.score || 0) * 100), 99);
+        const dir = (r.path || '').split('/').slice(0, -1).join(' / ');
+        const excerpt = String(r.excerpt || '').replace(/\s+/g, ' ').trim().slice(0, 140);
+        return {
+          id: r.path,
+          label: r.basename || (r.path || '').split('/').pop(),
+          excerpt,
+          desc: dir || r.path,
+          icon: 'file-text',
+          badge: scorePercent > 0 ? `${scorePercent}%` : 'Match',
+          run: openDoc(r.path)
+        };
+      });
+      items.push(omniAllItem());
+      return items;
+    }
+
+    // 无 Omnisearch: 本地文件名/路径子串检索
+    const ql = q.toLowerCase();
+    const files = (this.app?.vault?.getMarkdownFiles?.() || [])
+      .filter(f => (f.basename + ' ' + f.path).toLowerCase().includes(ql))
+      .slice(0, 8);
+    return files.map(f => ({
+      id: f.path, label: f.basename, desc: f.path, icon: 'file-text',
+      run: openDoc(f.path)
+    }));
   }
 
   getSavedSubTab() {
     try {
       if (typeof localStorage !== 'undefined') {
         const s = localStorage.getItem('tabonkb-explore-subtab');
-        if (s === 'ai' || s === 'search' || s === 'notion') return s;
+        if (s === 'ai' || s === 'search') return s;
       }
     } catch (_) {}
     return 'ai';
@@ -90,11 +217,6 @@ class ExploreView {
 
   render() {
     if (!this.containerEl) return;
-    // 切走 Notion 子页时释放 iframe 内嵌页（停止后台加载/会话）
-    if (this.notionEmbed) {
-      try { this.notionEmbed.dispose(); } catch (_) {}
-      this.notionEmbed = null;
-    }
     this.containerEl.empty();
 
     const wrap = this.containerEl.createDiv({ cls: 'tw-explore-container' });
@@ -107,30 +229,8 @@ class ExploreView {
 
     if (this.activeSubTab === 'search') {
       this.renderSearchSubView(stageBody);
-    } else if (this.activeSubTab === 'notion') {
-      this.renderNotionSubView(stageBody);
     } else {
       this.renderAiSubView(stageBody);
-    }
-  }
-
-  /**
-   * Render Sub-view 3: Notion AI 官方页面内嵌 (iframe + 头剥离豁免)
-   */
-  renderNotionSubView(parentEl) {
-    if (this.notionEmbed) {
-      try { this.notionEmbed.dispose(); } catch (_) {}
-      this.notionEmbed = null;
-    }
-    if (typeof NotionAiEmbed === 'function') {
-      this.notionEmbed = new NotionAiEmbed(parentEl);
-    } else {
-      parentEl.innerHTML = `
-        <div class="tw-card" style="padding: 32px; text-align: center; color: var(--text-muted);">
-          <div style="font-size: 32px; margin-bottom: 8px;">📓</div>
-          <div>Notion AI 组件未加载</div>
-        </div>
-      `;
     }
   }
 

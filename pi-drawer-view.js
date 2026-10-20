@@ -2,6 +2,7 @@ const path = require('path');
 const { AgentHub } = require('./agent-hub.js');
 const { getAgentBrandSvg } = require('./providers/agent-adapter-base.js');
 const { getIconPark, detectModelIconPark, detectModelBrand, getOfficialModelSvg } = require('./ui/iconpark.js');
+const { decodeTarget, splitLine, classifyTarget, shortenPathLabel, OBSIDIAN_NATIVE_EXTS } = require('./services/file-locator-core.js');
 
 const DSH_ICONS = {
   copy: `<svg width="13.5" height="13.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" style="display:block; shape-rendering:geometricPrecision;"><rect x="5.25" y="4.75" width="7.5" height="8.5" rx="1.5"/><path d="M3.25 10.75V3.5a1.5 1.5 0 0 1 1.5-1.5h5.5a1.5 1.5 0 0 1 1.5 1.5v1.25"/></svg>`,
@@ -126,6 +127,8 @@ class PiDrawerView {
     this._suppressPlanBarOnce = false;
     // 多步工具调用回合 Token 累加器：turn_end 每跳累加，杜绝只记最后一跳
     this.turnUsageAcc = null;
+    // 当前上下文占用 {tokens, contextWindow, percent}（tokens:null = pi 待下轮响应后可知）
+    this._ctxUsage = null;
     // pi .jsonl 孤儿回合恢复防重入
     this._piRecoverInFlight = false;
     this._tpFetchPromise = null;
@@ -253,12 +256,14 @@ class PiDrawerView {
   }
 
   async togglePermissionMode() {
-    const nextMode = this.permissionMode === 'readonly' ? 'readwrite' : 'readonly';
+    const order = ['readonly', 'readwrite', 'full'];
+    const idx = order.indexOf(this.permissionMode);
+    const nextMode = order[(idx + 1) % order.length];
     await this.setPermissionMode(nextMode);
   }
 
   async setPermissionMode(mode) {
-    if (mode !== 'readwrite' && mode !== 'readonly') return;
+    if (mode !== 'readonly' && mode !== 'readwrite' && mode !== 'full') return;
     if (mode === this.permissionMode) return;
     await this.hub.setPermissionMode(mode);
     this._hidePlanBar();
@@ -269,16 +274,19 @@ class PiDrawerView {
 
   updatePermBadge() {
     if (!this.permBadgeEl) return;
-    const isRW = this.permissionMode === 'readwrite';
-    this.permBadgeEl.className = `tw-perm-pill ${isRW ? 'readwrite' : 'readonly'}`;
+    const mode = this.permissionMode;
+    const conf = {
+      readonly: { icon: 'lock', name: '只读', title: '当前：只读模式（安全检索不修改），点击切换' },
+      readwrite: { icon: 'shield', name: '读写', title: '当前：读写模式（工程边界内可写），点击切换' },
+      full: { icon: 'lightning', name: '完全权限', title: '当前：完全权限（仍拦截高危操作），点击切换' }
+    }[mode] || { icon: 'shield', name: '读写', title: '当前：读写模式，点击切换' };
+    this.permBadgeEl.className = `tw-perm-pill ${mode}`;
     this.permBadgeEl.innerHTML = `
-      <span class="tw-perm-pill-icon">${getIconPark(isRW ? 'shield' : 'lock', 13)}</span>
-      <span class="tw-perm-pill-name">${isRW ? '完全权限' : '只读'}</span>
+      <span class="tw-perm-pill-icon">${getIconPark(conf.icon, 13)}</span>
+      <span class="tw-perm-pill-name">${conf.name}</span>
       <span class="tw-perm-pill-caret">${getIconPark('down', 10)}</span>
     `;
-    this.permBadgeEl.title = isRW
-      ? '当前：完全权限（支持新建与修改笔记），点击切换'
-      : '当前：只读模式（安全检索不修改），点击切换';
+    this.permBadgeEl.title = conf.title;
     if (this.permPopoverEl) {
       this.permPopoverEl.querySelectorAll('.tw-perm-opt').forEach((opt) => {
         opt.classList.toggle('on', opt.getAttribute('data-mode') === this.permissionMode);
@@ -287,13 +295,15 @@ class PiDrawerView {
   }
 
   updatePermHint() {
-    const isRW = this.permissionMode === 'readwrite';
+    const mode = this.permissionMode;
     const hintText = this.drawerEl ? this.drawerEl.querySelector('#twDrawerPermHint .tw-hint-text') : null;
+    const label = mode === 'readonly' ? '只读安全模式' : (mode === 'full' ? '完全权限模式' : '读写安全模式');
+    const fallback = mode === 'readonly' ? '只读模式' : (mode === 'full' ? '完全权限' : '读写模式');
     if (hintText) {
-      hintText.textContent = isRW ? '读写安全模式' : '只读安全模式';
+      hintText.textContent = label;
     } else {
       const hintEl = this.drawerEl ? this.drawerEl.querySelector('#twDrawerPermHint') : null;
-      if (hintEl) hintEl.textContent = isRW ? '读写模式' : '只读模式';
+      if (hintEl) hintEl.textContent = fallback;
     }
     const hintDot = this.drawerEl ? this.drawerEl.querySelector('#twDrawerPermHint .tw-hint-dot') : null;
     if (hintDot) {
@@ -368,6 +378,8 @@ class PiDrawerView {
     if (isFirstBuild || (!hasLiveUi && !this.currentAssistantMessage && !hubStreaming)) {
       this.restoreSessionMessages(this.hub.activeAgentId);
     }
+    // 上下文绑定按当前活跃会话恢复 (新建/无存档 → 未选中)
+    if (typeof this._applySessionContext === 'function') this._applySessionContext(this.hub.activeAgentId);
     this.updateStatus(this.hub.getStatus());
     this.ensureAgentConnected();
 
@@ -918,16 +930,21 @@ class PiDrawerView {
               </div>
             </div>
             <div class="tw-perm-wrap" id="twPermWrap">
-              <button class="tw-perm-pill" id="twPermPill" title="权限模式：切换读写 / 只读"></button>
+              <button class="tw-perm-pill" id="twPermPill" title="权限模式：切换只读 / 读写 / 完全权限"></button>
               <div class="tw-perm-popover" id="twPermPopover" style="display:none;">
-                <div class="tw-perm-opt" data-mode="readwrite" title="可新建与修改笔记 / 执行命令">
-                  <span class="tw-perm-opt-icon">${getIconPark('shield', 13)}</span>
-                  <span class="tw-perm-opt-name">完全权限</span>
-                  <span class="tw-perm-opt-check">${getIconPark('check-square', 12)}</span>
-                </div>
                 <div class="tw-perm-opt" data-mode="readonly" title="只读安全模式（不修改文件）">
                   <span class="tw-perm-opt-icon">${getIconPark('lock', 13)}</span>
                   <span class="tw-perm-opt-name">只读</span>
+                  <span class="tw-perm-opt-check">${getIconPark('check-square', 12)}</span>
+                </div>
+                <div class="tw-perm-opt" data-mode="readwrite" title="工程边界内可写 / 执行命令">
+                  <span class="tw-perm-opt-icon">${getIconPark('shield', 13)}</span>
+                  <span class="tw-perm-opt-name">读写</span>
+                  <span class="tw-perm-opt-check">${getIconPark('check-square', 12)}</span>
+                </div>
+                <div class="tw-perm-opt tw-perm-opt-full" data-mode="full" title="完全权限（仍拦截高危操作）">
+                  <span class="tw-perm-opt-icon">${getIconPark('lightning', 13)}</span>
+                  <span class="tw-perm-opt-name">完全权限</span>
                   <span class="tw-perm-opt-check">${getIconPark('check-square', 12)}</span>
                 </div>
               </div>
@@ -935,6 +952,26 @@ class PiDrawerView {
             <div class="tw-session-ctx" id="twSessionCtx" style="display:none;"></div>
           </div>
           <div class="tw-card-toolbar-right">
+            <div class="tw-ctx-wrap" id="twCtxWrap" style="display:none;">
+              <button class="tw-ctx-pill" id="twCtxPill" title="当前上下文占用">
+                <svg class="tw-ctx-pill-ring" viewBox="0 0 16 16" aria-hidden="true">
+                  <circle class="tw-ctx-ring-track" cx="8" cy="8" r="6.5"></circle>
+                  <circle class="tw-ctx-ring-val" id="twCtxRingVal" cx="8" cy="8" r="6.5"></circle>
+                </svg>
+                <span class="tw-ctx-pill-text" id="twCtxPillText">--</span>
+              </button>
+              <div class="tw-ctx-popover" id="twCtxPopover" style="display:none;">
+                <div class="tw-ctx-popover-head">
+                  <span class="tw-ctx-popover-title">上下文</span>
+                  <span class="tw-ctx-popover-pct" id="twCtxPct">--</span>
+                </div>
+                <div class="tw-ctx-popover-bar"><div class="tw-ctx-popover-fill" id="twCtxFill"></div></div>
+                <div class="tw-ctx-popover-detail" id="twCtxDetail">--</div>
+                <button class="tw-ctx-compact-btn" id="twCtxCompactBtn" title="压缩会话上下文">
+                  ${getIconPark('layers', 12)}<span>压缩</span>
+                </button>
+              </div>
+            </div>
             <div class="tw-card-model-wrap" id="twCardModelWrap">
               <button class="tw-card-model-pill" id="twCardModelPill" title="点击切换当前 AI 模型">
                 <span class="tw-card-model-icon" id="twCardModelIcon">${getOfficialModelSvg('gpt-5-6-thinking', 14)}</span>
@@ -1029,6 +1066,16 @@ class PiDrawerView {
     this.localProjNameEl = footer.querySelector('#twCardLocalProjName');
     this.localProjSearchInput = footer.querySelector('#twLocalProjSearchInput');
     this.localProjListEl = footer.querySelector('#twLocalProjPopoverList');
+    this.ctxWrapEl = footer.querySelector('#twCtxWrap');
+    this.ctxPillEl = footer.querySelector('#twCtxPill');
+    this.ctxRingValEl = footer.querySelector('#twCtxRingVal');
+    this.ctxPillTextEl = footer.querySelector('#twCtxPillText');
+    this.ctxPopoverEl = footer.querySelector('#twCtxPopover');
+    this.ctxPctEl = footer.querySelector('#twCtxPct');
+    this.ctxFillEl = footer.querySelector('#twCtxFill');
+    this.ctxDetailEl = footer.querySelector('#twCtxDetail');
+    this.ctxCompactBtnEl = footer.querySelector('#twCtxCompactBtn');
+
     this.localProjNavHeader = footer.querySelector('#twLocalProjNavHeader');
     this.localProjBackBtn = footer.querySelector('#twLocalProjBackBtn');
     this.localProjBackText = footer.querySelector('#twLocalProjBackText');
@@ -1050,6 +1097,7 @@ class PiDrawerView {
     this.updateModelSelectorPill();
     this.bindProjectSelectorEvents();
     this.bindPermEvents();
+    this.bindCtxEvents();
     this.updateProjectSelectorPill();
     this.updateContextCapsule();
     this._restoreChips(this.hub.activeAgentId);
@@ -1209,15 +1257,23 @@ class PiDrawerView {
   openReasoningPopover(anchorEl, modelId, modelName) {
     if (!this.reasoningPopoverEl || !anchorEl) return;
     const adapter = this.hub.getActiveAdapter();
-    const currentEffort = typeof adapter.getReasoningEffort === 'function' ? adapter.getReasoningEffort() : 'max';
+    let currentEffort = typeof adapter.getReasoningEffort === 'function' ? adapter.getReasoningEffort() : 'max';
 
-    const levels = [
+    let levels = [
       { id: 'off', label: '关闭', desc: '直接输出' },
       { id: 'low', label: '低', desc: '轻度思考' },
       { id: 'medium', label: '中', desc: '速度平衡' },
       { id: 'high', label: '高', desc: '深度思考' },
       { id: 'max', label: '极高', desc: '全量思考' }
     ];
+
+    // agy 档位族型号（gemini-3.8-flash）：等级即型号变体，仅提供真实存在的档位，
+    // 激活标记按 effort→tier 映射（低↔low、中↔medium、高/极高↔high、关闭↔low）
+    const tierLevels = typeof adapter.getModelTierLevels === 'function' ? adapter.getModelTierLevels(modelId) : null;
+    if (tierLevels) {
+      levels = levels.filter(l => tierLevels.includes(l.id));
+      if (typeof adapter.mapEffortToTier === 'function') currentEffort = adapter.mapEffortToTier(currentEffort);
+    }
 
     let html = '';
     for (const lvl of levels) {
@@ -1286,12 +1342,32 @@ class PiDrawerView {
   }
 
   _renderModelItem(m, currentId, adapter, categoryName = '') {
-    const isSelected = m.id === currentId;
+    // 档位族折叠型号（m.tiers）：当前生效的具体变体 id 也视为选中
+    const isSelected = m.id === currentId || (m.tiers && Object.values(m.tiers).indexOf(currentId) !== -1);
     const brandIcon = getOfficialModelSvg(m.brand || m.id || m.name, 14);
     const supportsReasoning = !!m.supportsReasoningEffort;
 
     let rightSideHtml = '';
-    if (supportsReasoning) {
+    // m.tiers → 档位族折叠型号，等级选择器标签显示当前 effort 映射到的档位；
+    // 无 tiers 但 getModelEffortConfig 命中 → 裸带档后缀 id，显示固定档位徽标
+    const tierCfg = typeof adapter.getModelEffortConfig === 'function' ? adapter.getModelEffortConfig(m.id) : null;
+    if (m.tiers) {
+      const label = (tierCfg && tierCfg.label) || '高推理';
+      rightSideHtml = `
+        <div class="tw-reasoning-trigger" data-model-id="${escapeAttr(m.id)}" data-model-name="${escapeAttr(m.name)}" title="选择推理等级">
+          <span class="tw-reasoning-label">${escapeHtml(label)}</span>
+          ${isSelected ? `<span class="tw-model-item-check">${getIconPark('check', 12)}</span>` : ''}
+          <span class="tw-reasoning-caret">${getIconPark('right', 9)}</span>
+        </div>
+      `;
+    } else if (tierCfg) {
+      rightSideHtml = `
+        <div class="tw-reasoning-badge" title="推理档位由型号固定">
+          <span class="tw-reasoning-label">${escapeHtml(tierCfg.label)}</span>
+          ${isSelected ? `<span class="tw-model-item-check">${getIconPark('check', 12)}</span>` : ''}
+        </div>
+      `;
+    } else if (supportsReasoning) {
       const effortConfig = typeof adapter.getReasoningEffortConfig === 'function'
         ? adapter.getReasoningEffortConfig()
         : { label: '极高' };
@@ -1307,7 +1383,7 @@ class PiDrawerView {
     }
 
     return `
-      <div class="tw-model-item ${isSelected ? 'active' : ''} ${supportsReasoning ? 'has-reasoning' : ''}" data-model-id="${escapeAttr(m.id)}" data-model-name="${escapeAttr(m.name)}" data-model-icon="${escapeAttr(m.id)}" data-supports-reasoning="${supportsReasoning ? 'true' : 'false'}">
+      <div class="tw-model-item ${isSelected ? 'active' : ''} ${supportsReasoning ? 'has-reasoning' : ''}" data-model-id="${escapeAttr(m.id)}" data-model-name="${escapeAttr(m.name)}" data-model-icon="${escapeAttr(m.id)}" data-supports-reasoning="${(m.tiers || (supportsReasoning && !tierCfg)) ? 'true' : 'false'}">
         <div class="tw-model-item-info">
           <div class="tw-model-item-title-row">
             <span>${brandIcon}</span>
@@ -1459,6 +1535,7 @@ class PiDrawerView {
     }
 
     this.updateModelSelectorPill();
+    this._refreshContextUsage();
     this.closeModelPopover();
 
     let levelSuffix = '';
@@ -1496,7 +1573,9 @@ class PiDrawerView {
 
     let displayName = current.name || current.id || 'GPT-5.6 Sol';
     if (typeof adapter.supportsReasoningEffort === 'function' && adapter.supportsReasoningEffort(current.id)) {
-      const effortConfig = typeof adapter.getReasoningEffortConfig === 'function' ? adapter.getReasoningEffortConfig() : null;
+      // 内建档位型号优先显示固定档位，否则显示会话可选 effort
+      const effortConfig = (typeof adapter.getModelEffortConfig === 'function' && adapter.getModelEffortConfig(current.id))
+        || (typeof adapter.getReasoningEffortConfig === 'function' ? adapter.getReasoningEffortConfig() : null);
       if (effortConfig && effortConfig.label) {
         displayName = `${displayName} · ${effortConfig.label}`;
       }
@@ -1671,6 +1750,54 @@ class PiDrawerView {
       };
       fs.writeFileSync(target, JSON.stringify(payload, null, 2), 'utf8');
     } catch (_) {}
+    this._syncCtxToSession();
+  }
+
+  _ctxSnapshot() {
+    return {
+      selectedProject: this.selectedProject || 'auto',
+      selectedGerritFilter: this.selectedGerritFilter || 'all',
+      selectedJiraIssue: this.selectedJiraIssue || null,
+      selectedLocalProject: this.selectedLocalProject || null
+    };
+  }
+
+  _syncCtxToSession() {
+    try {
+      const sm = this.hub && this.hub.sessionManager;
+      if (sm && typeof sm.setSessionContext === 'function') {
+        sm.setSessionContext(this.hub.activeAgentId, this._ctxSnapshot());
+      }
+    } catch (_) {}
+  }
+
+  // 上下文绑定随会话走: 会话已记 context → 按其恢复; 老会话无 context 字段 → 兼容回退全局存档;
+  // 全新会话 (尚无 session 对象) → 一律未选中。经 save* 写回以同步 localStorage/env/提示条 UI
+  _applySessionContext(agentId) {
+    const sm = this.hub && this.hub.sessionManager;
+    const sess = sm && typeof sm.getActiveSession === 'function' ? sm.getActiveSession(agentId) : null;
+    const defaults = { selectedProject: 'auto', selectedGerritFilter: 'all', selectedJiraIssue: null, selectedLocalProject: null };
+    let ctx;
+    if (sess) {
+      // 有 context 键 (含显式 null) → 会话自带状态; 老数据缺键 → 兼容回退全局存档
+      if (Object.prototype.hasOwnProperty.call(sess, 'context')) {
+        ctx = (sess.context && typeof sess.context === 'object') ? sess.context : defaults;
+      } else {
+        ctx = {
+          selectedProject: this.getSavedProject(),
+          selectedGerritFilter: this.getSavedGerritFilter(),
+          selectedJiraIssue: this.getSavedJiraIssue(),
+          selectedLocalProject: this.getSavedLocalProject()
+        };
+      }
+    } else {
+      const pending = sm && typeof sm.getSessionContext === 'function' ? sm.getSessionContext(agentId) : null;
+      ctx = pending || defaults;
+    }
+    this.saveProject(ctx.selectedProject);
+    this.saveGerritFilter(ctx.selectedGerritFilter);
+    this.saveJiraIssue(ctx.selectedJiraIssue);
+    this.saveLocalProject(ctx.selectedLocalProject);
   }
 
   bindPermEvents() {
@@ -1692,6 +1819,211 @@ class PiDrawerView {
       };
     });
     // 外部点击/Esc 关闭复用 bindProjectSelectorEvents 的 document 级处理器（不新增监听数）
+  }
+
+  bindCtxEvents() {
+    if (!this.ctxPillEl || !this.ctxPopoverEl) return;
+    this.ctxPillEl.onclick = (e) => {
+      e.stopPropagation();
+      const open = this.ctxPopoverEl.style.display === 'flex';
+      this.ctxPopoverEl.style.display = open ? 'none' : 'flex';
+      if (!open) {
+        if (this.permPopoverEl) this.permPopoverEl.style.display = 'none';
+        if (typeof this.closeProjectPopover === 'function') this.closeProjectPopover();
+        if (this.modelPopoverEl) this.modelPopoverEl.style.display = 'none';
+        this._renderCtxPopover();
+      }
+    };
+    if (this.ctxCompactBtnEl) {
+      this.ctxCompactBtnEl.onclick = (e) => {
+        e.stopPropagation();
+        this._runManualCompact();
+      };
+    }
+  }
+
+  /**
+   * Ctx 胶囊渲染：Devin 式圆环进度 + 百分比文案。仅实现 getContextUsage 的通道显示；
+   * 优先 RPC/transcript 权威值，turn/context_usage 实时值兜底。tokens:null 显示 --。
+   */
+  _updateCtxPill() {
+    if (!this.ctxWrapEl || !this.ctxPillTextEl) return;
+    const u = this._ctxUsage;
+    const pct = u && typeof u.percent === 'number' ? u.percent : null;
+    // 圆环：周长 2π·6.5 ≈ 40.84，dashoffset 越大剩余弧越短
+    if (this.ctxRingValEl) {
+      const C = 40.84;
+      this.ctxRingValEl.style.strokeDashoffset = pct !== null
+        ? String(C * (1 - Math.min(100, Math.max(0, pct)) / 100))
+        : String(C);
+    }
+    if (this.ctxPillEl) this.ctxPillEl.classList.toggle('warn', pct !== null && pct >= 85);
+    if (!u) {
+      this.ctxPillTextEl.textContent = '--';
+      this.ctxPillEl.title = '当前上下文占用';
+      return;
+    }
+    this.ctxPillTextEl.textContent = pct !== null
+      ? (pct < 10 ? `${pct.toFixed(1)}%` : `${Math.round(pct)}%`)
+      : (typeof u.tokens === 'number' ? this.formatTokensPill(u.tokens).replace(' tok', '') : '--');
+    const win = u.contextWindow > 0 ? u.contextWindow.toLocaleString() : '--';
+    const pctStr = pct !== null ? ` · ${pct.toFixed(1)}%` : '';
+    this.ctxPillEl.title = `上下文 ${typeof u.tokens === 'number' ? u.tokens.toLocaleString() : '--'} / ${win} tok${pctStr}`;
+    if (this.ctxPopoverEl && this.ctxPopoverEl.style.display === 'flex') this._renderCtxPopover();
+  }
+
+  /** 本地缓存键：agent + 会话维度，重载后先回填上次值再等权威刷新覆盖 */
+  _ctxCacheKey() {
+    const agentId = this.hub && this.hub.activeAgentId;
+    const sm = this.hub && this.hub.sessionManager;
+    const sid = sm && typeof sm.getActiveSessionId === 'function' ? sm.getActiveSessionId(agentId) : null;
+    return agentId ? `${agentId}:${sid || 'default'}` : null;
+  }
+
+  _loadCtxCache() {
+    const key = this._ctxCacheKey();
+    if (!key) return;
+    try {
+      const map = JSON.parse(localStorage.getItem('tabonkb-ctx-usage') || '{}');
+      const e = map[key];
+      if (e && typeof e === 'object') {
+        this._ctxUsage = {
+          tokens: typeof e.tokens === 'number' ? e.tokens : null,
+          contextWindow: e.contextWindow || 0,
+          percent: typeof e.percent === 'number' ? e.percent : null
+        };
+        this._updateCtxPill();
+      }
+    } catch (_) {}
+  }
+
+  _persistCtxUsage() {
+    const key = this._ctxCacheKey();
+    const u = this._ctxUsage;
+    if (!key || !u) return;
+    try {
+      const map = JSON.parse(localStorage.getItem('tabonkb-ctx-usage') || '{}');
+      map[key] = { tokens: u.tokens, contextWindow: u.contextWindow, percent: u.percent, updatedAt: Date.now() };
+      const keys = Object.keys(map);
+      if (keys.length > 30) {
+        keys.sort((a, b) => (map[a].updatedAt || 0) - (map[b].updatedAt || 0));
+        keys.slice(0, keys.length - 30).forEach(k => delete map[k]);
+      }
+      localStorage.setItem('tabonkb-ctx-usage', JSON.stringify(map));
+    } catch (_) {}
+  }
+
+  _renderCtxPopover() {
+    if (!this.ctxPopoverEl) return;
+    const u = this._ctxUsage;
+    const pct = u && typeof u.percent === 'number' ? u.percent : null;
+    if (this.ctxPctEl) this.ctxPctEl.textContent = pct !== null ? `${pct.toFixed(1)}%` : '--';
+    if (this.ctxFillEl) {
+      this.ctxFillEl.style.width = pct !== null ? `${Math.min(100, Math.max(0, pct))}%` : '0%';
+      this.ctxFillEl.classList.toggle('warn', pct !== null && pct >= 85);
+    }
+    if (this.ctxDetailEl) {
+      const tok = u && typeof u.tokens === 'number' ? u.tokens.toLocaleString() : '--';
+      const win = u && u.contextWindow > 0 ? u.contextWindow.toLocaleString() : '--';
+      this.ctxDetailEl.textContent = `${tok} / ${win} tok`;
+    }
+    // 压缩按钮仅对实现 compact() 的通道显示（pi RPC；agy print 模式无手动压缩通道）
+    if (this.ctxCompactBtnEl) {
+      const adapter = this.hub && this.hub.getActiveAdapter();
+      this.ctxCompactBtnEl.style.display = (adapter && typeof adapter.compact === 'function') ? '' : 'none';
+    }
+  }
+
+  /**
+   * 通道能力探测：pi 实现 getContextUsage 才显示胶囊；进程未起时静默保持现状不报错。
+   */
+  async _refreshContextUsage() {
+    const adapter = this.hub && this.hub.getActiveAdapter();
+    if (!adapter || typeof adapter.getContextUsage !== 'function') {
+      this._ctxUsage = null;
+      if (this.ctxWrapEl) this.ctxWrapEl.style.display = 'none';
+      return;
+    }
+    if (this.ctxWrapEl) this.ctxWrapEl.style.display = '';
+    // 重载/切会话时先回填本地缓存避免闪 --，权威值到达后覆盖
+    if (!this._ctxUsage) this._loadCtxCache();
+    try {
+      const cu = await adapter.getContextUsage();
+      if (cu) {
+        if (cu.tokens === null && this._ctxUsage && typeof this._ctxUsage.tokens === 'number') {
+          // 上游暂不可知（bridge 预热/compact 后）≠ 真实为 0：保留已知 tokens，窗口更新则重算占比
+          const win = cu.contextWindow || this._ctxUsage.contextWindow;
+          this._ctxUsage = {
+            tokens: this._ctxUsage.tokens,
+            contextWindow: win,
+            percent: win > 0 ? (this._ctxUsage.tokens / win) * 100 : this._ctxUsage.percent
+          };
+        } else {
+          this._ctxUsage = cu;
+        }
+        this._persistCtxUsage();
+      }
+    } catch (_) {}
+    this._updateCtxPill();
+  }
+
+  _clearCtxCache() {
+    const key = this._ctxCacheKey();
+    if (!key) return;
+    try {
+      const map = JSON.parse(localStorage.getItem('tabonkb-ctx-usage') || '{}');
+      if (key in map) {
+        delete map[key];
+        localStorage.setItem('tabonkb-ctx-usage', JSON.stringify(map));
+      }
+    } catch (_) {}
+  }
+
+  /**
+   * turn_end 每跳实时刷新：该跳 usage 的 in+out+cacheRead+cacheWrite 即当时上下文长度
+   * （与 pi calculateContextTokens 同口径），contextWindow 沿用 models.json。
+   */
+  _updateCtxFromTurnUsage(u) {
+    if (!u || typeof u !== 'object' || !this.ctxWrapEl || this.ctxWrapEl.style.display === 'none') return;
+    const inp = Math.max(0, u.input ?? u.inputTokens ?? u.input_tokens ?? u.prompt_tokens ?? u.promptTokens ?? 0);
+    const out = Math.max(0, u.output ?? u.outputTokens ?? u.output_tokens ?? u.completion_tokens ?? u.completionTokens ?? 0);
+    const cr = Math.max(0, u.cacheRead ?? u.cacheReadTokens ?? u.cache_read_tokens ?? 0);
+    const cw = Math.max(0, u.cacheWrite ?? u.cacheWriteTokens ?? u.cache_write_tokens ?? 0);
+    const tokens = Math.max(0, u.totalTokens ?? u.total_tokens ?? (inp + out + cr + cw));
+    if (!(tokens > 0)) return;
+    const adapter = this.hub && this.hub.getActiveAdapter();
+    const win = (adapter && typeof adapter.getContextWindow === 'function' ? adapter.getContextWindow() : 0)
+      || (this._ctxUsage && this._ctxUsage.contextWindow) || 0;
+    this._ctxUsage = {
+      tokens,
+      contextWindow: win,
+      percent: win > 0 ? (tokens / win) * 100 : null
+    };
+    this._persistCtxUsage();
+    this._updateCtxPill();
+  }
+
+  async _runManualCompact() {
+    const adapter = this.hub && this.hub.getActiveAdapter();
+    if (!adapter || typeof adapter.compact !== 'function') return;
+    const NoticeCls = typeof Notice !== 'undefined' ? Notice : (window.app?.Notice || class{});
+    if (this.hub.isStreaming && this.hub.isStreaming()) {
+      new NoticeCls('生成中，请待本轮结束后再压缩', 2500);
+      return;
+    }
+    const btn = this.ctxCompactBtnEl;
+    if (btn) { btn.disabled = true; btn.classList.add('busy'); }
+    try {
+      await adapter.compact();
+    } catch (err) {
+      if (btn) { btn.disabled = false; btn.classList.remove('busy'); }
+      if (this.ctxPillEl) this.ctxPillEl.classList.remove('busy');
+      // pi 校验失败也会先广播 compaction_end.errorMessage——1.5s 内已提示则不重复弹
+      if (!this._ctxCompactErrAt || Date.now() - this._ctxCompactErrAt > 1500) {
+        new NoticeCls(`压缩失败: ${err.message || err}`, 3000);
+      }
+    }
+    // 成功路径由 compaction_end 事件统一收尾（恢复按钮 + 刷新占用）
   }
 
   bindProjectSelectorEvents() {
@@ -1930,6 +2262,11 @@ class PiDrawerView {
         && this.permWrapEl && !this.permWrapEl.contains(e.target)) {
         this.permPopoverEl.style.display = 'none';
       }
+      // 上下文占用弹层独立关闭
+      if (this.ctxPopoverEl && this.ctxPopoverEl.style.display !== 'none'
+        && this.ctxWrapEl && !this.ctxWrapEl.contains(e.target)) {
+        this.ctxPopoverEl.style.display = 'none';
+      }
       if (!this.optionsPopoverEl || this.optionsPopoverEl.style.display === 'none') return;
 
       // 如果点击在浮窗内部，不关闭
@@ -1985,6 +2322,9 @@ class PiDrawerView {
       }
       if (this.permPopoverEl && this.permPopoverEl.style.display !== 'none') {
         this.permPopoverEl.style.display = 'none';
+      }
+      if (this.ctxPopoverEl && this.ctxPopoverEl.style.display !== 'none') {
+        this.ctxPopoverEl.style.display = 'none';
       }
     }, { signal: this._docEventsAbort ? this._docEventsAbort.signal : undefined });
   }
@@ -2146,6 +2486,7 @@ class PiDrawerView {
   openProjectPopover() {
     if (!this.optionsPopoverEl) return;
     this.closeModelPopover();
+    this.optionsPopoverEl.classList.remove('tw-panel-only');
     if (this.projectSearchInput) this.projectSearchInput.value = '';
     if (this.gerritSearchInput) this.gerritSearchInput.value = '';
     if (this.jiraSearchInput) this.jiraSearchInput.value = '';
@@ -2159,6 +2500,7 @@ class PiDrawerView {
 
   closeProjectPopover() {
     if (this.optionsPopoverEl) {
+      this.optionsPopoverEl.classList.remove('tw-panel-only');
       this.optionsPopoverEl.style.display = 'none';
     }
     this.closeProjectDropdown();
@@ -2962,10 +3304,15 @@ class PiDrawerView {
       if (!chip) return;
       el.onclick = (e) => {
         e.stopPropagation();
-        if (typeof this.openProjectPopover === 'function') this.openProjectPopover();
+        // 本地工程胶囊直达工程选择面板: 弹层进入 tw-panel-only 态, 隐藏外层选项菜单 (框1)
         if (chip.type === 'local' && typeof this.openLocalProjDropdown === 'function') {
+          if (typeof this.openProjectPopover === 'function') this.openProjectPopover();
+          if (this.optionsPopoverEl) this.optionsPopoverEl.classList.add('tw-panel-only');
           this.openLocalProjDropdown();
-        } else if (chip.type === 'jira' && typeof this.openJiraDropdown === 'function') {
+          return;
+        }
+        if (typeof this.openProjectPopover === 'function') this.openProjectPopover();
+        if (chip.type === 'jira' && typeof this.openJiraDropdown === 'function') {
           this.openJiraDropdown();
         } else if (chip.type === 'opengrok' && typeof this.openProjectDropdown === 'function') {
           this.openProjectDropdown();
@@ -3019,6 +3366,8 @@ class PiDrawerView {
 
     // 6. Restore Message History
     this.restoreSessionMessages(agentId);
+    // 上下文绑定跟随目标 Agent 的活跃会话恢复
+    if (typeof this._applySessionContext === 'function') this._applySessionContext(agentId);
     // 排队条/回显对账/方案条随 Agent 切换复位（pi 原生队列快照由 queue_update 事件同步）
     this._queueSnapshot = null;
     this._pendingSentWires = [];
@@ -3036,6 +3385,9 @@ class PiDrawerView {
     this.updateContextCapsule();
     this.updateCardAttachments();
     this.updateSendButtonState();
+    this._ctxUsage = null;
+    this._updateCtxPill();
+    this._refreshContextUsage();
     if (this.historyPanelEl) this.historyPanelEl.style.display = 'none';
 
     // 9. Update status LED & label immediately, and auto-start if disconnected
@@ -3109,6 +3461,13 @@ class PiDrawerView {
 
   restoreSessionMessages(agentId) {
     if (!this.messagesEl) return;
+    if (this._restoreChunkTimer) {
+      clearTimeout(this._restoreChunkTimer);
+      this._restoreChunkTimer = null;
+    }
+    this._restoreToken = (this._restoreToken || 0) + 1;
+    const restoreToken = this._restoreToken;
+
     this.messagesEl.innerHTML = '';
     this.activeToolCards.clear();
     this.currentAssistantMessage = null;
@@ -3132,17 +3491,57 @@ class PiDrawerView {
       return;
     }
 
-    for (const msg of messages) {
+    // 首屏极速恢复：消息超过 12 条时，首帧仅同步渲染末尾 10 条最新消息，早期历史按帧分批在顶部流式补齐
+    try { globalThis.__twBootMark && __twBootMark('restore:start'); } catch (_) {}
+    const INITIAL_BATCH = 10;
+    const CHUNK_SIZE = 6;
+    const total = messages.length;
+    const tailStart = total > 12 ? Math.max(0, total - INITIAL_BATCH) : 0;
+
+    for (let i = tailStart; i < total; i++) {
+      const msg = messages[i];
       if (msg.role === 'user') {
         this.renderPastUserMessage(msg);
       } else {
         this.renderPastAssistantMessage(msg);
       }
     }
+    try { globalThis.__twBootMark && __twBootMark('restore:tail-batch:' + (total - tailStart)); } catch (_) {}
     this._renderInterruptHintIfOrphaned(messages);
     this.scrollToBottom(true);
     if (typeof this.buildChatMinimap === 'function') this.buildChatMinimap();
     if (typeof this.updateStickyQuestion === 'function') this.updateStickyQuestion();
+
+    if (tailStart > 0) {
+      let cursor = tailStart;
+      const prependNextBatch = () => {
+        if (this._restoreToken !== restoreToken || !this.messagesEl) return;
+        const start = Math.max(0, cursor - CHUNK_SIZE);
+        const anchor = this.messagesEl.firstChild || null;
+        const prevScrollHeight = this.messagesEl.scrollHeight || 0;
+        for (let i = start; i < cursor; i++) {
+          const msg = messages[i];
+          if (msg.role === 'user') {
+            this.renderPastUserMessage(msg, anchor);
+          } else {
+            this.renderPastAssistantMessage(msg, anchor);
+          }
+        }
+        if (prevScrollHeight > 0 && this.messagesEl.scrollHeight > prevScrollHeight) {
+          this.messagesEl.scrollTop += (this.messagesEl.scrollHeight - prevScrollHeight);
+        }
+        cursor = start;
+        if (cursor > 0) {
+          this._restoreChunkTimer = setTimeout(prependNextBatch, 16);
+        } else {
+          this._restoreChunkTimer = null;
+          try { globalThis.__twBootMark && __twBootMark('restore:done'); } catch (_) {}
+          if (typeof this.buildChatMinimap === 'function') this.buildChatMinimap();
+          if (typeof this.updateStickyQuestion === 'function') this.updateStickyQuestion();
+        }
+      };
+      this._restoreChunkTimer = setTimeout(prependNextBatch, 24);
+    }
   }
 
   /**
@@ -3555,7 +3954,7 @@ class PiDrawerView {
     return relOrAbs;
   }
 
-  renderPastUserMessage(msg) {
+  renderPastUserMessage(msg, prependAnchor = null) {
     const bubbleWrap = document.createElement('div');
     bubbleWrap.className = 'tw-msg-bubble-wrap user';
 
@@ -3615,10 +4014,14 @@ class PiDrawerView {
 
     bubbleWrap._msgRef = msg;
     this._bindUserMsgActions(bubbleWrap, msg);
-    this.messagesEl.appendChild(bubbleWrap);
+    if (prependAnchor && prependAnchor.parentNode === this.messagesEl && typeof this.messagesEl.insertBefore === 'function') {
+      this.messagesEl.insertBefore(bubbleWrap, prependAnchor);
+    } else {
+      this.messagesEl.appendChild(bubbleWrap);
+    }
   }
 
-  renderPastAssistantMessage(msg) {
+  renderPastAssistantMessage(msg, prependAnchor = null) {
     const adapter = this.hub.getActiveAdapter();
     const bubbleWrap = document.createElement('div');
     bubbleWrap.className = 'tw-msg-bubble-wrap assistant';
@@ -3862,7 +4265,11 @@ class PiDrawerView {
     }
 
     bubbleWrap.appendChild(actionBar);
-    this.messagesEl.appendChild(bubbleWrap);
+    if (prependAnchor && prependAnchor.parentNode === this.messagesEl && typeof this.messagesEl.insertBefore === 'function') {
+      this.messagesEl.insertBefore(bubbleWrap, prependAnchor);
+    } else {
+      this.messagesEl.appendChild(bubbleWrap);
+    }
   }
 
   bindResizer() {
@@ -4185,8 +4592,26 @@ class PiDrawerView {
    * @param {string} rawTarget
    * @param {number} [targetLine=1]
    */
-  openCodeInSplitPane(rawTarget, targetLine = 1) {
+  async openCodeInSplitPane(rawTarget, targetLine = 1) {
     if (!rawTarget) return;
+
+    // 1. 决议目标文件的路径与行号 (零阻塞秒级决议, 含百分号解码 + vault 优先判定)
+    const resolved = this.resolveCodeFilePath(rawTarget, targetLine);
+
+    // 2. vault 内 Obsidian 原生文件 (md/canvas/图片/pdf) → 走 Obsidian 自身分栏打开,
+    //    不占右侧代码面板也不置 isSplitPaneOpen
+    if (resolved && resolved.isVault) {
+      const ext = String(resolved.filePath.split('.').pop() || '').toLowerCase();
+      const nativeSet = (typeof OBSIDIAN_NATIVE_EXTS !== 'undefined') ? OBSIDIAN_NATIVE_EXTS : null;
+      if (nativeSet && nativeSet.has(ext)) {
+        const tfile = this._resolveVaultTFile(resolved.filePath);
+        if (tfile) {
+          const leaf = await this.openVaultFileInSplit(tfile, resolved.line || 1);
+          // 分栏失败 (叶创建异常/已分离) 时回落右侧代码面板, 不让点击无反应
+          if (leaf) return;
+        }
+      }
+    }
 
     this.isSplitPaneOpen = true;
 
@@ -4216,18 +4641,93 @@ class PiDrawerView {
       this.codePanelWrap.style.display = 'flex';
     }
 
-    // 1. 决议目标文件的路径与行号 (零阻塞秒级决议)
-    const resolved = this.resolveCodeFilePath(rawTarget, targetLine);
     const activeProj = this.selectedLocalProject || (typeof this.getSavedLocalProject === 'function' ? this.getSavedLocalProject() : null);
 
     if (this.codeViewerPanel) {
-      const finalPath = resolved?.filePath || String(rawTarget).trim();
+      const finalPath = resolved?.filePath || ((typeof decodeTarget === 'function') ? decodeTarget(rawTarget) : String(rawTarget).trim());
       const finalLine = resolved?.line || targetLine || 1;
       this.codeViewerPanel.openFile(finalPath, finalLine, {
         rawTarget,
-        activeProject: activeProj
+        activeProject: activeProj,
+        classification: resolved?.classification || null,
+        isVault: !!resolved?.isVault
       });
     }
+  }
+
+  /**
+   * vault 绝对路径 → Obsidian TFile (供 openVaultFileInSplit 使用)
+   */
+  _resolveVaultTFile(absPath) {
+    try {
+      const vault = this.app && this.app.vault;
+      if (!vault || !absPath || !this.vaultBasePath) return null;
+      const rel = String(absPath).replace(/\\/g, '/')
+        .replace(new RegExp('^' + String(this.vaultBasePath).replace(/\\/g, '/').replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '/?', 'i'), '');
+      if (!rel || rel === absPath) return null;
+      if (typeof vault.getAbstractFileByPath === 'function') {
+        const f = vault.getAbstractFileByPath(rel);
+        if (f) return f;
+      }
+      const files = (typeof vault.getFiles === 'function') ? vault.getFiles() : [];
+      const relLow = rel.toLowerCase();
+      return files.find(f => String(f.path || '').toLowerCase() === relLow) || null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /**
+   * 在 Obsidian 原生分栏中打开 vault 内文件 (md/canvas/图片/pdf 等)。
+   * 复用 this._vaultSplitLeaf；缓存叶失效时按工作台叶重建分栏。
+   */
+  async openVaultFileInSplit(tfile, line = 1) {
+    const ws = this.app && this.app.workspace;
+    if (!ws || !tfile) return null;
+    const viewType = (typeof VIEW_TYPE_WORKBENCH !== 'undefined') ? VIEW_TYPE_WORKBENCH : 'tabonkb-workbench-view';
+
+    let leaf = this._vaultSplitLeaf || null;
+    let alive = false;
+    if (leaf) {
+      // 存活判断以工作区成员关系为准 (iterateAllLeaves 覆盖 markdown/pdf/canvas 等所有叶型,
+      // 且已 detach 的叶即使 view/parent 引用残留也不会误判存活); 老 API 缺失时回退旧判定
+      try {
+        if (typeof ws.iterateAllLeaves === 'function') {
+          ws.iterateAllLeaves((l) => { if (l === leaf) alive = true; });
+        } else {
+          const mdLeaves = (typeof ws.getLeavesOfType === 'function') ? (ws.getLeavesOfType('markdown') || []) : [];
+          alive = mdLeaves.includes(leaf) || Boolean(leaf.view && leaf.parent);
+        }
+      } catch (_) {
+        alive = Boolean(leaf.view && leaf.parent);
+      }
+    }
+    if (!alive) {
+      const wbLeaves = (typeof ws.getLeavesOfType === 'function') ? (ws.getLeavesOfType(viewType) || []) : [];
+      const anchor = wbLeaves[0] || ws.activeLeaf || null;
+      leaf = null;
+      try {
+        if (anchor && typeof ws.createLeafBySplit === 'function') {
+          leaf = await ws.createLeafBySplit(anchor, 'vertical', false);
+        } else if (typeof ws.getLeaf === 'function') {
+          leaf = ws.getLeaf('split', 'vertical');
+          if (leaf && typeof leaf.then === 'function') leaf = await leaf;
+        }
+      } catch (_) {
+        leaf = null;
+      }
+      this._vaultSplitLeaf = leaf;
+    }
+    if (!leaf || typeof leaf.openFile !== 'function') return null;
+    try {
+      await leaf.openFile(tfile, { active: false, eState: { line: Math.max(0, (line || 1) - 1) } });
+    } catch (_) {
+      try { await leaf.openFile(tfile); } catch (__) { return null; }
+    }
+    if (typeof ws.revealLeaf === 'function') {
+      try { ws.revealLeaf(leaf); } catch (_) {}
+    }
+    return leaf;
   }
 
   closeCodeSplitPane() {
@@ -4263,30 +4763,19 @@ class PiDrawerView {
    */
   resolveCodeFilePath(rawTarget, fallbackLine = 1) {
     if (!rawTarget) return null;
-    let clean = String(rawTarget).trim();
     let line = fallbackLine || 1;
 
-    // 1. 去除两端包裹字符
-    clean = clean.replace(/^[`"']|[`"']$/g, '');
-    clean = clean.replace(/^\[\[(.*?)\]\]$/, '$1'); // Wikilink
-    clean = clean.replace(/^file:\/\/\/?/i, '');
-
-    // 2. 提取行号锚点 (#L85 或 :85 或 :85:12)
-    const hashMatch = clean.match(/#L(\d+)/i);
-    if (hashMatch) {
-      line = parseInt(hashMatch[1], 10);
-      clean = clean.replace(/#L\d+(-L\d+)?/i, '');
-    } else {
-      const colonMatch = clean.match(/:(\d+)(?::\d+)?$/);
-      if (colonMatch) {
-        line = parseInt(colonMatch[1], 10);
-        clean = clean.replace(/:(\d+)(?::\d+)?$/, '');
-      }
-    }
+    // 1. R1 修复: 先解码百分号编码 / file:// / 包裹字符, 再统一拆分行号锚点
+    const dec = (typeof decodeTarget === 'function')
+      ? decodeTarget(rawTarget)
+      : String(rawTarget).trim().replace(/^file:\/\/\/?/i, '');
+    const sl = (typeof splitLine === 'function') ? splitLine(dec) : { path: dec, line: null };
+    let clean = sl.path;
+    if (sl.line) line = sl.line;
     // 清理尾部可能的冒号、句点或中文字符
     clean = clean.replace(/[:：\s，,。.]+$/, '');
 
-    // 3. Linux 远程服务器路径映射 (62 服务器与 31 服务器)
+    // 2. Linux 远程服务器路径映射 (62 服务器与 31 服务器)
     if (clean.startsWith('/dfb/tankaikun/share/')) {
       clean = clean.replace('/dfb/tankaikun/share/', 'Y:\\').replace(/\//g, '\\');
     } else if (clean.startsWith('/home/tankaikun/share/work/')) {
@@ -4295,23 +4784,69 @@ class PiDrawerView {
       clean = clean.replace('/home/tankaikun/', 'Z:\\').replace(/\//g, '\\');
     }
 
-    // 4. 标准化 Windows 路径分隔符
+    // 3. 标准化 Windows 路径分隔符
     let norm = clean.replace(/\//g, '\\');
 
-    // 5. 已知远程服务器绝对路径 (Y:\ / Z:\ / UNC)：直接返回，交由 openFile 异步竞速读 + SSH 兜底。
+    const classification = (typeof classifyTarget === 'function')
+      ? classifyTarget(norm, { vaultBase: this.vaultBasePath })
+      : null;
+
+    // 4. 已知远程服务器绝对路径 (Y:\ / Z:\ / UNC)：直接返回，交由 openFile 异步竞速读 + SSH 兜底。
     //    绝不对 SMB 挂载点做同步 existsSync/statSync——盘符离线时 Windows 会挂起主线程数秒尝试重连。
     if (/^[YyZz]:[\\\/]/i.test(norm) || norm.startsWith('\\\\192.168.1.')) {
-      return { filePath: norm, line };
+      return { filePath: norm, line, classification: classification || 'server_abs' };
     }
 
-    // 6. 若已是绝对路径且在磁盘物理存在，直接返回 (仅本地盘符)
+    const isAbsWin = /^[A-Za-z]:[\\\/]/.test(norm);
+    const isRelPath = !isAbsWin && !norm.startsWith('\\\\') && !norm.startsWith('/dfb/') && !norm.startsWith('/home/') && !norm.startsWith('/');
+
+    // 5. R4 修复: vault 知识库文件优先于工程分支判定 (选中本地工程时不再被远端候选截胡)
+    if (this.vaultBasePath) {
+      const vbNorm = this.vaultBasePath.replace(/[\\\/]+$/, '').replace(/\//g, '\\');
+      if (isAbsWin && norm.toLowerCase().startsWith(vbNorm.toLowerCase() + '\\')) {
+        try {
+          if (fs.existsSync(norm) && fs.statSync(norm).isFile()) {
+            return { filePath: norm, line, isVault: true, classification: classification || 'vault_abs' };
+          }
+        } catch (_) {}
+      } else if (isRelPath) {
+        // 相对路径: 先按 vault 相对路径探测 (03-Driver/... .obsidian/... 99-Meta/... 等)
+        const candVault = path.join(vbNorm, norm);
+        try {
+          if (fs.existsSync(candVault) && fs.statSync(candVault).isFile()) {
+            return { filePath: candVault, line, isVault: true, classification };
+          }
+        } catch (_) {}
+        // 未带 .md 后缀时尝试补齐
+        if (!norm.toLowerCase().endsWith('.md')) {
+          try {
+            const candMd = path.join(vbNorm, `${norm}.md`);
+            if (fs.existsSync(candMd) && fs.statSync(candMd).isFile()) {
+              return { filePath: candMd, line, isVault: true, classification };
+            }
+          } catch (_) {}
+        }
+        // vault 文件名唯一匹配 (INDEX-by-Platform.md 等 bare 文件名)
+        try {
+          const bName = path.basename(norm).toLowerCase();
+          const bNameMd = bName.endsWith('.md') ? bName : `${bName}.md`;
+          const vFiles = this.app?.vault?.getFiles?.() || [];
+          const hits = vFiles.filter(vf => vf.name?.toLowerCase() === bName || vf.name?.toLowerCase() === bNameMd);
+          if (hits.length === 1) {
+            return { filePath: path.join(vbNorm, hits[0].path), line, isVault: true, classification };
+          }
+        } catch (_) {}
+      }
+    }
+
+    // 6. 若已是本地绝对路径且在磁盘物理存在，直接返回 (仅本地盘符)
     try {
-      if (path.isAbsolute(norm) && fs.existsSync(norm) && fs.statSync(norm).isFile()) {
-        return { filePath: norm, line };
+      if (isAbsWin && fs.existsSync(norm) && fs.statSync(norm).isFile()) {
+        return { filePath: norm, line, classification };
       }
     } catch (_) {}
 
-    // 6. 结合当前激活的本地工程 (selectedLocalProject) 与候选子目录前缀
+    // 7. 结合当前激活的本地工程 (selectedLocalProject) 与候选子目录前缀
     const activeProj = this.selectedLocalProject || (typeof this.getSavedLocalProject === 'function' ? this.getSavedLocalProject() : null);
 
     // 挂载盘离线快检 (30s TTL)：盘符不在线时直接走远端候选，跳过 ~40 次同步 SMB 探测
@@ -4341,6 +4876,29 @@ class PiDrawerView {
       baseName
     ];
 
+    // kernel_device_modules-<ver> 候选目录 (R3: 原候选只有 bsp/kernel5.15):
+    // ver 从当前工程已实存的 kernel_device_modules-* 目录推断, 推断不到则不加
+    if (activeProj && activeProj.fullPathWin && projDriveOnline) {
+      const kernelRoots = [
+        activeProj.publicDriverRel && path.join(activeProj.fullPathWin, activeProj.publicDriverRel.replace(/\//g, '\\'), 'kernel'),
+        activeProj.priDriverRel && path.join(activeProj.fullPathWin, activeProj.priDriverRel.replace(/\//g, '\\'), 'kernel'),
+        path.join(activeProj.fullPathWin, 'vendor_w', 'kernel')
+      ].filter(Boolean);
+      const verSet = new Set();
+      for (const kr of kernelRoots) {
+        try {
+          for (const ent of fs.readdirSync(kr)) {
+            const m = String(ent && ent.name !== undefined ? ent.name : ent).match(/^kernel_device_modules-([\d.]+)/i);
+            if (m) verSet.add(m[1]);
+          }
+        } catch (_) {}
+      }
+      for (const v of [...verSet].slice(0, 4)) {
+        subBranches.push(path.join('kernel', `kernel_device_modules-${v}`, cleanNormWithoutBase));
+        subBranches.push(path.join('kernel', `kernel_device_modules-${v}`, 'drivers', 'power', 'supply', baseName));
+      }
+    }
+
     if (activeProj && activeProj.fullPathWin && projDriveOnline) {
       // 单次决议探测总耗时封顶 800ms：SMB 延迟叠加的连环 stat 不再拖慢打开
       const probeStart = Date.now();
@@ -4363,7 +4921,7 @@ class PiDrawerView {
           const cand = prefix ? path.join(activeProj.fullPathWin, prefix, targetCand) : path.join(activeProj.fullPathWin, targetCand);
           try {
             if (fs.existsSync(cand) && fs.statSync(cand).isFile()) {
-              return { filePath: cand, line };
+              return { filePath: cand, line, classification };
             }
           } catch (_) {}
         }
@@ -4378,7 +4936,7 @@ class PiDrawerView {
           const cand = path.join(priDir, sub);
           try {
             if (fs.existsSync(cand) && fs.statSync(cand).isFile()) {
-              return { filePath: cand, line };
+              return { filePath: cand, line, classification };
             }
           } catch (_) {}
         }
@@ -4392,7 +4950,7 @@ class PiDrawerView {
           const cand = path.join(pubDir, sub);
           try {
             if (fs.existsSync(cand) && fs.statSync(cand).isFile()) {
-              return { filePath: cand, line };
+              return { filePath: cand, line, classification };
             }
           } catch (_) {}
         }
@@ -4400,38 +4958,21 @@ class PiDrawerView {
 
       // 6.4 若本地 SMB 未命中，构造优先路径直接返回，交给后续 SSH 秒级查找
       const defaultPri = activeProj.priDriverRel ? path.join(activeProj.fullPathWin, activeProj.priDriverRel.replace(/\//g, '\\'), cleanNormWithoutBase) : path.join(activeProj.fullPathWin, strippedNorm);
-      return { filePath: defaultPri, line, isRemoteCandidate: true };
+      return { filePath: defaultPri, line, isRemoteCandidate: true, classification };
     }
 
-    // 7. 检查 TabonKB 知识库内部 (vaultBasePath)
-    if (this.vaultBasePath) {
-      const candVault = path.join(this.vaultBasePath, norm);
-      try {
-        if (fs.existsSync(candVault) && fs.statSync(candVault).isFile()) return { filePath: candVault, line };
-      } catch (_) {}
-
-      // 如果未带 .md 后缀，尝试补齐
-      if (!norm.toLowerCase().endsWith('.md')) {
-        const candMd = path.join(this.vaultBasePath, `${norm}.md`);
-        try {
-          if (fs.existsSync(candMd) && fs.statSync(candMd).isFile()) return { filePath: candMd, line };
-        } catch (_) {}
-      }
-
-      // 在 vault 中匹配文件名
-      try {
-        const bName = path.basename(norm).toLowerCase();
-        const bNameMd = bName.endsWith('.md') ? bName : `${bName}.md`;
-        const vFiles = this.app?.vault?.getFiles?.() || [];
-        for (const vf of vFiles) {
-          if (vf.name?.toLowerCase() === bName || vf.name?.toLowerCase() === bNameMd) {
-            return { filePath: path.join(this.vaultBasePath, vf.path), line };
-          }
-        }
-      } catch (_) {}
+    // 7. R2 修复: 未选工程时, 用缓存工程记录 + LOCAL_SERVERS 工作区根做 SMB 锚点探测
+    if (isRelPath && (classification === 'rel_workspace' || classification === 'rel_partial')) {
+      const anchorHit = this._probeWorkspaceAnchors(strippedNorm);
+      if (anchorHit) return { filePath: anchorHit, line, classification };
     }
 
-    return { filePath: norm, line };
+    // 8. 兜底: 附分类与远端候选标记, 交给 code-viewer-panel 走 SSH 分层定位
+    if (activeProj && activeProj.fullPathWin) {
+      const defaultPri = activeProj.priDriverRel ? path.join(activeProj.fullPathWin, activeProj.priDriverRel.replace(/\//g, '\\'), cleanNormWithoutBase) : path.join(activeProj.fullPathWin, strippedNorm);
+      return { filePath: defaultPri, line, isRemoteCandidate: true, classification };
+    }
+    return { filePath: norm, line, isRemoteCandidate: isRelPath, classification };
   }
 
   /**
@@ -4449,6 +4990,91 @@ class PiDrawerView {
     try { online = !!fs.existsSync(`${key}:\\`); } catch (_) { online = false; }
     this._driveOnlineCache[key] = { online, ts: Date.now() };
     return online;
+  }
+
+  /**
+   * 加载本地工程缓存 (getAllAvailableLocalProjects 或 local-projects-cache.json)
+   * 供未选工程时的工作区锚点探测使用
+   */
+  _loadLocalProjectCache() {
+    if (this._lpCacheProjs) return this._lpCacheProjs;
+    this._lpCacheProjs = [];
+    try {
+      let all = null;
+      if (typeof getAllAvailableLocalProjects === 'function') {
+        all = getAllAvailableLocalProjects();
+      }
+      if ((!all || !all.length) && typeof require !== 'undefined') {
+        try {
+          const svc = require('./services/local-project-service');
+          if (svc && svc.getAllAvailableLocalProjects) all = svc.getAllAvailableLocalProjects();
+        } catch (_) {}
+      }
+      if (!all || !all.length) {
+        const basePath = this.vaultBasePath || this.app?.vault?.adapter?.basePath || '';
+        const cachePath = path.join(basePath, '.obsidian', 'plugins', 'tabonkb-workbench', 'local-projects-cache.json');
+        if (basePath && fs.existsSync(cachePath)) {
+          all = JSON.parse(fs.readFileSync(cachePath, 'utf8')) || [];
+        }
+      }
+      this._lpCacheProjs = Array.isArray(all) ? all : [];
+    } catch (_) {}
+    return this._lpCacheProjs;
+  }
+
+  /**
+   * R2 修复: 未选工程时, 跨缓存工程 + LOCAL_SERVERS 工作区根做 SMB 锚点探测。
+   * 仅服务 rel_workspace/rel_partial; 盘符离线的工作区回退 UNC 变体。
+   * 主线程同步 stat 设 800ms 总预算——超时直接返回 null 交给 SSH 分层定位, 绝不挂死 UI。
+   */
+  _probeWorkspaceAnchors(relPath) {
+    if (!relPath) return null;
+    const t0 = Date.now();
+    const expired = () => (Date.now() - t0) > 800;
+    const roots = [];
+    const seen = new Set();
+    const push = (p) => {
+      const k = String(p || '').toLowerCase();
+      if (p && !seen.has(k)) { seen.add(k); roots.push(p); }
+    };
+    // 同一工作区盘符与 UNC 互斥: 盘符在线只探测盘符路径; 离线才回退 UNC 直访
+    const pushWs = (winPath, uncPath) => {
+      if (winPath && this._isDriveLikelyOnline(winPath)) { push(winPath); return; }
+      if (uncPath) push(uncPath);
+    };
+    // 优先探测当前会话/上次使用的工程工作区, 再探其余缓存工程
+    const activeProj = this.selectedLocalProject || (typeof this.getSavedLocalProject === 'function' ? this.getSavedLocalProject() : null);
+    if (activeProj && activeProj.fullPathWin) pushWs(activeProj.fullPathWin, activeProj.uncPath);
+    for (const pr of this._loadLocalProjectCache()) {
+      if (pr && pr.fullPathWin) pushWs(pr.fullPathWin, pr.uncPath);
+    }
+    try {
+      if (typeof LOCAL_SERVERS !== 'undefined' && Array.isArray(LOCAL_SERVERS)) {
+        for (const srv of LOCAL_SERVERS) {
+          for (const wsp of (srv.workspaces || [])) {
+            const rel = String(wsp.relPath || '').replace(/\//g, '\\');
+            pushWs(
+              srv.winRoot ? srv.winRoot.replace(/[\\\/]+$/, '') + '\\' + rel : null,
+              srv.uncRoot ? srv.uncRoot.replace(/[\\\/]+$/, '') + '\\' + rel : null
+            );
+          }
+        }
+      }
+    } catch (_) {}
+
+    let probed = 0;
+    for (const root of roots) {
+      if (probed >= 40 || expired()) return null;
+      probed++;
+      const cand = path.join(root, relPath);
+      try {
+        const ok = (typeof this._statFileProbe === 'function')
+          ? this._statFileProbe(cand)
+          : (fs.existsSync(cand) && fs.statSync(cand).isFile());
+        if (ok) return cand;
+      } catch (_) {}
+    }
+    return null;
   }
 
   bindDragAndDropEvents() {
@@ -6110,6 +6736,11 @@ class PiDrawerView {
       if (d) {
         const u = d.message?.usage || d.usage || d.turn?.usage;
         this._accumulateTurnUsage(u);
+        // 仅 per-call 口径通道（pi）用 turn_end 驱动 Ctx 胶囊；agy 回合聚合口径由 context_usage/settle 校准
+        const _ctxAdapter = this.hub.getActiveAdapter();
+        if (_ctxAdapter && _ctxAdapter.usageReflectsContext === true) {
+          this._updateCtxFromTurnUsage(u);
+        }
       }
       if (!this.hub.isStreaming()) {
         this.finishAssistantMessage();
@@ -6128,6 +6759,43 @@ class PiDrawerView {
       this._runAborted = false;
       this.updateSendButtonState();
       this._updatePlanBar();
+      this._refreshContextUsage();
+    });
+
+    this.hub.on('compaction_start', () => {
+      if (this.ctxPillEl) this.ctxPillEl.classList.add('busy');
+    });
+
+    // agy 等通道逐步 DONE 广播的 per-call usage（snake_case），即当时上下文长度
+    this.hub.on('context_usage', (u) => {
+      this._updateCtxFromTurnUsage(u);
+    });
+
+    // 通道重连/进程就绪后补一次权威刷新（重载预热竞态：首次查询常在 bridge 起来前返回 tokens:null）
+    this.hub.on('status_change', (d) => {
+      if (d && d.status === 'connected') this._refreshContextUsage();
+    });
+
+    // 上游模型列表变更（agy models 拉取完成）：刷新模型胶囊 + 浮层内若已开则重渲染
+    this.hub.on('model_list_change', () => {
+      this.updateModelSelectorPill();
+      if (this.modelPopoverEl && this.modelPopoverEl.style.display === 'flex') {
+        this.renderModelPopover(this.modelSearchInput ? this.modelSearchInput.value.trim() : '');
+      }
+    });
+
+    this.hub.on('compaction_end', (d) => {
+      if (this.ctxPillEl) this.ctxPillEl.classList.remove('busy');
+      if (this.ctxCompactBtnEl) { this.ctxCompactBtnEl.disabled = false; this.ctxCompactBtnEl.classList.remove('busy'); }
+      if (d && d.errorMessage) {
+        this._ctxCompactErrAt = Date.now();
+        const NoticeCls = typeof Notice !== 'undefined' ? Notice : (window.app?.Notice || class{});
+        new NoticeCls(`压缩失败: ${d.errorMessage}`, 3000);
+      }
+      // compact 使旧值失效：显式清空 + 删缓存，权威值（可能 tokens:null → --）直接采信
+      this._ctxUsage = null;
+      this._clearCtxCache();
+      this._refreshContextUsage();
     });
 
     this.hub.on('aborted', () => {
@@ -6179,6 +6847,9 @@ class PiDrawerView {
       if (this.messagesEl) {
         this.messagesEl.innerHTML = '';
       }
+      this._ctxUsage = null;
+      this._updateCtxPill();
+      this._refreshContextUsage();
     });
 
     this.hub.on('error', (err) => {
@@ -6220,7 +6891,8 @@ class PiDrawerView {
     const currentModel = typeof adapter.getModel === 'function' ? adapter.getModel() : null;
     let authorName = (currentModel && currentModel.name) ? currentModel.name : adapter.displayName;
     if (typeof adapter.supportsReasoningEffort === 'function' && adapter.supportsReasoningEffort(currentModel?.id)) {
-      const effortConfig = typeof adapter.getReasoningEffortConfig === 'function' ? adapter.getReasoningEffortConfig() : null;
+      const effortConfig = (typeof adapter.getModelEffortConfig === 'function' && adapter.getModelEffortConfig(currentModel?.id))
+        || (typeof adapter.getReasoningEffortConfig === 'function' ? adapter.getReasoningEffortConfig() : null);
       if (effortConfig && effortConfig.label) authorName += ` · ${effortConfig.label}`;
     }
 
@@ -6769,7 +7441,8 @@ class PiDrawerView {
       // 模型名与思考档位解耦落库：纯净 modelId/modelName + 独立 reasoningEffort
       realUsage.modelId = (currentModel && currentModel.id) || null;
       realUsage.modelName = (currentModel && currentModel.name) || authorModel;
-      realUsage.reasoningEffort = (typeof adapter.getReasoningEffort === 'function' ? adapter.getReasoningEffort() : null) || null;
+      realUsage.reasoningEffort = (typeof adapter.builtinEffortTier === 'function' ? adapter.builtinEffortTier(adapter.activeModelId) : null)
+        || (typeof adapter.getReasoningEffort === 'function' ? adapter.getReasoningEffort() : null) || null;
       realUsage.agentId = this.hub.activeAgentId || null;
     }
 
@@ -6907,7 +7580,8 @@ class PiDrawerView {
       const fbModel = fbAdapter && typeof fbAdapter.getModel === 'function' ? fbAdapter.getModel() : null;
       usageData.modelId = (fbModel && fbModel.id) || null;
       usageData.modelName = model || (fbModel && fbModel.name) || null;
-      usageData.reasoningEffort = (fbAdapter && typeof fbAdapter.getReasoningEffort === 'function' ? fbAdapter.getReasoningEffort() : null) || null;
+      usageData.reasoningEffort = (fbAdapter && typeof fbAdapter.builtinEffortTier === 'function' ? fbAdapter.builtinEffortTier(fbAdapter.activeModelId) : null)
+        || (fbAdapter && typeof fbAdapter.getReasoningEffort === 'function' ? fbAdapter.getReasoningEffort() : null) || null;
       usageData.agentId = this.hub.activeAgentId || null;
     }
     usageData.providerAndModel = providerAndModel;
@@ -6981,8 +7655,11 @@ class PiDrawerView {
           );
         }
         this.postProcessRenderedMarkdown(el);
-        setTimeout(() => this.postProcessRenderedMarkdown(el), 60);
-        setTimeout(() => this.postProcessRenderedMarkdown(el), 250);
+        // 仅当包含 Mermaid 异步图表块时才需要延时二次后处理，避免普通消息恢复时触发 3 倍 DOM 遍历风暴
+        if (normalizedText.includes('mermaid')) {
+          setTimeout(() => this.postProcessRenderedMarkdown(el), 60);
+          setTimeout(() => this.postProcessRenderedMarkdown(el), 250);
+        }
         return;
       } catch (e) {
         console.warn('[PiDrawerView] MarkdownRenderer failed, falling back to simple format:', e);
@@ -7209,19 +7886,38 @@ class PiDrawerView {
 
       if (isFileUri || isCodeHref || isCodeText || isInternalNote) {
         const targetCandidate = isFileUri ? href : (isCodeHref ? href : (isCodeText ? text : (a.getAttribute('data-href') || href || text)));
+        // R1 修复: href 里的百分号编码 (中文文件名) 在打开前先解码
+        const decodedTarget = (typeof decodeTarget === 'function') ? decodeTarget(targetCandidate) : targetCandidate;
+        // 重渲染时 displayText 已缩短为 basename, 需以首次解析的完整路径为准
+        const fullTarget = a.dataset.twPath || decodedTarget;
+        a.dataset.twPath = fullTarget;
         a.classList.add('tw-clickable-file-link');
         a.classList.remove('external-link'); // Remove external-link so Obsidian does not inject external icon or right padding
-        a.title = `点击在右侧分屏查看: ${targetCandidate}`;
+        if (isInternalNote && !isFileUri && !isCodeHref && !isCodeText) {
+          // 库内笔记链接: 保留 href (Obsidian 悬停预览/ctrl+点击依赖) 与原 title 提示
+          a.title = `完整路径: ${decodedTarget}\n点击在右侧打开`;
+        } else {
+          // 文件/代码链接: 同时去掉 title 原生浅框与 href 的 file:/// URL 预览框 (双浮窗问题),
+          // 统一走 aria-label → Obsidian 深色 tooltip, 内容为解码后的完整路径
+          a.removeAttribute('title');
+          a.removeAttribute('href');
+          a.setAttribute('aria-label', fullTarget);
+        }
         a.onclick = (e) => {
           e.preventDefault();
           e.stopPropagation();
-          this.openCodeInSplitPane(targetCandidate);
+          this.openCodeInSplitPane(a.dataset.twPath || decodedTarget).catch(() => {});
         };
 
         if (!a.querySelector('.tw-file-type-icon')) {
           const info = this.getFileTypeInfo(targetCandidate, text);
-          const rawDisplayText = text || (targetCandidate ? targetCandidate.split(/[/\\]/).pop() : '');
-          const displayText = rawDisplayText.replace(/^[`"']|[`"']$/g, '');
+          const rawDisplayText = text || (decodedTarget ? decodedTarget.split(/[/\\]/).pop() : '');
+          let displayText = rawDisplayText.replace(/^[`"']|[`"']$/g, '');
+          // 链接文本本身是路径时缩短为 basename(:line), 完整路径留在 title
+          if (typeof shortenPathLabel === 'function') {
+            const short = shortenPathLabel(displayText);
+            if (short && short.label && short.label !== displayText) displayText = short.label;
+          }
 
           a.innerHTML = '';
           const iconSpan = document.createElement('span');
@@ -7259,16 +7955,20 @@ class PiDrawerView {
       if (codeEl.closest('pre') || codeEl.closest('a')) return; // skip multi-line blocks & already linked code
       const codeText = (codeEl.textContent || '').trim().replace(/^[`"']|[`"']$/g, '');
       if (this.isLikelyCodeFile(codeText)) {
+        const decodedCode = (typeof decodeTarget === 'function') ? decodeTarget(codeText) : codeText;
+        const fullTarget = codeEl.dataset.twPath || decodedCode;
+        codeEl.dataset.twPath = fullTarget;
         codeEl.classList.add('tw-clickable-file-link');
-        codeEl.title = `点击在右侧分屏打开: ${codeText}`;
+        codeEl.setAttribute('aria-label', fullTarget);
         codeEl.onclick = (e) => {
           e.preventDefault();
           e.stopPropagation();
-          this.openCodeInSplitPane(codeText);
+          this.openCodeInSplitPane(codeEl.dataset.twPath || decodedCode).catch(() => {});
         };
 
         if (!codeEl.querySelector('.tw-file-type-icon')) {
           const info = this.getFileTypeInfo(codeText);
+          const shortLabel = (typeof shortenPathLabel === 'function') ? shortenPathLabel(codeText).label : codeText;
           codeEl.innerHTML = '';
           const iconSpan = document.createElement('span');
           iconSpan.className = `tw-file-type-icon tw-file-type-${info.label}`;
@@ -7277,7 +7977,7 @@ class PiDrawerView {
 
           const nameSpan = document.createElement('span');
           nameSpan.className = 'tw-file-name';
-          nameSpan.textContent = codeText;
+          nameSpan.textContent = shortLabel;
 
           codeEl.appendChild(iconSpan);
           codeEl.appendChild(document.createTextNode(' '));
@@ -8488,6 +9188,8 @@ class PiDrawerView {
     if (this.hub && this.hub.sessionManager) {
       this.hub.sessionManager.switchSession(agentId, sessionId);
     }
+    // 上下文绑定跟随目标会话恢复
+    if (typeof this._applySessionContext === 'function') this._applySessionContext(agentId);
     const adapter = this.hub.getActiveAdapter();
     if (adapter && typeof adapter._syncSessionConversation === 'function') {
       adapter._syncSessionConversation();
@@ -8513,6 +9215,7 @@ class PiDrawerView {
           adapter._syncSessionConversation();
         }
         this.restoreSessionMessages(agentId);
+        if (typeof this._applySessionContext === 'function') this._applySessionContext(agentId);
       }
       const app = this.app || (typeof window !== 'undefined' ? window.app : null);
       const NoticeCls = typeof Notice !== 'undefined' ? Notice : (app?.Notice || class{});
@@ -8951,6 +9654,8 @@ class PiDrawerView {
     if (this.hub.sessionManager) {
       this.hub.sessionManager.newSession(agentId);
     }
+    // 新会话上下文绑定复位未选中 (save* 链同步 env/localStorage/提示条)
+    if (typeof this._applySessionContext === 'function') this._applySessionContext(agentId);
     this.currentAssistantMessage = null;
     // 新会话瞬态复位：回显台账/排队映射/分段缓冲/中止标记不得带入下一会话
     this._pendingSentWires = [];
@@ -9200,6 +9905,7 @@ class PiDrawerView {
 
     // Ensure active agent is detected and connected on open
     this.ensureAgentConnected();
+    this._refreshContextUsage();
 
     setTimeout(() => {
       if (this.inputEl && typeof this.inputEl.focus === 'function') {
@@ -9503,9 +10209,16 @@ function formatMarkdownFallback(text) {
 }
 
 /**
- * Returns configured Gerrit base URL from data.json or fallback default
+ * Returns configured Gerrit base URL from data.json or fallback default (with 30s in-memory cache)
  */
+let _gerritBaseUrlCache = { basePath: '', url: '', at: 0 };
 function getGerritBaseUrl(vaultBasePath) {
+  const now = Date.now();
+  const key = String(vaultBasePath || '');
+  if (_gerritBaseUrlCache.url && _gerritBaseUrlCache.basePath === key && (now - _gerritBaseUrlCache.at) < 30000) {
+    return _gerritBaseUrlCache.url;
+  }
+  let resolved = 'http://192.168.1.17:8090';
   try {
     const fs = require('fs');
     const path = require('path');
@@ -9515,12 +10228,13 @@ function getGerritBaseUrl(vaultBasePath) {
       if (fs.existsSync(dataFile)) {
         const d = JSON.parse(fs.readFileSync(dataFile, 'utf8'));
         if (d && d.gerrit && d.gerrit.baseUrl) {
-          return d.gerrit.baseUrl.replace(/\/+$/, '');
+          resolved = d.gerrit.baseUrl.replace(/\/+$/, '');
         }
       }
     }
   } catch (e) {}
-  return 'http://192.168.1.17:8090';
+  _gerritBaseUrlCache = { basePath: key, url: resolved, at: now };
+  return resolved;
 }
 
 /**

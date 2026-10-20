@@ -180,6 +180,99 @@ function estTokensFromText(s) {
 }
 
 /**
+ * agy 模型元数据表：权威 id/名称列表来自 `agy models`（refreshModels 动态拉取），
+ * 本地仅登记 desc/icon/effort 标注；未登记 id 走 _familyMeta 按前缀归入家族分组兜底。
+ */
+const AGY_MODEL_META = {
+  'gemini-3.8-flash-high':    { desc: '极速响应与高阶长上下文推理 (默认推荐)', icon: '⚡', iconPark: 'lightning', supportsReasoningEffort: true },
+  'gemini-3.8-flash-medium':  { desc: '速度与推理深度均衡档', icon: '⚡', iconPark: 'lightning', supportsReasoningEffort: true },
+  'gemini-3.8-flash-low':     { desc: '轻量推理，极速低成本', icon: '⚡', iconPark: 'lightning', supportsReasoningEffort: true },
+  'claude-sonnet-4-6':        { desc: '高水平编码与架构深度思考', icon: '🧠', iconPark: 'brain', supportsReasoningEffort: true },
+  'claude-opus-4-6-thinking': { desc: '旗舰级最强综合分析思考', icon: '🧠', iconPark: 'brain', supportsReasoningEffort: true },
+  'gpt-oss-120b-medium':      { desc: '开源千亿参数推理模型', icon: '🌐', iconPark: 'globe', supportsReasoningEffort: false }
+};
+
+/** 家族分组展示元数据（渲染顺序即数组顺序） */
+const AGY_MODEL_GROUP_META = {
+  'gemini':  { group: 'Gemini 旗舰与高阶推理', icon: '🔷', iconPark: 'diamond', isTop: true },
+  'claude':  { group: 'Claude 深度思考系列', icon: '🧠', iconPark: 'brain' },
+  'gpt-oss': { group: '开源与通用大模型', icon: '🌐', iconPark: 'cloud' },
+  'other':   { group: '其他模型', icon: '📦', iconPark: 'box' }
+};
+
+/** CLI 不可达时的兜底静态列表（与 agy 1.4.2 `agy models` 对齐） */
+const AGY_MODEL_FALLBACK = [
+  { id: 'gemini-3.8-flash-high', name: 'Gemini 3.8 Flash (High)' },
+  { id: 'gemini-3.8-flash-medium', name: 'Gemini 3.8 Flash (Medium)' },
+  { id: 'gemini-3.8-flash-low', name: 'Gemini 3.8 Flash (Low)' },
+  { id: 'claude-sonnet-4-6', name: 'Claude Sonnet 4.6 (Thinking)' },
+  { id: 'claude-opus-4-6-thinking', name: 'Claude Opus 4.6 (Thinking)' },
+  { id: 'gpt-oss-120b-medium', name: 'GPT-OSS 120B (Medium)' }
+];
+
+/** UI effort → 型号档位映射：off 无对应变体取最低档 low；xhigh/max 封顶 high */
+const AGY_EFFORT_TIER_MAP = { off: 'low', low: 'low', medium: 'medium', high: 'high', xhigh: 'high', max: 'high' };
+
+function agyModelFamily(id) {
+  const s = String(id || '').toLowerCase();
+  if (s.startsWith('gemini')) return 'gemini';
+  if (s.startsWith('claude')) return 'claude';
+  if (s.startsWith('gpt-oss') || s.startsWith('gpt_oss')) return 'gpt-oss';
+  return 'other';
+}
+
+/** 解析 `agy models` 输出：每行 `id<TAB>名称`，跳过 Fetching/空行 */
+function parseAgyModelsOutput(out) {
+  const list = [];
+  for (const line of String(out || '').split('\n')) {
+    const t = line.trim();
+    if (!t || /^fetching/i.test(t)) continue;
+    const parts = t.split(/\t| {2,}/);
+    const id = parts[0].trim();
+    if (!id || /\s/.test(id)) continue;
+    list.push({ id, name: (parts[1] || id).trim() });
+  }
+  return list;
+}
+
+/**
+ * agy 各模型上下文窗口（`agy models` 不暴露，按厂商公称值登记；未登记模型返回 0 则不显示占比）。
+ */
+const AGY_CONTEXT_WINDOWS = {
+  'gemini': 1048576,
+  'claude': 200000,
+  'gpt-oss': 131072
+};
+
+/**
+ * 从 transcript_full.jsonl 尾部倒查最后一条带 token 计账的条目（PLANNER_RESPONSE），
+ * input_tokens + cache_read_tokens + output_tokens 即当时上下文长度（与 pi calculateContextTokens 同口径）。
+ */
+function extractLatestContextTokens(convId, userProfile) {
+  if (!convId) return null;
+  try {
+    const root = userProfile || process.env.USERPROFILE || 'C:\\Users\\Administrator';
+    const fp = path.join(root, '.gemini', 'antigravity-cli', 'brain', convId, '.system_generated', 'logs', 'transcript_full.jsonl');
+    if (!fs.existsSync(fp)) return null;
+    const lines = fs.readFileSync(fp, 'utf8').trim().split('\n');
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const line = lines[i].trim();
+      if (!line || !line.startsWith('{')) continue;
+      try {
+        const e = JSON.parse(line);
+        const inp = Math.max(0, e.input_tokens ?? e.inputTokens ?? 0);
+        const cr = Math.max(0, e.cache_read_tokens ?? e.cacheReadTokens ?? 0);
+        const out = Math.max(0, e.output_tokens ?? e.outputTokens ?? 0);
+        if (inp + cr + out > 0) return inp + cr + out;
+      } catch (_) {}
+    }
+    return null;
+  } catch (_) {
+    return null;
+  }
+}
+
+/**
  * 从 transcript_full.jsonl 中提取原生 usage/token_count 字段（若 CLI 已记录）
  */
 function extractNativeUsageFromTranscript(convId, userProfile) {
@@ -237,6 +330,16 @@ class AntigravityAdapter extends AgentAdapter {
     this.activeTools = new Map();
     this.activeModelId = 'gemini-3.8-flash-high';
     this.activeModelName = 'Gemini 3.8 Flash (High)';
+    // 恢复上次选中模型（重载持久化）
+    try {
+      if (typeof localStorage !== 'undefined') {
+        const savedId = localStorage.getItem('tabonkb-agy-active-model');
+        if (savedId) {
+          this.activeModelId = savedId;
+          this.activeModelName = localStorage.getItem('tabonkb-agy-active-model-name') || savedId;
+        }
+      }
+    } catch (_) {}
 
     // 思维链状态追踪
     this.isThinkingActive = false;
@@ -244,11 +347,142 @@ class AntigravityAdapter extends AgentAdapter {
     this.lastEmittedThinking = '';
     this.thinkingPollTimer = null;
     this.reasoningEffort = null;
+
+    // 动态模型列表：_remoteModels 为 `agy models` 权威结果（localStorage 缓存防首屏空态）
+    this._remoteModels = null;
+    this._modelsFetchedAt = 0;
+    this._modelsFetching = null;
+    this._hydrateModelsCache();
+  }
+
+  _hydrateModelsCache() {
+    try {
+      if (typeof localStorage === 'undefined') return;
+      const raw = JSON.parse(localStorage.getItem('tabonkb-agy-models') || 'null');
+      if (raw && Array.isArray(raw.models) && raw.models.length) {
+        this._remoteModels = raw.models;
+      }
+    } catch (_) {}
+  }
+
+  /**
+   * 拉取 `agy models` 权威模型列表（15s 超时、5min TTL、并发去重）。
+   * 成功后：缓存 localStorage + 校正失效选中模型 + 广播 model_list_change。
+   */
+  refreshModels(force = false) {
+    if (this._modelsFetching) return this._modelsFetching;
+    if (!force && this._modelsFetchedAt && Date.now() - this._modelsFetchedAt < 5 * 60 * 1000) {
+      return Promise.resolve(this._remoteModels);
+    }
+    this._modelsFetching = new Promise((resolve) => {
+      let proc = null;
+      const finish = (list) => {
+        this._modelsFetching = null;
+        if (list && list.length) {
+          this._remoteModels = list;
+          this._modelsFetchedAt = Date.now();
+          try {
+            if (typeof localStorage !== 'undefined') {
+              localStorage.setItem('tabonkb-agy-models', JSON.stringify({ at: this._modelsFetchedAt, models: list }));
+            }
+          } catch (_) {}
+          this._reconcileActiveModel();
+          this.emit('model_list_change', { models: list });
+        }
+        resolve(this._remoteModels);
+      };
+      try {
+        const bin = this.resolveBinary();
+        proc = child_process.spawn(bin.cmd, [...bin.prefixArgs, 'models'], {
+          windowsHide: true,
+          stdio: ['ignore', 'pipe', 'ignore']
+        });
+        let out = '';
+        const timer = setTimeout(() => { try { proc.kill(); } catch (_) {} }, 15000);
+        proc.stdout.on('data', (d) => { out += d.toString(); });
+        proc.on('close', () => { clearTimeout(timer); finish(parseAgyModelsOutput(out)); });
+        proc.on('error', () => { clearTimeout(timer); finish(null); });
+      } catch (_) {
+        finish(null);
+      }
+    });
+    return this._modelsFetching;
+  }
+
+  /** 选中模型已不在上游列表（如版本下架）→ 自动切到首个可用模型，避免 --model 发送必败 */
+  _reconcileActiveModel() {
+    if (!this._remoteModels || !this._remoteModels.length) return;
+    if (this._remoteModels.some(m => m.id === this.activeModelId)) return;
+    const first = this._remoteModels[0];
+    console.warn(`[Antigravity] 模型 ${this.activeModelId} 已不在 agy models 列表，自动切换至 ${first.id}`);
+    this.setModel(first.id, first.name);
   }
 
   supportsReasoningEffort(modelId) {
     const id = String(modelId || this.activeModelId || '').toLowerCase();
     return id.includes('flash') || id.includes('pro') || id.includes('thinking') || id.includes('claude') || id.includes('gemini');
+  }
+
+  /**
+   * 型号内建推理档位：-low/-medium/-high 后缀 = 该变体固定 tier，
+   * `--effort` 必须与之精确相等否则 agy 报 conflicts 拒绝（实测）。
+   * 发送路径对这些变体直接省略 --effort；UI 据此显示固定档位徽标而非可选器。
+   */
+  builtinEffortTier(modelId) {
+    const m = /-(?:high|medium|low)$/i.exec(String(modelId || this.activeModelId || ''));
+    return m ? m[0].slice(1).toLowerCase() : null;
+  }
+
+  mapEffortToTier(effort) {
+    return AGY_EFFORT_TIER_MAP[String(effort || 'high').toLowerCase()] || 'high';
+  }
+
+  /**
+   * 档位族变体表：id 为 base（gemini-3.8-flash）或带档后缀均可，返回 {low,medium,high}→远端真实 id。
+   * 无变体（非档位族/上游未提供）返回 null。
+   */
+  _tierVariants(id) {
+    const s = String(id || '');
+    const m = /-(?:low|medium|high)$/i.exec(s);
+    const base = m ? s.slice(0, -m[0].length) : s;
+    if (!base) return null;
+    const src = (Array.isArray(this._remoteModels) && this._remoteModels.length) ? this._remoteModels : AGY_MODEL_FALLBACK;
+    const tiers = {};
+    for (const r of src) {
+      const rid = String(r.id || '');
+      const t = /-(low|medium|high)$/i.exec(rid);
+      if (t && rid.slice(0, -t[0].length).toLowerCase() === base.toLowerCase()) tiers[t[1].toLowerCase()] = rid;
+    }
+    return Object.keys(tiers).length ? tiers : null;
+  }
+
+  /** id + effort → 实际应发送的具体型号 id（档位族折叠逻辑在此收束） */
+  _resolveTierModelId(id, effort) {
+    const tiers = this._tierVariants(id);
+    if (!tiers) return String(id || '');
+    const want = this.mapEffortToTier(effort);
+    return tiers[want] || tiers.high || tiers.medium || tiers.low || String(id || '');
+  }
+
+  /** 档位族折叠型号返回其真实可用档位列表（如 ['low','medium','high']），否则 null */
+  getModelTierLevels(id) {
+    const tiers = this._tierVariants(id);
+    return tiers ? ['low', 'medium', 'high'].filter(t => tiers[t]) : null;
+  }
+
+  /**
+   * UI 档位标签：具体变体 id → 固定档位；档位族 base id → 当前 effort 映射档位；
+   * 非档位族返回 null。
+   */
+  getModelEffortConfig(modelId) {
+    const map = {
+      low: { id: 'low', label: '低推理' },
+      medium: { id: 'medium', label: '中推理' },
+      high: { id: 'high', label: '高推理' }
+    };
+    const tier = this.builtinEffortTier(modelId) ||
+      (this._tierVariants(modelId) ? this.mapEffortToTier(this.getReasoningEffort()) : null);
+    return tier ? map[tier] : null;
   }
 
   getReasoningEffort() {
@@ -262,12 +496,25 @@ class AntigravityAdapter extends AgentAdapter {
     return this.reasoningEffort;
   }
 
-  setReasoningEffort(effort) {
+  _applyEffort(effort) {
     this.reasoningEffort = effort || 'high';
     if (typeof localStorage !== 'undefined') {
       localStorage.setItem('tabonkb-agy-reasoning-effort', this.reasoningEffort);
     }
     this.emit('reasoning_effort_change', this.reasoningEffort);
+  }
+
+  setReasoningEffort(effort) {
+    this._applyEffort(effort);
+    // 当前型号为档位族变体 → 重定向到对应 tier 变体（档位 = 型号切换）
+    const resolved = this._resolveTierModelId(this.activeModelId, this.reasoningEffort);
+    if (resolved && resolved !== this.activeModelId) {
+      this.activeModelId = resolved;
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('tabonkb-agy-active-model', resolved);
+      }
+      this.emit('model_change', { modelId: resolved, displayName: this.activeModelName });
+    }
   }
 
   getReasoningEffortConfig() {
@@ -291,49 +538,73 @@ class AntigravityAdapter extends AgentAdapter {
   }
 
   setModel(modelId, modelName, reasoningEffort = null) {
-    this.activeModelId = modelId;
-    this.activeModelName = modelName || modelId;
+    // effort 先落账但不 retarget（此时 id 还是旧型号）；再由 _resolveTierModelId 收束到具体变体
     if (reasoningEffort !== null && reasoningEffort !== undefined) {
-      this.setReasoningEffort(reasoningEffort);
+      this._applyEffort(reasoningEffort);
     }
+    const resolved = this._resolveTierModelId(modelId, this.getReasoningEffort());
+    this.activeModelId = resolved;
+    this.activeModelName = modelName || resolved;
     if (typeof localStorage !== 'undefined') {
-      localStorage.setItem('tabonkb-agy-active-model', this.activeModelId);
+      localStorage.setItem('tabonkb-agy-active-model', resolved);
       localStorage.setItem('tabonkb-agy-active-model-name', this.activeModelName);
     }
-    this.emit('model_change', { modelId, displayName: this.activeModelName });
+    this.emit('model_change', { modelId: resolved, displayName: this.activeModelName });
   }
 
+  /**
+   * 模型分组：权威列表 = `agy models` 远端结果（localStorage 缓存亦可）；
+   * CLI 不可达时回落 AGY_MODEL_FALLBACK。未登记 id 按前缀入家族分组、desc 降级。
+   * 每次调用顺手触发 TTL 过期检查（后台静默刷新）。
+   */
   getModelGroups() {
-    return [
-      {
-        group: 'Gemini 旗舰与高阶推理',
-        icon: '🔷',
-        iconPark: 'diamond',
-        isTop: true,
-        models: [
-          { id: 'gemini-3.8-flash-high', name: 'Gemini 3.8 Flash (High)', desc: '极速响应与高阶长上下文推理 (默认推荐)', icon: '⚡', iconPark: 'lightning', supportsReasoningEffort: true },
-          { id: 'gemini-3.7-flash-high', name: 'Gemini 3.7 Flash (High)', desc: '混合思维链与平衡效能', icon: '⚡', iconPark: 'lightning', supportsReasoningEffort: true },
-          { id: 'gemini-3.1-pro-high', name: 'Gemini 3.1 Pro (High)', desc: '深度逻辑与复杂架构推演', icon: '💎', iconPark: 'diamond', supportsReasoningEffort: true }
-        ]
-      },
-      {
-        group: 'Claude 深度思考系列',
-        icon: '🧠',
-        iconPark: 'brain',
-        models: [
-          { id: 'claude-sonnet-4-6', name: 'Claude Sonnet 4.6 (Thinking)', desc: '高水平编码与架构深度思考', icon: '🧠', iconPark: 'brain', supportsReasoningEffort: true },
-          { id: 'claude-opus-4-6-thinking', name: 'Claude Opus 4.6 (Thinking)', desc: '旗舰级最强综合分析思考', icon: '💎', iconPark: 'diamond', supportsReasoningEffort: true }
-        ]
-      },
-      {
-        group: '开源与通用大模型',
-        icon: '🌐',
-        iconPark: 'cloud',
-        models: [
-          { id: 'gpt-oss-120b-medium', name: 'GPT-OSS 120B (Medium)', desc: '开源千亿参数推理模型', icon: '🌐', iconPark: 'globe', supportsReasoningEffort: false }
-        ]
+    const remote = Array.isArray(this._remoteModels) && this._remoteModels.length ? this._remoteModels : null;
+    const list = remote || AGY_MODEL_FALLBACK;
+    if (remote) this.refreshModels();
+
+    // 档位族折叠：gemini-3.8-flash-{low,medium,high} → 单一「Gemini 3.8 Flash」条目，
+    // tiers 记录各档位真实 id，等级切换由 reasoning 浮层驱动 setModel 解析
+    const collapsed = [];
+    const tierSeen = new Map();
+    for (const m of list) {
+      const t = /-(low|medium|high)$/i.exec(String(m.id || ''));
+      if (t) {
+        const base = m.id.slice(0, -t[0].length);
+        let entry = tierSeen.get(base);
+        if (!entry) {
+          entry = { id: base, name: String(m.name || base).replace(/\s*\((?:low|medium|high)\)\s*$/i, ''), tiers: {} };
+          tierSeen.set(base, entry);
+          collapsed.push(entry);
+        }
+        entry.tiers[t[1].toLowerCase()] = m.id;
+      } else {
+        collapsed.push({ id: m.id, name: m.name });
       }
-    ];
+    }
+
+    const buckets = {};
+    for (const m of collapsed) {
+      const fam = agyModelFamily(m.id);
+      // 元数据回退链：base id → 任一档位变体（high 优先）→ 家族默认
+      const meta = AGY_MODEL_META[m.id]
+        || (m.tiers && (AGY_MODEL_META[m.tiers.high] || AGY_MODEL_META[m.tiers.medium] || AGY_MODEL_META[m.tiers.low]))
+        || null;
+      const item = {
+        id: m.id,
+        name: m.name || m.id,
+        desc: meta ? meta.desc : '',
+        icon: meta ? meta.icon : (AGY_MODEL_GROUP_META[fam] || {}).icon || '✦',
+        iconPark: meta ? meta.iconPark : (AGY_MODEL_GROUP_META[fam] || {}).iconPark || 'cpu',
+        supportsReasoningEffort: meta ? meta.supportsReasoningEffort : this.supportsReasoningEffort(m.id)
+      };
+      if (m.tiers) item.tiers = m.tiers;
+      (buckets[fam] = buckets[fam] || []).push(item);
+    }
+
+    const order = ['gemini', 'claude', 'gpt-oss', 'other'];
+    return order
+      .filter(f => buckets[f] && buckets[f].length)
+      .map(f => Object.assign({}, AGY_MODEL_GROUP_META[f], { models: buckets[f] }));
   }
 
   resolveBinary() {
@@ -391,6 +662,7 @@ class AntigravityAdapter extends AgentAdapter {
     if (check.available) {
       this.ensureMcpConfiguration();
       this.setStatus('connected', '已就绪');
+      this.refreshModels(true).catch(() => {});
       return true;
     }
     this.setStatus('not_installed', 'Antigravity CLI 未安装');
@@ -432,6 +704,32 @@ class AntigravityAdapter extends AgentAdapter {
         this.emit('thinking_delta', delta);
       }
     }
+  }
+
+  /**
+   * agy 无 RPC 状态通道：上下文占用读 transcript_full.jsonl 尾条 token 计账，
+   * contextWindow 取内置公称窗口表（未知模型返回 0 → UI 不显示占比）。
+   * 手动压缩不支持：print 模式实测 `/compact` 被当用户消息、`compact` stream event 被拒收，
+   * 压缩仅存在于交互 TUI 与自动阈值路径，故不实现 compact()。
+   */
+  getContextWindow() {
+    const id = String(this.activeModelId || '').toLowerCase();
+    for (const key of Object.keys(AGY_CONTEXT_WINDOWS)) {
+      if (id.includes(key)) return AGY_CONTEXT_WINDOWS[key];
+    }
+    return 0;
+  }
+
+  async getContextUsage() {
+    this._syncSessionConversation();
+    const tokens = extractLatestContextTokens(this.sessionId, process.env.USERPROFILE);
+    const win = this.getContextWindow();
+    if (tokens === null && !win) return null;
+    return {
+      tokens,
+      contextWindow: win,
+      percent: (typeof tokens === 'number' && win > 0) ? (tokens / win) * 100 : null
+    };
   }
 
   /**
@@ -477,7 +775,8 @@ class AntigravityAdapter extends AgentAdapter {
 
     const bin = this.resolveBinary();
     const vaultPath = this.vaultBasePath || process.cwd();
-    const execMode = this.permissionMode === 'readwrite' ? 'accept-edits' : 'plan';
+    // 三档映射: readonly→plan; readwrite/full→accept-edits (本 CLI 无更激进档)
+    const execMode = this.permissionMode === 'readonly' ? 'plan' : 'accept-edits';
     this.ensureMcpConfiguration();
 
     // 拼接 TabonKB 专有工具指令提示词
@@ -498,8 +797,8 @@ class AntigravityAdapter extends AgentAdapter {
 
     const effort = this.getReasoningEffort();
     const supportsReasoning = this.supportsReasoningEffort(this.activeModelId);
-    const modelHasBuiltinEffort = /-(?:high|medium|low)$/i.test(this.activeModelId || '');
-    if (supportsReasoning && effort !== 'off' && !modelHasBuiltinEffort) {
+    // 内建档位变体（-low/-medium/-high 后缀）省略 --effort：agy 要求与后缀精确相等否则报错
+    if (supportsReasoning && effort !== 'off' && !this.builtinEffortTier(this.activeModelId)) {
       args.push('--effort', effort);
     }
 
@@ -743,6 +1042,11 @@ class AntigravityAdapter extends AgentAdapter {
       if (step.conversation_id) {
         this.sessionId = step.conversation_id;
         this._persistConversationId();
+      }
+
+      // 每步 DONE 携带原生 usage（snake_case）：per-call 口径 = 当时上下文长度 → 广播给 Ctx 胶囊
+      if (step.state === 'DONE' && step.usage && typeof step.usage === 'object') {
+        this.emit('context_usage', step.usage);
       }
 
       // 文本生成 / 思维链更新
