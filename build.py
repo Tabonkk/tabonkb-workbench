@@ -46,6 +46,7 @@ files = [
     f"{plugin_dir}\\agent-context-provider.js",
     f"{plugin_dir}\\services\\file-locator-core.js",
     f"{plugin_dir}\\services\\local-project-service.js",
+    f"{plugin_dir}\\services\\workbench-context.js",
     f"{plugin_dir}\\services\\agent-version-service.js",
     f"{plugin_dir}\\services\\magpie-observability-service.js",
     f"{plugin_dir}\\components\\code-viewer-panel.js",
@@ -54,7 +55,11 @@ files = [
     f"{plugin_dir}\\services\\rss-service.js",
     f"{plugin_dir}\\components\\jira-card.js",
     f"{plugin_dir}\\components\\rss-card.js",
+    f"{plugin_dir}\\services\\topic-service.js",
+    f"{plugin_dir}\\services\\jira-sandbox-service.js",
     f"{plugin_dir}\\components\\jira-platform-view.js",
+    f"{plugin_dir}\\services\\radar-service.js",
+    f"{plugin_dir}\\components\\topic-view.js",
     f"{plugin_dir}\\components\\rss-center-view.js",
     f"{plugin_dir}\\services\\vendor-portal-service.js",
     f"{plugin_dir}\\services\\companion-server.js",
@@ -69,6 +74,7 @@ files = [
     f"{plugin_dir}\\components\\weknora-manage\\manage-view.js",
     f"{plugin_dir}\\services\\clip-image-inliner.js",
     f"{plugin_dir}\\components\\explore-palette.js",
+    f"{plugin_dir}\\components\\idea-capture-palette.js",
     f"{plugin_dir}\\components\\explore-view.js",
     f"{plugin_dir}\\components\\phone-competitor-view.js",
     f"{plugin_dir}\\components\\dsh-studio-view.js",
@@ -187,10 +193,20 @@ new_constructor = """class TabonKBWorkbenchView extends ItemView {
     this.knowledgePanelMode = 'overview'; // 'overview' | 'detail'
 
     this.isLoadingDocs = false;
+    // 并发/渲染调度状态: loadVaultDocs 在飞共享 Promise + 脏标记补扫 + 渲染合并节流
+    this._docsInFlight = false;
+    this._docsPromise = null;
+    this._docsDirty = false;
+    this._renderQueued = false;
+    this._lastRefreshRenderAt = 0;
+    this._refreshRenderTimer = null;
     this.graphCanvas = null;
 
     // Full-page independent subsystems
     this.jiraPlatform = null;
+    this.topicView = null;
+    this.topicService = null;
+    this._ownTopicService = false;
     this.rssCenter = null;
     this.jiraCard = null;
     this.rssCard = null;
@@ -579,7 +595,7 @@ new_constructor = """class TabonKBWorkbenchView extends ItemView {
   }
 
   updateHomeTrendCard() {
-    if (!this.homeTrendCardEl) return;
+    if (!this.homeTrendCardEl || !this.homeTrendCardEl.isConnected) return;
     const issues = this.getHomeTrendIssues();
     const timeRange = this.getHomeTrendTimeRange();
     // 按容器实际像素宽度 1:1 渲染 viewBox，避免侧栏收起时 SVG 非等比拉伸导致文字/数据点变形
@@ -1128,7 +1144,7 @@ new_constructor = """class TabonKBWorkbenchView extends ItemView {
   }
 
   updateHomeHeatmapCard() {
-    if (!this.homeHeatCardEl) return;
+    if (!this.homeHeatCardEl || !this.homeHeatCardEl.isConnected) return;
     const data = this.calculateHeatmapData();
     const dim = this.heatmapDimension || 'all';
 
@@ -2350,7 +2366,7 @@ new_constructor = """class TabonKBWorkbenchView extends ItemView {
   }
 
   updateAgentUsageCard(skipRemoteFetch = false) {
-    if (!this.agentUsageCardEl) return;
+    if (!this.agentUsageCardEl || !this.agentUsageCardEl.isConnected) return;
     // 异步非阻塞桥接 Magpie 快照 (1500ms 超时 + 8s TTL + 离线静默兜底), 绝不阻塞首屏渲染栈
     if (!skipRemoteFetch) this.refreshMagpieObservability(false);
     const stats = this.collectAgentUsageStats();
@@ -2683,9 +2699,10 @@ new_constructor = """class TabonKBWorkbenchView extends ItemView {
     });
     if (!this._auDocBound) {
       this._auDocBound = true;
-      document.addEventListener('click', (e) => {
+      this._auDocClickHandler = (e) => {
         if (this._auDayLock != null && !(e.target && e.target.closest && e.target.closest('.tw-au-daily-chart'))) this._auHideDayPopover();
-      }, true);
+      };
+      document.addEventListener('click', this._auDocClickHandler, true);
     }
 
     this.agentUsageCardEl.querySelectorAll('.tw-au-row[data-rk]').forEach(el => {
@@ -2854,10 +2871,22 @@ old_on_close = """  async onClose() {
     }
   }"""
 
-new_on_close = """  async onClose() {
+new_on_close = """  async _disposeViewResources() {
+    // bak 后部还有一个同名 onClose() (JS 类同名方法后者覆盖), 全量清理移至此方法并由其调用,
+    // 否则本块清理 (定时器/订阅/子视图/画布) 永远是死代码。
+    this._disposeStageResources();
     if (this._mqAutoRefreshTimer) {
       clearInterval(this._mqAutoRefreshTimer);
       this._mqAutoRefreshTimer = null;
+    }
+    if (this._refreshRenderTimer) {
+      clearTimeout(this._refreshRenderTimer);
+      this._refreshRenderTimer = null;
+    }
+    if (this._auDocClickHandler) {
+      document.removeEventListener('click', this._auDocClickHandler, true);
+      this._auDocClickHandler = null;
+      this._auDocBound = false;
     }
     if (this._navRailKeyHandler) {
       document.removeEventListener('keydown', this._navRailKeyHandler, true);
@@ -2883,6 +2912,18 @@ new_on_close = """  async onClose() {
     if (this.jiraPlatform) {
       this.jiraPlatform = null;
     }
+    if (this.topicView) {
+      try { this.topicView.dispose && this.topicView.dispose(); } catch (_) {}
+      this.topicView = null;
+    }
+    if (this.topicService) {
+      // 插件级单例 (this._ownTopicService === false) 不得由视图 dispose
+      if (this._ownTopicService !== false) {
+        try { this.topicService.dispose && this.topicService.dispose(); } catch (_) {}
+      }
+      this.topicService = null;
+    }
+    this._ownTopicService = false;
     if (this.jiraCard) {
       this.jiraCard.dispose();
       this.jiraCard = null;
@@ -3290,6 +3331,9 @@ if idx_render != -1 and idx_cpanel != -1:
       if (!container) return;
       this.ensureStylesheet(container.ownerDocument);
       this.setupCustomHeader();
+      globalThis.__twRenderCount = (globalThis.__twRenderCount || 0) + 1;
+      // 整页重建前释放上一页签活跃资源 (ForceGraph 仿真 rAF / ResizeObserver / document 监听)
+      this._disposeStageResources();
       container.empty();
       this._harnessMounted = false; // 整体重建后旧挂载标记必然失效
       container.addClass('tabonkb-workbench-container', 'with-drawer');
@@ -3403,6 +3447,25 @@ if idx_render != -1 and idx_cpanel != -1:
         if (btn) btn.onclick = () => this.refreshVaultDocs();
       }
     }
+  }
+
+  _disposeStageResources() {
+    // 释放当前页签渲染产生的活跃资源: container.empty() 只清 DOM 子树,
+    // ForceGraph 的 rAF 仿真/ResizeObserver/document click 闭包仍持有旧实例,
+    // 叠加事件风暴重渲染会造成僵尸仿真堆积与主线程饥饿。
+    if (this.graphCanvas) {
+      try { this.graphCanvas.dispose && this.graphCanvas.dispose(); } catch (e) {}
+      this.graphCanvas = null;
+    }
+    if (this._homeTrendResizeObs) {
+      try { this._homeTrendResizeObs.disconnect(); } catch (e) {}
+      this._homeTrendResizeObs = null;
+    }
+    this.homeTrendCardEl = null;
+    this.homeHeatCardEl = null;
+    this.agentUsageCardEl = null;
+    this.contextCard = null;
+    this.tableCard = null;
   }
 
   getExploreSubTab() {
@@ -3748,7 +3811,9 @@ if idx_render != -1 and idx_cpanel != -1:
     `;
 
     if (this.activeTab === 'tasks') {
-      searchPlaceholder = '在 Jira 任务中搜索：输入 Key、摘要、经办人、状态或描述...';
+      searchPlaceholder = this.getTasksSubTab() === 'topics'
+        ? '在专题中搜索：输入标题、模块或目录 ID...'
+        : '在 Jira 任务中搜索：输入 Key、摘要、经办人、状态或描述...';
       rightActionHtml = `<span class="tw-search-hint">ESC 清空</span>`;
     } else if (this.activeTab === 'news') {
       searchPlaceholder = '在技术资讯中搜索：输入关键词实时匹配并高亮...';
@@ -3793,7 +3858,9 @@ if idx_render != -1 and idx_cpanel != -1:
           await this.handleOmniSearch(this.keyword);
         }, 200);
       } else if (this.activeTab === 'tasks') {
-        if (this.jiraPlatform) {
+        if (this.getTasksSubTab() === 'topics') {
+          if (this.topicView) this.topicView.filterKeyword(this.keyword);
+        } else if (this.jiraPlatform) {
           this.jiraPlatform.filterKeyword(this.keyword);
         }
       } else if (this.activeTab === 'news') {
@@ -3826,7 +3893,11 @@ if idx_render != -1 and idx_cpanel != -1:
           this.platformFilter = '';
           this.render();
         } else if (this.activeTab === 'tasks') {
-          this.jiraPlatform?.filterKeyword('');
+          if (this.getTasksSubTab() === 'topics') {
+            this.topicView?.filterKeyword('');
+          } else {
+            this.jiraPlatform?.filterKeyword('');
+          }
         } else if (this.activeTab === 'news') {
           this.rssCenter?.filterKeyword('');
         } else if (this.activeTab === 'explore') {
@@ -3996,7 +4067,98 @@ if idx_render != -1 and idx_cpanel != -1:
     this.renderTableOnly();
   }
 
+  getTasksSubTab() {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        const s = localStorage.getItem('tabonkb-tasks-subtab');
+        if (s === 'jira' || s === 'topics') return s;
+      }
+    } catch (e) {}
+    return 'jira';
+  }
+
+  saveTasksSubTab(sub) {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('tabonkb-tasks-subtab', sub);
+      }
+    } catch (e) {}
+  }
+
   renderTasksTab(stage) {
+    const sub = this.getTasksSubTab();
+    const bar = stage.createDiv({ cls: 'tw-tasks-subtabs' });
+    for (const [id, label] of [['jira', '问题单'], ['topics', '专题']]) {
+      const btn = bar.createEl('button', { cls: `tw-tasks-subtab-btn ${sub === id ? 'active' : ''}`, text: label });
+      btn.onclick = () => {
+        if (this.getTasksSubTab() === id) return;
+        this.saveTasksSubTab(id);
+        if (this.jiraPlatform) { this.jiraPlatform = null; }
+        if (this.topicView) { try { this.topicView.dispose(); } catch (_) {} this.topicView = null; }
+        this.render();
+      };
+    }
+    const host = stage.createDiv({ cls: 'tw-tasks-subhost' });
+
+    // 非当前子页的残留视图先清理 (含整页重渲染时旧 topicView 的 vault 订阅)
+    if (sub !== 'topics' && this.topicView) {
+      try { this.topicView.dispose(); } catch (_) {}
+      this.topicView = null;
+    }
+    if (sub !== 'jira' && this.jiraPlatform) {
+      this.jiraPlatform = null;
+    }
+
+    if (sub === 'topics') {
+      // 个人专题子页 (P1a/P1b): 数据全部落 vault 07-Project/00-Personal-Topics/
+      // P1b: 优先复用插件级单例 (记灵感浮窗共用), 视图只 dispose 自建实例
+      if (!this.topicService) {
+        const plugin = this.plugin || this.app.plugins?.getPlugin?.('tabonkb-workbench') || this.app.plugins?.plugins?.['tabonkb-workbench'];
+        if (plugin && typeof plugin.getTopicService === 'function') {
+          this.topicService = plugin.getTopicService();
+          this._ownTopicService = false;
+        } else {
+          this.topicService = new TopicService({ app: this.app });
+          this._ownTopicService = true;
+        }
+      }
+      if (this.topicView) {
+        try { this.topicView.dispose(); } catch (_) {}
+        this.topicView = null;
+      }
+      this.topicView = new TopicView({
+        app: this.app,
+        topicService: this.topicService,
+        agentDrawer: this.agentDrawer,
+        // P3: 能力雷达 —— 只读 Jira 内存缓存 (jiraService._cache, 不触发网络), Done 判定沿用 JiraPlatformView.categorizeStatus
+        getJiraIssues: () => {
+          try {
+            const plg = this.plugin || this.app.plugins?.getPlugin?.('tabonkb-workbench') || this.app.plugins?.plugins?.['tabonkb-workbench'];
+            const c = plg && plg.jiraService && plg.jiraService._cache;
+            return (c && Array.isArray(c.issues)) ? c.issues : [];
+          } catch (e) { return []; }
+        },
+        categorizeDone: (issue) => {
+          try {
+            const jpv = this.jiraPlatform;
+            if (jpv && typeof jpv.categorizeStatus === 'function') {
+              return jpv.categorizeStatus(issue.status, issue.statusCategory) === 'done';
+            }
+          } catch (e) {}
+          // 与 JiraPlatformView.categorizeStatus 的 done 判定等价 (topics 子页时 jiraPlatform 已置空)
+          const s = String(issue && issue.status || '').toLowerCase();
+          const cat = String(issue && issue.statusCategory || '').toLowerCase();
+          return cat === 'done' || s.includes('closed') || s.includes('done') || s.includes('resolved')
+            || s.includes('fixed') || s.includes('已解决') || s.includes('关闭') || s.includes('完成') || s.includes('验证通过');
+        }
+      });
+      this.topicView.mount(host);
+      if (this.keyword) {
+        this.topicView.filterKeyword(this.keyword);
+      }
+      return;
+    }
+
     const plugin = this.app.plugins?.getPlugin?.('tabonkb-workbench') || this.app.plugins?.plugins?.['tabonkb-workbench'];
     const jiraService = plugin?.jiraService || new JiraService({ app: this.app, getConfig: () => DEFAULT_SETTINGS.jira });
 
@@ -4017,10 +4179,51 @@ if idx_render != -1 and idx_cpanel != -1:
           `请调用 jira_get_issue 获取完整详情，用 jira_list_attachments 查看附件；如有日志/抓包等附件，用 jira_download_attachment 下载到 00-Inbox/03-Quick-Note/${issue.key}/attachments/ 后分析。` +
           `分析结论与产物写入 00-Inbox/03-Quick-Note/${issue.key}/ 目录。`
         );
-      }
+      },
+      // P1c: 抽屉「🌱 灵感」→ 记灵感浮窗, 注入 jiraKey/推断模块, 屏蔽活动文件与选区
+      onCaptureIdea: (issue) => {
+        const m = (typeof inferDbgNaming === 'function') ? inferDbgNaming(issue).module : '';
+        const ctx = {
+          jiraKey: issue.key,
+          selectedTopicId: null,
+          activeFilePath: null,
+          selectionText: '',
+          selectionFromAgent: false
+        };
+        if (m && m !== 'GEN') ctx.module = m;
+        if (plugin && typeof plugin.getIdeaPalette === 'function') {
+          plugin.getIdeaPalette().open({ context: ctx });
+        }
+      },
+      // P2a: 联调区 AI 按钮 -> 只填词到 Agent 输入框 (不自动发送), 用户确认后回车
+      onAgentPrompt: (promptText) => {
+        if (!this.agentDrawer.isOpen()) {
+          this.agentDrawer.open();
+        }
+        this.agentDrawer.sendPrompt(promptText);
+      },
+      // P2a: ⚡ 波形 -> 跳工具页并选中对应工具 (一次性消费 _pendingToolId)
+      onOpenTool: (toolId) => {
+        this._pendingToolId = toolId || null;
+        this.setActiveTab('tools');
+      },
+      // P2a: 升为专题 -> 切 tasks/专题子页并选中新专题
+      onOpenTopic: (topicId) => {
+        this.saveTasksSubTab('topics');
+        try {
+          if (typeof localStorage !== 'undefined') {
+            localStorage.setItem('tabonkb-topic-selected', topicId);
+          }
+        } catch (e) {}
+        if (this.jiraPlatform) {
+          try { this.jiraPlatform.closeInspector(); } catch (e) {}
+        }
+        this.render();
+      },
+      topicService: (plugin && typeof plugin.getTopicService === 'function') ? plugin.getTopicService() : null
     });
 
-    this.jiraPlatform.mount(stage);
+    this.jiraPlatform.mount(host);
     if (this.keyword) {
       this.jiraPlatform.filterKeyword(this.keyword);
     }
@@ -4166,6 +4369,17 @@ if idx_render != -1 and idx_cpanel != -1:
       plugin: this.plugin
     });
 
+    // P2a: Jira 抽屉「⚡ 波形」指定的一次性目标工具, 挂载前应用并沿用 localStorage 持久化
+    if (this._pendingToolId) {
+      try {
+        if (this.toolsView.tools && this.toolsView.tools.some(t => t.id === this._pendingToolId)) {
+          this.toolsView.activeToolId = this._pendingToolId;
+          if (typeof this.toolsView._saveActiveToolId === 'function') this.toolsView._saveActiveToolId();
+        }
+      } catch (e) {}
+      this._pendingToolId = null;
+    }
+
     this.toolsView.mount(stage);
   }\n\n  """
     workbench_part = workbench_part[:idx_render] + multi_tab_render_methods + workbench_part[idx_cpanel:]
@@ -4187,6 +4401,35 @@ module.exports = class TabonKBWorkbenchPlugin extends Plugin {
     await this.loadSettings();
     try { globalThis.__twBootMark && __twBootMark('onload:settings+theme'); } catch (e) {}
     this.applyWorkbenchTheme(this.settings.workbenchTheme);
+
+    // 渲染进程死亡取证心跳: 黑屏=渲染器被杀时, 本文件保留被杀前内存曲线与渲染/刷新计数。
+    // appendFileSync ~150B/10s 开销可忽略; >4MB 自动转存 .prev 保留上次崩溃现场。
+    try {
+      if (!globalThis.__twMemBeat) {
+        globalThis.__twMemBeat = setInterval(() => {
+          try {
+            const fs = require('fs'), path = require('path');
+            const dir = path.join(this.app?.vault?.adapter?.basePath || '', '.obsidian', 'plugins', 'tabonkb-workbench');
+            const fp = path.join(dir, 'renderer-heartbeat.jsonl');
+            if (fs.existsSync(fp) && fs.statSync(fp).size > 4 * 1024 * 1024) {
+              try { fs.renameSync(fp, fp.replace('.jsonl', '.prev.jsonl')); } catch (_) {}
+            }
+            const mu = (typeof process !== 'undefined' && process.memoryUsage) ? process.memoryUsage() : {};
+            const pm = (typeof performance !== 'undefined' && performance.memory) ? performance.memory : {};
+            fs.appendFileSync(fp, JSON.stringify({
+              t: new Date().toISOString(),
+              heapMB: Math.round((mu.heapUsed || pm.usedJSHeapSize || 0) / 1048576),
+              rssMB: Math.round((mu.rss || 0) / 1048576),
+              extMB: Math.round((mu.external || 0) / 1048576),
+              renders: globalThis.__twRenderCount || 0,
+              refreshes: globalThis.__twRefreshCount || 0,
+              scans: globalThis.__twScanCount || 0
+            }) + String.fromCharCode(10), 'utf8');
+          } catch (_) {}
+        }, 10000);
+        globalThis.__twMemBeat.unref && globalThis.__twMemBeat.unref();
+      }
+    } catch (_) {}
 
     this.jiraService = new JiraService({
       app: this.app,
@@ -4372,6 +4615,33 @@ module.exports = class TabonKBWorkbenchPlugin extends Plugin {
       },
     });
 
+    // P1b 记灵感: Alt+I 全局唤起 (含编辑器内, 命令热键由 Obsidian 注册)
+    this.addCommand({
+      id: 'capture-idea',
+      name: '记灵感',
+      hotkeys: [{ modifiers: ['Alt'], key: 'i' }],
+      callback: () => { this.getIdeaPalette().toggle(); },
+    });
+
+    // P1b Ctrl+I: Obsidian Keymap 在 window 捕获阶段先处理, document 级监听收不到——
+    // 参照探索页 Ctrl+F 的 scope.register 置顶方案; 编辑器内 return undefined 让出原生斜体
+    this._ideaScopeKey = null;
+    try {
+      const scope = this.app && this.app.scope;
+      if (scope && typeof scope.register === 'function' && Array.isArray(scope.keys)) {
+        const handler = scope.register(['Ctrl'], 'i', (evt, info) => {
+          if (typeof shouldYieldCtrlI === 'function' && shouldYieldCtrlI(document.activeElement)) {
+            return undefined; // .cm-editor/.monaco-editor 内: 不 preventDefault, 斜体/补全照常
+          }
+          this.getIdeaPalette().toggle();
+          return false;
+        });
+        const pos = scope.keys.indexOf(handler);
+        if (pos > 0) { scope.keys.splice(pos, 1); scope.keys.unshift(handler); }
+        this._ideaScopeKey = { scope, handler };
+      }
+    } catch (_) {}
+
     this._lastObsidianDark = typeof TabonKBThemeEngine !== 'undefined' ? TabonKBThemeEngine.isObsidianDark() : false;
     this.registerEvent(this.app.workspace.on('css-change', () => {
       const curDark = typeof TabonKBThemeEngine !== 'undefined' ? TabonKBThemeEngine.isObsidianDark() : false;
@@ -4386,11 +4656,69 @@ module.exports = class TabonKBWorkbenchPlugin extends Plugin {
     try {
       this.app.workspace.onLayoutReady(() => {
         try { globalThis.__twBootMark && __twBootMark('layout:ready'); } catch (e) {}
+        // P2b: 自动浇水监听 + 90 天枯萎首扫 (延迟 5s)
+        try { this.getTopicService()?.startAutoWater?.(); } catch (e) { console.warn('[TopicService] startAutoWater:', e); }
+        this._witherTimer = setTimeout(() => {
+          try {
+            this.getTopicService()?.witherStaleSeeds?.().then(n => {
+              try { if (n > 0 && typeof Notice !== 'undefined') new Notice(`🍂 ${n} 颗种子已枯萎`); } catch (e) {}
+            }).catch(e => console.warn('[TopicService] witherStaleSeeds:', e));
+          } catch (e) { console.warn('[TopicService] witherStaleSeeds:', e); }
+        }, 5000);
       });
       setTimeout(() => {
         try { globalThis.__twBootFlush && __twBootFlush(this.app?.vault?.adapter?.basePath); } catch (e) {}
       }, 6500);
     } catch (e) {}
+  }
+
+  // P1b: 插件级 TopicService 懒单例 (专题视图与记灵感浮窗共用)
+  getTopicService() {
+    if (!this.topicService && typeof TopicService !== 'undefined') {
+      this.topicService = new TopicService({ app: this.app });
+    }
+    return this.topicService;
+  }
+
+  getIdeaPalette() {
+    if (!this.ideaPalette && typeof IdeaCapturePalette !== 'undefined') {
+      this.ideaPalette = new IdeaCapturePalette({
+        app: this.app,
+        topicService: this.getTopicService(),
+        getContext: () => this.getIdeaCaptureContext()
+      });
+    }
+    return this.ideaPalette;
+  }
+
+  // 记灵感上下文: 工作台 tasks 子页的选中专题/选中工单 + 活动文件 + 选区
+  getIdeaCaptureContext() {
+    const ctx = { selectedTopicId: null, jiraKey: null, activeFilePath: null, selectionText: '', selectionFromAgent: false };
+    try {
+      const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_WORKBENCH);
+      const view = leaves[0] && leaves[0].view;
+      if (view && view.activeTab === 'tasks') {
+        const sub = typeof view.getTasksSubTab === 'function' ? view.getTasksSubTab() : 'jira';
+        if (sub === 'topics') {
+          ctx.selectedTopicId = (view.topicView && view.topicView.selectedId) || null;
+        } else {
+          const iss = view.jiraPlatform && view.jiraPlatform.selectedIssue;
+          ctx.jiraKey = (iss && iss.key) || null;
+        }
+      }
+    } catch (_) {}
+    try {
+      const f = this.app.workspace.getActiveFile && this.app.workspace.getActiveFile();
+      ctx.activeFilePath = (f && f.path) || null;
+    } catch (_) {}
+    try {
+      const sel = (typeof window !== 'undefined' && window.getSelection) ? window.getSelection() : null;
+      ctx.selectionText = sel ? String(sel.toString() || '') : '';
+      let node = sel && sel.anchorNode ? sel.anchorNode : null;
+      if (node && node.nodeType !== 1) node = node.parentElement;
+      ctx.selectionFromAgent = !!(node && node.closest && node.closest('.tw-msg-content'));
+    } catch (_) {}
+    return ctx;
   }
 
   async getSecret(secretName) {
@@ -4525,6 +4853,10 @@ module.exports = class TabonKBWorkbenchPlugin extends Plugin {
   }
 
   onunload() {
+    if (globalThis.__twMemBeat) {
+      try { clearInterval(globalThis.__twMemBeat); } catch (_) {}
+      globalThis.__twMemBeat = null;
+    }
     const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_WORKBENCH);
     leaves.forEach(leaf => {
       if (leaf.view) {
@@ -4545,6 +4877,25 @@ module.exports = class TabonKBWorkbenchPlugin extends Plugin {
         }
       }
     });
+
+    // P1b: 记灵感浮窗/Ctrl+I 热键/插件级 TopicService 释放
+    if (this._ideaScopeKey) {
+      try { this._ideaScopeKey.scope.unregister(this._ideaScopeKey.handler); } catch (_) {}
+      this._ideaScopeKey = null;
+    }
+    if (this.ideaPalette) {
+      try { this.ideaPalette.dispose(); } catch (_) {}
+      this.ideaPalette = null;
+    }
+    if (this._witherTimer) {
+      try { clearTimeout(this._witherTimer); } catch (_) {}
+      this._witherTimer = null;
+    }
+    if (this.topicService) {
+      try { this.topicService.stopAutoWater && this.topicService.stopAutoWater(); } catch (_) {}
+      try { this.topicService.dispose && this.topicService.dispose(); } catch (_) {}
+      this.topicService = null;
+    }
 
     if (this.companionServer) {
       this.companionServer.stop();
@@ -4599,7 +4950,7 @@ module.exports = class TabonKBWorkbenchPlugin extends Plugin {
 };"""
 
 if plugin_class_pattern.search(workbench_part):
-    workbench_part = plugin_class_pattern.sub(new_plugin_class, workbench_part)
+    workbench_part = plugin_class_pattern.sub(lambda _: new_plugin_class, workbench_part)
     print("Updated TabonKBWorkbenchPlugin class in workbench_part")
 else:
     print("Warning: plugin_class_pattern did not match in workbench_part!")

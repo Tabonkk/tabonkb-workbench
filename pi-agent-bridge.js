@@ -239,7 +239,7 @@ class PiAgentBridge {
   // 返回所有可用的 Pi 原生扩展路径 (vendor-portal + weknora-portal + opengrok-portal + gerrit-portal + codegraph-portal)
   // 优先级: .pi/extensions > plugin/extensions; 供 --extension 多次传入
   getExtensionPaths() {
-    const names = ['vendor-portal.ts', 'weknora-portal.ts', 'opengrok-portal.ts', 'gerrit-portal.ts', 'jira-portal.ts', 'codegraph-portal.ts', 'drawio-portal.ts', 'local-project-portal.ts', 'remote-exec-portal.ts'];
+    const names = ['vendor-portal.ts', 'weknora-portal.ts', 'opengrok-portal.ts', 'gerrit-portal.ts', 'jira-portal.ts', 'codegraph-portal.ts', 'drawio-portal.ts', 'local-project-portal.ts', 'remote-exec-portal.ts', 'local-exec-portal.ts'];
     const result = [];
     for (const name of names) {
       const candidates = [
@@ -272,11 +272,11 @@ class PiAgentBridge {
     const jiraTools = ',jira_search_issues,jira_get_issue,jira_get_comments,jira_list_attachments,jira_download_attachment';
     const codegraphTools = ',codegraph_explore';
     const drawioTools = ',drawio_create,drawio_load,drawio_get,drawio_edit,drawio_export,drawio_list_pages,drawio_add_page,drawio_rename_page,drawio_delete_page';
-    // project_edit_file/project_compile 仅非只读档放行; remote_exec 各档均注册由 checkCommand 把关
+    // project_edit_file/project_compile/local_copy/local_move 仅非只读档放行; remote_exec/local_exec 各档均注册由 checkCommand 把关
     const localProjectTools = this.permissionMode === 'readonly'
       ? ',project_read_file'
-      : ',project_read_file,project_edit_file,project_compile';
-    const tools = `${baseTools},remote_exec,vendor_portal_search,vendor_portal_get_detail${weknoraTools}${opengrokTools}${gerritTools}${jiraTools}${codegraphTools}${drawioTools}${localProjectTools}`;
+      : ',project_read_file,project_edit_file,project_compile,local_copy,local_move';
+    const tools = `${baseTools},remote_exec,local_exec,vendor_portal_search,vendor_portal_get_detail${weknoraTools}${opengrokTools}${gerritTools}${jiraTools}${codegraphTools}${drawioTools}${localProjectTools}`;
 
     const extPaths = this.getExtensionPaths();
     const extArgs = [];
@@ -603,7 +603,8 @@ class PiAgentBridge {
           WEKNORA_DEFAULT_KB: weknoraKb,
           OPENGROK_BASE_URL: opengrokBase,
           OPENGROK_DEFAULT_PROJECT: opengrokProject,
-          TABONKB_PERM_MODE: this.permissionMode
+          TABONKB_PERM_MODE: this.permissionMode,
+          TABONKB_VAULT_PATH: this.vaultBasePath
         }),
         stdio: ['pipe', 'pipe', 'pipe']
       });

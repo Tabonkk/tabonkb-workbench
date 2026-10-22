@@ -10,7 +10,7 @@
     "email": "tankaikun",
     "username": "tankaikun",
     "secretName": "tabonkb-jira-token",
-    "jql": "(resolution = Unresolved OR resolutiondate >= -30d) AND (assignee = currentUser() OR watcher = currentUser() OR reporter = currentUser()) AND updated >= -90d ORDER BY updated DESC",
+    "jql": "(resolution = Unresolved OR resolutiondate >= -30d) AND (assignee = currentUser() OR watcher = currentUser() OR reporter = currentUser()) ORDER BY updated DESC",
     "refreshIntervalMinutes": 5
   },
   "niceaigc": {
@@ -117,7 +117,8 @@
     "topoLimit": 400,
     "topoTtlHours": 24,
     "syncFolders": [
-      "03-Driver"
+      "03-Driver",
+      "01-Platform"
     ]
   },
   "clipInliner": {

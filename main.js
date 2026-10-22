@@ -61,6 +61,7 @@ const ICON_PARK_PATHS = {
 
   // Status & Mode
   'edit': '<path d="m14 4 6 6M4 20l5-1 11-11a2.828 2.828 0 0 0-4-4L5 15l-1 5z"/>',
+  'pin': '<path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76z"/>',
   'lock': '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
   'shield': '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><line x1="12" y1="2" x2="12" y2="22"/>',
   'time': '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/>',
@@ -1578,6 +1579,32 @@ function vendorMcpResolveNodeExe() {
   return 'node';
 }
 
+// Windows 下第三方 CLI (agy/gemini/hermes/dsh) 拉起 MCP stdio 子进程时不带 CREATE_NO_WINDOW；
+// node.exe 是控制台子系统 (Subsystem=3)，每次拉起都会分配一个 conhost 窗口造成 CMD 黑框闪屏。
+// 生成同内容的 GUI 子系统副本 (Subsystem 3→2)，子进程不再分配控制台，stdin/stdout 管道不受影响。
+// 副本与源同目录 (node-gui.exe)，按 size+mtime 校验缓存；任何失败回退原 node 路径。
+function mcpResolveGuiNodeExe(nodeExe) {
+  try {
+    if (process.platform !== 'win32' || !nodeExe || !fs.existsSync(nodeExe)) return nodeExe;
+    const guiExe = path.join(path.dirname(nodeExe), 'node-gui.exe');
+    const srcStat = fs.statSync(nodeExe);
+    try {
+      const g = fs.statSync(guiExe);
+      if (g.size === srcStat.size && g.mtimeMs >= srcStat.mtimeMs) return guiExe;
+    } catch (_) {}
+    const buf = fs.readFileSync(nodeExe);
+    if (buf.length < 0x400 || buf.readUInt16LE(0) !== 0x5A4D) return nodeExe; // 'MZ'
+    const pe = buf.readUInt32LE(0x3C);
+    if (pe + 94 > buf.length || buf.readUInt32LE(pe) !== 0x00004550) return nodeExe; // 'PE\0\0'
+    const subOff = pe + 4 + 20 + 68; // OptionalHeader.Subsystem (PE32/PE32+ 同偏移)
+    if (buf.readUInt16LE(subOff) !== 3) return nodeExe; // 仅控制台子系统需要转换
+    buf.writeUInt16LE(2, subOff); // IMAGE_SUBSYSTEM_WINDOWS_GUI
+    fs.writeFileSync(guiExe + '.tmp', buf);
+    fs.renameSync(guiExe + '.tmp', guiExe);
+    return guiExe;
+  } catch (_) { return nodeExe; }
+}
+
 function vendorMcpScriptPath(vaultBasePath) {
   const candidates = [
     vaultBasePath ? path.join(vaultBasePath, '.obsidian', 'plugins', 'tabonkb-workbench', 'mcp', 'vendor-portal-mcp.js') : '',
@@ -1625,7 +1652,7 @@ function ensureHermesVendorMcp(hermesBin, prefixArgs, vaultBasePath) {
       listProc.on('error', (e) => resolve({ ok: false, error: e.message }));
       listProc.on('close', () => {
         if (listOut.indexOf(VENDOR_MCP_SERVER_NAME) >= 0) { resolve({ ok: true, already: true }); return; }
-        const nodeExe = vendorMcpResolveNodeExe();
+        const nodeExe = mcpResolveGuiNodeExe(vendorMcpResolveNodeExe());
         const script = vendorMcpScriptPath(vaultBasePath);
         const addProc = child_process.spawn(hermesBin, [...pre, 'mcp', 'add', VENDOR_MCP_SERVER_NAME, '--command', nodeExe, '--args', script], { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
         let out = '';
@@ -1654,7 +1681,7 @@ function ensureGeminiVendorMcp(vaultBasePath) {
       try { cfg = JSON.parse(fs.readFileSync(file, 'utf8')) || {}; } catch (e) { cfg = {}; }
     }
     cfg.mcpServers = cfg.mcpServers || {};
-    const nodeExe = vendorMcpResolveNodeExe();
+    const nodeExe = mcpResolveGuiNodeExe(vendorMcpResolveNodeExe());
     const script = vendorMcpScriptPath(vaultBasePath);
     const cur = cfg.mcpServers[VENDOR_MCP_SERVER_NAME];
     const same = cur && cur.command === nodeExe && Array.isArray(cur.args) && cur.args[0] === script;
@@ -1727,6 +1754,9 @@ function buildWeknoraEnv(vaultBasePath) {
 // 提示语: 引导各 CLI 优先用 WeKnora 知识库工具
 const WEKNORA_MCP_TOOL_HINT = '\n\n[系统指令] 你已接入团队知识库 MCP 工具 ' + WEKNORA_MCP_SERVER_NAME + ' (WeKnora)。用户询问项目沉淀知识、历史排障、平台文档或知识库内容时, 默认只调用 weknora_search (混合检索, 返回片段)。不要默认调用 weknora_ask: 它会在服务端再跑一轮完整 RAG, 经常耗时数分钟。仅当用户明确要求知识库直接给出带引用的成稿、且 search 片段不够时, 才单独调用 weknora_ask。不要把 weknora_search 与 weknora_ask 放进同一次工具批次: deferred 工具不能并行, 且 ask 内部已经包含检索。需要全文再用 weknora_read_document。写入用 weknora_add_document / weknora_update_document / weknora_delete_document。';
 
+// MCP command 使用 GUI 子系统 node 副本避免 conhost 闪屏；bundle 内由 vendor-mcp-shared.js 提供
+function weknoraMcpGuiNodeExe(e) { return typeof mcpResolveGuiNodeExe === 'function' ? mcpResolveGuiNodeExe(e) : e; }
+
 // ---- Hermes: 全局注册 (幂等, 异步不阻塞) ----
 function ensureHermesWeknoraMcp(hermesBin, prefixArgs, vaultBasePath) {
   return new Promise((resolve) => {
@@ -1738,7 +1768,7 @@ function ensureHermesWeknoraMcp(hermesBin, prefixArgs, vaultBasePath) {
       listProc.on('error', (e) => resolve({ ok: false, error: e.message }));
       listProc.on('close', () => {
         if (listOut.indexOf(WEKNORA_MCP_SERVER_NAME) >= 0) { resolve({ ok: true, already: true }); return; }
-        const nodeExe = weknoraMcpResolveNodeExe();
+        const nodeExe = weknoraMcpGuiNodeExe(weknoraMcpResolveNodeExe());
         const script = weknoraMcpScriptPath(vaultBasePath);
         const addProc = child_process.spawn(hermesBin, [...pre, 'mcp', 'add', WEKNORA_MCP_SERVER_NAME, '--command', nodeExe, '--args', script], { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
         let out = '';
@@ -1822,6 +1852,9 @@ const OPENGROK_MCP_TOOL_HINT = '\n\n[系统指令] 你已接入公司内网 Open
   '- AIoT: 对应 `S_U_aiot_oversea_release`\n' +
   '凡涉及驱动源码、寄存器定义、内核函数、DTS设备树、Makefile 配置时，必须优先调用 opengrok_search_code 检索代码，再调用 opengrok_read_file 查看函数具体实现，给出精准的代码分析与行号引用。';
 
+// MCP command 使用 GUI 子系统 node 副本避免 conhost 闪屏；bundle 内由 vendor-mcp-shared.js 提供
+function opengrokMcpGuiNodeExe(e) { return typeof mcpResolveGuiNodeExe === 'function' ? mcpResolveGuiNodeExe(e) : e; }
+
 // ---- Hermes: 全局注册 (幂等, 异步不阻塞) ----
 function ensureHermesOpengrokMcp(hermesBin, prefixArgs, vaultBasePath) {
   return new Promise((resolve) => {
@@ -1833,7 +1866,7 @@ function ensureHermesOpengrokMcp(hermesBin, prefixArgs, vaultBasePath) {
       listProc.on('error', (e) => resolve({ ok: false, error: e.message }));
       listProc.on('close', () => {
         if (listOut.indexOf(OPENGROK_MCP_SERVER_NAME) >= 0) { resolve({ ok: true, already: true }); return; }
-        const nodeExe = opengrokMcpResolveNodeExe();
+        const nodeExe = opengrokMcpGuiNodeExe(opengrokMcpResolveNodeExe());
         const script = opengrokMcpScriptPath(vaultBasePath);
         const addProc = child_process.spawn(hermesBin, [...pre, 'mcp', 'add', OPENGROK_MCP_SERVER_NAME, '--command', nodeExe, '--args', script], { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
         let out = '';
@@ -1905,8 +1938,25 @@ function opengrokLoadConfig(override) {
   const og = (data && data.opengrok) || {};
   const baseUrl = opengrokNormalizeBase(override.baseUrl || process.env.OPENGROK_BASE_URL || og.baseUrl || DEFAULT_OPENGROK_BASE_URL);
   const defaultProject = (override.defaultProject || process.env.OPENGROK_DEFAULT_PROJECT || og.defaultProject || DEFAULT_OPENGROK_PROJECT).trim();
+  const staticDefault = (og.defaultProject || DEFAULT_OPENGROK_PROJECT).trim();
   const timeoutMs = parseInt(override.timeout || og.timeout || '15000', 10);
-  return { baseUrl, defaultProject, timeoutMs };
+  return { baseUrl, defaultProject, staticDefault, timeoutMs };
+}
+
+// 工作台实时上下文: <插件目录>/active-context.json 由 UI 选择在每次变更时落盘,
+// 进程级 env (spawn 快照) 可能滞后 —— 文件值 (selectedProject 非 'auto') 优先。
+function opengrokReadActiveContext(dir) {
+  try {
+    // 测试/特殊部署可用 env 显式指定文件路径
+    const override = process.env.TABONKB_ACTIVE_CONTEXT_FILE;
+    if (override) {
+      const j = opengrokReadJsonSafe(override);
+      return (j && typeof j === 'object') ? j : null;
+    }
+    const d = dir || opengrokResolvePluginDir();
+    const ac = opengrokReadJsonSafe(path.join(d, 'active-context.json'));
+    return (ac && typeof ac === 'object') ? ac : null;
+  } catch (_) { return null; }
 }
 
 // 平台/业务关键词别名字典映射表
@@ -1927,6 +1977,7 @@ class OpengrokService {
     cfg = cfg || opengrokLoadConfig();
     this.baseUrl = cfg.baseUrl || DEFAULT_OPENGROK_BASE_URL;
     this.defaultProject = cfg.defaultProject || DEFAULT_OPENGROK_PROJECT;
+    this.staticDefault = cfg.staticDefault || DEFAULT_OPENGROK_PROJECT;
     this.timeoutMs = cfg.timeoutMs || 15000;
     this._cachedProjects = null;
     this._cacheTime = 0;
@@ -2018,10 +2069,33 @@ class OpengrokService {
     ];
   }
 
+  // 实时生效的圈定工程:
+  // - DSH MCP 子进程侧 (TABONKB_MCP_HOST=dsh 标记; DSH_* env 已被 scrub 故不能用):
+  //   env 是 daemon spawn 快照可能滞后, active-context.json 由 UI 每次变更落盘为活值
+  //   —— 文件优先, 'auto'=未绑定回退静态默认;
+  // - pi 扩展/宿主侧: env 是本进程自身会话的权威快照 (pi 会话或 UI 最近镜像), 文件可能
+  //   被另一 surface 覆写 —— env 优先, 不回读文件。
+  _effDefaultProject() {
+    try {
+      if (process.env.TABONKB_MCP_HOST === 'dsh') {
+        const ac = opengrokReadActiveContext();
+        // 只采信 DSH 侧落盘的文件 (source:'dsh'); pi 侧覆写无 source, 不当本 surface 绑定
+        if (ac && ac.source === 'dsh') {
+          const p = ac.selectedProject;
+          if (p && p !== 'auto') return String(p);
+          if ('selectedProject' in ac) return this.staticDefault;
+        }
+      }
+      return process.env.OPENGROK_DEFAULT_PROJECT || this.defaultProject;
+    } catch (_) {
+      return this.defaultProject;
+    }
+  }
+
   // 2. 智能工程推断 (根据提示词/别名解析出最适合的 project 参数)
   inferProjects(hint) {
     if (!hint || typeof hint !== 'string') {
-      return [this.defaultProject || 'W_sprd_os_dev'];
+      return [this._effDefaultProject() || 'W_sprd_os_dev'];
     }
     const clean = hint.trim().toLowerCase();
 
@@ -2041,7 +2115,7 @@ class OpengrokService {
       }
     }
 
-    return matched.length > 0 ? matched : [this.defaultProject || 'W_sprd_os_dev'];
+    return matched.length > 0 ? matched : [this._effDefaultProject() || 'W_sprd_os_dev'];
   }
 
   // 3. 核心检索接口 (支持全文 full、符号定义 defs、引用 refs、文件路径 path)
@@ -2157,7 +2231,7 @@ class OpengrokService {
   // 4. 源码直读 (支持行范围切片与行号呈现)
   async readSourceFile(params) {
     params = params || {};
-    const project = (params.project || this.defaultProject || '').trim();
+    const project = (params.project || this._effDefaultProject() || '').trim();
     let filePath = (params.file_path || params.filePath || params.path || '').trim();
 
     if (!project) throw new Error('Missing project parameter');
@@ -2487,6 +2561,9 @@ const GERRIT_MCP_TOOL_HINT = '\n\n[系统指令] 你已接入公司内网 Gerrit
   '5. gerrit_list_projects (获取 Gerrit 代码托管工程仓库清单)\n' +
   '【权限安全边界】当前工具严格限定为只读查阅模式。你只允许检索变更、阅读评审记录与比对补丁代码，严禁执行或建议执行任何提交评审意见 (Review)、打分 (Vote)、代码合入 (Submit) 或废弃变更 (Abandon) 操作。';
 
+// MCP command 使用 GUI 子系统 node 副本避免 conhost 闪屏；bundle 内由 vendor-mcp-shared.js 提供
+function gerritMcpGuiNodeExe(e) { return typeof mcpResolveGuiNodeExe === 'function' ? mcpResolveGuiNodeExe(e) : e; }
+
 // ---- Hermes: 全局注册 (幂等, 异步不阻塞) ----
 function ensureHermesGerritMcp(hermesBin, prefixArgs, vaultBasePath) {
   return new Promise((resolve) => {
@@ -2498,7 +2575,7 @@ function ensureHermesGerritMcp(hermesBin, prefixArgs, vaultBasePath) {
       listProc.on('error', (e) => resolve({ ok: false, error: e.message }));
       listProc.on('close', () => {
         if (listOut.indexOf(GERRIT_MCP_SERVER_NAME) >= 0) { resolve({ ok: true, already: true }); return; }
-        const nodeExe = gerritMcpResolveNodeExe();
+        const nodeExe = gerritMcpGuiNodeExe(gerritMcpResolveNodeExe());
         const script = gerritMcpScriptPath(vaultBasePath);
         const addProc = child_process.spawn(hermesBin, [...pre, 'mcp', 'add', GERRIT_MCP_SERVER_NAME, '--command', nodeExe, '--args', script], { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
         let out = '';
@@ -2585,6 +2662,9 @@ const JIRA_MCP_TOOL_HINT = '\n\n[系统指令] 你已接入公司内网 Jira 缺
   '【产物归档约定】凡针对某工单的排查/分析任务：日志等下载产物固定存放 00-Inbox/03-Quick-Note/<工单号>/attachments/；分析结论、复现报告、修复建议等 Markdown 产物写入 00-Inbox/03-Quick-Note/<工单号>/ 目录根级（先创建该目录再写文件）。\n' +
   '【权限安全边界】工具仅支持检索、查阅与附件下载。严禁执行或建议执行任何 Jira 写操作（新建/编辑工单、状态流转、发表评论、上传附件）。';
 
+// MCP command 使用 GUI 子系统 node 副本避免 conhost 闪屏；bundle 内由 vendor-mcp-shared.js 提供
+function jiraMcpGuiNodeExe(e) { return typeof mcpResolveGuiNodeExe === 'function' ? mcpResolveGuiNodeExe(e) : e; }
+
 // ---- Hermes: 全局注册 (幂等, 异步不阻塞) ----
 function ensureHermesJiraMcp(hermesBin, prefixArgs, vaultBasePath) {
   return new Promise((resolve) => {
@@ -2596,7 +2676,7 @@ function ensureHermesJiraMcp(hermesBin, prefixArgs, vaultBasePath) {
       listProc.on('error', (e) => resolve({ ok: false, error: e.message }));
       listProc.on('close', () => {
         if (listOut.indexOf(JIRA_MCP_SERVER_NAME) >= 0) { resolve({ ok: true, already: true }); return; }
-        const nodeExe = jiraMcpResolveNodeExe();
+        const nodeExe = jiraMcpGuiNodeExe(jiraMcpResolveNodeExe());
         const script = jiraMcpScriptPath(vaultBasePath);
         const addProc = child_process.spawn(hermesBin, [...pre, 'mcp', 'add', JIRA_MCP_SERVER_NAME, '--command', nodeExe, '--args', script], { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
         let out = '';
@@ -2659,6 +2739,9 @@ const DRAWIO_MCP_TOOL_HINT = '\n\n[系统指令] 你已接入绘图工具 tabonk
   '5. drawio_export：写入 00-Inbox/04-Agent-Diagrams/ 的 .drawio 与 PNG。\n' +
   '回合结束时系统会关掉绘图进程，并把 PNG 显示在对话里。回复里说明图已生成即可，不要自己输出图片 markdown。';
 
+// MCP command 使用 GUI 子系统 node 副本避免 conhost 闪屏；bundle 内由 vendor-mcp-shared.js 提供
+function drawioMcpGuiNodeExe(e) { return typeof mcpResolveGuiNodeExe === 'function' ? mcpResolveGuiNodeExe(e) : e; }
+
 function ensureHermesDrawioMcp(hermesBin, prefixArgs, vaultBasePath) {
   return new Promise((resolve) => {
     try {
@@ -2669,7 +2752,7 @@ function ensureHermesDrawioMcp(hermesBin, prefixArgs, vaultBasePath) {
       listProc.on('error', (e) => resolve({ ok: false, error: e.message }));
       listProc.on('close', () => {
         if (listOut.indexOf(DRAWIO_MCP_SERVER_NAME) >= 0) { resolve({ ok: true, already: true }); return; }
-        const nodeExe = drawioMcpResolveNodeExe();
+        const nodeExe = drawioMcpGuiNodeExe(drawioMcpResolveNodeExe());
         const script = drawioMcpScriptPath(vaultBasePath);
         const addProc = child_process.spawn(hermesBin, [...pre, 'mcp', 'add', DRAWIO_MCP_SERVER_NAME, '--command', nodeExe, '--args', script], { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
         let out = '';
@@ -2877,7 +2960,7 @@ const DSLOGIC_MCP_TOOL_HINT = '\n\n[系统指令] 你已接入 DSView/DSLogic �
   '【规范】采集由官方 DSView 完成并手动导入工作台; 分析一律基于 .dsl 实测数据, 经 companion-server 只读访问, 不修改采集文件。';
 
 /* ==========================================================================
-   DSH MCP Shared — 把 TabonKB 6 大 MCP 工具动态接入 DeepSeek Harness
+   DSH MCP Shared — 把 TabonKB 10 大 MCP 工具动态接入 DeepSeek Harness
    支持:
    1. tabonkb-vendor: vendor-portal-mcp.js (stdio, Node)
    2. weknora: weknora-mcp.js (stdio, Node)
@@ -2885,6 +2968,10 @@ const DSLOGIC_MCP_TOOL_HINT = '\n\n[系统指令] 你已接入 DSView/DSLogic �
    4. gerrit: gerrit-mcp.js (stdio, Node)
    5. drawio: drawio-mcp.js (stdio, Node, 依赖 DrawioBroker 端口 6011)
    6. codegraph: ssh.exe -> tankaikun@192.168.1.62 codegraph serve (stdio, ssh)
+   7. powerz: powerz-mcp.js (stdio, Node)
+   8. dslogic: dslogic-mcp.js (stdio, Node)
+   9. jira: jira-mcp.js (stdio, Node)
+   10. workbench: workbench-mcp.js (stdio, Node, 会话绑定+本地工程只读)
 
    安全红线:
    - 绝不在生成的 YAML 中硬编码任何明文密码/Token
@@ -2899,6 +2986,10 @@ const DSLOGIC_MCP_TOOL_HINT = '\n\n[系统指令] 你已接入 DSView/DSLogic �
 
 // 预设块版本标记: 用于 cordis.patch.yml 幂等同步与升级自愈
 const TABONKB_PRESET_MARKER = 'tabonkb-presets-v2';
+
+// DSH MCP 子进程宿主标记: 名字刻意不带 DSH_ 前缀、不匹配 /KEY|PASSWORD|SECRET|TOKEN/i,
+// 才能穿过 dsh-mcp-client 的 scrubbedParentEnv 合并进子进程 env
+const DSH_MCP_HOST_ENV = { TABONKB_MCP_HOST: 'dsh' };
 
 /**
  * R14: 探测 %APPDATA% 下的便携 Node 目录 (node-v*)，避免硬编码版本号
@@ -3005,8 +3096,11 @@ function resolveSshExe() {
  * @param {string} vaultBasePath - 工作区根路径
  * @returns {Array<object>} 6 个标准的 MCP 插件插入配置项
  */
+// MCP command 使用 GUI 子系统 node 副本避免 conhost 闪屏；bundle 内由 vendor-mcp-shared.js 提供
+function dshMcpGuiNodeExe(e) { return typeof mcpResolveGuiNodeExe === 'function' ? mcpResolveGuiNodeExe(e) : e; }
+
 function buildDshMcpEntries(vaultBasePath) {
-  const nodeExe = resolveDshNodeExe();
+  const nodeExe = dshMcpGuiNodeExe(resolveDshNodeExe());
   const entries = [];
 
   // 1. vendor-portal
@@ -3019,6 +3113,7 @@ function buildDshMcpEntries(vaultBasePath) {
       transport: 'stdio',
       command: nodeExe,
       args: [vendorPath],
+      env: DSH_MCP_HOST_ENV,
       failOnStartupError: false,
       toolCallTimeoutMs: 60000
     }
@@ -3034,6 +3129,7 @@ function buildDshMcpEntries(vaultBasePath) {
       transport: 'stdio',
       command: nodeExe,
       args: [weknoraPath],
+      env: DSH_MCP_HOST_ENV,
       failOnStartupError: false,
       toolCallTimeoutMs: 60000
     }
@@ -3049,6 +3145,7 @@ function buildDshMcpEntries(vaultBasePath) {
       transport: 'stdio',
       command: nodeExe,
       args: [opengrokPath],
+      env: DSH_MCP_HOST_ENV,
       failOnStartupError: false,
       toolCallTimeoutMs: 30000
     }
@@ -3064,6 +3161,7 @@ function buildDshMcpEntries(vaultBasePath) {
       transport: 'stdio',
       command: nodeExe,
       args: [gerritPath],
+      env: DSH_MCP_HOST_ENV,
       failOnStartupError: false,
       toolCallTimeoutMs: 30000
     }
@@ -3079,6 +3177,7 @@ function buildDshMcpEntries(vaultBasePath) {
       transport: 'stdio',
       command: nodeExe,
       args: [drawioPath],
+      env: DSH_MCP_HOST_ENV,
       failOnStartupError: false,
       toolCallTimeoutMs: 30000
     }
@@ -3102,6 +3201,7 @@ function buildDshMcpEntries(vaultBasePath) {
         'serve',
         '--mcp'
       ],
+      env: DSH_MCP_HOST_ENV,
       failOnStartupError: false,
       toolCallTimeoutMs: 60000
     }
@@ -3117,6 +3217,7 @@ function buildDshMcpEntries(vaultBasePath) {
       transport: 'stdio',
       command: nodeExe,
       args: [powerzPath],
+      env: DSH_MCP_HOST_ENV,
       failOnStartupError: false,
       toolCallTimeoutMs: 30000
     }
@@ -3132,8 +3233,41 @@ function buildDshMcpEntries(vaultBasePath) {
       transport: 'stdio',
       command: nodeExe,
       args: [dslogicPath],
+      env: DSH_MCP_HOST_ENV,
       failOnStartupError: false,
       toolCallTimeoutMs: 120000
+    }
+  });
+
+  // 9. jira (工单检索/详情/注释/附件; 凭据子进程自读 .secrets.json, 不依赖 env)
+  const jiraPath = resolveScriptPath(vaultBasePath, 'jira-mcp.js');
+  entries.push({
+    id: 'mcp-jira',
+    name: '@deepseek-ai/dsh-mcp-client',
+    config: {
+      serverName: 'jira',
+      transport: 'stdio',
+      command: nodeExe,
+      args: [jiraPath],
+      env: DSH_MCP_HOST_ENV,
+      failOnStartupError: false,
+      toolCallTimeoutMs: 30000
+    }
+  });
+
+  // 10. workbench (会话绑定上下文 + 本地工程三层穿透只读)
+  const workbenchPath = resolveScriptPath(vaultBasePath, 'workbench-mcp.js');
+  entries.push({
+    id: 'mcp-workbench',
+    name: '@deepseek-ai/dsh-mcp-client',
+    config: {
+      serverName: 'workbench',
+      transport: 'stdio',
+      command: nodeExe,
+      args: [workbenchPath],
+      env: DSH_MCP_HOST_ENV,
+      failOnStartupError: false,
+      toolCallTimeoutMs: 30000
     }
   });
 
@@ -3193,6 +3327,8 @@ function buildDshDaemonEnv(vaultBasePath) {
   // 二者均已在 applyDshCtxSelection / saveProject / saveLocalProject 中写入 process.env。
   if (process.env.OPENGROK_DEFAULT_PROJECT) env.OPENGROK_DEFAULT_PROJECT = process.env.OPENGROK_DEFAULT_PROJECT;
   if (process.env.TABONKB_LOCAL_PROJECT_JSON) env.TABONKB_LOCAL_PROJECT_JSON = process.env.TABONKB_LOCAL_PROJECT_JSON;
+  if (process.env.TABONKB_JIRA_ISSUE_JSON) env.TABONKB_JIRA_ISSUE_JSON = process.env.TABONKB_JIRA_ISSUE_JSON;
+  if (process.env.TABONKB_GERRIT_FILTER) env.TABONKB_GERRIT_FILTER = process.env.TABONKB_GERRIT_FILTER;
 
   // 释放权限给 Harness：允许派生外部程序 (cmd.exe/git.exe/ssh.exe) 与跨目录访问，免借票审批
   env.DSH_PERMISSION_MODE = 'danger-full-access';
@@ -3207,13 +3343,20 @@ function buildDshDaemonEnv(vaultBasePath) {
  * 符合 @deepseek-ai/dsh-agent-preset 官方规范
  */
 function buildTabonKbPresets(vaultBasePath) {
+  // 公共尾部小节: 两个预设共用「工作台上下文」获取方式 (工具侧实时值, 不读文件/env 快照)
+  const wbCtxSection = [
+    '',
+    '工作台上下文（会话当前绑定，实时变化）：需要当前 OpenGrok 工程 / Gerrit 过滤器 / Jira 工单 / 本地工程时，先调 workbench_context 取实时值。',
+    '读本地工程源码用 project_read_file，并显式传 project（取自 workbench_context 或 project_list）。',
+    'opengrok / gerrit / jira 工具缺省参数时自动取当前绑定；显式参数始终优先。'
+  ].join('\n');
   const getCommonPlugins = (personaPrefix) => [
     {
       id: 'persona',
       name: '@deepseek-ai/dsh-persona',
       config: {
-        prefix: personaPrefix.trim(),
-        suffix: '当前工作区为 TabonKB 研发知识库，工作路径为 {{cwd}}。'
+        prefix: personaPrefix.trim() + wbCtxSection,
+        suffix: '当前工作区为 TabonKB 研发知识库。'
       }
     },
     {
@@ -3363,12 +3506,13 @@ Bringup 或多步疑难排障，先用规划模式拆成可观测的小步，每
 引用代码统一给出「路径:行号」（如 drivers/power/supply/xxx.c:123 或 03-Driver/05-Charger/xxx.md），便于工作台右侧点击联动。
 结论按「现象 / 根因 / 证据（日志片段+出处）/ 改动 / 验证 / 遗留风险」六段式整理，写入 00-Inbox/ 或对应模块目录（03-Driver/<模块>/、04-Debug/、06-Spec/）；正式命名归档与索引维护交给「知识库管理」预设。
 
-七、会话工程上下文（用户在「+」菜单绑定，经环境变量下发）
-1. 本地工程 TABONKB_LOCAL_PROJECT_JSON（JSON：serverId/serverName/workspaceName/linuxPath/platform/project/priDriverRel/publicDriverRel）为最高优先级事实源：检索与定位优先项目专属定制路径 priDriverRel，其次公共差分 publicDriverRel，原厂基线仅作对照且禁止直接修改；建议编译/烧录命令一律按该工程的 platform+project 组装，不要凭通用模板。
-2. OpenGrok OPENGROK_DEFAULT_PROJECT：非空即代表用户圈定的目标源码工程，opengrok_search_code / opengrok_list_projects 的 project 参数默认取该值，跨库联检仅在用户明确要求时放宽。
-3. Jira 工单绑定 TABONKB_JIRA_ISSUE_JSON（JSON：key/summary/status/priority/assignee/url）：先用 jira_get_issue 拉取描述/复现条件，再 jira_list_attachments 与 jira_download_attachment 取证附件；答复引用工单号并贴合其环境。
-4. Gerrit 过滤器 TABONKB_GERRIT_FILTER（all/open/merged/mine/reviewing）：gerrit_search_changes 默认按该范围组织查询条件，非 all 时优先收窄到对应变更集。
-5. 新建对话时上述绑定会被清空；若环境变量缺失或为空，按未绑定处理，不要沿用上一会话的工程假设。`),
+七、会话工程上下文（用户在「+」菜单绑定，按会话独立、实时变化）
+四项绑定（OpenGrok 工程 / Gerrit 过滤器 / Jira 工单 / 本地工程）的实时值一律通过 workbench_context 工具获取；禁止读取 active-context.json 文件或依赖环境变量快照（二者都可能滞后或是别的会话的值）。
+1. 本地工程绑定（字段含 serverName/workspaceName/linuxPath/platform/project/priDriverRel/publicDriverRel）为最高优先级事实源：检索与定位优先项目专属定制路径 priDriverRel，其次公共差分 publicDriverRel，原厂基线仅作对照且禁止直接修改；建议编译/烧录命令一律按该工程的 platform+project 组装，不要凭通用模板。
+2. OpenGrok 工程：非 'auto' 即代表用户圈定的目标源码工程，opengrok_search_code / opengrok_list_projects 的 project 参数缺省时自动取该绑定值，跨库联检仅在用户明确要求时放宽。
+3. Jira 工单绑定：先用 jira_get_issue 拉取描述/复现条件，再 jira_list_attachments 与 jira_download_attachment 取证附件；上述工具缺省 issue_key 时自动使用绑定工单；答复引用工单号并贴合其环境。
+4. Gerrit 过滤器（all/open/merged/mine/reviewing）：gerrit_search_changes 的 query 缺省或未含 status:/owner:/reviewer: 时自动按绑定范围收窄，显式写这些操作符可覆盖。
+5. 上述绑定随 DSH 会话独立保存；workbench_context 显示未绑定时按无绑定处理，不要沿用上一会话的工程假设。`),
           planningGroup,
           compactionGroup
         ]
@@ -3471,6 +3615,12 @@ function renderPresetsYaml(presets) {
               } else {
                 lines.push(`              ${ck}: ${JSON.stringify(cv)}`);
               }
+            } else if (cv && typeof cv === 'object') {
+              // dict 值 (如 env) 序列化为子映射, 避免输出 [object Object]
+              lines.push(`              ${ck}:`);
+              for (const [ok, ov] of Object.entries(cv)) {
+                lines.push(`                ${ok}: ${typeof ov === 'string' ? JSON.stringify(ov) : ov}`);
+              }
             } else {
               lines.push(`              ${ck}: ${cv}`);
             }
@@ -3509,6 +3659,12 @@ function generateDshCordisPatchYaml(vaultBasePath) {
     lines.push(`        args:`);
     for (const a of item.config.args) {
       lines.push(`          - ${JSON.stringify(a)}`);
+    }
+    if (item.config.env && typeof item.config.env === 'object') {
+      lines.push(`        env:`);
+      for (const [ek, ev] of Object.entries(item.config.env)) {
+        lines.push(`          ${ek}: ${JSON.stringify(String(ev))}`);
+      }
     }
     lines.push(`        failOnStartupError: ${item.config.failOnStartupError}`);
     lines.push(`        toolCallTimeoutMs: ${item.config.toolCallTimeoutMs}`);
@@ -4104,6 +4260,27 @@ function _gerritFmtProjects(projects) {
   return lines.join('\n');
 }
 
+// DSH MCP 子进程工作台上下文 (bundle 内为全局函数, 独立运行时按路径探测)
+function gerritLoadWbCtx() {
+  try {
+    if (typeof getHostContext === 'function' && typeof isDshHost === 'function') {
+      return { isDshHost, getHostContext, gerritFilterToQuery, gerritFilterLabel };
+    }
+    const cands = [
+      path.join(__dirname, 'workbench-context.js'),
+      path.join(__dirname, 'services', 'workbench-context.js'),
+      path.join(__dirname, '..', 'services', 'workbench-context.js'),
+      path.join(process.cwd(), '.obsidian', 'plugins', 'tabonkb-workbench', 'services', 'workbench-context.js')
+    ];
+    for (const c of cands) {
+      let m = null;
+      try { if (fs.existsSync(c)) m = require(c); } catch (_) {}
+      if (m && typeof m.isDshHost === 'function') return m;
+    }
+  } catch (_) {}
+  return null;
+}
+
 // 统一的只读工具分发器
 async function runGerritTool(name, args, service) {
   args = args || {};
@@ -4111,8 +4288,21 @@ async function runGerritTool(name, args, service) {
 
   switch (name) {
     case 'gerrit_search_changes': {
-      const res = await svc.searchChanges(args);
-      return _gerritFmtChanges(res);
+      // DSH 宿主: query 缺省或未含显式 status:/owner:/reviewer: 时附加工作台绑定过滤器
+      let effArgs = args;
+      let bindNote = '';
+      const wb = gerritLoadWbCtx();
+      const ctx = (wb && wb.isDshHost()) ? wb.getHostContext() : null;
+      const fq = (ctx && wb.gerritFilterToQuery) ? wb.gerritFilterToQuery(ctx.gerrit) : '';
+      if (fq) {
+        const q = String(args.query || '').trim();
+        if (!q || !/(?:^|\s)(?:status|owner|reviewer)\s*:/.test(q)) {
+          effArgs = Object.assign({}, args, { query: q ? `${q} ${fq}` : fq });
+          bindNote = `(已按工作台 Gerrit 过滤器「${wb.gerritFilterLabel(ctx.gerrit)}」附加 ${fq}; query 中显式写 status:/owner:/reviewer: 可覆盖)\n`;
+        }
+      }
+      const res = await svc.searchChanges(effArgs);
+      return bindNote + _gerritFmtChanges(res);
     }
     case 'gerrit_get_change': {
       const cid = args.change_id || args.id || args.number;
@@ -4147,14 +4337,13 @@ const GERRIT_TOOLS = [
       properties: {
         query: {
           type: 'string',
-          description: 'Gerrit 检索表达式 (如 status:open project:kernel, 或 charger, 或 commit:6a8f12)'
+          description: 'Gerrit 检索表达式 (如 status:open project:kernel, 或 charger, 或 commit:6a8f12)；缺省时取工作台绑定过滤器，否则默认 status:open'
         },
         limit: {
           type: 'number',
           description: '返回结果数量上限，默认 15，最多 30'
         }
-      },
-      required: ['query']
+      }
     }
   },
   {
@@ -5414,8 +5603,8 @@ function getDshContextBridgeScript() {
     '._3e4SsG_sectionTitle:not(:first-child),.twx-sec-title{border-top:.5px solid rgba(128,128,128,.12)!important;margin-top:4px!important;padding-top:5px!important;}',
     '.twx-sec-name{font-weight:600!important;color:inherit!important;}',
     // 滚动微角标：提示当前显示子项范围，支持点击与滚轮交互
-    '.twx-sec-badge{display:inline-flex!important;align-items:center!important;font-size:9.5px!important;font-weight:500!important;font-family:ui-monospace,SFMono-Regular,Menlo,monospace!important;color:var(--dsw-alias-label-tertiary,#9ca3af)!important;background:rgba(128,128,128,.08)!important;padding:1px 5px!important;border-radius:4px!important;cursor:pointer!important;transition:all .12s ease!important;}',
-    '.twx-sec-badge:hover{background:rgba(128,128,128,.18)!important;color:var(--dsw-alias-label-primary,#111827)!important;}',
+    '.twx-sec-badge{display:none!important;}',
+    '.twx-plus-menu [role="listbox"]{overflow-y:auto!important;overscroll-behavior:contain;scrollbar-width:thin;}',
     // 上下文分组子项按钮：完全复刻原生 _3e4SsG_item 尺寸与状态（不设 !important，确保可被隐藏规则覆盖）
     '.twx-item{display:flex;align-items:center;gap:7px;width:100%;min-height:34px;height:34px;padding:6px 8px;margin:0;box-sizing:border-box;border:none;border-radius:var(--dsw-radius-md,6px);background:transparent;cursor:pointer;font-size:13px;line-height:20px;color:var(--dsw-alias-label-primary,#111827);text-align:left;}',
     '.twx-item:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(128,128,128,.08))!important;}',
@@ -5469,8 +5658,7 @@ function getDshContextBridgeScript() {
     '@media (prefers-color-scheme:dark){.twx-panel,.twx-plus-menu{background:rgba(26,26,30,.97)!important;border-color:rgba(255,255,255,.1);box-shadow:0 16px 36px -4px rgba(0,0,0,.45),0 0 1px 1px rgba(255,255,255,.06);color:#f3f4f6;}.twx-item{color:#f3f4f6!important;}.twx-sec-badge{color:#9ca3af!important;background:rgba(255,255,255,.08)!important;}.twx-sec-badge:hover{color:#f3f4f6!important;background:rgba(255,255,255,.16)!important;}.twx-search-box{background:rgba(255,255,255,.05);border-color:rgba(255,255,255,.1);}.twx-search-box:focus-within{background:rgba(255,255,255,.08);border-color:rgba(52,211,153,.5);box-shadow:0 0 0 2px rgba(16,185,129,.2);}.twx-p-nav{border-color:rgba(255,255,255,.08);color:#f3f4f6;}.twx-back{color:#94a3b8;}.twx-back:hover{color:#f8fafc;background:rgba(255,255,255,.08);}.twx-nav-title{color:#f3f4f6;}.twx-cur{background:rgba(16,185,129,.08);border-color:rgba(16,185,129,.25);}.twx-cur-badge{color:#34d399;background:rgba(16,185,129,.16);}.twx-cur-name{color:#f3f4f6;}.twx-cur-desc{color:#9ca3af;}.twx-cur-clear-btn{color:#9ca3af;background:transparent;border:none;}.twx-cur-clear-btn:hover{color:#f87171;background:rgba(239,68,68,.18);}.twx-opt:hover{background:rgba(255,255,255,.06);}.twx-opt .t-name{color:#f3f4f6;}.twx-opt .t-desc{color:#9ca3af;}.twx-chip{color:var(--dsw-alias-label-secondary,var(--dsw-text-secondary,var(--ds-text-secondary,#9ca3af)));}.twx-chip:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(255,255,255,.08));color:var(--dsw-alias-label-primary,var(--ds-text-primary,#f3f4f6));}}',
     '.dark .twx-panel,[data-theme="dark"] .twx-panel,.dark .twx-plus-menu,[data-theme="dark"] .twx-plus-menu{background:rgba(26,26,30,.97)!important;border-color:rgba(255,255,255,.1);box-shadow:0 16px 36px -4px rgba(0,0,0,.45),0 0 1px 1px rgba(255,255,255,.06);color:#f3f4f6;}',
     '.dark .twx-item,[data-theme="dark"] .twx-item{color:#f3f4f6!important;}',
-    '.dark .twx-sec-badge,[data-theme="dark"] .twx-sec-badge{color:#9ca3af!important;background:rgba(255,255,255,.08)!important;}',
-    '.dark .twx-sec-badge:hover,[data-theme="dark"] .twx-sec-badge:hover{color:#f3f4f6!important;background:rgba(255,255,255,.16)!important;}',
+    '.dark .twx-sec-badge,[data-theme="dark"] .twx-sec-badge{display:none!important;}',
     '.dark .twx-search-box,[data-theme="dark"] .twx-search-box{background:rgba(255,255,255,.05);border-color:rgba(255,255,255,.1);}',
     '.dark .twx-search-box:focus-within,[data-theme="dark"] .twx-search-box:focus-within{background:rgba(255,255,255,.08);border-color:rgba(52,211,153,.5);box-shadow:0 0 0 2px rgba(16,185,129,.2);}',
     '.dark .twx-p-nav,[data-theme="dark"] .twx-p-nav{border-color:rgba(255,255,255,.08);color:#f3f4f6;}',
@@ -5492,7 +5680,7 @@ function getDshContextBridgeScript() {
     '.twx-chip-icon svg{width:14px;height:14px;display:block;}',
     '.twx-chip-label{text-overflow:ellipsis;white-space:nowrap;min-width:0;overflow:hidden;}',
     // 终极隐藏兜底（位于样式表最末尾，保证最高层叠权重，彻底消除 ghost 占位空白）
-    '[data-twx-hidden="true"],.twx-item[data-twx-hidden="true"],._3e4SsG_item[data-twx-hidden="true"],button[data-twx-hidden="true"]{display:none!important;height:0!important;min-height:0!important;max-height:0!important;padding:0!important;margin:0!important;border:none!important;opacity:0!important;overflow:hidden!important;pointer-events:none!important;visibility:hidden!important;}'
+    '[data-twx-hidden]{visibility:visible!important;}'
   ].join('\\n');
 
   var styleEl = document.createElement('style');
@@ -5545,64 +5733,29 @@ function getDshContextBridgeScript() {
   var lpNav = { step: 'servers', serverId: null, workspaceName: null, platform: null };
 
   // 「添加」「指令」「上下文」三组统一 2 行限高窗口与独立平滑滚轮/点击步进
-  var groupOffsets = { add: 0, cmd: 0, ctx: 0 };
   var groupItems = { add: [], cmd: [], ctx: [] };
 
   function updateGroupVisibility(grp) {
+    // 全部显示: 原生条目不再折叠 (此前 2 项滑窗+徽章翻页会让用户误以为原生条目消失)
     var items = groupItems[grp] || [];
-    var off = groupOffsets[grp] || 0;
     for (var i = 0; i < items.length; i++) {
       var item = items[i];
       if (!item) continue;
-      if (i >= off && i <= off + 1) {
-        item.removeAttribute('data-twx-hidden');
-        item.style.removeProperty('display');
-        item.style.removeProperty('height');
-        item.style.removeProperty('min-height');
-        item.style.removeProperty('padding');
-        item.style.removeProperty('margin');
-        item.style.removeProperty('visibility');
-      } else {
-        item.setAttribute('data-twx-hidden', 'true');
-        item.style.setProperty('display', 'none', 'important');
-        item.style.setProperty('height', '0px', 'important');
-        item.style.setProperty('min-height', '0px', 'important');
-        item.style.setProperty('padding', '0px', 'important');
-        item.style.setProperty('margin', '0px', 'important');
-        item.style.setProperty('visibility', 'hidden', 'important');
-      }
-    }
-    if (menuEl) {
-      var badge = menuEl.querySelector('[data-twx-badge="' + grp + '"]');
-      if (badge && items.length > 0) {
-        var start = Math.min(off + 1, items.length);
-        var end = Math.min(off + 2, items.length);
-        badge.textContent = start + '-' + end + '/' + items.length;
-      }
-      var lb = menuEl.querySelector('[role="listbox"]') || menuEl.querySelector('._3e4SsG_viewport') || menuEl;
-      if (lb && lb.scrollTop > 0) lb.scrollTop = 0;
+      item.removeAttribute('data-twx-hidden');
+      item.style.removeProperty('display');
+      item.style.removeProperty('height');
+      item.style.removeProperty('min-height');
+      item.style.removeProperty('padding');
+      item.style.removeProperty('margin');
+      item.style.removeProperty('visibility');
     }
   }
 
   function setupGroupBadges(titleEl, grp, labelText) {
     if (!titleEl) return;
     titleEl.setAttribute('data-twx-title-grp', grp);
-    var badge = titleEl.querySelector('.twx-sec-badge');
-    if (!badge) {
-      titleEl.innerHTML = '<span class="twx-sec-name">' + esc(labelText) + '</span>' +
-        '<span class="twx-sec-badge" data-twx-badge="' + grp + '" title="滚轮滑动或点击切换">' +
-        (groupOffsets[grp] + 1) + '-' + (groupOffsets[grp] + 2) + '/4</span>';
-      badge = titleEl.querySelector('.twx-sec-badge');
-      if (badge) {
-        badge.onclick = function (e) {
-          e.stopPropagation();
-          var items = groupItems[grp] || [];
-          var maxOff = Math.max(0, items.length - 2);
-          groupOffsets[grp] = groupOffsets[grp] >= maxOff ? 0 : maxOff;
-          updateGroupVisibility(grp);
-        };
-      }
-    }
+    // 只给自建的 ctx 标题补文案; 原生标题保持 innerHTML 原样 (避免扰动 React 托管节点)
+    if (grp === 'ctx' && !(titleEl.textContent || '').trim()) titleEl.textContent = labelText;
   }
 
   function esc(s) {
@@ -5611,19 +5764,30 @@ function getDshContextBridgeScript() {
       .replace(/"/g, '&quot;').replace(/'/g, '&#039;');
   }
 
+  // 当前 DSH 会话标识: 会话根节点 data-conversation-session="<uuid>" (草稿/首页态无此属性 → '')
+  function currentSid() {
+    try {
+      var el = document.querySelector('[data-conversation-session]');
+      return (el && el.getAttribute('data-conversation-session')) || '';
+    } catch (_) { return ''; }
+  }
+
   function askHost() {
     try {
       if (window.parent && window.parent !== window) {
-        window.parent.postMessage({ type: 'tabonkb-dsh-ctx-state-req' }, '*');
+        window.parent.postMessage({ type: 'tabonkb-dsh-ctx-state-req', sid: currentSid() }, '*');
       }
     } catch (_) {}
   }
 
+  // ctxState.values 当前所属会话 (host 归一化后的 sid): 供 pollSession 判断旧值是否需立即摘除
+  var valuesSid = '';
   window.addEventListener('message', function (e) {
     if (!e || !e.data) return;
     if (e.data.type === 'tabonkb-dsh-ctx-state') {
       ctxState.values = e.data.values || {};
       if (e.data.lists) ctxState.lists = e.data.lists;
+      valuesSid = e.data.sid || '';
       refreshVals();
       updateCtxChips();
       if (panelEl) renderPanelList();
@@ -5653,13 +5817,13 @@ function getDshContextBridgeScript() {
   var MENU_KEYS = ['文件', 'file', '目标', 'goal', '压缩', 'compact', '权限', 'permission', '模型', 'model', '下载', 'export', '添加', '指令'];
   function looksLikeAttachMenu(el) {
     if (!el || el.nodeType !== 1) return false;
-    // 先做廉价的几何/定位过滤, 只有「底部浮层」才读取 innerText (避免高频 mutation 下的强制排版)
-    var r = el.getBoundingClientRect();
-    if (r.width < 150 || r.height < 110) return false;
-    if (r.top < window.innerHeight * 0.25) return false;
-    var cs = getComputedStyle(el);
-    if (cs.position !== 'fixed' && cs.position !== 'absolute') return false;
-    var t = (el.innerText || '').toLowerCase();
+    // 结构判定 (不依赖屏幕位置: 菜单位置随布局 —— 空会话输入框居中 / 对话态贴底 —— 与条目数变化,
+    // 任何几何阈值都会在某种布局下误杀): 候选须是「包含 listbox 且其中有 option 条目」的外层容器,
+    // 取最小面积者即菜单表面; 再以文本关键词确认。仅用 textContent, 不触发强制排版。
+    if (!el.offsetWidth || !el.offsetHeight) return false;
+    var lb = el.querySelector('[role="listbox"]');
+    if (!lb || !lb.querySelector('[role="option"]')) return false;
+    var t = (el.textContent || '').toLowerCase();
     if (t.length < 20 || t.length > 3000) return false;
     var hits = 0;
     for (var i = 0; i < MENU_KEYS.length; i++) {
@@ -5707,9 +5871,6 @@ function getDshContextBridgeScript() {
   function onMenuFound(menu) {
     if (menu !== menuEl) {
       menuEl = menu;
-      groupOffsets.add = 0;
-      groupOffsets.cmd = 0;
-      groupOffsets.ctx = 0;
       applyMenuOpacity(menu);
       injectGroup(menu);
     } else if (!menuEl.querySelector('.twx-sec-title')) {
@@ -5784,7 +5945,9 @@ function getDshContextBridgeScript() {
       ctxTitle.className = '_3e4SsG_sectionTitle twx-sec-title';
       ctxTitle.setAttribute('role', 'presentation');
       setupGroupBadges(ctxTitle, 'ctx', '上下文');
-      listbox.appendChild(ctxTitle);
+      // 「上下文」组置于菜单最前 (首屏即可见, 不受固定高度裁剪)
+      listbox.insertBefore(ctxTitle, listbox.firstChild);
+      var ctxAnchor = ctxTitle;
 
       var ctxItems = [];
       for (var j = 0; j < ROWS.length; j++) {
@@ -5801,7 +5964,8 @@ function getDshContextBridgeScript() {
           '<span class="_3e4SsG_itemName twx-name">' + r.name + '</span>' +
           '<span class="_3e4SsG_itemDescription twx-val">' + esc(valLabel(r.key)) + '</span>' +
           '<span class="twx-arrow">›</span>';
-        listbox.appendChild(btn);
+        ctxAnchor.after(btn);
+        ctxAnchor = btn;
         ctxItems.push(btn);
       }
       groupItems.ctx = ctxItems;
@@ -5891,7 +6055,7 @@ function getDshContextBridgeScript() {
   function postSet(key, value) {
     try {
       if (window.parent && window.parent !== window) {
-        window.parent.postMessage({ type: 'tabonkb-dsh-ctx-set', key: key, value: value }, '*');
+        window.parent.postMessage({ type: 'tabonkb-dsh-ctx-set', key: key, value: value, sid: currentSid() }, '*');
       }
     } catch (_) {}
   }
@@ -6276,12 +6440,28 @@ function getDshContextBridgeScript() {
     var bare = (path === '/' || path === '/index.html') && (hash === '' || hash === '#/' || hash === '#');
     if (bare) notifyNewChat();
   }
+  // 会话切换侦测: DSH 以 cordis 事件总线驱动会话切换 (URL 未必变化), 轮询 DOM 上的
+  // data-conversation-session 属性; sid 变化即摘除旧会话胶囊并向 host 拉取新会话独立上下文
+  var lastSid = '';
+  function pollSession() {
+    var s = currentSid();
+    if (s === lastSid) return;
+    lastSid = s;
+    // 现有 values 若非本会话数据 → 立即摘除避免跨会话显示旧绑定; host 回包后再渲染新会话绑定
+    if (valuesSid !== (s || '__draft__')) {
+      ctxState.values = {};
+      updateCtxChips();
+      if (panelEl) renderPanelList();
+    }
+    askHost();
+  }
+  function pollRouteAndSession() { checkRoute(); pollSession(); }
   try {
     var _ps = history.pushState, _rs = history.replaceState;
-    history.pushState = function () { var r = _ps.apply(this, arguments); setTimeout(checkRoute, 0); return r; };
-    history.replaceState = function () { var r = _rs.apply(this, arguments); setTimeout(checkRoute, 0); return r; };
-    window.addEventListener('popstate', function () { setTimeout(checkRoute, 0); });
-    setInterval(checkRoute, 1200);
+    history.pushState = function () { var r = _ps.apply(this, arguments); setTimeout(pollRouteAndSession, 0); return r; };
+    history.replaceState = function () { var r = _rs.apply(this, arguments); setTimeout(pollRouteAndSession, 0); return r; };
+    window.addEventListener('popstate', function () { setTimeout(pollRouteAndSession, 0); });
+    setInterval(pollRouteAndSession, 1200);
     lastHref = location.href;
   } catch (_) {}
 
@@ -6335,92 +6515,7 @@ function getDshContextBridgeScript() {
     openPanel(it.getAttribute('data-k'), it);
   }, true);
 
-  // 鼠标滚轮滑动：悬停在任意分组区域（标题或子项）时，滑动下拉/上滑展示该组其他子项
-  var wheelAccum = { add: 0, cmd: 0, ctx: 0 };
-  var lastWheelStep = 0;
-
-  document.addEventListener('wheel', function (e) {
-    if (!menuEl || !menuEl.isConnected) return;
-    var target = e.target;
-    if (!target) return;
-    if (!menuEl.contains(target)) return;
-
-    var grp = null;
-    var itemEl = target.closest('[data-twx-grp]');
-    if (itemEl) {
-      grp = itemEl.getAttribute('data-twx-grp');
-    } else {
-      var titleEl = target.closest('._3e4SsG_sectionTitle, .twx-sec-title');
-      if (titleEl && titleEl.getAttribute('data-twx-title-grp')) {
-        grp = titleEl.getAttribute('data-twx-title-grp');
-      }
-    }
-    // 鼠标位于分组标题、子项间隙或菜单内边距时，基于 clientY 命中最近的分组
-    if (!grp && menuEl) {
-      var titles = menuEl.querySelectorAll('[data-twx-title-grp]');
-      for (var ti = titles.length - 1; ti >= 0; ti--) {
-        var tr = titles[ti].getBoundingClientRect();
-        if (e.clientY >= tr.top - 2) {
-          grp = titles[ti].getAttribute('data-twx-title-grp');
-          break;
-        }
-      }
-      if (!grp) grp = 'add';
-    }
-    if (!grp) return;
-
-    var items = groupItems[grp] || [];
-    var maxOff = Math.max(0, items.length - 2);
-    if (maxOff <= 0) return;
-
-    e.preventDefault();
-    e.stopPropagation();
-
-    var lb = menuEl.querySelector('[role="listbox"]') || menuEl.querySelector('._3e4SsG_viewport') || menuEl;
-    if (lb && lb.scrollTop > 0) lb.scrollTop = 0;
-
-    var now = Date.now();
-    wheelAccum[grp] += e.deltaY;
-
-    if (Math.abs(wheelAccum[grp]) >= 20 && (now - lastWheelStep > 40)) {
-      lastWheelStep = now;
-      if (wheelAccum[grp] > 0) {
-        if (groupOffsets[grp] < maxOff) {
-          groupOffsets[grp]++;
-          updateGroupVisibility(grp);
-        }
-      } else {
-        if (groupOffsets[grp] > 0) {
-          groupOffsets[grp]--;
-          updateGroupVisibility(grp);
-        }
-      }
-      wheelAccum[grp] = 0;
-    }
-  }, { passive: false });
-
-  // 键盘方向键联动：如果高亮项超出当前可见的 2 项，自动调整 offset 滚动使其可见
-  document.addEventListener('keydown', function (e) {
-    if (!menuEl || !menuEl.isConnected) return;
-    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
-    setTimeout(function () {
-      if (!menuEl) return;
-      var activeEl = menuEl.querySelector('._3e4SsG_item._3e4SsG_active, [role="option"][aria-selected="true"]');
-      if (!activeEl) return;
-      var grp = activeEl.getAttribute('data-twx-grp');
-      var idxStr = activeEl.getAttribute('data-twx-idx');
-      if (!grp || idxStr == null) return;
-      var idx = parseInt(idxStr, 10);
-      var cur = groupOffsets[grp] || 0;
-      if (idx < cur) {
-        groupOffsets[grp] = idx;
-        updateGroupVisibility(grp);
-      } else if (idx > cur + 1) {
-        groupOffsets[grp] = idx - 1;
-        updateGroupVisibility(grp);
-      }
-    }, 20);
-  }, true);
+  // 原生条目全量展示后, 菜单内滚轮/方向键交由 DSH 原生处理 (不再拦截)
 
   var scanQueued = false;
   var pendingRoots = [];
@@ -8621,7 +8716,7 @@ class PiAgentBridge {
   // 返回所有可用的 Pi 原生扩展路径 (vendor-portal + weknora-portal + opengrok-portal + gerrit-portal + codegraph-portal)
   // 优先级: .pi/extensions > plugin/extensions; 供 --extension 多次传入
   getExtensionPaths() {
-    const names = ['vendor-portal.ts', 'weknora-portal.ts', 'opengrok-portal.ts', 'gerrit-portal.ts', 'jira-portal.ts', 'codegraph-portal.ts', 'drawio-portal.ts', 'local-project-portal.ts', 'remote-exec-portal.ts'];
+    const names = ['vendor-portal.ts', 'weknora-portal.ts', 'opengrok-portal.ts', 'gerrit-portal.ts', 'jira-portal.ts', 'codegraph-portal.ts', 'drawio-portal.ts', 'local-project-portal.ts', 'remote-exec-portal.ts', 'local-exec-portal.ts'];
     const result = [];
     for (const name of names) {
       const candidates = [
@@ -8654,11 +8749,11 @@ class PiAgentBridge {
     const jiraTools = ',jira_search_issues,jira_get_issue,jira_get_comments,jira_list_attachments,jira_download_attachment';
     const codegraphTools = ',codegraph_explore';
     const drawioTools = ',drawio_create,drawio_load,drawio_get,drawio_edit,drawio_export,drawio_list_pages,drawio_add_page,drawio_rename_page,drawio_delete_page';
-    // project_edit_file/project_compile 仅非只读档放行; remote_exec 各档均注册由 checkCommand 把关
+    // project_edit_file/project_compile/local_copy/local_move 仅非只读档放行; remote_exec/local_exec 各档均注册由 checkCommand 把关
     const localProjectTools = this.permissionMode === 'readonly'
       ? ',project_read_file'
-      : ',project_read_file,project_edit_file,project_compile';
-    const tools = `${baseTools},remote_exec,vendor_portal_search,vendor_portal_get_detail${weknoraTools}${opengrokTools}${gerritTools}${jiraTools}${codegraphTools}${drawioTools}${localProjectTools}`;
+      : ',project_read_file,project_edit_file,project_compile,local_copy,local_move';
+    const tools = `${baseTools},remote_exec,local_exec,vendor_portal_search,vendor_portal_get_detail${weknoraTools}${opengrokTools}${gerritTools}${jiraTools}${codegraphTools}${drawioTools}${localProjectTools}`;
 
     const extPaths = this.getExtensionPaths();
     const extArgs = [];
@@ -8985,7 +9080,8 @@ class PiAgentBridge {
           WEKNORA_DEFAULT_KB: weknoraKb,
           OPENGROK_BASE_URL: opengrokBase,
           OPENGROK_DEFAULT_PROJECT: opengrokProject,
-          TABONKB_PERM_MODE: this.permissionMode
+          TABONKB_PERM_MODE: this.permissionMode,
+          TABONKB_VAULT_PATH: this.vaultBasePath
         }),
         stdio: ['pipe', 'pipe', 'pipe']
       });
@@ -11058,6 +11154,7 @@ class GeminiAdapter extends AgentAdapter {
       try {
         const bin = this.resolveGeminiBinary();
         const proc = child_process.spawn(bin.cmd, [...bin.prefixArgs, '--version'], {
+          windowsHide: true,
           stdio: ['pipe', 'pipe', 'pipe']
         });
 
@@ -11148,6 +11245,7 @@ class GeminiAdapter extends AgentAdapter {
           env: Object.assign({}, process.env, buildVendorEnv(vaultPath), {
             GEMINI_CLI_TRUST_WORKSPACE: 'true'
           }),
+          windowsHide: true,
           stdio: ['pipe', 'pipe', 'pipe']
         });
 
@@ -11283,13 +11381,16 @@ class GeminiAdapter extends AgentAdapter {
  * 确保 Antigravity CLI 拥有 TabonKB 专有 MCP 工具与工作区信任配置 (幂等, 自动写入)
  * 配置写入 ~/.gemini/config/mcp_config.json 以及 ~/.gemini/antigravity-cli/settings.json
  */
+// MCP command 使用 GUI 子系统 node 副本避免 conhost 闪屏；bundle 内由 vendor-mcp-shared.js 提供
+function agyMcpGuiNodeExe(e) { return typeof mcpResolveGuiNodeExe === 'function' ? mcpResolveGuiNodeExe(e) : e; }
+
 function ensureAgyMcpServers(vaultBasePath) {
   try {
     const userProfile = process.env.USERPROFILE || 'C:\\Users\\Administrator';
     const configDir = path.join(userProfile, '.gemini', 'config');
     const mcpConfigFile = path.join(configDir, 'mcp_config.json');
 
-    const nodeExe = weknoraMcpResolveNodeExe();
+    const nodeExe = agyMcpGuiNodeExe(weknoraMcpResolveNodeExe());
     const tools = {
       [WEKNORA_MCP_SERVER_NAME]: weknoraMcpScriptPath(vaultBasePath),
       [VENDOR_MCP_SERVER_NAME]: vendorMcpScriptPath(vaultBasePath),
@@ -15407,6 +15508,8 @@ class AgentSessionManager {
       const cleanSessions = (agent.sessions || []).slice(0, 50).map(s => ({
         id: s.id || ('sess_' + Date.now()),
         title: s.title || '对话',
+        pinned: s.pinned === true,
+        customTitle: s.customTitle === true,
         createdAt: s.createdAt || Date.now(),
         updatedAt: s.updatedAt || Date.now(),
         // 服务端会话 ID (NiceAIGC conversation_id / 叶子消息链): 必须随白名单序列化, 否则落盘即丢无法续接
@@ -15553,7 +15656,36 @@ class AgentSessionManager {
 
   getSessions(agentId) {
     const agent = this.getAgent(agentId);
-    return (agent.sessions || []).slice().sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+    // 置顶会话沉底前优先, 组内仍按最近活跃降序
+    return (agent.sessions || []).slice().sort((a, b) => {
+      const pa = a.pinned === true ? 1 : 0;
+      const pb = b.pinned === true ? 1 : 0;
+      if (pa !== pb) return pb - pa;
+      return (b.updatedAt || 0) - (a.updatedAt || 0);
+    });
+  }
+
+  togglePinSession(agentId, sessionId) {
+    const agent = this.getAgent(agentId);
+    const s = (agent.sessions || []).find(x => x.id === sessionId);
+    if (!s) return false;
+    s.pinned = !s.pinned;
+    agent.updatedAt = Date.now();
+    this.saveSessions();
+    return s.pinned;
+  }
+
+  renameSession(agentId, sessionId, title) {
+    const agent = this.getAgent(agentId);
+    const s = (agent.sessions || []).find(x => x.id === sessionId);
+    const t = String(title || '').trim().replace(/\s+/g, ' ').slice(0, 60);
+    if (!s || !t || s.title === t) return false;
+    s.title = t;
+    // 人工命名后不再被首条消息自动标题覆盖
+    s.customTitle = true;
+    agent.updatedAt = Date.now();
+    this.saveSessions();
+    return true;
   }
 
   getActiveSession(agentId) {
@@ -15716,7 +15848,7 @@ class AgentSessionManager {
       const title = (msg.text || '').trim().slice(0, 36).replace(/\n/g, ' ') || 
                     (msg.images && msg.images.length > 0 ? `[图片] ${msg.images[0].name || ''}`.trim() : '新对话');
       active = this.createSession(agentId, title);
-    } else if (active.title === '新对话' && msg.role === 'user') {
+    } else if (active.title === '新对话' && !active.customTitle && msg.role === 'user') {
       const title = (msg.text || '').trim().slice(0, 36).replace(/\n/g, ' ') || 
                     (msg.images && msg.images.length > 0 ? `[图片] ${msg.images[0].name || ''}`.trim() : '');
       if (title) active.title = title;
@@ -17666,6 +17798,315 @@ function extractCompilerErrors(output) {
   }
   return errorLines.join('\n');
 }
+
+/* ==========================================================================
+   Workbench Context — DSH MCP 子进程的只读工作台上下文与本地工程工具
+   背景: dsh-mcp-client spawn stdio 子进程时 scrub 掉 DSH_* 与含敏感名的 env,
+   唯一可靠宿主标记是条目 config.env 注入的 TABONKB_MCP_HOST=dsh。
+   active-context.json 是跨进程唯一通道, 但 pi 侧也会写同文件(无 source 字段),
+   因此非 DSH 宿主一律不得读文件取默认值。
+   供: mcp/workbench-mcp.js (stdio), gerrit-service/jira-service (绑定默认值)
+   ========================================================================== */
+
+
+
+
+// 过滤器中文名 (与 dsh-daemon-manager / pi-drawer-view 同款口径)
+const DSH_GERRIT_FILTER_LABELS = { all: '全部', open: '开放中', merged: '已合入', mine: '我提交', reviewing: '待我审' };
+
+function isDshHost() {
+  try { return process.env.TABONKB_MCP_HOST === 'dsh'; } catch (_) { return false; }
+}
+
+function wbReadJsonSafe(p) {
+  try {
+    return fs.existsSync(p) ? JSON.parse(fs.readFileSync(p, 'utf8')) : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+function wbResolvePluginDir() {
+  const cands = [
+    path.resolve(__dirname, '..'),
+    path.resolve(__dirname),
+    path.resolve(process.cwd(), '.obsidian', 'plugins', 'tabonkb-workbench'),
+    'd:/work/Mgmt/TabonKB/.obsidian/plugins/tabonkb-workbench'
+  ];
+  for (const c of cands) {
+    if (fs.existsSync(path.join(c, 'data.json'))) return c;
+  }
+  return cands[0];
+}
+
+function wbActiveContextPath() {
+  const override = process.env.TABONKB_ACTIVE_CONTEXT_FILE;
+  if (override) return override;
+  return path.join(wbResolvePluginDir(), 'active-context.json');
+}
+
+// 延迟加载 local-project-service: bundle 内为全局函数, 独立进程按路径探测
+function wbLoadLocalProjectService() {
+  try {
+    if (typeof getAllAvailableLocalProjects === 'function') {
+      return { getAllAvailableLocalProjects, resolveEffectiveFile };
+    }
+    const cands = [
+      path.join(__dirname, 'local-project-service.js'),
+      path.join(__dirname, 'services', 'local-project-service.js'),
+      path.join(__dirname, '..', 'services', 'local-project-service.js'),
+      path.join(process.cwd(), '.obsidian', 'plugins', 'tabonkb-workbench', 'services', 'local-project-service.js'),
+      'd:/work/Mgmt/TabonKB/.obsidian/plugins/tabonkb-workbench/services/local-project-service.js'
+    ];
+    for (const c of cands) {
+      let m = null;
+      try { if (fs.existsSync(c)) m = require(c); } catch (_) {}
+      if (m && typeof m.getAllAvailableLocalProjects === 'function') return m;
+    }
+  } catch (_) {}
+  return null;
+}
+
+/**
+ * 读取并规范化 active-context.json。
+ * 仅 DSH 宿主可读; 且文件必须是 DSH 侧所写 (source === 'dsh') —— pi 抽屉覆写
+ * 同文件但不带 source, 视为未绑定而非本 surface 的值, 一律返回 null。
+ * 未绑定项: opengrok 'auto' / gerrit 'all' / jira null / localProject null。
+ */
+function readLiveContext() {
+  if (!isDshHost()) return null;
+  const j = wbReadJsonSafe(wbActiveContextPath());
+  if (!j || typeof j !== 'object') return null;
+  if (j.source !== 'dsh') return null;
+  return {
+    opengrok: (typeof j.selectedProject === 'string' && j.selectedProject) ? j.selectedProject : 'auto',
+    gerrit: (typeof j.selectedGerritFilter === 'string' && j.selectedGerritFilter) ? j.selectedGerritFilter : 'all',
+    jira: (j.selectedJiraIssue && j.selectedJiraIssue.key) ? j.selectedJiraIssue : null,
+    localProject: (j.selectedLocalProject && typeof j.selectedLocalProject === 'object' && j.selectedLocalProject.id) ? j.selectedLocalProject : null,
+    source: j.source || null,
+    sid: j.sid || null,
+    updatedAt: j.updatedAt || null
+  };
+}
+
+/**
+ * 把 active-context 中可能残缺的 selectedLocalProject 回查为完整工程记录。
+ * 完整记录判定: 有 fullPathWin 且 priDriverRel; 否则按 id -> server/workspace/platform/project
+ * 到 getAllAvailableLocalProjects() 回查; 仍失败时若自带 fullPathWin 则补默认 rel 兜底
+ * (仅作后备, 不弱化正常回查路径)。
+ */
+function resolveLocalProjectBinding(lp) {
+  if (!lp || typeof lp !== 'object') return null;
+  if (lp.fullPathWin && lp.priDriverRel) return lp;
+  const svc = wbLoadLocalProjectService();
+  let list = [];
+  try { list = (svc && svc.getAllAvailableLocalProjects()) || []; } catch (_) {}
+  let hit = null;
+  if (lp.id) hit = list.find(p => p.id === lp.id) || null;
+  if (!hit && (lp.platform || lp.project)) {
+    hit = list.find(p =>
+      (!lp.serverId || p.serverId === lp.serverId) &&
+      (!lp.serverName || p.serverName === lp.serverName) &&
+      (!lp.workspaceName || p.workspaceName === lp.workspaceName) &&
+      (!lp.workspaceId || p.workspaceId === lp.workspaceId) &&
+      (!lp.platform || p.platform === lp.platform) &&
+      (!lp.project || p.project === lp.project)) || null;
+  }
+  if (hit) return hit;
+  // 后备钩子: ctx 自带 fullPathWin/platform/project 但回查无果 (如离屏测试树)
+  if (lp.fullPathWin && lp.platform && lp.project) {
+    return Object.assign({
+      priDriverRel: `pri_project/driver/${lp.platform}/${lp.project}/base`,
+      publicDriverRel: 'pri_project/driver/public'
+    }, lp);
+  }
+  return lp;
+}
+
+/**
+ * DSH 宿主的当前绑定视图; 非 DSH 宿主返回 null。
+ * localProject 已回查为完整工程记录 (可行时)。
+ */
+function getHostContext() {
+  if (!isDshHost()) return null;
+  const ctx = readLiveContext() || { opengrok: 'auto', gerrit: 'all', jira: null, localProject: null, source: null, sid: null, updatedAt: null };
+  if (ctx.localProject) ctx.localProject = resolveLocalProjectBinding(ctx.localProject);
+  return ctx;
+}
+
+/** 工作台 Gerrit 过滤器 -> Gerrit 查询表达式; all/未知 -> '' */
+function gerritFilterToQuery(filterId) {
+  switch (String(filterId || '').trim()) {
+    case 'open': return 'status:open';
+    case 'merged': return 'status:merged';
+    case 'mine': return 'owner:self';
+    case 'reviewing': return 'reviewer:self status:open';
+    default: return '';
+  }
+}
+
+function gerritFilterLabel(filterId) {
+  return DSH_GERRIT_FILTER_LABELS[String(filterId || '').trim()] || String(filterId || 'all');
+}
+
+/* ============================ 只读工具实现 ============================ */
+
+function _wbCtxText(ctx) {
+  const lines = ['### 工作台会话绑定 (DSH)'];
+  lines.push(`- OpenGrok 工程: ${ctx.opengrok && ctx.opengrok !== 'auto' ? '`' + ctx.opengrok + '`' : '未绑定 (auto)'}`);
+  lines.push(`- Gerrit 过滤器: ${ctx.gerrit && ctx.gerrit !== 'all' ? `${gerritFilterLabel(ctx.gerrit)} (${ctx.gerrit})` : '未绑定 (all)'}`);
+  const j = ctx.jira;
+  lines.push(`- Jira 工单: ${j ? '`' + j.key + '` ' + (j.summary || '') + ` [${[j.status, j.priority].filter(Boolean).join(' · ')}]` + (j.assignee ? ` (经办: ${j.assignee})` : '') : '未绑定'}`);
+  const lp = ctx.localProject;
+  if (lp) {
+    lines.push(`- 本地工程: **${lp.label || lp.id}** (${lp.serverName || ''})`);
+    lines.push(`  - id: \`${lp.id || ''}\` | workspaceName: ${lp.workspaceName || ''} | platform: ${lp.platform || ''} | project: ${lp.project || ''}`);
+    lines.push(`  - linuxPath: \`${lp.linuxPath || '(未知)'}\``);
+    if (lp.linuxPath && lp.priDriverRel) lines.push(`  - 项目层 (客制化, 优先): \`${lp.linuxPath}/${lp.priDriverRel}\``);
+    if (lp.linuxPath && lp.publicDriverRel) lines.push(`  - 公共层 (公司差分): \`${lp.linuxPath}/${lp.publicDriverRel}\``);
+    lines.push('  - 其余相对路径按原厂基线解析 (基线只读, 禁止直接修改)');
+  } else {
+    lines.push('- 本地工程: 未绑定');
+  }
+  const age = ctx.updatedAt ? Math.max(0, Math.round((Date.now() - ctx.updatedAt) / 1000)) : null;
+  lines.push(`- 会话: sid=${ctx.sid || '(无)'} | updatedAt=${ctx.updatedAt || '(无)'}${age !== null ? ` (距今 ${age}s)` : ''}`);
+  lines.push('');
+  lines.push('绑定值来自工作台当前所选会话; 若同时运行多个会话, 调用 project_* 工具时请显式传 project 参数。');
+  return lines.join('\n');
+}
+
+async function runWorkbenchTool(name, args) {
+  args = args || {};
+  switch (name) {
+    case 'workbench_context': {
+      if (!isDshHost()) {
+        return { text: '当前进程不是 DSH MCP 宿主 (缺少 TABONKB_MCP_HOST=dsh), 无工作台会话绑定可取。', isError: true };
+      }
+      return { text: _wbCtxText(getHostContext()), isError: false };
+    }
+    case 'project_list': {
+      const svc = wbLoadLocalProjectService();
+      if (!svc) return { text: '未能加载 local-project-service 模块。', isError: true };
+      let list = [];
+      try { list = svc.getAllAvailableLocalProjects() || []; } catch (e) {
+        return { text: `工程列表获取失败: ${e.message}`, isError: true };
+      }
+      const q = String(args.query || '').trim().toLowerCase();
+      if (q) {
+        list = list.filter(p => [p.id, p.label, p.platform, p.project, p.serverName, p.workspaceName]
+          .some(v => String(v || '').toLowerCase().includes(q)));
+      }
+      const limit = Math.min(Math.max(1, parseInt(args.limit || '20', 10) || 20), 50);
+      const shown = list.slice(0, limit);
+      if (!shown.length) return { text: `未检索到本地工程${q ? ` (query="${args.query}")` : ''}。`, isError: false };
+      const lines = [`### 可用本地工程 (共 ${list.length} 个, 显示 ${shown.length} 个):`, ''];
+      shown.forEach((p, i) => {
+        lines.push(`${i + 1}. \`${p.id}\`  **${p.label}**  — ${p.serverName} · ${p.platform}/${p.project}`);
+      });
+      lines.push('', 'project_read_file 的 project 参数请填上面反引号内的 id。');
+      return { text: lines.join('\n'), isError: false };
+    }
+    case 'project_read_file': {
+      const filePath = String(args.file_path || '').trim();
+      if (!filePath) return { text: '缺少 file_path 参数。', isError: true };
+      // 路径穿越防线: 仅允许工程内相对路径 ('..' 段/盘符/UNC/NUL 一律拒绝)
+      if (filePath.includes('\0') || /^[A-Za-z]:/.test(filePath) || /^\\\\/.test(filePath) || /^\/\//.test(filePath) ||
+          filePath.split(/[\\/]/).includes('..')) {
+        return { text: 'file_path 必须是工程内相对路径 (不允许 .. 或绝对路径)', isError: true };
+      }
+      const svc = wbLoadLocalProjectService();
+      if (!svc) return { text: '未能加载 local-project-service 模块。', isError: true };
+
+      let proj = null;
+      let source = '';
+      const pid = String(args.project || '').trim();
+      if (pid) {
+        let list = [];
+        try { list = svc.getAllAvailableLocalProjects() || []; } catch (_) {}
+        proj = list.find(p => p.id === pid) || null;
+        if (!proj) {
+          return { text: `未找到工程 "${pid}"。请先用 project_list 查看可用工程 id 后再显式传入。`, isError: true };
+        }
+        source = '显式参数';
+      } else {
+        const ctx = getHostContext();
+        proj = ctx && ctx.localProject;
+        if (!proj) {
+          return { text: '未指定 project 且工作台当前无绑定本地工程。请先调用 workbench_context 或 project_list 取工程 id 后显式传入。', isError: true };
+        }
+        source = '工作台当前绑定';
+      }
+
+      const res = svc.resolveEffectiveFile(proj, filePath);
+      if (!res || !res.fullPath || !fs.existsSync(res.fullPath)) {
+        return { text: `在工程 ${proj.label || proj.id} 的项目层、公共层和基线层均未找到文件: ${filePath}`, isError: true };
+      }
+
+      try {
+        const content = fs.readFileSync(res.fullPath, 'utf8');
+        const lines = content.split('\n');
+        const sLine = Math.max(1, parseInt(args.start_line || '1', 10) || 1);
+        let eLine;
+        let truncNote = '';
+        if (args.end_line) {
+          eLine = Math.min(lines.length, parseInt(args.end_line, 10) || lines.length);
+        } else {
+          eLine = Math.min(lines.length, sLine - 1 + 2000);
+          if (eLine < lines.length) truncNote = ` (未指定 end_line, 按上限截取前 2000 行, 总行数 ${lines.length})`;
+        }
+        const sliced = lines.slice(sLine - 1, eLine).map((l, idx) => `${sLine + idx}: ${l}`).join('\n');
+        const header = [
+          '[源码文件解析成功]',
+          `- 工程: ${proj.label || proj.id} (${proj.serverName || ''}) [来源: ${source}]`,
+          ...(source === '工作台当前绑定' ? ['- 提示: 未显式指定 project; 若同时运行多个会话, 请先 workbench_context 取 id 后显式传入'] : []),
+          `- 生效层级: ${res.tierName}`,
+          `- 实际物理路径: ${res.fullPath}`,
+          `- 覆盖状态: ${res.isOverride ? '⚠️ 该文件在 pri_project/driver 中进行了客制化覆写 (以当前客制化为最终生效准则)' : '使用原厂 baseline 源码 (只读)'}`,
+          `- 行号区间: [${sLine} - ${eLine}] (共 ${lines.length} 行)${truncNote}`,
+          ''
+        ].join('\n');
+        return { text: header + sliced, isError: false };
+      } catch (err) {
+        return { text: `读取文件失败: ${err.message}`, isError: true };
+      }
+    }
+    default:
+      throw new Error(`未知的 workbench 工具: ${name}`);
+  }
+}
+
+const WORKBENCH_TOOLS = [
+  {
+    name: 'workbench_context',
+    description: '读取工作台当前会话绑定的实时上下文：OpenGrok 圈定工程、Gerrit 过滤器、Jira 工单、本地工程（含三层源码目录的 linux 绝对路径）。绑定值随 UI 选择实时变化，需要当前绑定先调本工具。只读工具。',
+    inputSchema: { type: 'object', properties: {} }
+  },
+  {
+    name: 'project_list',
+    description: '列出全部可用本地源码工程（id/label/服务器/平台/机型），供挑选 project_read_file 的 project 参数。只读工具。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: '可选。按 id/label/platform/project 子串过滤' },
+        limit: { type: 'number', description: '最大返回数量，默认 20，最多 50' }
+      }
+    }
+  },
+  {
+    name: 'project_read_file',
+    description: '按【项目专属层 priDriverRel > 公司公共层 publicDriverRel > 原厂基线】逆向穿透规则读取本地工程实际生效的源码文件，带行号。project 缺省时取工作台当前绑定工程；多会话并行时建议显式传 project (id 见 project_list / workbench_context)。只读工具，基线层禁止修改。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        file_path: { type: 'string', description: '源码相对路径，如 drivers/misc/mediatek/typec/tcpc/tcpc.c 或 cust_charger.dtsi' },
+        project: { type: 'string', description: '可选。工程 id (见 project_list / workbench_context)；缺省取工作台当前绑定' },
+        start_line: { type: 'number', description: '起始行号 (1-based，默认 1)' },
+        end_line: { type: 'number', description: '结束行号 (1-based)；缺省时最多返回 2000 行' }
+      },
+      required: ['file_path']
+    }
+  }
+];
 
 /* ==========================================================================
    Agent Version Service — Pi / Antigravity CLI 版本探测 · 更新 · 更新日志
@@ -21866,16 +22307,18 @@ class PiDrawerView {
     if (this.ctxPopoverEl && this.ctxPopoverEl.style.display === 'flex') this._renderCtxPopover();
   }
 
-  /** 本地缓存键：agent + 会话维度，重载后先回填上次值再等权威刷新覆盖 */
+  /** 本地缓存键：agent + 会话维度，重载后先回填上次值再等权威刷新覆盖。
+   *  sid 未定时返回 null 不读写——旧的 'default' 共享桶会让不同会话互相串值。 */
   _ctxCacheKey() {
     const agentId = this.hub && this.hub.activeAgentId;
     const sm = this.hub && this.hub.sessionManager;
     const sid = sm && typeof sm.getActiveSessionId === 'function' ? sm.getActiveSessionId(agentId) : null;
-    return agentId ? `${agentId}:${sid || 'default'}` : null;
+    return (agentId && sid) ? `${agentId}:${sid}` : null;
   }
 
   _loadCtxCache() {
     const key = this._ctxCacheKey();
+    this._ctxLoadedKey = key;
     if (!key) return;
     try {
       const map = JSON.parse(localStorage.getItem('tabonkb-ctx-usage') || '{}');
@@ -21903,6 +22346,8 @@ class PiDrawerView {
         keys.sort((a, b) => (map[a].updatedAt || 0) - (map[b].updatedAt || 0));
         keys.slice(0, keys.length - 30).forEach(k => delete map[k]);
       }
+      // 自清理早期版本遗留的 'agentId:default' 共享桶（会造成跨会话串值）
+      for (const k of Object.keys(map)) { if (k.endsWith(':default')) delete map[k]; }
       localStorage.setItem('tabonkb-ctx-usage', JSON.stringify(map));
     } catch (_) {}
   }
@@ -21939,10 +22384,14 @@ class PiDrawerView {
       return;
     }
     if (this.ctxWrapEl) this.ctxWrapEl.style.display = '';
-    // 重载/切会话时先回填本地缓存避免闪 --，权威值到达后覆盖
+    // 重载/切会话时先回填本地缓存避免闪 --，权威值到达后覆盖；
+    // 缓存键变化（sid 恢复/切会话）时清掉旧键加载的值重新读取，防串会话残留
+    if (this._ctxLoadedKey !== this._ctxCacheKey()) this._ctxUsage = null;
     if (!this._ctxUsage) this._loadCtxCache();
+    const keyAtQuery = this._ctxCacheKey();
     try {
       const cu = await adapter.getContextUsage();
+      if (this._ctxCacheKey() !== keyAtQuery) return; // await 期间会话/agent 已切换，陈旧结果丢弃
       if (cu) {
         if (cu.tokens === null && this._ctxUsage && typeof this._ctxUsage.tokens === 'number') {
           // 上游暂不可知（bridge 预热/compact 后）≠ 真实为 0：保留已知 tokens，窗口更新则重算占比
@@ -21955,6 +22404,7 @@ class PiDrawerView {
         } else {
           this._ctxUsage = cu;
         }
+        this._ctxLoadedKey = keyAtQuery;
         this._persistCtxUsage();
       }
     } catch (_) {}
@@ -21993,6 +22443,7 @@ class PiDrawerView {
       contextWindow: win,
       percent: win > 0 ? (tokens / win) * 100 : null
     };
+    this._ctxLoadedKey = this._ctxCacheKey();
     this._persistCtxUsage();
     this._updateCtxPill();
   }
@@ -29121,11 +29572,11 @@ class PiDrawerView {
       const timeStr = this.formatRelativeTime(s.updatedAt || s.createdAt);
 
       html += `
-        <div class="tw-history-item ${isActive ? 'active' : ''}" data-session-id="${escapeAttr(s.id)}">
+        <div class="tw-history-item ${isActive ? 'active' : ''} ${s.pinned ? 'pinned' : ''}" data-session-id="${escapeAttr(s.id)}">
           <div class="tw-history-item-left">
             <span class="tw-history-item-icon">${getIconPark('topic', 13)}</span>
             <div class="tw-history-item-info">
-              <div class="tw-history-item-title" title="${escapeAttr(s.title || '对话')}">${escapeHtml(s.title || '对话')}</div>
+              <div class="tw-history-item-title" title="${escapeAttr(s.title || '对话')}">${s.pinned ? `<span class="tw-history-pin-mark">${getIconPark('pin', 9)}</span>` : ''}${escapeHtml(s.title || '对话')}</div>
               <div class="tw-history-item-meta">
                 <span>${escapeHtml(timeStr)}</span>
                 <span>·</span>
@@ -29133,7 +29584,13 @@ class PiDrawerView {
               </div>
             </div>
           </div>
-          <span class="tw-history-delete-btn" data-delete-id="${escapeAttr(s.id)}" title="删除此记录" role="button" tabindex="0" aria-label="删除会话记录">
+          <span class="tw-history-act-btn tw-history-pin-btn ${s.pinned ? 'on' : ''}" data-pin-id="${escapeAttr(s.id)}" title="${s.pinned ? '取消置顶' : '置顶'}" role="button" tabindex="0" aria-label="置顶会话">
+            ${getIconPark('pin', 13)}
+          </span>
+          <span class="tw-history-act-btn tw-history-rename-btn" data-rename-id="${escapeAttr(s.id)}" title="重命名" role="button" tabindex="0" aria-label="重命名会话">
+            ${getIconPark('edit', 13)}
+          </span>
+          <span class="tw-history-act-btn tw-history-delete-btn" data-delete-id="${escapeAttr(s.id)}" title="删除此记录" role="button" tabindex="0" aria-label="删除会话记录">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
               <path d="M4 7h16"/>
               <path d="M10 11v6"/>
@@ -29150,10 +29607,65 @@ class PiDrawerView {
     // Bind item clicks (switch session)
     listEl.querySelectorAll('.tw-history-item').forEach(itemEl => {
       itemEl.onclick = (e) => {
-        if (e.target.closest('.tw-history-delete-btn')) return;
+        if (e.target.closest('.tw-history-act-btn') || e.target.closest('.tw-history-rename-input')) return;
         const sid = itemEl.getAttribute('data-session-id');
         this.loadHistorySession(sid);
       };
+    });
+
+    // 置顶/取消置顶
+    listEl.querySelectorAll('.tw-history-pin-btn').forEach(btn => {
+      const handlePin = (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        const sid = btn.getAttribute('data-pin-id');
+        if (this.hub && this.hub.sessionManager) {
+          this.hub.sessionManager.togglePinSession(agentId, sid);
+        }
+        this.renderHistoryPanel();
+      };
+      btn.onclick = handlePin;
+      btn.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') handlePin(e); };
+    });
+
+    // 行内重命名: 标题换输入框, Enter/失焦提交, Esc 取消
+    listEl.querySelectorAll('.tw-history-rename-btn').forEach(btn => {
+      const startRename = (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        const sid = btn.getAttribute('data-rename-id');
+        const itemEl = btn.closest('.tw-history-item');
+        const titleEl = itemEl && itemEl.querySelector('.tw-history-item-title');
+        if (!titleEl || itemEl.querySelector('.tw-history-rename-input')) return;
+        const oldTitle = (this.hub.sessionManager.getSessions(agentId).find(x => x.id === sid) || {}).title || '';
+        const input = document.createElement('input');
+        input.className = 'tw-history-rename-input';
+        input.type = 'text';
+        input.value = oldTitle;
+        input.maxLength = 60;
+        titleEl.replaceWith(input);
+        input.focus();
+        input.select();
+        let done = false;
+        const commit = (save) => {
+          if (done) return;
+          done = true;
+          const v = input.value.trim();
+          if (save && v && v !== oldTitle && this.hub && this.hub.sessionManager) {
+            this.hub.sessionManager.renameSession(agentId, sid, v);
+          }
+          this.renderHistoryPanel();
+        };
+        input.addEventListener('keydown', (ev) => {
+          ev.stopPropagation();
+          if (ev.key === 'Enter') { ev.preventDefault(); commit(true); }
+          else if (ev.key === 'Escape') { ev.preventDefault(); commit(false); }
+        });
+        input.addEventListener('click', (ev) => ev.stopPropagation());
+        input.addEventListener('blur', () => commit(true));
+      };
+      btn.onclick = startRename;
+      btn.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') startRename(e); };
     });
 
     // Bind delete clicks
@@ -32043,35 +32555,32 @@ const JIRA_TOOLS = [
   },
   {
     name: 'jira_get_issue',
-    description: '查阅指定 Jira 工单完整详情：标题、状态、经办人/报告人、优先级、模块组件、标签、修复版本、解决结果、完整描述、最近 12 条注释、附件清单，以及该工单在知识库的专属工作目录 (00-Inbox/03-Quick-Note/<KEY>/)。只读工具。',
+    description: '查阅指定 Jira 工单完整详情：标题、状态、经办人/报告人、优先级、模块组件、标签、修复版本、解决结果、完整描述、最近 12 条注释、附件清单，以及该工单在知识库的专属工作目录 (00-Inbox/03-Quick-Note/<KEY>/)。缺省 issue_key 时取工作台绑定工单。只读工具。',
     inputSchema: {
       type: 'object',
       properties: {
-        issue_key: { type: 'string', description: 'Jira 工单号 (如 SPE123-199)' }
-      },
-      required: ['issue_key']
+        issue_key: { type: 'string', description: 'Jira 工单号 (如 SPE123-199)；缺省取工作台绑定' }
+      }
     }
   },
   {
     name: 'jira_get_comments',
-    description: '查阅指定 Jira 工单的全部历史注释/讨论记录（含作者与时间）。只读工具。',
+    description: '查阅指定 Jira 工单的全部历史注释/讨论记录（含作者与时间）。缺省 issue_key 时取工作台绑定工单。只读工具。',
     inputSchema: {
       type: 'object',
       properties: {
-        issue_key: { type: 'string', description: 'Jira 工单号' }
-      },
-      required: ['issue_key']
+        issue_key: { type: 'string', description: 'Jira 工单号；缺省取工作台绑定' }
+      }
     }
   },
   {
     name: 'jira_list_attachments',
-    description: '列出指定 Jira 工单挂载的全部附件（文件名/大小/类型/上传人），用于定位 log 日志、截图、抓包文件。只读工具。',
+    description: '列出指定 Jira 工单挂载的全部附件（文件名/大小/类型/上传人），用于定位 log 日志、截图、抓包文件。缺省 issue_key 时取工作台绑定工单。只读工具。',
     inputSchema: {
       type: 'object',
       properties: {
-        issue_key: { type: 'string', description: 'Jira 工单号' }
-      },
-      required: ['issue_key']
+        issue_key: { type: 'string', description: 'Jira 工单号；缺省取工作台绑定' }
+      }
     }
   },
   {
@@ -32080,10 +32589,10 @@ const JIRA_TOOLS = [
     inputSchema: {
       type: 'object',
       properties: {
-        issue_key: { type: 'string', description: 'Jira 工单号' },
+        issue_key: { type: 'string', description: 'Jira 工单号；缺省取工作台绑定' },
         attachment: { type: 'string', description: '附件 id、完整文件名或文件名片段（如 "logcat" / "main.log" / "12893"）' }
       },
-      required: ['issue_key', 'attachment']
+      required: ['attachment']
     }
   }
 ];
@@ -32146,9 +32655,46 @@ function _jiraFmtAttachments(atts, issueKey) {
   return lines.join('\n');
 }
 
+// 需要 issue_key 的工具集合 (search 不在内)
+const JIRA_ISSUE_KEY_TOOLS = new Set(['jira_get_issue', 'jira_get_comments', 'jira_list_attachments', 'jira_download_attachment']);
+
+// DSH MCP 子进程工作台上下文 (bundle 内为全局函数, 独立运行时按路径探测)
+function jiraLoadWbCtx() {
+  try {
+    if (typeof getHostContext === 'function' && typeof isDshHost === 'function') {
+      return { isDshHost, getHostContext };
+    }
+    
+    
+    const cands = [
+      path.join(__dirname, 'workbench-context.js'),
+      path.join(__dirname, 'services', 'workbench-context.js'),
+      path.join(__dirname, '..', 'services', 'workbench-context.js'),
+      path.join(process.cwd(), '.obsidian', 'plugins', 'tabonkb-workbench', 'services', 'workbench-context.js')
+    ];
+    for (const c of cands) {
+      let m = null;
+      try { if (fs.existsSync(c)) m = require(c); } catch (_) {}
+      if (m && typeof m.isDshHost === 'function') return m;
+    }
+  } catch (_) {}
+  return null;
+}
+
 async function runJiraTool(name, args, service) {
   args = args || {};
   const svc = service || new JiraService();
+
+  // DSH 宿主: issue_key 缺省时回退工作台绑定工单 (显式值永不覆盖)
+  let bindNote = '';
+  if (JIRA_ISSUE_KEY_TOOLS.has(name) && !String(args.issue_key || args.key || '').trim()) {
+    const wb = jiraLoadWbCtx();
+    const bound = (wb && wb.isDshHost()) ? (wb.getHostContext() || {}).jira : null;
+    if (bound && bound.key) {
+      args = Object.assign({}, args, { issue_key: bound.key });
+      bindNote = `(未指定 issue_key, 使用工作台绑定工单 ${bound.key})\n`;
+    }
+  }
 
   switch (name) {
     case 'jira_search_issues': {
@@ -32172,25 +32718,25 @@ async function runJiraTool(name, args, service) {
       if (!key) throw new Error('缺少 issue_key 参数');
       const d = await svc.getIssueDetail(key);
       const ws = svc.getIssueWorkspaceDir(key);
-      return _jiraFmtIssueDetail(d, ws);
+      return bindNote + _jiraFmtIssueDetail(d, ws);
     }
     case 'jira_get_comments': {
       const key = String(args.issue_key || args.key || '').trim().toUpperCase();
       if (!key) throw new Error('缺少 issue_key 参数');
       const comments = await svc.getIssueComments(key);
-      if (!comments || comments.length === 0) return `工单 ${key} 无注释记录。`;
+      if (!comments || comments.length === 0) return bindNote + `工单 ${key} 无注释记录。`;
       const lines = [`### 工单 ${key} 注释 (共 ${comments.length} 条):`, ''];
       comments.forEach(c => {
         lines.push(`- **${c.author}** (${c.createdFormatted || c.created})${c.isEdited ? ' *(已编辑)*' : ''}:`);
         lines.push(`  ${(c.body || '').split('\n').join('\n  ')}`);
       });
-      return lines.join('\n');
+      return bindNote + lines.join('\n');
     }
     case 'jira_list_attachments': {
       const key = String(args.issue_key || args.key || '').trim().toUpperCase();
       if (!key) throw new Error('缺少 issue_key 参数');
       const atts = await svc.listIssueAttachments(key);
-      return _jiraFmtAttachments(atts, key);
+      return bindNote + _jiraFmtAttachments(atts, key);
     }
     case 'jira_download_attachment': {
       const key = String(args.issue_key || args.key || '').trim().toUpperCase();
@@ -32198,7 +32744,7 @@ async function runJiraTool(name, args, service) {
       const ref = args.attachment || args.attachment_id || args.filename;
       const r = await svc.downloadAttachment(key, ref);
       const ws = svc.getIssueWorkspaceDir(key);
-      return [
+      return bindNote + [
         `✓ 附件已下载: **${r.filename}** (${(r.bytes / 1024).toFixed(1)} KB)`,
         `- 本地绝对路径: \`${r.savedAbsPath}\``,
         `- 知识库相对路径: \`${r.savedRelPath}\``,
@@ -33304,6 +33850,2138 @@ function escapeHtml(str) {
     .replace(/'/g, '&#39;');
 }
 
+/* ==========================================================================
+   TopicService — 个人专题 (Personal Topics) 数据层
+   数据全部落在 vault: 07-Project/00-Personal-Topics/<YYYYMMDD-短标题>/00-TASK.md
+   - 纯函数区 (parseTaskBody/toggleStep/addStep/addProgress/…) 零依赖, 可直接 node 测试
+   - 正文写入走 app.vault.process 原子读改写, frontmatter 走 processFrontMatter,
+     只动目标行/目标章节, 未知章节与用户手写内容逐字节保留 (含 CRLF/LF 风格)
+   ========================================================================== */
+
+const TOPIC_ROOT_DEFAULT = '07-Project/00-Personal-Topics';
+const TOPIC_TASK_FILE = '00-TASK.md';
+const TOPIC_MODULE_CODES = ['DISP', 'CAM', 'AUD', 'USB', 'CHG', 'SNS', 'TP', 'PWR', 'STOR', 'CONN', 'MODEM', 'INPUT', 'SEC', 'KERN', 'BUILD', 'HW', 'GEN', 'AI', 'WB'];
+const TOPIC_TRACKS = [
+  { id: 'work', label: '工作' },
+  { id: 'deep', label: '深耕' },
+  { id: 'broad', label: '拓展' }
+];
+const TOPIC_STAR_LIMIT = 3;
+
+/* ------------------------------ 时间格式化 ------------------------------ */
+
+function _pad2(n) { return String(n).padStart(2, '0'); }
+
+function fmtTopicDate(d) {
+  d = (d instanceof Date) ? d : new Date(d);
+  return `${d.getFullYear()}-${_pad2(d.getMonth() + 1)}-${_pad2(d.getDate())}`;
+}
+
+function fmtTopicYmd(d) {
+  d = (d instanceof Date) ? d : new Date(d);
+  return `${d.getFullYear()}${_pad2(d.getMonth() + 1)}${_pad2(d.getDate())}`;
+}
+
+function fmtTopicTime(d) {
+  d = (d instanceof Date) ? d : new Date(d);
+  return `${fmtTopicDate(d)} ${_pad2(d.getHours())}:${_pad2(d.getMinutes())}`;
+}
+
+function fmtTopicHm(d) {
+  d = (d instanceof Date) ? d : new Date(d);
+  return `${_pad2(d.getHours())}${_pad2(d.getMinutes())}`;
+}
+
+function _topicNow(input) {
+  if (input instanceof Date) return input;
+  if (typeof input === 'string' && input.trim()) {
+    const d = new Date(input.replace(' ', 'T'));
+    if (!isNaN(d.getTime())) return d;
+  }
+  return new Date();
+}
+
+/* ------------------------------ 行级解析 ------------------------------ */
+
+// 将文本拆为行记录 [{start, contentEnd, end}], contentEnd 不含行尾, end 含行尾;
+// 保留原始字节坐标, 供定点替换/插入而不惊动其余字节 (CRLF/LF 混合也安全)
+function _splitLinesKeepEnds(text) {
+  const lines = [];
+  const n = text.length;
+  let i = 0;
+  while (i < n) {
+    const start = i;
+    let j = i;
+    while (j < n && text[j] !== '\n' && text[j] !== '\r') j++;
+    const contentEnd = j;
+    if (j < n && text[j] === '\r' && text[j + 1] === '\n') j += 2;
+    else if (j < n) j += 1;
+    lines.push({ start, contentEnd, end: j });
+    i = j;
+  }
+  return lines;
+}
+
+function _detectEol(text) {
+  return text.includes('\r\n') ? '\r\n' : '\n';
+}
+
+function _lineContent(text, ln) {
+  return text.slice(ln.start, ln.contentEnd);
+}
+
+// '## 执行步骤 (Checklist)' → { level:2, name:'执行步骤 (Checklist)' }
+function _parseHeading(line) {
+  const m = /^(#{1,6})\s+(.*)$/.exec(line.trim());
+  if (!m) return null;
+  return { level: m[1].length, name: m[2].trim() };
+}
+
+const _SECTION_KEYS = [
+  { key: 'steps', prefixes: ['执行步骤'] },
+  { key: 'ideas', prefixes: ['想法'] },
+  { key: 'timeline', prefixes: ['进展日志'] },
+  { key: 'waters', prefixes: ['浇水'] }
+];
+
+function _sectionKeyOfHeading(name) {
+  for (const s of _SECTION_KEYS) {
+    for (const p of s.prefixes) {
+      if (name.startsWith(p)) return s.key;
+    }
+  }
+  return null;
+}
+
+// 返回 [{key, headLine, headEnd(offset, 含行尾), endLine(下一个 ## 的行号或 lines.length)}]
+function _scanSections(text, lines) {
+  const sections = [];
+  let cur = null;
+  for (let i = 0; i < lines.length; i++) {
+    const h = _parseHeading(_lineContent(text, lines[i]));
+    if (h && h.level <= 2) {
+      if (cur) cur.endLine = i;
+      const key = (h.level === 2) ? _sectionKeyOfHeading(h.name) : null;
+      cur = { key, headLine: i, headEnd: lines[i].end, endLine: lines.length };
+      sections.push(cur);
+    }
+  }
+  return sections;
+}
+
+const _RE_CHECKBOX = /^(\s*[-*+]\s*)\[( |x|X)\]\s*(.*)$/;
+const _RE_LIST_ITEM = /^\s*[-*+]\s/;
+const _RE_TIMELINE_ITEM = /^\s*[-*+]\s*\*\*\[([^\]]*)\]\*\*\s*(.*)$/;
+const _RE_IDEA_PREFIX = /^(?:💡\s*)?(?:\*\*\[([^\]]*)\]\*\*\s*)?/;
+
+// 解析想法条目内容 (去掉列表符后的文本):
+// '💡 **[2026-10-21]** 内容 · 来源' / '~~💡 **[…]** 内容 · 来源~~' / 任意文本
+// → { struck, date, label, source }
+function _parseIdeaContent(content) {
+  let s = String(content || '').trim();
+  let struck = false;
+  if (s.length >= 4 && s.startsWith('~~') && s.endsWith('~~')) {
+    struck = true;
+    s = s.slice(2, -2).trim();
+  }
+  const m = _RE_IDEA_PREFIX.exec(s);
+  const date = (m && m[1]) ? m[1].trim() : '';
+  const rest = s.slice(m[0].length).trim();
+  let label = rest, source = '';
+  const dot = rest.lastIndexOf(' · ');
+  if (dot >= 0) {
+    label = rest.slice(0, dot).trim();
+    source = rest.slice(dot + 3).trim();
+  }
+  return { struck, date, label, source };
+}
+
+/**
+ * 解析 00-TASK.md 正文 (frontmatter 不在此处理)
+ * → { steps:[{line,done,label}], ideas:[{line,text}], timeline:[{time,text}] }
+ * 仅识别以「执行步骤」「想法」「进展日志」开头的 ## 章节; 章节外复选框不计入 steps
+ */
+function parseTaskBody(text) {
+  text = String(text == null ? '' : text);
+  const lines = _splitLinesKeepEnds(text);
+  const sections = _scanSections(text, lines);
+  const out = { steps: [], ideas: [], timeline: [] };
+
+  for (const sec of sections) {
+    if (!sec.key) continue;
+    for (let i = sec.headLine + 1; i < sec.endLine; i++) {
+      const raw = _lineContent(text, lines[i]);
+      if (sec.key === 'steps') {
+        const m = _RE_CHECKBOX.exec(raw);
+        if (m) {
+          out.steps.push({ line: i, done: m[2] !== ' ', label: m[3] });
+        }
+      } else if (sec.key === 'ideas') {
+        if (_RE_LIST_ITEM.test(raw)) {
+          const content = raw.replace(_RE_LIST_ITEM, '').trim();
+          const meta = _parseIdeaContent(content);
+          out.ideas.push({ line: i, text: content, label: meta.label, date: meta.date, source: meta.source, struck: meta.struck });
+        }
+      } else if (sec.key === 'timeline') {
+        const m = _RE_TIMELINE_ITEM.exec(raw);
+        if (m) {
+          out.timeline.push({ time: (m[1] || '').trim(), text: (m[2] || '').trim() });
+        } else if (_RE_LIST_ITEM.test(raw)) {
+          out.timeline.push({ time: '', text: raw.replace(_RE_LIST_ITEM, '').trim() });
+        }
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * 切换指定行(0 基)复选框状态; 该行无复选框时原样返回
+ * 只改写目标行字节, 其余内容与行尾风格完全保留
+ */
+function toggleStep(text, lineIndex, done) {
+  text = String(text == null ? '' : text);
+  const lines = _splitLinesKeepEnds(text);
+  const ln = lines[lineIndex];
+  if (!ln) return text;
+  const content = _lineContent(text, ln);
+  const m = /^(\s*[-*+]\s*\[)( |x|X)(\].*)$/.exec(content);
+  if (!m) return text;
+  const replaced = m[1] + (done ? 'x' : ' ') + m[3];
+  return text.slice(0, ln.start) + replaced + text.slice(ln.contentEnd);
+}
+
+function _findSection(sections, key) {
+  return sections.find(s => s.key === key) || null;
+}
+
+function _appendSection(text, eol, title, firstLine) {
+  let out = text;
+  if (out.length && !out.endsWith('\n')) out += eol;
+  if (out.trim().length) out += eol; // 与上文隔一空行
+  out += `## ${title}` + eol + firstLine + eol;
+  return out;
+}
+
+/**
+ * 在 Checklist 章节最后一个条目之后追加 `- [ ] label`;
+ * 不越过下一个 ## 标题; 章节缺失时文末补建
+ */
+function addStep(text, label) {
+  text = String(text == null ? '' : text);
+  const eol = _detectEol(text);
+  const itemLine = `- [ ] ${label}`;
+  const lines = _splitLinesKeepEnds(text);
+  const sections = _scanSections(text, lines);
+  const sec = _findSection(sections, 'steps');
+
+  if (!sec) {
+    return _appendSection(text, eol, '执行步骤 (Checklist)', itemLine);
+  }
+
+  // 找章节内最后一个列表条目
+  let lastItemLine = -1;
+  for (let i = sec.headLine + 1; i < sec.endLine; i++) {
+    if (_RE_LIST_ITEM.test(_lineContent(text, lines[i]))) lastItemLine = i;
+  }
+
+  if (lastItemLine >= 0) {
+    const ln = lines[lastItemLine];
+    const pos = ln.end;
+    const sep = (ln.end === ln.contentEnd) ? eol : ''; // 末行无行尾时先补行尾
+    return text.slice(0, pos) + sep + itemLine + eol + text.slice(pos);
+  }
+  // 空章节: 插到标题行之后
+  const headLn = lines[sec.headLine];
+  const pos = headLn.end;
+  const sep = (headLn.end === headLn.contentEnd) ? eol : '';
+  return text.slice(0, pos) + sep + itemLine + eol + text.slice(pos);
+}
+
+/**
+ * 在 Timeline 章节顶部插入 `- **[YYYY-MM-DD HH:mm]** label` (最新在上);
+ * 章节缺失时文末补建
+ */
+function addProgress(text, label, now) {
+  text = String(text == null ? '' : text);
+  const eol = _detectEol(text);
+  const ts = fmtTopicTime(_topicNow(now));
+  const itemLine = `- **[${ts}]** ${label}`;
+  const lines = _splitLinesKeepEnds(text);
+  const sections = _scanSections(text, lines);
+  const sec = _findSection(sections, 'timeline');
+
+  if (!sec) {
+    return _appendSection(text, eol, '进展日志 (Timeline)', itemLine);
+  }
+  const headLn = lines[sec.headLine];
+  const pos = headLn.end;
+  const sep = (headLn.end === headLn.contentEnd) ? eol : '';
+  return text.slice(0, pos) + sep + itemLine + eol + text.slice(pos);
+}
+
+/* ------------------------------ 想法 (Ideas) ------------------------------ */
+
+// 判断 lineIndex 是否落在指定章节内的列表条目行
+function _sectionItemAt(text, lines, sections, key, lineIndex) {
+  const sec = _findSection(sections, key);
+  if (!sec || lineIndex <= sec.headLine || lineIndex >= sec.endLine) return null;
+  const ln = lines[lineIndex];
+  if (!ln) return null;
+  const raw = _lineContent(text, ln);
+  if (!_RE_LIST_ITEM.test(raw)) return null;
+  return { sec, ln, raw, content: raw.replace(_RE_LIST_ITEM, '').trim() };
+}
+
+/**
+ * 在 Ideas 章节顶部插入 `- 💡 **[YYYY-MM-DD]** label · source` (最新在上);
+ * 章节缺失时文末补建
+ */
+function addIdea(text, label, now, source) {
+  text = String(text == null ? '' : text);
+  const eol = _detectEol(text);
+  const d = fmtTopicDate(_topicNow(now));
+  const itemLine = `- 💡 **[${d}]** ${String(label)}${source ? ` · ${source}` : ''}`;
+  const lines = _splitLinesKeepEnds(text);
+  const sections = _scanSections(text, lines);
+  const sec = _findSection(sections, 'ideas');
+  if (!sec) {
+    return _appendSection(text, eol, '想法 (Ideas)', itemLine);
+  }
+  const headLn = lines[sec.headLine];
+  const pos = headLn.end;
+  const sep = (headLn.end === headLn.contentEnd) ? eol : '';
+  return text.slice(0, pos) + sep + itemLine + eol + text.slice(pos);
+}
+
+/**
+ * 想法转步骤: 删除 Ideas 章节内未划掉的目标行 (含行尾),
+ * 并将其 label 追加为 Checklist 的 `- [ ] label`; 非法目标行原样返回
+ */
+function ideaToStep(text, lineIndex) {
+  text = String(text == null ? '' : text);
+  const lines = _splitLinesKeepEnds(text);
+  const sections = _scanSections(text, lines);
+  const hit = _sectionItemAt(text, lines, sections, 'ideas', lineIndex);
+  if (!hit) return text;
+  const meta = _parseIdeaContent(hit.content);
+  if (meta.struck || !meta.label) return text;
+  const without = text.slice(0, hit.ln.start) + text.slice(hit.ln.end);
+  return addStep(without, meta.label);
+}
+
+/**
+ * 划掉想法: 行内容包成 `~~…~~`; 已划掉/非法行幂等原样返回
+ */
+function strikeIdea(text, lineIndex) {
+  text = String(text == null ? '' : text);
+  const lines = _splitLinesKeepEnds(text);
+  const sections = _scanSections(text, lines);
+  const hit = _sectionItemAt(text, lines, sections, 'ideas', lineIndex);
+  if (!hit) return text;
+  const meta = _parseIdeaContent(hit.content);
+  if (meta.struck) return text;
+  const marker = /^(\s*[-*+]\s*)/.exec(hit.raw)[1];
+  const replaced = `${marker}~~${hit.content}~~`;
+  return text.slice(0, hit.ln.start) + replaced + text.slice(hit.ln.contentEnd);
+}
+
+/**
+ * 删除 Ideas 章节内目标列表行 (含行尾); 非法行原样返回
+ */
+function removeIdeaLine(text, lineIndex) {
+  text = String(text == null ? '' : text);
+  const lines = _splitLinesKeepEnds(text);
+  const sections = _scanSections(text, lines);
+  const hit = _sectionItemAt(text, lines, sections, 'ideas', lineIndex);
+  if (!hit) return text;
+  return text.slice(0, hit.ln.start) + text.slice(hit.ln.end);
+}
+
+/* ------------------------------ 种子 (Seeds) ------------------------------ */
+
+/**
+ * 解析种子文件正文 → { idea, waters:[{time,text}] }
+ */
+function parseSeedBody(text) {
+  text = String(text == null ? '' : text);
+  const lines = _splitLinesKeepEnds(text);
+  const sections = _scanSections(text, lines);
+  const out = { idea: '', waters: [] };
+  const ideaSec = _findSection(sections, 'ideas');
+  if (ideaSec) {
+    const parts = [];
+    for (let i = ideaSec.headLine + 1; i < ideaSec.endLine; i++) {
+      parts.push(_lineContent(text, lines[i]));
+    }
+    out.idea = parts.join('\n').trim();
+  }
+  const waterSec = _findSection(sections, 'waters');
+  if (waterSec) {
+    for (let i = waterSec.headLine + 1; i < waterSec.endLine; i++) {
+      const raw = _lineContent(text, lines[i]);
+      const m = _RE_TIMELINE_ITEM.exec(raw);
+      let w = null;
+      if (m) w = { time: (m[1] || '').trim(), text: (m[2] || '').trim() };
+      else if (_RE_LIST_ITEM.test(raw)) w = { time: '', text: raw.replace(_RE_LIST_ITEM, '').trim() };
+      if (w) {
+        w.auto = / ·auto\s*$/.test(w.text);
+        w.line = i;
+        out.waters.push(w);
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * 在「浇水」章节顶部插入 `- **[YYYY-MM-DD HH:mm]** label` (最新在上); 缺失补建
+ */
+function addWater(text, label, now) {
+  text = String(text == null ? '' : text);
+  const eol = _detectEol(text);
+  const ts = fmtTopicTime(_topicNow(now));
+  const itemLine = `- **[${ts}]** ${label}`;
+  const lines = _splitLinesKeepEnds(text);
+  const sections = _scanSections(text, lines);
+  const sec = _findSection(sections, 'waters');
+  if (!sec) {
+    return _appendSection(text, eol, '浇水', itemLine);
+  }
+  const headLn = lines[sec.headLine];
+  const pos = headLn.end;
+  const sep = (headLn.end === headLn.contentEnd) ? eol : '';
+  return text.slice(0, pos) + sep + itemLine + eol + text.slice(pos);
+}
+
+/** seed 且浇水 ≥3 → growing, 其余原样 */
+function seedEffectiveStatus(status, waterCount) {
+  if (status === 'seed' && (waterCount || 0) >= 3) return 'growing';
+  return status;
+}
+
+function isJiraKey(str) {
+  return /^[A-Z][A-Z0-9]+-\d+$/.test(String(str || '').trim());
+}
+
+/** P2a: 在专题列表中按 jira 数组命中工单号 (大小写不敏感) */
+function findTopicByJira(topics, key) {
+  const k = String(key || '').trim().toUpperCase();
+  if (!k || !Array.isArray(topics)) return null;
+  for (const t of topics) {
+    const arr = Array.isArray(t && t.jira) ? t.jira : [];
+    if (arr.some(j => String(j || '').trim().toUpperCase() === k)) return t;
+  }
+  return null;
+}
+
+/**
+ * 记灵感去向推断: 选中专题(进行中) > jiraKey 命中的进行中专题 > 新种子
+ */
+function inferCaptureTarget(ctx, topics) {
+  const list = Array.isArray(topics) ? topics : [];
+  const sel = ctx && ctx.selectedTopicId;
+  if (sel) {
+    const t = list.find(t => t.id === sel && t.status === 'in_progress');
+    if (t) return { type: 'topic', id: t.id };
+  }
+  const jk = ctx && ctx.jiraKey;
+  if (jk) {
+    const low = String(jk).toLowerCase();
+    const t = list.find(t => t.status === 'in_progress'
+      && Array.isArray(t.jira)
+      && t.jira.some(j => String(j).toLowerCase() === low));
+    if (t) return { type: 'topic', id: t.id };
+  }
+  return { type: 'seed' };
+}
+
+/* ------------------------------ P2b: 提示词 ------------------------------ */
+
+/**
+ * 入库向导提示词: 走 tabonkb-inbox-ingest 技能, L2 先呈裁决待确认;
+ * 成功后回写专题 published_docs + 进展日志, 不删原草稿
+ */
+function buildIngestPrompt(topic, file, opts) {
+  const o = opts || {};
+  const t = topic || {};
+  const filePath = (file && file.path) || String(file || '');
+  const dirHint = o.targetDir
+    ? `目标目录 ${o.targetDir}`
+    : `由技能按 01-Directory-Spec 裁决，模块目录建议 ${o.moduleDir ? `03-Driver/${o.moduleDir}/` : '请按 01-Directory-Spec 裁决'}`;
+  return [
+    `请使用 tabonkb-inbox-ingest 技能，将过程草稿入库：`,
+    `待入库文件：${filePath}（所属专题目录 ${t.dir || ''}）；`,
+    `元数据：platform=${o.platform || ''}、module=${o.module || ''}、doctype=${o.doctype || 'NOTE'}；`,
+    `${dirHint}；`,
+    `命名严格按 99-Meta/02-Naming-Spec.md v1.2 规范执行；`,
+    `L2 流程：先向我呈现归类裁决、目标路径、文件名与标签清单，待我确认后再执行；`,
+    `入库成功后：把正式文档的 wikilink（[[新路径去扩展名]]）追加到 ${t.dir || ''}/00-TASK.md frontmatter 的 published_docs 数组，并向「进展日志」追加一条「📦 入库：[[新路径]]」；`,
+    `入库不删除专题内的原草稿，保留过程记录。`
+  ].join('\n');
+}
+
+/** ✨拆解提示词: 注入专题上下文, 3–7 条子步骤, 确认后才追加 Checklist */
+function buildDecomposePrompt(topic) {
+  const t = topic || {};
+  const todo = (t.steps || []).filter(s => !s.done).map(s => `- [ ] ${s.label || s.text || ''}`).join('\n') || '(无)';
+  const done = (t.steps || []).filter(s => s.done).map(s => `- [x] ${s.label || s.text || ''}`).join('\n') || '(无)';
+  const recent = (t.timeline || []).slice(0, 3).map(x => `- ${x.time || ''} ${x.text || x.label || ''}`.trimEnd()).join('\n') || '(无)';
+  const refs = (t.linked_refs || []).join('、') || '(无)';
+  const pubs = (t.published_docs || []).join('、') || '(无)';
+  return [
+    `请为专题「${t.title || t.id}」拆解下一步行动：`,
+    `目标：${t.goal || '未填写'}；方向 ${t.track || 'work'}、模块 ${t.module || 'GEN'}；主文件 ${t.dir}/${TOPIC_TASK_FILE}。`,
+    `未完成步骤：\n${todo}\n已完成步骤：\n${done}`,
+    `最近进展：\n${recent}`,
+    `关联参考：${refs}；已入库成果：${pubs}。`,
+    `请给出 3–7 条下一步可执行的子步骤（每条动词开头、可验证），以清单形式回复并等我确认；确认后才可追加到 ${t.dir}/${TOPIC_TASK_FILE} 的「## 执行步骤 (Checklist)」。`,
+    `如有补充思路，可自行追加到「## 想法 (Ideas)」章节；其它修改请先提案。`
+  ].join('\n');
+}
+
+/** ✨评估提示词: 查重(WeKnora) / 定位(空字段才写 fm) / 拆解 / 结论记浇水 */
+function buildEvaluatePrompt(seed, opts) {
+  const s = seed || {};
+  const o = opts || {};
+  const tools = Array.isArray(o.weknoraTools) && o.weknoraTools.length ? o.weknoraTools.join(' / ') : '';
+  const searchLine = tools
+    ? `用 ${tools} 检索「知识库里已有什么」并列出命中文档`
+    : '请使用可用的 WeKnora 检索工具检索「知识库里已有什么」并列出命中文档';
+  const waters = (s.waters || []).map(w => `- ${w.time || ''} ${w.text || ''}`).join('\n') || '(无)';
+  return [
+    `请评估这颗灵感种子：${s.path || ''}`,
+    `标题：${s.title || ''}；来源 ${s.source || 'manual'}${s.source_ref ? `（${s.source_ref}）` : ''}。`,
+    `想法全文：\n${s.idea || '(空)'}`,
+    `已有浇水：\n${waters}`,
+    `请按以下步骤评估：`,
+    `1. 查重：${searchLine}；`,
+    `2. 定位：判断更像 深耕/拓展 及对应模块，只写入种子 frontmatter 中为空的 track/module 字段；`,
+    `3. 拆解：若值得做，给出前 3 个步骤；`,
+    `4. 将评估结论作为一条浇水记录追加到「## 浇水」章节顶部，格式 "- **[YYYY-MM-DD HH:mm]** ✨评估：…"（计入浇水次数）；`,
+    `不得改动「想法」原文，除上述两处外不要修改其它内容。`
+  ].join('\n');
+}
+
+/* ------------------------------ P2b: 自动浇水 / 枯萎 ------------------------------ */
+
+const AUTO_WATER_ROOTS = [
+  '01-Platform/', '02-OS-Kernel/', '03-Driver/', '04-Debug/', '05-Toolchain/',
+  '06-Spec/', '08-Learning/01-Materials/', '09-Hardware/', '10-Test-Cert/'
+];
+
+/** 文档路径是否落在自动浇水监视范围 (md + 范围内 + 不在专题区) */
+function isAutoWaterDocPath(path, rootPath) {
+  const p = String(path || '');
+  if (!/\.md$/i.test(p)) return false;
+  const rp = String(rootPath || '').replace(/\/+$/, '');
+  if (rp && (p === rp || p.startsWith(rp + '/'))) return false;
+  return AUTO_WATER_ROOTS.some(r => p.startsWith(r));
+}
+
+const _KW_STOP = new Set(['the', 'and', 'for', 'with', 'from', 'this', 'that']);
+
+/** 种子关键词: ASCII/数字词 (≥3, 去停用词) + CJK bigram, 小写去重 */
+function seedKeywords(text) {
+  const s = String(text || '').toLowerCase();
+  const out = new Set();
+  for (const m of s.matchAll(/[a-z0-9_]+/g)) {
+    const w = m[0];
+    if (w.length >= 3 && !_KW_STOP.has(w)) out.add(w);
+  }
+  for (const m of s.matchAll(/[一-鿿]+/g)) {
+    const run = m[0];
+    if (run.length === 1) { out.add(run); continue; }
+    for (let i = 0; i + 2 <= run.length; i++) out.add(run.slice(i, i + 2));
+  }
+  return [...out];
+}
+
+/** 命中 = 模块相同(大小写不敏感) 且关键词得分 ≥3 (ASCII 2分 / CJK bigram 1分) */
+function seedMatchesDoc(seed, doc) {
+  const sm = String((seed && seed.module) || '').trim().toLowerCase();
+  if (!sm) return false;
+  const dm = (doc && doc.module) || [];
+  const arr = Array.isArray(dm) ? dm : [dm];
+  if (!arr.some(m => String(m || '').trim().toLowerCase() === sm)) return false;
+  const kws = seedKeywords(`${(seed && seed.title) || ''}\n${(seed && seed.idea) || ''}`);
+  const dt = String((doc && doc.text) || '').toLowerCase();
+  let score = 0;
+  for (const k of kws) {
+    if (!dt.includes(k)) continue;
+    score += /^[a-z0-9_]+$/.test(k) ? 2 : 1;
+  }
+  return score >= 3;
+}
+
+/** 浇水条目文本以 ` ·auto` 结尾 = 自动浇水 */
+function isAutoWater(water) {
+  return / ·auto\s*$/.test(String((water && water.text) || ''));
+}
+
+/** 删除「浇水」章节内指定行号的列表行; 非法行原样返回 */
+function removeWaterLine(text, lineIndex) {
+  text = String(text == null ? '' : text);
+  const lines = _splitLinesKeepEnds(text);
+  const sections = _scanSections(text, lines);
+  const sec = _findSection(sections, 'waters');
+  if (!sec) return text;
+  const i = Number(lineIndex);
+  if (!Number.isInteger(i) || i <= sec.headLine || i >= sec.endLine) return text;
+  const raw = _lineContent(text, lines[i]);
+  if (!_RE_LIST_ITEM.test(raw)) return text;
+  return text.slice(0, lines[i].start) + text.slice(lines[i].end);
+}
+
+/** 种子 90 天未触碰 → 枯萎 (touched 缺失用 created, 都缺 false) */
+function shouldWitherSeed(seed, nowMs) {
+  const st = String((seed && seed.status) || 'seed');
+  if (st !== 'seed' && st !== 'growing') return false;
+  const ref = String((seed && (seed.touched || seed.created)) || '');
+  const m = /(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2}))?/.exec(ref);
+  if (!m) return false;
+  const ms = new Date(+m[1], +m[2] - 1, +m[3], +(m[4] || 0), +(m[5] || 0)).getTime();
+  const now = Number.isFinite(nowMs) ? nowMs : Date.now();
+  return (now - ms) >= 90 * 86400000;
+}
+
+/* ------------------------------ P3: 周回顾 ------------------------------ */
+
+/** ISO 8601 周键 'YYYY-Www' (周一为起点, 本周四决定 ISO 年, 正确处理跨年) */
+function isoWeekKey(date) {
+  const d = (date instanceof Date) ? new Date(date.getTime()) : new Date(date || Date.now());
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() + 3 - ((d.getDay() + 6) % 7)); // 对齐到本周四
+  const week1 = new Date(d.getFullYear(), 0, 4);
+  const week = 1 + Math.round(((d.getTime() - week1.getTime()) / 86400000 - 3 + ((week1.getDay() + 6) % 7)) / 7);
+  return `${d.getFullYear()}-W${String(week).padStart(2, '0')}`;
+}
+
+function shouldShowWeeklyReview(lastKey, now, hasContent) {
+  if (!hasContent) return false;
+  return String(lastKey || '') !== isoWeekKey(now);
+}
+
+/** 周回顾数据计划: topics=全部进行中专题(含 starred) / seeds=growing 按浇水降序取 3 / ideas=未划掉且 ≥14 天最旧在前取 5 */
+function buildWeeklyReviewPlan(topics, seeds, now) {
+  const nowMs = _topicNow(now).getTime();
+  const inProg = (topics || []).filter(t => t.status === 'in_progress');
+  const topicRows = inProg.map(t => ({ id: t.id, title: t.title, starred: !!t.starred }));
+  const seedRows = (seeds || []).filter(s => s.status === 'growing')
+    .sort((a, b) => ((b.waters || []).length) - ((a.waters || []).length))
+    .slice(0, 3)
+    .map(s => ({ id: s.id, title: s.title, waterCount: (s.waters || []).length }));
+  const stale = [];
+  for (const t of inProg) {
+    for (const i of (t.ideas || [])) {
+      if (i.struck) continue;
+      const ms = Date.parse(String(i.date || '').replace(' ', 'T'));
+      if (isNaN(ms)) continue;
+      if (nowMs - ms >= 14 * 86400000) {
+        stale.push({ topicId: t.id, topicTitle: t.title, line: i.line, label: i.label, date: i.date });
+      }
+    }
+  }
+  stale.sort((a, b) => Date.parse(String(a.date).replace(' ', 'T')) - Date.parse(String(b.date).replace(' ', 'T')));
+  return { topics: topicRows, seeds: seedRows, ideas: stale.slice(0, 5) };
+}
+
+/* ------------------------------ 派生字段 ------------------------------ */
+
+function calcProgress(steps) {
+  const total = Array.isArray(steps) ? steps.length : 0;
+  const done = total ? steps.filter(s => s && s.done).length : 0;
+  return { done, total, percent: total ? Math.round((done / total) * 100) : null };
+}
+
+function calcIdle(maxMtimeMs, nowMs, status) {
+  const now = (typeof nowMs === 'number' && isFinite(nowMs)) ? nowMs : Date.now();
+  const mt = (typeof maxMtimeMs === 'number' && isFinite(maxMtimeMs)) ? maxMtimeMs : now;
+  const days = Math.max(0, Math.floor((now - mt) / 86400000));
+  return {
+    days,
+    label: days === 0 ? '今日推进' : `${days}天前`,
+    warn: days >= 7 && status !== 'paused'
+  };
+}
+
+/* ------------------------------ 命名与链接 ------------------------------ */
+
+const _ILLEGAL_DIR_CHARS = /[\\/:*?"<>|#%&]/g;
+
+/**
+ * '2026-10-20' 日期串 + 标题 → 'YYYYMMDD-短标题'
+ * 去除 \ / : * ? " < > | # % & 与首尾空白, 空白转 -, 标题部分最多 40 字符
+ */
+function sanitizeTopicDirName(title, dateStr) {
+  const ymd = String(dateStr || '').replace(/-/g, '');
+  let safe = String(title == null ? '' : title)
+    .replace(_ILLEGAL_DIR_CHARS, '')
+    .trim()
+    .replace(/\s+/g, '-')
+    .replace(/-{2,}/g, '-')
+    .replace(/^-+|-+$/g, '');
+  if (safe.length > 40) safe = safe.slice(0, 40).replace(/-+$/g, '');
+  return safe ? `${ymd}-${safe}` : ymd;
+}
+
+/**
+ * '[[a/b.md|别名]]' → 'a/b.md'; 去 |别名 与 #锚点; 无括号字符串原样返回
+ */
+function parseWikiLink(str) {
+  let s = String(str == null ? '' : str).trim();
+  const m = /^\[\[(.*)\]\]$/.exec(s);
+  if (m) s = m[1].trim();
+  const pipe = s.indexOf('|');
+  if (pipe >= 0) s = s.slice(0, pipe).trim();
+  const hash = s.indexOf('#');
+  if (hash >= 0) s = s.slice(0, hash).trim();
+  return s;
+}
+
+/**
+ * 聚焦上限守卫: 已有 ≥3 个 starred 且进行中的专题时,
+ * 仅允许对当前已聚焦项取消 (返回 true), 新聚焦返回 false
+ */
+function canStar(topics, topic) {
+  if (!topic || topic.starred) return true;
+  const id = topic.id;
+  const count = (Array.isArray(topics) ? topics : [])
+    .filter(t => t && t.starred && t.status === 'in_progress' && t.id !== id)
+    .length;
+  return count < TOPIC_STAR_LIMIT;
+}
+
+/* ------------------------------ TopicService ------------------------------ */
+
+function _isFolder(af) { return !!af && Array.isArray(af.children); }
+function _isFile(af) { return !!af && !Array.isArray(af.children) && typeof af.extension === 'string'; }
+
+function _yamlStr(s) {
+  return String(s == null ? '' : s).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+}
+
+function _yamlList(arr) {
+  if (!Array.isArray(arr) || !arr.length) return '[]';
+  return `[${arr.map(s => `"${_yamlStr(s)}"`).join(', ')}]`;
+}
+
+class TopicService {
+  constructor(opts = {}) {
+    this.app = opts.app;
+    this.rootPath = opts.rootPath || TOPIC_ROOT_DEFAULT;
+    this._cbs = new Set();
+    this._eventRefs = [];
+    this._debounceTimer = null;
+  }
+
+  /* ---------- 基础访问 ---------- */
+
+  _vault() { return this.app && this.app.vault; }
+
+  _fileCache(file) {
+    try {
+      return this.app?.metadataCache?.getFileCache?.(file) || null;
+    } catch (_) { return null; }
+  }
+
+  _fm(file) {
+    return this._fileCache(file)?.frontmatter || {};
+  }
+
+  _taskFileOfDir(dirFile) {
+    const kids = dirFile && dirFile.children;
+    if (!Array.isArray(kids)) return null;
+    return kids.find(c => c.name === TOPIC_TASK_FILE && _isFile(c)) || null;
+  }
+
+  _maxMtime(folder) {
+    let max = 0;
+    const walk = (f) => {
+      if (_isFile(f)) {
+        const mt = f.stat?.mtime || 0;
+        if (mt > max) max = mt;
+      } else if (_isFolder(f)) {
+        for (const c of f.children) walk(c);
+      }
+    };
+    walk(folder);
+    return max;
+  }
+
+  async _pathExists(p) {
+    try {
+      const ad = this._vault()?.adapter;
+      if (ad && typeof ad.exists === 'function') return await ad.exists(p);
+    } catch (_) {}
+    try { return !!this._vault()?.getAbstractFileByPath?.(p); } catch (_) { return false; }
+  }
+
+  async _ensureFolder(p) {
+    if (await this._pathExists(p)) return;
+    try { await this._vault().createFolder(p); } catch (_) {}
+  }
+
+  async _uniqueChildName(parentPath, baseName, suffix = '') {
+    let stem = baseName;
+    let n = 1;
+    while (await this._pathExists(`${parentPath}/${stem}${suffix}`)) {
+      n += 1;
+      stem = `${baseName}-${n}`;
+    }
+    return `${stem}${suffix}`;
+  }
+
+  async _moveFile(file, newPath) {
+    const fmApi = this.app?.fileManager;
+    if (fmApi && typeof fmApi.renameFile === 'function') {
+      await fmApi.renameFile(file, newPath);
+    } else {
+      await this._vault().rename(file, newPath);
+    }
+  }
+
+  /* ---------- 扫描 ---------- */
+
+  async scan() {
+    const topics = [];
+    const vault = this._vault();
+    const root = vault?.getAbstractFileByPath?.(this.rootPath);
+    if (!_isFolder(root)) return topics;
+
+    for (const dir of root.children) {
+      if (!_isFolder(dir)) continue;
+      if (!dir.name || dir.name.startsWith('_')) continue; // _Archived / _Seeds 等非专题目录
+      const taskFile = this._taskFileOfDir(dir);
+      if (!taskFile) continue;
+
+      const fm = this._fm(taskFile);
+      let parsed = { steps: [], ideas: [], timeline: [] };
+      try {
+        const body = await vault.read(taskFile);
+        parsed = parseTaskBody(body);
+      } catch (_) {}
+
+      topics.push({
+        id: dir.name,
+        dir: dir.path,
+        dirFile: dir,
+        taskFile,
+        title: fm.title || dir.name,
+        track: fm.track || 'work',
+        module: fm.module || '',
+        status: fm.status || 'in_progress',
+        starred: !!fm.starred,
+        goal: fm.goal || '',
+        jira: Array.isArray(fm.jira) ? fm.jira : [],
+        published_docs: Array.isArray(fm.published_docs) ? fm.published_docs : [],
+        linked_refs: Array.isArray(fm.linked_refs) ? fm.linked_refs : [],
+        steps: parsed.steps,
+        ideas: parsed.ideas,
+        timeline: parsed.timeline,
+        maxMtime: this._maxMtime(dir)
+      });
+    }
+    return topics;
+  }
+
+  /* ---------- 创建 ---------- */
+
+  async createTopic(opts = {}) {
+    const vault = this._vault();
+    const now = new Date();
+    const title = String(opts.title || '').trim() || '未命名专题';
+    const track = TOPIC_TRACKS.some(t => t.id === opts.track) ? opts.track : 'work';
+    const module = String(opts.module || 'GEN');
+    const goal = String(opts.goal || '').trim();
+    const ts = fmtTopicTime(now);
+
+    await this._ensureFolder(this.rootPath);
+    const dirName = await this._uniqueChildName(this.rootPath, sanitizeTopicDirName(title, fmtTopicYmd(now)));
+    const dirPath = `${this.rootPath}/${dirName}`;
+    await this._ensureFolder(dirPath);
+
+    const content = [
+      '---',
+      `title: "${_yamlStr(title)}"`,
+      `track: ${track}`,
+      `module: ${module}`,
+      'status: in_progress',
+      'starred: false',
+      `created: ${fmtTopicDate(now)}`,
+      `updated: ${ts}`,
+      `goal: "${_yamlStr(goal)}"`,
+      `jira: ${_yamlList(opts.jira)}`,
+      'published_docs: []',
+      `linked_refs: ${_yamlList(opts.linked_refs)}`,
+      '---',
+      '',
+      '## 执行步骤 (Checklist)',
+      '',
+      '## 想法 (Ideas)',
+      '',
+      '## 进展日志 (Timeline)',
+      `- **[${ts}]** 创建专题`,
+      ''
+    ].join('\n');
+
+    const file = await vault.create(`${dirPath}/${TOPIC_TASK_FILE}`, content);
+    return { id: dirName, dir: dirPath, title, track, module, goal, taskFile: file };
+  }
+
+  /* ---------- 正文写回 (原子 process) ---------- */
+
+  async _processBody(file, fn) {
+    const vault = this._vault();
+    if (typeof vault.process === 'function') {
+      await vault.process(file, (text) => fn(String(text)));
+    } else {
+      const text = await vault.read(file);
+      await vault.modify(file, fn(String(text)));
+    }
+  }
+
+  async _setFm(file, patch) {
+    const fmApi = this.app?.fileManager;
+    if (fmApi && typeof fmApi.processFrontMatter === 'function') {
+      await fmApi.processFrontMatter(file, (fm) => {
+        for (const k of Object.keys(patch)) fm[k] = patch[k];
+      });
+    }
+  }
+
+  async _touchUpdated(file) {
+    await this._setFm(file, { updated: fmtTopicTime(new Date()) });
+  }
+
+  async toggleStep(topic, lineIndex, done) {
+    const file = topic && topic.taskFile;
+    if (!file) return;
+    await this._processBody(file, (text) => toggleStep(text, lineIndex, done));
+    await this._touchUpdated(file);
+  }
+
+  async addStep(topic, label) {
+    const file = topic && topic.taskFile;
+    if (!file || !String(label || '').trim()) return;
+    await this._processBody(file, (text) => addStep(text, String(label).trim()));
+    await this._touchUpdated(file);
+  }
+
+  async addProgress(topic, label) {
+    const file = topic && topic.taskFile;
+    if (!file || !String(label || '').trim()) return;
+    await this._processBody(file, (text) => addProgress(text, String(label).trim(), new Date()));
+    await this._touchUpdated(file);
+  }
+
+  async setField(topic, key, value) {
+    const file = topic && topic.taskFile;
+    if (!file) return;
+    await this._setFm(file, { [key]: value, updated: fmtTopicTime(new Date()) });
+  }
+
+  async toggleStar(topic) {
+    const topics = await this.scan();
+    const cur = topics.find(t => t.id === topic.id) || topic;
+    const want = !cur.starred;
+    if (want && !canStar(topics, cur)) {
+      const err = new Error('聚焦最多 3 个');
+      err.code = 'STAR_LIMIT';
+      throw err;
+    }
+    const file = cur.taskFile || topic.taskFile;
+    if (file) await this._setFm(file, { starred: want });
+    return want;
+  }
+
+  /* ---------- 归档 ---------- */
+
+  async archive(topic, opts = {}) {
+    const vault = this._vault();
+    const dirPath = topic && topic.dir;
+    if (!dirPath) return { archivedPath: '', seedsCreated: 0 };
+    const archiveRoot = `${this.rootPath}/_Archived`;
+    await this._ensureFolder(archiveRoot);
+    const file = topic.taskFile;
+    if (file) {
+      await this._setFm(file, { status: 'done', updated: fmtTopicTime(new Date()) });
+    }
+    const folder = vault.getAbstractFileByPath(dirPath);
+    if (!folder) return { archivedPath: '', seedsCreated: 0 };
+    const name = await this._uniqueChildName(archiveRoot, topic.id);
+    const archivedPath = `${archiveRoot}/${name}`;
+    await vault.rename(folder, archivedPath);
+    // P2b 闸门②: 未划掉想法转种子 (source_ref 指向归档后的 00-TASK)
+    let seedsCreated = 0;
+    if (opts.ideasToSeeds) {
+      const pending = (topic.ideas || []).filter(i => !i.struck);
+      const ref = `[[${archivedPath}/00-TASK]]`;
+      for (const idea of pending) {
+        try {
+          await this.createSeed({
+            text: idea.label || idea.text || '',
+            source: 'note',
+            source_ref: ref,
+            track: topic.track,
+            module: topic.module
+          });
+          seedsCreated++;
+        } catch (e) { console.warn('[TopicService] ideasToSeeds failed:', e); }
+      }
+    }
+    return { archivedPath, seedsCreated };
+  }
+
+  /** P2b: 手工登记成果 → published_docs (去重, [[去扩展名路径]]) + Timeline 📦 入库 */
+  async addPublishedDoc(topic, file) {
+    const tfile = topic && topic.taskFile;
+    const path = (file && file.path) || String(file || '');
+    if (!tfile || !path) return false;
+    const linkPath = path.replace(/\.md$/i, '');
+    const link = `[[${linkPath}]]`;
+    const cur = Array.isArray(topic.published_docs) ? topic.published_docs : [];
+    const exists = cur.some(s => parseWikiLink(s).replace(/\.md$/i, '') === linkPath);
+    if (exists) return false;
+    await this._setFm(tfile, { published_docs: [...cur, link] });
+    await this._processBody(tfile, (t) => addProgress(t, `📦 入库：${link}`, new Date()));
+    await this._touchUpdated(tfile);
+    return true;
+  }
+
+  /* ---------- 关联与草稿 ---------- */
+
+  async addLinkedRef(topic, file) {
+    const tfile = typeof file === 'string' ? vaultFileOf(this._vault(), file) : file;
+    const path = (tfile && tfile.path) || (typeof file === 'string' ? file : '');
+    if (!path) return;
+    const linkPath = path.replace(/\.md$/i, '');
+    const link = `[[${linkPath}]]`;
+    const cur = Array.isArray(topic.linked_refs) ? topic.linked_refs : [];
+    const exists = cur.some(s => parseWikiLink(s).replace(/\.md$/i, '') === linkPath);
+    if (exists) return;
+    await this._setFm(topic.taskFile, { linked_refs: [...cur, link], updated: fmtTopicTime(new Date()) });
+  }
+
+  async createDraft(topic) {
+    const vault = this._vault();
+    const now = new Date();
+    const name = `草稿-${fmtTopicYmd(now)}-${fmtTopicHm(now)}.md`;
+    const path = `${topic.dir}/${name}`;
+    const file = await vault.create(path, '# 草稿\n');
+    return file;
+  }
+
+  /* ---------- 目录内文件清单 (顶层, 不递归) ---------- */
+
+  listTopicDocs(topic) {
+    const kids = topic?.dirFile?.children;
+    if (!Array.isArray(kids)) return [];
+    return kids
+      .filter(c => _isFile(c) && c.extension === 'md' && c.name !== TOPIC_TASK_FILE && c.name !== '00-SEED.md')
+      .sort((a, b) => (b.stat?.mtime || 0) - (a.stat?.mtime || 0));
+  }
+
+  /* ---------- 变更订阅 ---------- */
+
+  onChange(cb) {
+    if (typeof cb !== 'function') return () => {};
+    this._cbs.add(cb);
+    this._ensureListeners();
+    return () => {
+      this._cbs.delete(cb);
+      if (!this._cbs.size) this._teardownListeners();
+    };
+  }
+
+  _ensureListeners() {
+    if (this._eventRefs.length) return;
+    const vault = this._vault();
+    if (!vault || typeof vault.on !== 'function') return;
+    const rel = (file) => this._schedule(file);
+    for (const ev of ['create', 'modify', 'delete']) {
+      this._eventRefs.push(vault.on(ev, rel));
+    }
+    this._eventRefs.push(vault.on('rename', (file, oldPath) => {
+      this._schedule(file);
+      if (typeof oldPath === 'string') this._schedule({ path: oldPath });
+    }));
+    const mc = this.app?.metadataCache;
+    if (mc && typeof mc.on === 'function') {
+      this._eventRefs.push(mc.on('changed', (file) => this._schedule(file)));
+    }
+  }
+
+  _teardownListeners() {
+    const vault = this._vault();
+    const mc = this.app?.metadataCache;
+    for (const ref of this._eventRefs) {
+      try { vault && vault.offref && vault.offref(ref); } catch (_) {}
+      try { mc && mc.offref && mc.offref(ref); } catch (_) {}
+    }
+    this._eventRefs = [];
+    if (this._debounceTimer) { clearTimeout(this._debounceTimer); this._debounceTimer = null; }
+  }
+
+  _schedule(file) {
+    const p = (file && file.path) || (typeof file === 'string' ? file : '');
+    if (!p) return;
+    if (p !== this.rootPath && !p.startsWith(this.rootPath + '/')) return;
+    if (this._debounceTimer) clearTimeout(this._debounceTimer);
+    this._debounceTimer = setTimeout(() => {
+      this._debounceTimer = null;
+      for (const cb of [...this._cbs]) {
+        try { cb(); } catch (e) { console.warn('[TopicService] onChange error:', e); }
+      }
+    }, 300);
+  }
+
+  dispose() {
+    this._teardownListeners();
+    this.stopAutoWater();
+    this._cbs.clear();
+  }
+
+  /* ---------- 种子 (Seeds) ---------- */
+
+  _seedRoot() {
+    return `${this.rootPath}/_Seeds`;
+  }
+
+  /** 扫描 _Seeds 顶层 md (忽略 _Withered 等子目录), 跳过终态种子 */
+  async scanSeeds() {
+    const out = [];
+    const vault = this._vault();
+    const root = vault?.getAbstractFileByPath?.(this._seedRoot());
+    if (!_isFolder(root)) return out;
+    for (const f of root.children) {
+      if (!_isFile(f) || f.extension !== 'md') continue;
+      const fm = this._fm(f);
+      let parsed = { idea: '', waters: [] };
+      try { parsed = parseSeedBody(await vault.read(f)); } catch (_) {}
+      const status = seedEffectiveStatus(fm.status || 'seed', parsed.waters.length);
+      if (status === 'sprouted' || status === 'merged' || status === 'withered') continue;
+      out.push({
+        id: f.name,
+        path: f.path,
+        file: f,
+        title: fm.title || f.name.replace(/\.md$/i, ''),
+        track: fm.track || '',
+        module: fm.module || '',
+        status,
+        source: fm.source || 'manual',
+        source_ref: fm.source_ref || '',
+        created: fm.created || '',
+        touched: fm.touched || '',
+        idea: parsed.idea,
+        waters: parsed.waters
+      });
+    }
+    return out;
+  }
+
+  /** 新建种子: _Seeds/YYYYMMDD-短标题.md (短标题 ≤30 字, 重名加 -2) */
+  async createSeed(opts = {}) {
+    const vault = this._vault();
+    const now = new Date();
+    const text = String(opts.text || '').trim();
+    const firstLine = (text.split('\n')[0] || '未命名灵感').trim() || '未命名灵感';
+    const title = firstLine.slice(0, 60);
+    await this._ensureFolder(this.rootPath);
+    await this._ensureFolder(this._seedRoot());
+    const fileName = await this._uniqueChildName(
+      this._seedRoot(),
+      sanitizeTopicDirName(firstLine.slice(0, 30), fmtTopicYmd(now)),
+      '.md'
+    );
+    const content = [
+      '---',
+      `title: "${_yamlStr(title)}"`,
+      `track: ${opts.track || ''}`,
+      `module: ${opts.module || ''}`,
+      'status: seed',
+      `source: ${opts.source || 'manual'}`,
+      `source_ref: "${_yamlStr(opts.source_ref || '')}"`,
+      `created: ${fmtTopicDate(now)}`,
+      `touched: ${fmtTopicTime(now)}`,
+      '---',
+      '',
+      '## 想法',
+      text,
+      '',
+      '## 浇水',
+      ''
+    ].join('\n');
+    const file = await vault.create(`${this._seedRoot()}/${fileName}`, content);
+    return { id: fileName, path: file.path, file, title };
+  }
+
+  /** 浇水: 正文追加记录 + 刷新 touched; 第 3 次起升 growing */
+  async water(seed, label, now) {
+    const file = (seed && seed.file) || vaultFileOf(this._vault(), seed && seed.path);
+    const text = String(label || '').trim();
+    if (!file || !text) return;
+    const at = _topicNow(now);
+    let waterCount = Array.isArray(seed.waters) ? seed.waters.length : -1;
+    if (waterCount < 0) {
+      try { waterCount = parseSeedBody(await this._vault().read(file)).waters.length; } catch (_) { waterCount = 0; }
+    }
+    await this._processBody(file, (t) => addWater(t, text, at));
+    const patch = { touched: fmtTopicTime(at) };
+    if (seedEffectiveStatus(seed.status || 'seed', waterCount + 1) === 'growing') {
+      patch.status = 'growing';
+    }
+    await this._setFm(file, patch);
+  }
+
+  /** P2b: 撤销一条浇水; 撤销后 <3 且 fm status 为 growing → 回落 seed */
+  async unwater(seed, lineIndex) {
+    const file = (seed && seed.file) || vaultFileOf(this._vault(), seed && seed.path);
+    if (!file) return;
+    await this._processBody(file, (t) => removeWaterLine(t, lineIndex));
+    let count = 0;
+    try { count = parseSeedBody(await this._vault().read(file)).waters.length; } catch (_) {}
+    const patch = { touched: fmtTopicTime(new Date()) };
+    let fmStatus = '';
+    try { fmStatus = String(this._fm(file).status || ''); } catch (_) {}
+    if (count < 3 && (fmStatus === 'growing' || (seed && seed.status === 'growing'))) {
+      patch.status = 'seed';
+    }
+    await this._setFm(file, patch);
+  }
+
+  /** 发芽: 种子 → 专题 (浇水记录迁入 Timeline, 原种子移入专题目录为 00-SEED.md) */
+  async sprout(seed, opts = {}) {
+    const vault = this._vault();
+    const now = new Date();
+    const seedFile = (seed && seed.file) || vaultFileOf(vault, seed && seed.path);
+    if (!seedFile) throw new Error('种子文件不存在');
+    const goal = String(seed.idea || seed.title || '').split('\n')[0].trim().slice(0, 80);
+    const extra = {};
+    const ref = String(seed.source_ref || '').trim();
+    if (isJiraKey(ref)) extra.jira = [ref];
+    else if (/\[\[.*\]\]/.test(ref)) extra.linked_refs = [ref];
+    const topic = await this.createTopic({
+      title: seed.title || '未命名专题',
+      track: opts.track || seed.track || 'deep',
+      module: opts.module || seed.module || 'GEN',
+      goal,
+      ...extra
+    });
+    const tfile = topic.taskFile;
+    const waters = [...(Array.isArray(seed.waters) ? seed.waters : [])].reverse();
+    for (const w of waters) {
+      await this._processBody(tfile, (t) => addProgress(t, `💧 ${w.text}`, w.time || fmtTopicTime(now)));
+    }
+    await this._processBody(tfile, (t) => addProgress(t, '发芽自种子', now));
+    // 发芽专题以「发芽自种子」为源点, 移除 createTopic 的样板「创建专题」条目
+    await this._processBody(tfile, (t) => {
+      const ls = _splitLinesKeepEnds(t);
+      const sec = _findSection(_scanSections(t, ls), 'timeline');
+      if (!sec) return t;
+      for (let i = sec.headLine + 1; i < sec.endLine; i++) {
+        const m = _RE_TIMELINE_ITEM.exec(_lineContent(t, ls[i]));
+        if (m && (m[2] || '').trim() === '创建专题') {
+          return t.slice(0, ls[i].start) + t.slice(ls[i].end);
+        }
+      }
+      return t;
+    });
+    await this._setFm(seedFile, { status: 'sprouted', touched: fmtTopicTime(now) });
+    const seedName = await this._uniqueChildName(topic.dir, '00-SEED', '.md');
+    await this._moveFile(seedFile, `${topic.dir}/${seedName}`);
+    return topic;
+  }
+
+  /** 并入专题: 种子置 merged 并移入 <专题目录>/_seeds/, 专题 Ideas 顶部记录并入 */
+  async mergeSeed(seed, topic) {
+    const seedFile = (seed && seed.file) || vaultFileOf(this._vault(), seed && seed.path);
+    const tfile = topic && topic.taskFile;
+    if (!seedFile || !tfile) return;
+    const now = new Date();
+    await this._setFm(seedFile, { status: 'merged', touched: fmtTopicTime(now) });
+    const seedsDir = `${topic.dir}/_seeds`;
+    await this._ensureFolder(seedsDir);
+    const stem = String(seed.id || seedFile.name || 'seed').replace(/\.md$/i, '');
+    const name = await this._uniqueChildName(seedsDir, stem, '.md');
+    await this._moveFile(seedFile, `${seedsDir}/${name}`);
+    const ref = `${seedsDir}/${name}`.replace(/\.md$/i, '');
+    await this._processBody(tfile, (t) => addIdea(t, seed.title || stem, now, `并入 [[${ref}]]`));
+    await this._touchUpdated(tfile);
+  }
+
+  /** 丢弃: 置 withered 并移入 _Seeds/_Withered/ (不物理删除) */
+  async discardSeed(seed) {
+    const seedFile = (seed && seed.file) || vaultFileOf(this._vault(), seed && seed.path);
+    if (!seedFile) return;
+    await this._setFm(seedFile, { status: 'withered', touched: fmtTopicTime(new Date()) });
+    const wdir = `${this._seedRoot()}/_Withered`;
+    await this._ensureFolder(wdir);
+    const stem = String(seed.id || seedFile.name || 'seed').replace(/\.md$/i, '');
+    const name = await this._uniqueChildName(wdir, stem, '.md');
+    await this._moveFile(seedFile, `${wdir}/${name}`);
+  }
+
+  /* ---------- P2b: 自动浇水 ---------- */
+
+  _docMeta(file) {
+    let fm = {};
+    try { fm = this._fm(file) || {}; } catch (_) { fm = {}; }
+    const module = Array.isArray(fm.module) ? fm.module : (fm.module ? [fm.module] : []);
+    const tags = Array.isArray(fm.tags) ? fm.tags.join(' ') : String(fm.tags || '');
+    return { module, text: `${file.name} ${fm.title || ''} ${tags}` };
+  }
+
+  /** 监视范围内新文档 → 对匹配种子自动浇水, 返回浇水数 */
+  async autoWaterForDoc(path, now) {
+    const p = String(path || '');
+    if (!isAutoWaterDocPath(p, this.rootPath)) return 0;
+    const file = vaultFileOf(this._vault(), p);
+    if (!file) return 0;
+    const doc = this._docMeta(file);
+    const linkPath = p.replace(/\.md$/i, '');
+    const label = `关联：[[${linkPath}]] ·auto`;
+    const seeds = await this.scanSeeds();
+    let n = 0;
+    for (const s of seeds) {
+      if (s.status !== 'seed' && s.status !== 'growing') continue;
+      if (!seedMatchesDoc(s, doc)) continue;
+      if ((s.waters || []).some(w => String(w.text || '').includes(`[[${linkPath}]]`))) continue;
+      try { await this.water(s, label, now); n++; } catch (e) { console.warn('[TopicService] autoWater failed:', e); }
+    }
+    return n;
+  }
+
+  /** 工单关闭 → source_ref 相等直接浇水 / 同模块 + 关键词 ≥3 浇水, 返回浇水数 */
+  async autoWaterForIssue(issue, now) {
+    const key = String((issue && issue.key) || '').trim();
+    if (!key) return 0;
+    let infer = (typeof inferDbgNaming === 'function') ? inferDbgNaming : null;
+    if (!infer) {
+      try { infer = require('./jira-sandbox-service.js').inferDbgNaming; } catch (_) {}
+    }
+    const mod = infer ? String(infer(issue).module || '') : '';
+    const summary = String((issue && issue.summary) || '');
+    const label = `工单 ${key} 已关闭 ·auto`;
+    const seeds = await this.scanSeeds();
+    let n = 0;
+    for (const s of seeds) {
+      if (s.status !== 'seed' && s.status !== 'growing') continue;
+      const refHit = String(s.source_ref || '').trim().toUpperCase() === key.toUpperCase();
+      let kwHit = false;
+      if (!refHit && mod && mod !== 'GEN'
+          && String(s.module || '').trim().toUpperCase() === mod) {
+        const kws = seedKeywords(`${s.title || ''}\n${s.idea || ''}`);
+        const dt = summary.toLowerCase();
+        let score = 0;
+        for (const k of kws) if (dt.includes(k)) score += /^[a-z0-9_]+$/.test(k) ? 2 : 1;
+        kwHit = score >= 3;
+      }
+      if (!refHit && !kwHit) continue;
+      // 去重: 已有同工单关闭记录 (key 大小写不敏感) 则跳过
+      const keyU = key.toUpperCase();
+      if ((s.waters || []).some(w => String(w.text || '').toUpperCase().includes(`工单 ${keyU} 已关闭`))) continue;
+      try { await this.water(s, label, now); n++; } catch (e) { console.warn('[TopicService] autoWaterIssue failed:', e); }
+    }
+    return n;
+  }
+
+  /** 挂接 vault create/rename + metadataCache changed; create 先入 _pendingDocs 等 fm 就绪 */
+  startAutoWater() {
+    if (this._awRefs && this._awRefs.length) return;
+    this._awRefs = [];
+    this._pendingDocs = new Set();
+    const vault = this._vault();
+    if (!vault || typeof vault.on !== 'function') return;
+    const kick = (p) => {
+      Promise.resolve(this.autoWaterForDoc(p)).catch(e => console.warn('[TopicService] autoWaterForDoc:', e));
+    };
+    this._awRefs.push(vault.on('create', (f) => {
+      try {
+        const p = f && f.path;
+        if (isAutoWaterDocPath(p, this.rootPath)) this._pendingDocs.add(p);
+      } catch (_) {}
+    }));
+    this._awRefs.push(vault.on('rename', (f) => {
+      try {
+        const p = f && f.path;
+        if (!isAutoWaterDocPath(p, this.rootPath)) return;
+        this._pendingDocs.delete(p);
+        kick(p); // rename: 元数据已缓存, 立即处理
+      } catch (_) {}
+    }));
+    const mc = this.app && this.app.metadataCache;
+    if (mc && typeof mc.on === 'function') {
+      this._awRefs.push(mc.on('changed', (f) => {
+        try {
+          const p = f && f.path;
+          if (!p || !this._pendingDocs.has(p)) return;
+          this._pendingDocs.delete(p);
+          kick(p);
+        } catch (_) {}
+      }));
+    }
+  }
+
+  stopAutoWater() {
+    const vault = this._vault();
+    const mc = this.app && this.app.metadataCache;
+    for (const ref of (this._awRefs || [])) {
+      try { vault && vault.offref && vault.offref(ref); } catch (_) {}
+      try { mc && mc.offref && mc.offref(ref); } catch (_) {}
+    }
+    this._awRefs = [];
+    this._pendingDocs = new Set();
+  }
+
+  /* ---------- P2b: 枯萎 / 复活 ---------- */
+
+  /** 90 天未触碰的 seed/growing → 移入 _Withered (不删除), 返回数量 */
+  async witherStaleSeeds(now) {
+    const nowMs = (now instanceof Date) ? now.getTime() : (now ? new Date(now).getTime() : Date.now());
+    const seeds = await this.scanSeeds();
+    let n = 0;
+    for (const s of seeds) {
+      if (!shouldWitherSeed(s, nowMs)) continue;
+      try { await this.discardSeed(s); n++; } catch (e) { console.warn('[TopicService] wither failed:', e); }
+    }
+    return n;
+  }
+
+  /** 只扫 _Seeds/_Withered/ 顶层 md */
+  async scanWithered() {
+    const out = [];
+    const vault = this._vault();
+    const wroot = vault && vault.getAbstractFileByPath(`${this._seedRoot()}/_Withered`);
+    if (!_isFolder(wroot)) return out;
+    for (const f of wroot.children) {
+      if (!_isFile(f) || f.extension !== 'md') continue;
+      const fm = this._fm(f);
+      let parsed = { idea: '', waters: [] };
+      try { parsed = parseSeedBody(await vault.read(f)); } catch (_) {}
+      out.push({
+        id: f.name, path: f.path, file: f,
+        title: fm.title || f.name.replace(/\.md$/i, ''),
+        track: fm.track || '', module: fm.module || '',
+        status: fm.status || 'withered',
+        source: fm.source || 'manual', source_ref: fm.source_ref || '',
+        created: fm.created || '', touched: fm.touched || '',
+        idea: parsed.idea, waters: parsed.waters
+      });
+    }
+    return out;
+  }
+
+  /** 复活: fm status=seed + touched 刷新, 移回 _Seeds/ (重名加后缀) */
+  async reviveSeed(seed) {
+    const seedFile = (seed && seed.file) || vaultFileOf(this._vault(), seed && seed.path);
+    if (!seedFile) return;
+    await this._setFm(seedFile, { status: 'seed', touched: fmtTopicTime(new Date()) });
+    const stem = String(seed.id || seedFile.name || 'seed').replace(/\.md$/i, '');
+    const name = await this._uniqueChildName(this._seedRoot(), stem, '.md');
+    await this._moveFile(seedFile, `${this._seedRoot()}/${name}`);
+  }
+
+  /* ---------- P3: 周回顾执行 ---------- */
+
+  /**
+   * applyWeeklyReview({focusIds, seedActions, ideaActions})
+   * focusIds ≤3 (超出忽略+warn), 重置进行中专题 starred;
+   * seedActions {id: 'sprout'|'keep'|'discard'};
+   * ideaActions [{topicId,line,action}] 同专题按行号降序执行防错位, 单项失败仅 warn 继续
+   */
+  async applyWeeklyReview(plan = {}) {
+    const res = { focused: 0, sprouted: 0, discarded: 0, steps: 0, forked: 0, struck: 0 };
+
+    // 1) 聚焦重置 (直接 _setFm; 先取消不在集合内的 star, 再设置集合内 star)
+    let focusIds = Array.isArray(plan.focusIds) ? plan.focusIds : [];
+    if (focusIds.length > 3) {
+      console.warn('[TopicService] weeklyReview focusIds >3, truncated');
+      focusIds = focusIds.slice(0, 3);
+    }
+    const focusSet = new Set(focusIds);
+    const topics = (await this.scan()).filter(t => t.status === 'in_progress');
+    for (const t of topics) {
+      if (!!t.starred && !focusSet.has(t.id)) {
+        try { await this._setFm(t.taskFile, { starred: false }); res.focused++; }
+        catch (e) { console.warn('[TopicService] review unfocus failed:', t.id, e); }
+      }
+    }
+    for (const t of topics) {
+      if (!t.starred && focusSet.has(t.id)) {
+        try { await this._setFm(t.taskFile, { starred: true }); res.focused++; }
+        catch (e) { console.warn('[TopicService] review focus failed:', t.id, e); }
+      }
+    }
+
+    // 2) 培育中种子分流
+    const acts = plan.seedActions || {};
+    const seeds = await this.scanSeeds();
+    for (const sid of Object.keys(acts)) {
+      const act = acts[sid];
+      if (act === 'keep' || !act) continue;
+      const s = seeds.find(x => x.id === sid);
+      if (!s) continue;
+      try {
+        if (act === 'sprout') {
+          await this.sprout(s, { track: s.track || 'deep', module: s.module || 'GEN' });
+          res.sprouted++;
+        } else if (act === 'discard') {
+          await this.discardSeed(s);
+          res.discarded++;
+        }
+      } catch (e) { console.warn('[TopicService] review seed failed:', sid, e); }
+    }
+
+    // 3) 积压想法处置 (同专题按行号降序 + 每次重扫并以 label 复核行号:
+    //    ideaToStep 会在 Checklist(位于 Ideas 之前) 插入一行, 使后续想法行号 +1)
+    const byTopic = new Map();
+    for (const a of (plan.ideaActions || [])) {
+      if (!a || !a.topicId || a.action === 'keep') continue;
+      if (!byTopic.has(a.topicId)) byTopic.set(a.topicId, []);
+      byTopic.get(a.topicId).push(a);
+    }
+    for (const [tid, list] of byTopic.entries()) {
+      list.sort((x, y) => (y.line || 0) - (x.line || 0));
+      for (const a of list) {
+        try {
+          const topic = (await this.scan()).find(t => t.id === tid);
+          if (!topic) continue;
+          const ideas = topic.ideas || [];
+          let target = ideas.find(i => i.line === a.line);
+          if ((!target || (a.label && target.label !== a.label)) && a.label) {
+            target = ideas.find(i => i.label === a.label); // 行号已位移 → 按 label 复核
+          }
+          if (!target) continue;
+          const line = target.line;
+          if (a.action === 'step') { await this.ideaToStep(topic, line); res.steps++; }
+          else if (a.action === 'fork') { await this.forkIdea(topic, line); res.forked++; }
+          else if (a.action === 'strike') { await this.strikeIdea(topic, line); res.struck++; }
+        } catch (e) { console.warn('[TopicService] review idea failed:', tid, a.line, e); }
+      }
+    }
+    return res;
+  }
+
+  /* ---------- 专题想法 (Ideas) ---------- */
+
+  async addIdea(topic, label, source) {
+    const file = topic && topic.taskFile;
+    const text = String(label || '').trim();
+    if (!file || !text) return;
+    await this._processBody(file, (t) => addIdea(t, text, new Date(), source || ''));
+    await this._touchUpdated(file);
+  }
+
+  async ideaToStep(topic, lineIndex) {
+    const file = topic && topic.taskFile;
+    if (!file) return;
+    await this._processBody(file, (t) => ideaToStep(t, lineIndex));
+    await this._touchUpdated(file);
+  }
+
+  async strikeIdea(topic, lineIndex) {
+    const file = topic && topic.taskFile;
+    if (!file) return;
+    await this._processBody(file, (t) => strikeIdea(t, lineIndex));
+    await this._touchUpdated(file);
+  }
+
+  /** 想法分叉为种子: 以 label 建种 (source=note), 成功后删除原想法行 */
+  async forkIdea(topic, lineIndex) {
+    const file = topic && topic.taskFile;
+    if (!file) return null;
+    const body = await this._vault().read(file);
+    const parsed = parseTaskBody(body);
+    const idea = (parsed.ideas || []).find(i => i.line === lineIndex);
+    if (!idea || idea.struck || !idea.label) return null;
+    const seed = await this.createSeed({
+      text: idea.label,
+      source: 'note',
+      source_ref: `[[${topic.dir}/00-TASK]]`,
+      track: topic.track || '',
+      module: topic.module || ''
+    });
+    await this._processBody(file, (t) => removeIdeaLine(t, lineIndex));
+    await this._touchUpdated(file);
+    return seed;
+  }
+
+  /* ---------- P2a: Jira 升为专题 ---------- */
+
+  async findTopicByJira(key) {
+    const topics = await this.scan();
+    return findTopicByJira(topics, key);
+  }
+
+  /**
+   * 工单升为专题: 建专题(track=work, jira=[KEY]) → 沙盒子项整体迁入 →
+   * 草稿 disposition=topic → 00-TASK 追加 Timeline/步骤
+   */
+  async promoteFromJira(issue, opts = {}) {
+    const vault = this._vault();
+    const key = String(issue && issue.key || '').trim();
+    if (!key) throw new Error('缺少工单号');
+    const summary = String(issue && issue.summary || '').trim();
+    const module = String(opts.module || 'GEN') || 'GEN';
+    const title = `[${key}] ${summary.slice(0, 60)}`;
+    const topic = await this.createTopic({
+      title, track: 'work', module, goal: summary, jira: [key]
+    });
+
+    // 沙盒直接子项 (文件与文件夹) 逐个迁入专题目录顶层
+    const sandboxDir = String(opts.sandboxDir || '').replace(/\/+$/, '');
+    let dbgFile = null;
+    if (sandboxDir && vault) {
+      const folder = vault.getAbstractFileByPath(sandboxDir);
+      if (_isFolder(folder)) {
+        for (const child of [...(folder.children || [])]) {
+          const stem = String(child.name || '').replace(/\.[^.]+$/, '');
+          const ext = _isFile(child) ? String(child.name).slice(stem.length) : '';
+          const newName = await this._uniqueChildName(topic.dir, stem, ext);
+          const newPath = `${topic.dir}/${newName}`;
+          const isDbg = _isFile(child) && /_DBG.*\.md$/i.test(child.name);
+          await this._moveFile(child, newPath);
+          if (isDbg) {
+            try { dbgFile = vault.getAbstractFileByPath(newPath) || dbgFile; } catch (_) {}
+          }
+        }
+        if ((folder.children || []).length === 0) {
+          try { await vault.delete(folder); } catch (_) {}
+        }
+      }
+    }
+
+    // 移入的 DBG 草稿置 disposition: topic (updated 存在才刷新)
+    if (dbgFile) {
+      const fmApi = this.app && this.app.fileManager;
+      if (fmApi && typeof fmApi.processFrontMatter === 'function') {
+        const today = fmtTopicDate(new Date());
+        await fmApi.processFrontMatter(dbgFile, (fm) => {
+          fm.disposition = 'topic';
+          if (fm.updated !== undefined) fm.updated = today;
+        });
+      }
+    }
+
+    // 00-TASK.md: Timeline「源自 Jira」(+草稿 wikilink) + Checklist 一步
+    const ref = dbgFile ? ` [[${String(dbgFile.path).replace(/\.[^.]+$/, '')}]]` : '';
+    await this._processBody(topic.taskFile, (t) => addProgress(t, `源自 Jira ${key}：${summary}${ref}`, new Date()));
+    await this._processBody(topic.taskFile, (t) => addStep(t, `梳理 ${key} 排查结论，明确专题目标`));
+    await this._touchUpdated(topic.taskFile);
+    return topic;
+  }
+
+  /** 升为专题入口: 已有专题直接返回不重复创建 */
+  async ensureTopicFromJira(issue, opts = {}) {
+    const key = String(issue && issue.key || '').trim();
+    const existing = await this.findTopicByJira(key);
+    if (existing) return { topic: existing, created: false };
+    const topic = await this.promoteFromJira(issue, opts);
+    return { topic, created: true };
+  }
+
+  /** 记灵感统一入口: 按 target 写专题想法或建种子 */
+  async captureIdea(opts = {}) {
+    const text = String(opts.text || '').trim();
+    if (!text) return null;
+    const ctx = opts.context || {};
+    const target = opts.target || { type: 'seed' };
+    if (target.type === 'topic' && target.id) {
+      const topic = (await this.scan()).find(t => t.id === target.id);
+      if (!topic) throw new Error(`专题不存在: ${target.id}`);
+      await this.addIdea(topic, text, ctx.source_ref || '');
+      return { kind: 'topic', topic };
+    }
+    const seed = await this.createSeed({
+      text,
+      track: target.track || '',
+      module: ctx.module || '',
+      source: ctx.source || 'manual',
+      source_ref: ctx.source_ref || ''
+    });
+    return { kind: 'seed', seed };
+  }
+}
+
+function vaultFileOf(vault, path) {
+  try { return vault?.getAbstractFileByPath?.(path) || null; } catch (_) { return null; }
+}
+
+// services/jira-sandbox-service.js
+// 问题单排查沙盒 (P1c): 一单一目录 00-Inbox/03-Quick-Note/{KEY}/,
+// 首次「开始排查建档」生成 _DBG.md 草稿 (命名遵循 99-Meta/02-Naming-Spec v1.2 NAM-03)
+
+const DBG_SANDBOX_ROOT = '00-Inbox/03-Quick-Note';
+
+// 平台关键词 (不区分大小写, 取首个命中)
+const DBG_PLATFORM_RULES = [
+  ['MTK', /mtk|联发科|mt\d{4}/i],
+  ['QCOM', /qcom|qualcomm|高通|sm\d{4}/i],
+  ['UNISOC', /unisoc|展锐|ums\d+|sc\d{4}|紫光/i],
+  ['EXYNOS', /exynos|三星/i],
+  ['HISI', /hisi|海思|hi\d{4}/i],
+  ['RK', /rockchip|瑞芯微|rk\d{4}/i],
+  ['AW', /allwinner|全志/i]
+];
+
+// 模块关键词 (同一层文本命中多个时按书写顺序取第一个)
+const DBG_MODULE_RULES = [
+  ['CHG', /充电|charger|charging|battery|电池|电量计|gauge/i],
+  ['USB', /usb|typec|type-c|\bpd\b/i],
+  ['DISP', /显示|屏|lcd|oled|mipi|display/i],
+  ['CAM', /相机|摄像|camera|isp/i],
+  ['AUD', /音频|声音|喇叭|audio|speaker|codec/i],
+  ['TP', /触摸|tp\b|touch/i],
+  ['SNS', /传感|sensor|gyro|加速度/i],
+  ['PWR', /功耗|休眠|唤醒|suspend|power|待机/i],
+  ['STOR', /存储|emmc|ufs|storage/i],
+  ['CONN', /蓝牙|wifi|wi-fi|bluetooth|nfc|gps|connectivity/i],
+  ['MODEM', /modem|ril|基带|通话/i],
+  ['INPUT', /按键|input|振动|马达/i],
+  ['SEC', /安全|tee|security/i],
+  ['KERN', /内核|kernel|panic|死机|重启|watchdog/i],
+  ['BUILD', /编译|build|toolchain/i],
+  ['HW', /硬件|电路|原理图/i]
+];
+
+// v1.2 标签映射
+const DBG_PLATFORM_TAG = {
+  QCOM: 'qcom', MTK: 'mtk', UNISOC: 'unisoc', EXYNOS: 'exynos',
+  HISI: 'hisi', RK: 'rockchip', AW: 'allwinner', COMMON: 'common'
+};
+const DBG_MODULE_TAG = {
+  DISP: 'display', CAM: 'camera', AUD: 'audio', USB: 'usb', CHG: 'charger',
+  SNS: 'sensor', TP: 'touch', PWR: 'power', STOR: 'storage', CONN: 'connectivity',
+  MODEM: 'modem', INPUT: 'input', SEC: 'security', KERN: 'kernel',
+  BUILD: 'build', HW: 'hardware', GEN: 'general'
+};
+
+// P2a: 模块 -> 03-Driver 目录映射 (GEN/KERN/BUILD/HW 无直接对应, 按 01-Directory-Spec 裁决)
+const DBG_MODULE_DIR = {
+  DISP: '01-Display', CAM: '02-Camera', AUD: '03-Audio', USB: '04-USB',
+  CHG: '05-Charger', SNS: '06-Sensor', TP: '07-Touch', PWR: '08-Power',
+  STOR: '09-Storage', CONN: '10-Connectivity', MODEM: '11-Modem-RIL',
+  INPUT: '12-Input-Misc', SEC: '13-Security-TEE'
+};
+
+// NAM-03 非法字符: ASCII \ / : * ? " < > | # % & ^ [ ] ! + 全角标点
+const _RE_DBG_ILLEGAL = /[\\/:*?"<>|#%&^[\]!，。；：！？（）【】「」、“”‘’《》]/g;
+
+function _dbgClean(s) {
+  return String(s || '')
+    .replace(_RE_DBG_ILLEGAL, '')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .trim();
+}
+
+function _inferFromText(text, rules) {
+  const s = String(text || '');
+  if (!s) return '';
+  for (const [code, re] of rules) {
+    if (re.test(s)) return code;
+  }
+  return '';
+}
+
+/**
+ * 平台/模块推断: 只在 components + summary + description 内按关键词推断;
+ * components 优先于 summary, summary 优先于 description; 推不出 → COMMON/GEN
+ */
+function _compNames(components) {
+  if (!Array.isArray(components)) return String(components || '');
+  return components
+    .map(c => (c && typeof c === 'object') ? String(c.name || c.value || '') : String(c || ''))
+    .filter(Boolean)
+    .join(' ');
+}
+
+function inferDbgNaming(issue) {
+  const iss = issue || {};
+  const comps = _compNames(iss.components);
+  const layers = [comps, iss.summary, iss.description].map(x => String(x || ''));
+  let platform = 'COMMON';
+  let module = 'GEN';
+  for (const txt of layers) {
+    const p = _inferFromText(txt, DBG_PLATFORM_RULES);
+    if (p) { platform = p; break; }
+  }
+  for (const txt of layers) {
+    const m = _inferFromText(txt, DBG_MODULE_RULES);
+    if (m) { module = m; break; }
+  }
+  return { platform, module };
+}
+
+/** 标题 = {KEY}-{简称}; 简称 ≤24 字符; 摘要为空只剩 KEY */
+function sanitizeDbgTitle(key, summary) {
+  const k = String(key || '').trim();
+  const short = _dbgClean(summary).slice(0, 24).replace(/-+$/g, '');
+  return short ? `${k}-${short}` : k;
+}
+
+function _dbgYmd(d) {
+  return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+}
+function _dbgDate(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+/** {标题}_v0.1_{YYYYMMDD}_{platform}_{module}_DBG.md, 总长 ≤80, 超长只截标题且保留 KEY */
+function buildDbgFileName(issue, now, naming) {
+  const iss = issue || {};
+  const nm = naming || inferDbgNaming(iss);
+  const d = (now instanceof Date) ? now : (now ? new Date(now) : new Date());
+  const key = String(iss.key || 'UNKNOWN').trim() || 'UNKNOWN';
+  const suffix = `_v0.1_${_dbgYmd(d)}_${nm.platform}_${nm.module}_DBG.md`;
+  let title = sanitizeDbgTitle(key, iss.summary);
+  const maxTitle = 80 - suffix.length;
+  if (title.length > maxTitle) {
+    title = title.slice(0, Math.max(maxTitle, key.length)).replace(/-+$/g, '');
+    if (title.length < key.length) title = key;
+  }
+  return `${title}${suffix}`;
+}
+
+/** 沙盒目录 00-Inbox/03-Quick-Note/{KEY} (KEY 按同规则清理) */
+function sandboxDirPath(key) {
+  return `${DBG_SANDBOX_ROOT}/${_dbgClean(key)}`;
+}
+
+function _dbgYamlStr(s) {
+  return String(s == null ? '' : s).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+}
+
+/**
+ * DBG 草稿正文: v1.2 frontmatter + 工单元数据卡片 + 详细描述 + 活动日志
+ * + 四个固定排查章节 (复现现象 / 源码调用链 / 验证结论 / Patch)
+ */
+function buildDbgNoteContent(issue, comments, now, naming) {
+  const iss = issue || {};
+  const nm = naming || inferDbgNaming(iss);
+  const d = (now instanceof Date) ? now : (now ? new Date(now) : new Date());
+  const dateStr = _dbgDate(d);
+  const summary = String(iss.summary || '').trim();
+
+  const lines = [];
+  lines.push('---');
+  lines.push(`title: "[${iss.key || ''}] ${_dbgYamlStr(summary)}"`);
+  lines.push(`date: ${dateStr}`);
+  lines.push(`updated: ${dateStr}`);
+  lines.push(`platform: [${nm.platform}]`);
+  lines.push(`module: [${nm.module}]`);
+  lines.push('doctype: DBG');
+  lines.push('version: v0.1');
+  lines.push('status: draft');
+  lines.push('tags:');
+  lines.push(`  - "#platform/${DBG_PLATFORM_TAG[nm.platform] || 'common'}"`);
+  lines.push(`  - "#module/${DBG_MODULE_TAG[nm.module] || 'general'}"`);
+  lines.push('  - "#doctype/dbg"');
+  lines.push('  - "#status/draft"');
+  lines.push('source: internal');
+  lines.push('owner: human');
+  lines.push(`jira_key: "${iss.key || ''}"`);
+  lines.push(`jira_url: "${_dbgYamlStr(iss.url || '')}"`);
+  lines.push('related: []');
+  lines.push('---');
+  lines.push('');
+  lines.push(`# 🎯 [${iss.key}] ${summary}`);
+  lines.push('');
+  lines.push('> [!INFO] 工单元数据卡片');
+  lines.push(`> - **工单编号**: \`${iss.key}\``);
+  lines.push(`> - **当前状态**: \`${iss.status || '未知'}\``);
+  lines.push(`> - **优先级**: \`${iss.priority || 'Medium'}\``);
+  lines.push(`> - **经办人**: ${iss.assignee || '未指派'}`);
+  lines.push(`> - **报告人**: ${iss.reporter || '系统'}`);
+  const compStr = _compNames(iss.components);
+  if (compStr) {
+    lines.push(`> - **模块组件**: ${compStr}`);
+  }
+  if (iss.created) lines.push(`> - **创建时间**: ${iss.created}`);
+  if (iss.updated) lines.push(`> - **更新时间**: ${iss.updated}`);
+  if (iss.url) lines.push(`> - **Jira 链接**: [在浏览器中直达工单](${iss.url})`);
+  lines.push('');
+  lines.push('## 📋 工单详细描述 (Description)');
+  lines.push('');
+  lines.push(iss.description && String(iss.description).trim() ? String(iss.description).trim() : '*(暂无详细描述)*');
+  lines.push('');
+  lines.push('## 💬 活动日志与注释历史 (Comments)');
+  lines.push('');
+  if (comments && comments.length > 0) {
+    for (const c of comments) {
+      lines.push(`> [!NOTE] 👤 ${c.author} · ${c.createdFormatted || c.created}${c.isEdited ? ' *(已编辑)*' : ''}`);
+      const bodyLines = String(c.body || '').split('\n');
+      for (const bl of bodyLines) {
+        lines.push(`> ${bl}`);
+      }
+      lines.push('');
+    }
+  } else {
+    lines.push('*(暂无历史注释记录)*');
+    lines.push('');
+  }
+  lines.push('---');
+  lines.push('');
+  lines.push('## 复现现象');
+  lines.push('- 测试条件/版本: ');
+  lines.push('- 复现概率: ');
+  lines.push('- 核心日志/抓包片段: ');
+  lines.push('```text');
+  lines.push('```');
+  lines.push('');
+  lines.push('## 源码调用链');
+  lines.push('- ');
+  lines.push('');
+  lines.push('## 验证结论');
+  lines.push('- ');
+  lines.push('');
+  lines.push('## Patch');
+  lines.push('- ');
+  lines.push('');
+  return lines.join('\n');
+}
+
+/* ============================ P2a: 联调提示词与工具路由 ============================ */
+
+function _promptCtx(issue, ctx) {
+  const iss = issue || {};
+  const c = ctx || {};
+  const naming = inferDbgNaming(iss);
+  const key = String(iss.key || '').trim();
+  return {
+    iss,
+    key,
+    summary: String(iss.summary || '').trim(),
+    module: c.module || naming.module,
+    platform: c.platform || naming.platform,
+    sandboxDir: c.sandboxDir || sandboxDirPath(key || 'UNKNOWN'),
+    draftPath: c.draftPath || ''
+  };
+}
+
+function _dbgRef(ctx) {
+  return ctx.draftPath ? `（草稿 ${ctx.draftPath}）` : `（${ctx.sandboxDir}/ 下 *_DBG.md 草稿）`;
+}
+
+/** 📎 附件: 列出并下载附件到 {KEY}/attachments/, 清单追加到「复现现象」 */
+function buildAttachmentPrompt(issue, ctx) {
+  const p = _promptCtx(issue, ctx);
+  return [
+    `请协助整理 Jira 工单 ${p.key} 的排查附件：`,
+    `1. 调用 jira_list_attachments 列出工单 ${p.key} 的全部附件；`,
+    `2. 对其中的日志、抓包、截图等排查相关附件，用 jira_download_attachment 下载到 ${p.sandboxDir}/attachments/（attachments 目录不存在请先创建；若沙盒目录不存在请先创建）；`,
+    `3. 将附件清单（文件名 / 大小 / 类型）追加记录到沙盒排查草稿的「## 复现现象」章节${_dbgRef(p)}；`,
+    `只在 ${p.sandboxDir}/ 沙盒目录内写入，不要修改其它位置的文件。`
+  ].join('\n');
+}
+
+/** 🔍 源码: opengrok 检索调用链, 整理到「源码调用链」 */
+function buildSourcePrompt(issue, ctx) {
+  const p = _promptCtx(issue, ctx);
+  return [
+    `请协助梳理 Jira 工单 ${p.key} 的源码调用链：`,
+    `1. 围绕工单摘要「${p.summary}」与模块 ${p.module}，先调用 opengrok_list_projects 确认相关工程；`,
+    `2. 用 opengrok_search_code 检索关键函数与符号，用 opengrok_read_file 阅读关键函数实现；`,
+    `3. 将调用链（函数名、文件:行号）整理后追加到沙盒排查草稿的「## 源码调用链」章节${_dbgRef(p)}；`,
+    `4. 给出结论前必须引用真实文件与行号，禁止臆造。`,
+    `若沙盒目录 ${p.sandboxDir}/ 不存在请先创建，只在沙盒目录内写入。`
+  ].join('\n');
+}
+
+/** 🌿 提交: gerrit 检索同类补丁, 结论到「Patch」 */
+function buildGerritPrompt(issue, ctx) {
+  const p = _promptCtx(issue, ctx);
+  return [
+    `请协助排查 Jira 工单 ${p.key} 相关的 Gerrit 变更：`,
+    `1. 用 gerrit_search_changes 以工单号 ${p.key} 与关键字「${p.summary}」检索相关变更；`,
+    `2. 必要时用 gerrit_get_diff / gerrit_get_comments 查看补丁内容与评审意见；`,
+    `3. 判断上游是否已有同类补丁，将结论追加到沙盒排查草稿的「## Patch」章节${_dbgRef(p)}；`,
+    `若沙盒目录 ${p.sandboxDir}/ 不存在请先创建，只在沙盒目录内写入。`
+  ].join('\n');
+}
+
+/** 提炼CASE: 走 tabonkb-inbox-ingest 技能, L2 先呈裁决再执行 */
+function buildCasePrompt(issue, ctx) {
+  const p = _promptCtx(issue, ctx);
+  const modDir = DBG_MODULE_DIR[p.module];
+  const landing = modDir
+    ? `03-Driver/${modDir}/04-Debug-Case/`
+    : '03-Driver/<模块目录>/04-Debug-Case/（该模块无直接对应目录，请按 01-Directory-Spec 裁决模块目录）';
+  const input = p.draftPath
+    ? `${p.sandboxDir}/（排查草稿 ${p.draftPath}，含 attachments/ 附件）`
+    : `${p.sandboxDir}/（含 attachments/ 附件）`;
+  return [
+    `请使用 tabonkb-inbox-ingest 技能，将 Jira 工单 ${p.key} 的排查沙盒提炼为 CASE 文档并入库。`,
+    `输入：${input}；`,
+    `产出：CASE 文档，命名严格按 99-Meta/02-Naming-Spec.md v1.2——{标题}_v1.0_{YYYYMMDD}_{平台}_{模块}_CASE.md；平台/模块优先取排查草稿 frontmatter 的 platform/module，取不到再按 ${p.platform}/${p.module} 推断；`,
+    `落位：${landing}；`,
+    `请补齐 #issue/ 标签及其它必填元数据；`,
+    `L2 流程：先向我呈现归类裁决、目标路径、文件名与标签清单，待我确认后再执行；执行后按规范写 Oplog 与索引。`
+  ].join('\n');
+}
+
+/** ⚡ 波形路由: CHG/PWR → 充电分析, 其余 → 逻辑分析 */
+function toolIdForModule(module) {
+  const m = String(module || '').toUpperCase();
+  return (m === 'CHG' || m === 'PWR') ? 'battery-charger' : 'logic';
+}
+
+function _sbxIsFolder(n) {
+  return !!(n && Array.isArray(n.children));
+}
+function _sbxIsFile(n) {
+  return !!(n && !Array.isArray(n.children) && typeof n.path === 'string');
+}
+
+class JiraSandboxService {
+  constructor(opts = {}) {
+    this.app = opts.app;
+  }
+
+  _vault() {
+    return this.app && this.app.vault;
+  }
+
+  dirPath(key) {
+    return sandboxDirPath(key);
+  }
+
+  async exists(key) {
+    const vault = this._vault();
+    if (!vault) return false;
+    try {
+      return _sbxIsFolder(vault.getAbstractFileByPath(this.dirPath(key)));
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /** 递归列出沙盒目录下全部文件: md 排前, 其余按 mtime 降序, 上限 50 */
+  async list(key) {
+    const vault = this._vault();
+    const dir = vault && vault.getAbstractFileByPath(this.dirPath(key));
+    if (!_sbxIsFolder(dir)) return [];
+    const out = [];
+    const walk = (f) => {
+      for (const c of (f.children || [])) {
+        if (_sbxIsFile(c)) out.push(c);
+        else if (_sbxIsFolder(c)) walk(c);
+      }
+    };
+    walk(dir);
+    out.sort((a, b) => {
+      const am = String(a.extension || '').toLowerCase() === 'md' ? 0 : 1;
+      const bm = String(b.extension || '').toLowerCase() === 'md' ? 0 : 1;
+      if (am !== bm) return am - bm;
+      return ((b.stat && b.stat.mtime) || 0) - ((a.stat && a.stat.mtime) || 0);
+    });
+    return out.slice(0, 50);
+  }
+
+  async _pathExists(p) {
+    const vault = this._vault();
+    if (!vault) return false;
+    try { if (vault.getAbstractFileByPath(p)) return true; } catch (_) {}
+    try { if (vault.adapter && vault.adapter.exists) return await vault.adapter.exists(p); } catch (_) {}
+    return false;
+  }
+
+  async _ensureFolder(p) {
+    const vault = this._vault();
+    const parts = String(p).split('/');
+    let cur = '';
+    for (const part of parts) {
+      cur = cur ? `${cur}/${part}` : part;
+      if (!(await this._pathExists(cur))) {
+        try { await vault.createFolder(cur); } catch (_) {}
+      }
+    }
+  }
+
+  /** 目录顶层第一个含 _DBG 的 md 草稿 */
+  _findDbgFile(dir) {
+    for (const c of (dir.children || [])) {
+      if (_sbxIsFile(c) && /_DBG.*\.md$/i.test(c.name)) return c;
+    }
+    return null;
+  }
+
+  /** P2a: 沙盒目录内首个含 _DBG 的 md 草稿, 无则 null */
+  async findDraft(key) {
+    const vault = this._vault();
+    const dir = vault && vault.getAbstractFileByPath(this.dirPath(key));
+    if (!_sbxIsFolder(dir)) return null;
+    return this._findDbgFile(dir);
+  }
+
+  /** P2a: 读草稿 frontmatter 的分流状态 */
+  async readDisposition(key) {
+    const draft = await this.findDraft(key);
+    let fm = {};
+    if (draft) {
+      try { fm = this.app?.metadataCache?.getFileCache?.(draft)?.frontmatter || {}; } catch (_) { fm = {}; }
+    }
+    return { disposition: String(fm.disposition || ''), closed_at: String(fm.closed_at || '') };
+  }
+
+  /** P2a: 写分流状态; closed 时写 closed_at=今日; 无草稿抛 NO_DRAFT */
+  async setDisposition(key, value, now) {
+    const draft = await this.findDraft(key);
+    if (!draft) throw new Error('NO_DRAFT');
+    const d = (now instanceof Date) ? now : (now ? new Date(now) : new Date());
+    const fmApi = this.app && this.app.fileManager;
+    if (!(fmApi && typeof fmApi.processFrontMatter === 'function')) throw new Error('NO_FM_API');
+    await fmApi.processFrontMatter(draft, (fm) => {
+      fm.disposition = value;
+      if (value === 'closed') fm.closed_at = _dbgDate(d);
+      if (fm.updated !== undefined) fm.updated = _dbgDate(d);
+    });
+  }
+
+  async _writeDbg(issue, comments, now, dirPath) {
+    const vault = this._vault();
+    const naming = inferDbgNaming(issue);
+    const base = buildDbgFileName(issue, now, naming);
+    let name = base;
+    let n = 1;
+    while (await this._pathExists(`${dirPath}/${name}`)) {
+      n += 1;
+      name = base.replace(/_DBG\.md$/i, `_DBG-${n}.md`);
+    }
+    const content = buildDbgNoteContent(issue, comments, now, naming);
+    return vault.create(`${dirPath}/${name}`, content);
+  }
+
+  /**
+   * 开始排查建档: 目录不存在 → 建目录 + DBG 草稿;
+   * 目录已存在且有 DBG 草稿 → 返回已有草稿 (created:false);
+   * 目录存在但无草稿 → 补建一份
+   */
+  async create(issue, comments, now) {
+    const vault = this._vault();
+    const dirPath = this.dirPath(issue.key);
+    const existing = vault.getAbstractFileByPath(dirPath);
+    if (!_sbxIsFolder(existing)) {
+      await this._ensureFolder(dirPath);
+      const file = await this._writeDbg(issue, comments, now, dirPath);
+      return { created: true, folder: dirPath, file };
+    }
+    const dbg = this._findDbgFile(existing);
+    if (dbg) return { created: false, folder: dirPath, file: dbg };
+    const file = await this._writeDbg(issue, comments, now, dirPath);
+    return { created: true, folder: dirPath, file };
+  }
+
+  /** 强制新建一份 DBG 草稿 (重名 …_DBG-2.md) */
+  async createDraft(issue, comments, now) {
+    const dirPath = this.dirPath(issue.key);
+    await this._ensureFolder(dirPath);
+    return this._writeDbg(issue, comments, now, dirPath);
+  }
+}
+
 /**
  * JiraPlatformView: Full-screen Jira Management Platform for TabonKB.
  * Features:
@@ -33333,6 +36011,15 @@ class JiraPlatformView {
     this.app = options.app;
     this.onOpenSettings = options.onOpenSettings;
     this.onAskAgent = options.onAskAgent;
+    this.onCaptureIdea = options.onCaptureIdea || null;
+    // P2a: 联调区 / 结单分流区 回调与专题服务
+    this.onAgentPrompt = options.onAgentPrompt || null;
+    this.onOpenTool = options.onOpenTool || null;
+    this.onOpenTopic = options.onOpenTopic || null;
+    this.topicService = options.topicService || null;
+    // P1c: 排查沙盒 (一单一目录 00-Inbox/03-Quick-Note/{KEY}/)
+    this.sandboxService = options.sandboxService
+      || (typeof JiraSandboxService !== 'undefined' ? new JiraSandboxService({ app: options.app }) : null);
 
     this.containerEl = null;
     this.issues = [];
@@ -33597,6 +36284,19 @@ class JiraPlatformView {
       return 'inprogress';
     }
     return 'todo';
+  }
+
+  /** P2b: 流转成功后目标状态属 Done → 相关种子自动浇水 (异常静默, 不影响流转) */
+  _autoWaterOnDone(issue) {
+    try {
+      if (!issue || this.categorizeStatus(issue.status, issue.statusCategory) !== 'done') return;
+      const svc = this.topicService;
+      if (!svc || typeof svc.autoWaterForIssue !== 'function') return;
+      Promise.resolve(svc.autoWaterForIssue(issue))
+        .catch(e => console.warn('[Jira] autoWaterForIssue:', e));
+    } catch (e) {
+      console.warn('[Jira] autoWaterForIssue:', e);
+    }
   }
 
   // 经办人是否为本账户（Server 比 username，Cloud 比 accountId/email）
@@ -34044,19 +36744,26 @@ class JiraPlatformView {
     };
     document.addEventListener('keydown', this._inspectorEscHandler);
 
+    // Outside-click collapses any open pop menu (status dropdown / archive up-menu)
+    if (this._inspectorMenuHandler) document.removeEventListener('click', this._inspectorMenuHandler, true);
+    this._inspectorMenuHandler = (e) => {
+      const wrap = e.target && e.target.closest ? e.target.closest('.tw-pop-wrap') : null;
+      const keep = (wrap && this.inspectorContainer && this.inspectorContainer.contains(wrap)) ? wrap : null;
+      this._closeInspectorPopups(keep);
+    };
+    document.addEventListener('click', this._inspectorMenuHandler, true);
+
     // 1. Header
     const head = drawer.createDiv({ cls: 'tw-inspector-header' });
-    const catKey = this.categorizeStatus(issue.status, issue.statusCategory);
     const pCls = resolveKanbanPriorityClass(issue.priority);
     head.innerHTML = `
       <div class="tw-ins-head-left">
         <span class="tw-ins-key" title="点击复制工单号">${escapeHtml(issue.key)}</span>
-        <span class="tw-ins-status-badge cat-${catKey}">${escapeHtml(issue.status)}</span>
         ${issue.priority ? `<span class="tw-kcard-priority ${pCls}">${escapeHtml(issue.priority)}</span>` : ''}
       </div>
       <div class="tw-ins-head-actions">
-        ${issue.url ? `<button class="tw-ins-icon-btn" id="twInsBtnExt" title="${escapeAttr(issue.url)}">${getIconPark('external', 13)}</button>` : ''}
-        <button class="tw-ins-icon-btn" id="twInsBtnClose" title="关闭 (Esc)">${getIconPark('close', 13)}</button>
+        ${issue.url ? `<button class="clickable-icon tw-ins-ghost-icon" id="twInsBtnExt" title="${escapeAttr(issue.url)}">${getIconPark('external', 13)}</button>` : ''}
+        <button class="clickable-icon tw-ins-ghost-icon" id="twInsBtnClose" title="关闭 (Esc)">${getIconPark('close', 13)}</button>
       </div>
     `;
     head.querySelector('#twInsBtnClose').onclick = () => this.closeInspector();
@@ -34072,69 +36779,70 @@ class JiraPlatformView {
     // 2. Content Body
     const body = drawer.createDiv({ cls: 'tw-inspector-body' });
 
-    // Summary
-    body.createEl('h2', { cls: 'tw-ins-summary', text: issue.summary });
+    // Summary + status pill trigger (available transitions live in its dropdown)
+    const sumRow = body.createDiv({ cls: 'tw-ins-summary-row' });
+    const catKey = this.categorizeStatus(issue.status, issue.statusCategory);
+    sumRow.innerHTML = `
+      <h2 class="tw-ins-summary">${escapeHtml(issue.summary)}</h2>
+      <div class="tw-pop-wrap tw-status-pill-wrap">
+        <button class="clickable-icon tw-ins-status-trigger cat-${catKey}" id="twStatusPill" title="展开可执行流转">
+          <span class="tw-ins-status-dot"></span>
+          <span class="tw-status-pill-name">${escapeHtml(issue.status)}</span>
+          ${getIconPark('down', 10)}
+        </button>
+        <div class="tw-pop-menu tw-ins-trans-dropdown" id="twStatusMenu">
+          <span class="tw-trans-loading">检测流转…</span>
+        </div>
+      </div>
+    `;
+    const pillWrap = sumRow.querySelector('.tw-status-pill-wrap');
+    sumRow.querySelector('#twStatusPill').onclick = (e) => {
+      e.stopPropagation();
+      const willOpen = !pillWrap.classList.contains('open');
+      this._closeInspectorPopups();
+      if (willOpen) pillWrap.classList.add('open');
+    };
 
-    // Transitions Section (Status Flow Buttons)
+    // Inline transition form + feedback mount (unchanged form logic, no flat button row)
     const transSec = body.createDiv({ cls: 'tw-ins-transitions-sec' });
     transSec.innerHTML = `
-      <div class="tw-ins-sec-title" title="端内快速流转，无需跳转网页">
-        <span>${getIconPark('refresh', 12)}</span>
-        <span>流转</span>
-      </div>
-      <div class="tw-transitions-btn-group" id="twTransitionBtnGroup">
-        <span class="tw-trans-loading">检测流转…</span>
-      </div>
       <div class="tw-trans-inline-form-container" id="twTransInlineFormContainer" style="display:none;"></div>
       <div class="tw-trans-feedback" id="twTransFeedback" style="display:none;"></div>
     `;
 
-    // Load available transitions
+    // Load available transitions into the status dropdown
     this.loadAndRenderTransitions(
       issue,
-      transSec.querySelector('#twTransitionBtnGroup'),
+      sumRow.querySelector('#twStatusMenu'),
       transSec.querySelector('#twTransInlineFormContainer'),
       transSec.querySelector('#twTransFeedback')
     );
 
-    // Meta Grid
+    // Meta card: 两行 tw-meta-row —— 第 1 行人员/模块, 第 2 行时间; '·' 在行内项目之间, 杜绝换行悬尾圆点
     const metaGrid = body.createDiv({ cls: 'tw-ins-meta-grid' });
-    metaGrid.innerHTML = `
-      <div class="tw-meta-item">
-        <span class="tw-meta-label">经办人</span>
-        <span class="tw-meta-val">${escapeHtml(issue.assignee || '未指派')}</span>
-      </div>
-      <div class="tw-meta-item">
-        <span class="tw-meta-label">报告人</span>
-        <span class="tw-meta-val">${escapeHtml(issue.reporter || '系统')}</span>
-      </div>
-      <div class="tw-meta-item">
-        <span class="tw-meta-label">更新</span>
-        <span class="tw-meta-val">${escapeHtml(issue.updated || '未知')}</span>
-      </div>
-      ${issue.created ? `
-        <div class="tw-meta-item">
-          <span class="tw-meta-label">创建</span>
-          <span class="tw-meta-val">${escapeHtml(issue.created)}</span>
-        </div>
-      ` : ''}
-      ${(issue.components && issue.components.length > 0) ? `
-        <div class="tw-meta-item full">
-          <span class="tw-meta-label">模块</span>
-          <span class="tw-meta-val tw-meta-chips">${issue.components.map(c => `<span class="tw-ins-chip">${escapeHtml(c)}</span>`).join('')}</span>
-        </div>
-      ` : ''}
-    `;
-
-    // Description Section
-    const descSec = body.createDiv({ cls: 'tw-ins-desc-sec' });
-    descSec.createDiv({ cls: 'tw-ins-sec-title', text: '描述' });
-    const descBox = descSec.createDiv({ cls: 'tw-ins-desc-box' });
-    if (issue.description && issue.description.trim()) {
-      descBox.innerHTML = escapeHtml(issue.description).replace(/\n/g, '<br>');
-    } else {
-      descBox.innerHTML = '<span class="tw-ins-desc-empty">暂无描述</span>';
+    const metaRow1 = [
+      { l: '经办人', v: escapeHtml(issue.assignee || '未指派') },
+      { l: '报告人', v: escapeHtml(issue.reporter || '系统') }
+    ];
+    if (issue.components && issue.components.length > 0) {
+      metaRow1.push({ l: '模块', v: issue.components.map(c => `<span class="tw-ins-chip">${escapeHtml(c)}</span>`).join('') });
     }
+    const metaRow2 = [{ l: '更新', v: escapeHtml(issue.updated || '未知') }];
+    if (issue.created) metaRow2.push({ l: '创建', v: escapeHtml(issue.created) });
+    const renderMetaRow = (items) => `<div class="tw-meta-row">${items.map((it, i) =>
+      `${i ? '<span class="tw-meta-sep">·</span>' : ''}<span class="tw-meta-item"><span class="tw-meta-label">${it.l}</span><span class="tw-meta-val">${it.v}</span></span>`
+    ).join('')}</div>`;
+    metaGrid.innerHTML = renderMetaRow(metaRow1) + renderMetaRow(metaRow2);
+
+    // Description Section (【key】val structured render + empty-field collapse)
+    // Fold toggle lives at the right of the section header — never a grey box inside the card
+    const descSec = body.createDiv({ cls: 'tw-ins-desc-sec' });
+    const descHead = descSec.createDiv({ cls: 'tw-ins-sec-header' });
+    descHead.createDiv({ cls: 'tw-ins-sec-title', text: '描述' });
+    const foldLink = descHead.createEl('span', { cls: 'tw-ins-fold-link' });
+    foldLink.style.display = 'none';
+    const descBox = descSec.createDiv({ cls: 'tw-ins-desc-box' });
+    this._renderStructuredDesc(descBox, issue.description, foldLink);
 
     // Activity Log & Comments Section
     const activitySec = body.createDiv({ cls: 'tw-ins-activity-sec' });
@@ -34145,19 +36853,17 @@ class JiraPlatformView {
           <span>注释</span>
           <span class="tw-ins-comments-count" id="twInsCommentsCount"></span>
         </div>
-        <button class="tw-ins-refresh-comments-btn" id="twBtnRefreshComments" title="刷新注释">
+        <button class="clickable-icon tw-ins-ghost-icon tw-ins-refresh-comments-btn" id="twBtnRefreshComments" title="刷新注释">
           ${getIconPark('refresh', 12)}
         </button>
       </div>
 
-      <!-- Add comment box -->
+      <!-- Add comment box: textarea + inline circular send button -->
       <div class="tw-ins-add-comment-box">
-        <textarea class="tw-ins-comment-input" id="twInsCommentInput" placeholder="添加注释… (Ctrl+Enter 提交)" rows="3"></textarea>
-        <div class="tw-ins-comment-actions">
-          <button class="tw-ins-submit-comment-btn" id="twBtnSubmitComment" disabled>
-            ${getIconPark('send', 12)} <span>提交</span>
-          </button>
-        </div>
+        <textarea class="tw-ins-comment-input" id="twInsCommentInput" placeholder="添加注释… (Ctrl+Enter 提交)" rows="2"></textarea>
+        <button class="clickable-icon tw-ins-submit-comment-btn" id="twBtnSubmitComment" title="提交 (Ctrl+Enter)" disabled>
+          ${getIconPark('arrow-up', 13)}
+        </button>
       </div>
 
       <!-- Comments list -->
@@ -34194,7 +36900,7 @@ class JiraPlatformView {
         if (!text) return;
         btnSubmitComment.disabled = true;
         const prevHtml = btnSubmitComment.innerHTML;
-        btnSubmitComment.innerHTML = `<span class="tw-loading-spin"></span> <span>提交中...</span>`;
+        btnSubmitComment.innerHTML = `<span class="tw-loading-spin"></span>`;
         try {
           const res = await this.jiraService.addIssueComment(issue.key, text);
           if (res && res.success) {
@@ -34227,36 +36933,43 @@ class JiraPlatformView {
 
     this.loadAndRenderComments(issue, commentsListEl, commentsCountEl);
 
-    // 3. Actions Footer
+    // 2.5 排查沙盒 (P1c): 一单一目录 00-Inbox/03-Quick-Note/{KEY}/
+    const sandboxSec = body.createDiv({ cls: 'tw-ins-sandbox' });
+    this.renderSandboxSection(sandboxSec, issue);
+
+    // 2.6 辅助排 (P2a): 联调 ghost 图标 + 结单归档上拉菜单 (联调/结单分流合并为一排)
+    const auxSec = body.createDiv({ cls: 'tw-ins-aux' });
+    this.renderAuxSection(auxSec, issue);
+
+    // 3. Actions Footer: ghost icons + primary Agent pill
     const footer = drawer.createDiv({ cls: 'tw-inspector-footer' });
 
-    // Copy Markdown Link Button
-    const btnCopy = footer.createEl('button', { cls: 'tw-ins-action-btn primary', title: '复制 Markdown 引用链接' });
-    btnCopy.innerHTML = `${getIconPark('copy', 12)} <span>复制引用</span>`;
+    // Copy Markdown link (ghost icon)
+    const btnCopy = footer.createEl('button', {
+      cls: 'clickable-icon tw-ins-ghost-icon tw-ins-ghost-lg has-tip',
+      attr: { 'data-tip': '复制引用', 'aria-label': '复制 Markdown 引用链接' }
+    });
+    btnCopy.innerHTML = getIconPark('copy', 16);
     btnCopy.onclick = () => {
       const mdLink = `[${issue.key}](${issue.url}): ${issue.summary}`;
       navigator.clipboard.writeText(mdLink);
-      btnCopy.classList.add('copied');
-      btnCopy.querySelector('span').textContent = '已复制';
-      setTimeout(() => {
-        btnCopy.classList.remove('copied');
-        btnCopy.querySelector('span').textContent = '复制引用';
-      }, 1500);
+      btnCopy.classList.add('is-ok');
+      setTimeout(() => btnCopy.classList.remove('is-ok'), 1500);
     };
 
-    // Add to 00-Inbox/03-Quick-Note Button
-    const btnQuickNote = footer.createEl('button', {
-      cls: 'tw-ins-action-btn quicknote',
-      title: '存入 00-Inbox/03-Quick-Note 进行排查记录'
+    // 🌱 记灵感 (ghost icon): 唤起全局记灵感浮窗, 注入 jiraKey 上下文
+    const btnIdea = footer.createEl('button', {
+      cls: 'clickable-icon tw-ins-ghost-icon tw-ins-ghost-lg has-tip',
+      attr: { 'data-tip': '记为灵感', 'aria-label': '把此工单记为灵感' }
     });
-    btnQuickNote.innerHTML = `${getIconPark('file-text', 12)} <span>存笔记</span>`;
-    btnQuickNote.onclick = async () => {
-      await this.exportIssueToQuickNote(issue, btnQuickNote);
+    btnIdea.innerHTML = getIconPark('lightbulb', 16);
+    btnIdea.onclick = () => {
+      if (this.onCaptureIdea) this.onCaptureIdea(issue);
     };
 
-    // Ask Agent Hub Button
-    const btnAgent = footer.createEl('button', { cls: 'tw-ins-action-btn secondary', title: '向 Agent 提问此工单' });
-    btnAgent.innerHTML = `${getIconPark('robot', 13)} <span>问 Agent</span>`;
+    // Ask Agent Hub (primary pill CTA)
+    const btnAgent = footer.createEl('button', { cls: 'clickable-icon tw-ins-primary-agent-btn', title: '向 Agent 提问此工单' });
+    btnAgent.innerHTML = `${getIconPark('sparkles', 14)} <span>问 Agent 诊断</span>`;
     btnAgent.onclick = () => {
       if (this.onAskAgent) {
         this.onAskAgent(issue);
@@ -34270,8 +36983,13 @@ class JiraPlatformView {
     };
   }
 
-  async loadAndRenderTransitions(issue, containerEl, formContainerEl, feedbackEl) {
-    if (!containerEl || !this.jiraService) return;
+  async loadAndRenderTransitions(issue, menuEl, formContainerEl, feedbackEl) {
+    if (!menuEl || !this.jiraService) return;
+
+    const closeMenu = () => {
+      const w = menuEl.closest('.tw-pop-wrap');
+      if (w) w.classList.remove('open');
+    };
 
     let transitions = [];
     try {
@@ -34280,59 +36998,61 @@ class JiraPlatformView {
       console.warn('[JiraPlatformView] Failed to fetch transitions:', e);
     }
 
-    // If API returned available transitions, render them
+    // If API returned available transitions, render them as dropdown menu items
     if (transitions && transitions.length > 0) {
-      containerEl.innerHTML = '';
+      menuEl.innerHTML = '';
       for (const t of transitions) {
         const hasReq = Array.isArray(t.requiredFields) && t.requiredFields.length > 0;
-        const btn = containerEl.createEl('button', {
-          cls: `tw-trans-btn${t.hasScreen || hasReq || t.isResolve ? ' has-screen' : ''}`,
-          text: `→ ${t.name}`
+        const item = menuEl.createEl('div', {
+          cls: `tw-ins-trans-item${t.hasScreen || hasReq || t.isResolve ? ' has-screen' : ''}`
         });
+        item.innerHTML = `<span class="tw-smi-name">${escapeHtml(t.name)}${hasReq ? '<span class="tw-smi-star">*</span>' : ''}</span><span class="tw-smi-arrow">→</span>`;
 
         if (hasReq) {
-          btn.title = `包含必填项: ${t.requiredFields.map(f => f.name).join(', ')}`;
+          item.title = `包含必填项: ${t.requiredFields.map(f => f.name).join(', ')}`;
         } else if (t.isResolve) {
-          btn.title = '端内流转并设置解决结果';
+          item.title = '端内流转并设置解决结果';
         } else if (t.hasScreen) {
-          btn.title = '此流转包含专属字段设置';
+          item.title = '此流转包含专属字段设置';
         }
 
-        btn.onclick = () => {
+        item.onclick = (e) => {
+          e.stopPropagation();
+          closeMenu();
           // If the form is already open for this transition, clicking again closes it
           if (formContainerEl && formContainerEl.style.display !== 'none' && formContainerEl.dataset.currentTransId === String(t.id)) {
             formContainerEl.style.display = 'none';
             formContainerEl.innerHTML = '';
-            btn.classList.remove('active-trans');
             return;
           }
 
           // If transition needs inputs (isResolve, hasScreen, or has fields)
           if (t.isResolve || t.hasScreen || (t.fieldList && t.fieldList.length > 0)) {
-            this.renderInlineTransitionForm(issue, t, btn, formContainerEl, feedbackEl);
+            this.renderInlineTransitionForm(issue, t, item, formContainerEl, feedbackEl);
           } else {
-            this.handleDoTransition(issue, t, btn, formContainerEl, feedbackEl);
+            this.handleDoTransition(issue, t, item, formContainerEl, feedbackEl);
           }
         };
       }
       return;
     }
 
-    // Fallback standard workflow buttons if server doesn't support transition enumeration
-    containerEl.innerHTML = `
-      <button class="tw-trans-btn" data-target="To Do">← 待办 (To Do)</button>
-      <button class="tw-trans-btn" data-target="In Progress">→ 进行中 (In Progress)</button>
-      <button class="tw-trans-btn" data-target="In Review">→ 评审 (Review)</button>
-      <button class="tw-trans-btn" data-target="Done">✓ 完成 (Done)</button>
+    // Fallback standard workflow items if server doesn't support transition enumeration
+    menuEl.innerHTML = `
+      <div class="tw-ins-trans-item" data-target="To Do"><span class="tw-smi-name">待办 (To Do)</span><span class="tw-smi-arrow">←</span></div>
+      <div class="tw-ins-trans-item" data-target="In Progress"><span class="tw-smi-name">进行中 (In Progress)</span><span class="tw-smi-arrow">→</span></div>
+      <div class="tw-ins-trans-item" data-target="In Review"><span class="tw-smi-name">评审 (Review)</span><span class="tw-smi-arrow">→</span></div>
+      <div class="tw-ins-trans-item" data-target="Done"><span class="tw-smi-name">完成 (Done)</span><span class="tw-smi-arrow">✓</span></div>
     `;
 
-    containerEl.querySelectorAll('.tw-trans-btn').forEach(btn => {
+    menuEl.querySelectorAll('.tw-ins-trans-item').forEach(btn => {
       const target = btn.getAttribute('data-target');
-      if (target.toLowerCase() === issue.status.toLowerCase()) {
-        btn.classList.add('current');
-        btn.disabled = true;
-      }
-      btn.onclick = () => {
+      const isCurrent = target.toLowerCase() === issue.status.toLowerCase();
+      if (isCurrent) btn.classList.add('current');
+      btn.onclick = (e) => {
+        e.stopPropagation();
+        if (isCurrent) return;
+        closeMenu();
         const isDone = target === 'Done';
         const tObj = { id: target, name: target, isResolve: isDone };
         if (isDone) {
@@ -34359,7 +37079,7 @@ class JiraPlatformView {
     // Highlight active button
     const group = btnEl?.parentElement;
     if (group) {
-      group.querySelectorAll('.tw-trans-btn').forEach(b => b.classList.remove('active-trans'));
+      group.querySelectorAll('.tw-trans-btn, .tw-status-menu-item, .tw-ins-trans-item').forEach(b => b.classList.remove('active-trans'));
     }
     if (btnEl) btnEl.classList.add('active-trans');
 
@@ -34509,7 +37229,7 @@ class JiraPlatformView {
             <span class="tw-trans-form-icon">⚡</span>
             <span>端内流转：<strong>${escapeHtml(issue.key)}</strong> → <span class="tw-trans-target-badge">${escapeHtml(targetName)}</span></span>
           </div>
-          <button class="tw-trans-form-close" id="twBtnCloseTransForm" title="取消并关闭">✕</button>
+          <button class="clickable-icon tw-ins-ghost-icon tw-trans-form-close" id="twBtnCloseTransForm" title="取消并关闭">${getIconPark('close', 13)}</button>
         </div>
 
         <div class="tw-trans-form-body">
@@ -34635,6 +37355,7 @@ class JiraPlatformView {
         await this.jiraService.doTransition(issue.key, transitionId, targetName, customFields, commentText);
         issue.status = targetName;
         issue.updated = '刚刚';
+        this._autoWaterOnDone(issue);
         this.renderStage();
         this.renderMetricsBar(this.containerEl.querySelector('.tw-jira-platform'));
 
@@ -34664,7 +37385,7 @@ class JiraPlatformView {
   async handleDoTransition(issue, transition, btnEl, formContainerEl, feedbackEl) {
     if (this.isTransitioning) return;
     this.isTransitioning = true;
-    const oldText = btnEl.textContent;
+    const oldHtml = btnEl.innerHTML;
     btnEl.textContent = '正在流转...';
     btnEl.disabled = true;
 
@@ -34683,6 +37404,7 @@ class JiraPlatformView {
       await this.jiraService.doTransition(issue.key, transitionId, targetName);
       issue.status = targetName;
       issue.updated = '刚刚';
+      this._autoWaterOnDone(issue);
       this.renderStage();
       this.renderMetricsBar(this.containerEl.querySelector('.tw-jira-platform'));
       btnEl.textContent = `✓ 已变更为 ${targetName}`;
@@ -34694,7 +37416,7 @@ class JiraPlatformView {
       }, 600);
     } catch (err) {
       console.error(`[Jira] 状态流转异常:`, err);
-      btnEl.textContent = oldText;
+      btnEl.innerHTML = oldHtml;
       btnEl.disabled = false;
 
       const detailMsg = err.detailMsg || err.message || '流转失败';
@@ -34727,7 +37449,7 @@ class JiraPlatformView {
       this.isTransitioning = false;
       if (btnEl && !btnEl.textContent.startsWith('✓')) {
         btnEl.disabled = false;
-        btnEl.textContent = oldText;
+        btnEl.innerHTML = oldHtml;
       }
     }
   }
@@ -34776,7 +37498,7 @@ class JiraPlatformView {
                 ${c.isEdited ? '<span class="tw-ins-comment-edited">已编辑</span>' : ''}
               </div>
             </div>
-            <div class="tw-ins-comment-body">${escapeHtml(c.body).replace(/\n/g, '<br>')}</div>
+            <div class="tw-ins-comment-body">${this._renderCommentBodyHtml(c.body, issue)}</div>
           </div>
         `;
       }
@@ -34791,170 +37513,446 @@ class JiraPlatformView {
     }
   }
 
-  async exportIssueToQuickNote(issue, btnEl = null) {
+  /* ================= 描述结构化 & 评论净化 & 弹层管理 ================= */
+
+  _isEmptyDescVal(v) {
+    const t = String(v || '').trim();
+    return t === '' || t === '/' || t === '无' || t === '—' || /^n\/?a$/i.test(t);
+  }
+
+  /** 解析描述中的【字段名】内容 行：双栏渲染 + 空值折叠 (折叠开关在外部标题行 foldLink) */
+  _renderStructuredDesc(descBox, rawDesc, foldLink = null) {
+    const raw = String(rawDesc || '').trim();
+    if (!raw) {
+      descBox.innerHTML = '<span class="tw-ins-desc-empty">暂无描述</span>';
+      return;
+    }
+
+    const rows = [];
+    let cur = null;
+    for (const line of raw.split(/\r?\n/)) {
+      const m = line.match(/^\s*【([^】\n]{1,40})】\s*([\s\S]*)$/);
+      if (m) {
+        cur = { key: m[1].trim(), val: m[2] };
+        rows.push(cur);
+      } else if (cur) {
+        cur.val += '\n' + line;
+      } else {
+        const last = rows[rows.length - 1];
+        if (last && last.key === null) last.val += '\n' + line;
+        else rows.push({ key: null, val: line });
+      }
+    }
+
+    let collapsed = 0;
+    let html = '';
+    for (const r of rows) {
+      if (r.key === null) {
+        const v = r.val.replace(/\n+$/, '');
+        if (v.trim()) html += `<div class="tw-desc-plain">${escapeHtml(v).replace(/\n/g, '<br>')}</div>`;
+        continue;
+      }
+      const v = r.val.replace(/\n+$/, '').trim();
+      const empty = this._isEmptyDescVal(v);
+      if (empty) collapsed++;
+      html += `<div class="tw-desc-row${empty ? ' is-empty' : ''}"><span class="tw-desc-k">${escapeHtml(r.key)}</span><span class="tw-desc-v">${v ? escapeHtml(v).replace(/\n/g, '<br>') : '/'}</span></div>`;
+    }
+
+    if (!html) {
+      descBox.innerHTML = '<span class="tw-ins-desc-empty">暂无描述</span>';
+      return;
+    }
+
+    descBox.innerHTML = html;
+    if (foldLink) {
+      if (collapsed) {
+        descBox.classList.add('has-collapsed');
+        foldLink.style.display = '';
+        foldLink.textContent = `已折叠 ${collapsed} 项空字段`;
+        foldLink.onclick = (e) => {
+          e.stopPropagation();
+          const showAll = descBox.classList.toggle('show-all');
+          foldLink.textContent = showAll ? '收起空字段' : `已折叠 ${collapsed} 项空字段`;
+        };
+      } else {
+        foldLink.style.display = 'none';
+      }
+    }
+  }
+
+  _decodeEntities(str) {
+    const s = String(str == null ? '' : str);
+    if (!/&[a-zA-Z#0-9]+;/.test(s)) return s;
+    if (typeof document !== 'undefined') {
+      const ta = document.createElement('textarea');
+      ta.innerHTML = s;
+      return ta.value;
+    }
+    return s
+      .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+  }
+
+  /**
+   * Jira 评论智能净化：剥离 <p>/<span>/<sup>/<img> 等标签取纯文本；
+   * 文件类 <a href> 提取为独立附件胶囊，普通链接保留锚文本。
+   * @returns {{text: string, attachments: Array<{url:string,label:string}>}}
+   */
+  _sanitizeJiraCommentBody(rawBody, issue) {
+    let t = String(rawBody == null ? '' : rawBody);
+    const attachments = [];
+    const fileExt = '(?:png|jpe?g|gif|webp|bmp|mp4|mov|avi|mkv|webm|zip|rar|7z|tar|gz|pdf|docx?|xlsx?|pptx?|txt|log|csv|md|json|xml|bin|hex|apk|patch|diff|wav|mp3|db|datalog|h|c|cpp|java|py|js|ts|html?)';
+    const fileExtRe = new RegExp('\\.' + fileExt + '($|[?#])', 'i');
+
+    // 1. Extract anchors: file-like → attachment chip; others → keep label text
+    t = t.replace(/<a\b[^>]*href\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))[^>]*>([\s\S]*?)<\/a>/gi, (_m, dq, sq, uq, inner) => {
+      const href = dq || sq || uq || '';
+      const label = this._decodeEntities(String(inner).replace(/<[^>]+>/g, '')).trim();
+      if (/attachment/i.test(href) || fileExtRe.test(href) || fileExtRe.test(label)) {
+        let url = href;
+        try { url = new URL(href, (issue && issue.url) || undefined).href; } catch (_) {}
+        attachments.push({ url, label: label || (href.split('/').pop() || '附件') });
+        return '';
+      }
+      return label || href;
+    });
+
+    // 2. Drop media/script/style entirely
+    t = t.replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, ' ');
+    t = t.replace(/<img\b[^>]*>/gi, '');
+    // 3. Block-level boundaries → newlines
+    t = t.replace(/<br\b[^>]*>/gi, '\n');
+    t = t.replace(/<\/(p|div|li|ul|ol|h[1-6]|blockquote|pre|tr|table|section|article)\s*>/gi, '\n');
+    t = t.replace(/<li\b[^>]*>/gi, '• ');
+    // 4. Strip all remaining tags (span, sup, nobr, b, i, font, em, strong, u ...)
+    t = t.replace(/<[^>]+>/g, '');
+    // 5. Decode entities & normalize
+    t = this._decodeEntities(t);
+    t = t.split('\n').map(l => l.replace(/[\t ]+$/g, '')).join('\n')
+      .replace(/\n{3,}/g, '\n\n').trim();
+
+    return { text: t, attachments };
+  }
+
+  _renderCommentBodyHtml(rawBody, issue) {
+    const { text, attachments } = this._sanitizeJiraCommentBody(rawBody, issue);
+    const attachHtml = attachments.length
+      ? `<div class="tw-comment-attach-row">${attachments.map(a =>
+          `<a class="tw-comment-attach" href="${escapeAttr(a.url)}" target="_blank" rel="noopener" title="${escapeAttr(a.url)}">${getIconPark('paperclip', 11)}<span>${escapeHtml(a.label)}</span></a>`
+        ).join('')}</div>`
+      : '';
+    return `${escapeHtml(text).replace(/\n/g, '<br>')}${attachHtml}`;
+  }
+
+  _closeInspectorPopups(keepWrap = null) {
+    if (!this.inspectorContainer) return;
+    this.inspectorContainer.querySelectorAll('.tw-pop-wrap.open').forEach(w => {
+      if (w !== keepWrap) w.classList.remove('open');
+    });
+  }
+
+  /** 无框呼吸图标按钮: clickable-icon 豁免原生按钮样式 + data-tip 顶部微提示 */
+  _ghostIconBtn(host, icon, tip, onClick, extraCls = '') {
+    const b = host.createEl('button', {
+      cls: `clickable-icon tw-ins-ghost-icon has-tip${extraCls ? ' ' + extraCls : ''}`,
+      attr: { 'data-tip': tip, 'aria-label': tip }
+    });
+    b.innerHTML = getIconPark(icon, 15);
+    b.onclick = async (e) => {
+      e.stopPropagation();
+      try { await onClick(); } catch (err) {
+        this._notice(`操作失败: ${(err && err.message) || err}`, 5000);
+      }
+    };
+    return b;
+  }
+
+  /* ============================ 排查沙盒 (P1c) ============================ */
+
+  _notice(msg, ms) {
     const app = this.app || (typeof window !== 'undefined' ? window.app : null);
     const NoticeCls = typeof Notice !== 'undefined' ? Notice : (app?.Notice || class { constructor(m) { console.log(m); } });
+    try { new NoticeCls(msg, ms || 2500); } catch (_) {}
+  }
 
-    if (!app || !app.vault) {
-      new NoticeCls('无法访问 Obsidian Vault，无法执行存入操作');
-      return;
-    }
-
-    const targetFolder = '00-Inbox/03-Quick-Note';
-    try {
-      if (!app.vault.getAbstractFileByPath(targetFolder)) {
-        await app.vault.createFolder(targetFolder).catch(() => {});
-      }
-    } catch (e) {}
-
-    // Fetch comments for richer note context
-    let comments = [];
+  async _fetchCommentsQuiet(key) {
     try {
       if (this.jiraService && typeof this.jiraService.getIssueComments === 'function') {
-        comments = await this.jiraService.getIssueComments(issue.key);
+        return await this.jiraService.getIssueComments(key);
       }
     } catch (e) {
-      console.warn('[JiraPlatformView] Failed to fetch comments for Quick-Note:', e);
+      console.warn('[JiraPlatformView] Failed to fetch comments for sandbox:', e);
     }
+    return [];
+  }
 
-    const now = new Date();
-    const dateStr = now.toISOString().slice(0, 10);
-    const fullTimeStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
+  _fileTypeInfo(path) {
+    const ext = (String(path).split('.').pop() || '').toLowerCase();
+    if (['md', 'markdown'].includes(ext)) return { cls: 'f-md', icon: 'file-text' };
+    if (['rar', 'zip', '7z', 'tar', 'gz'].includes(ext)) return { cls: 'f-rar', icon: 'layers' };
+    if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg'].includes(ext)) return { cls: 'f-img', icon: 'pic' };
+    if (['csv', 'xls', 'xlsx'].includes(ext)) return { cls: 'f-csv', icon: 'file-csv' };
+    if (['txt', 'log', 'json', 'xml'].includes(ext)) return { cls: 'f-txt', icon: 'file-text' };
+    return { cls: 'f-def', icon: 'file-text' };
+  }
 
-    const safeSummary = (issue.summary || 'Jira工单')
-      .replace(/[\\/:*?"<>|#^\[\]!]/g, '')
-      .replace(/\s+/g, ' ')
-      .trim();
-    const fileBasename = `${dateStr} [${issue.key}] ${safeSummary.slice(0, 36).trim()}`;
-    const notePath = `${targetFolder}/${fileBasename}.md`;
+  async renderSandboxSection(host, issue) {
+    const svc = this.sandboxService;
+    if (!host || !svc) return;
+    host.empty();
+    const head = host.createDiv({ cls: 'tw-ins-sandbox-head' });
+    const titleEl = head.createDiv({ cls: 'tw-ins-sandbox-title' });
+    titleEl.innerHTML = `${getIconPark('folder', 12)}<span>排查沙盒</span>`;
+    let exists = false;
+    try { exists = await svc.exists(issue.key); } catch (_) { exists = false; }
 
-    // Check if note already exists
-    const existingFile = app.vault.getAbstractFileByPath(notePath);
-    if (existingFile) {
-      if (app.workspace && typeof app.workspace.openLinkText === 'function') {
-        app.workspace.openLinkText(notePath, '', false);
+    if (!exists) {
+      // P2a: 该工单已升专题 → 不显示建档入口, 改显示专题跳转行
+      let topic = null;
+      try { if (this.topicService) topic = await this.topicService.findTopicByJira(issue.key); } catch (_) {}
+      if (topic) {
+        const link = head.createEl('span', {
+          cls: 'tw-ins-sandbox-topic',
+          text: `📁 已升专题「${topic.title}」`,
+          attr: { title: '打开专题' }
+        });
+        link.onclick = () => { if (this.onOpenTopic) this.onOpenTopic(topic.id); };
+        return;
       }
-      new NoticeCls(`✓ 该工单笔记已存在，已为您在编辑器中打开: ${fileBasename}.md`, 4000);
-      if (btnEl) {
-        btnEl.classList.add('copied');
-        const oldHtml = btnEl.innerHTML;
-        btnEl.innerHTML = `${getIconPark('check', 12)} <span>已在编辑器打开</span>`;
-        setTimeout(() => {
-          btnEl.classList.remove('copied');
-          btnEl.innerHTML = oldHtml;
-        }, 1800);
-      }
+      const btn = head.createEl('span', { cls: 'tw-ins-draft-link', text: '＋ 开始排查建档', attr: { title: '创建排查目录' } });
+      btn.onclick = async () => {
+        btn.disabled = true;
+        try {
+          const comments = await this._fetchCommentsQuiet(issue.key);
+          const res = await svc.create(issue, comments);
+          if (res && res.file) this._openVaultFile(res.file);
+          this._notice(res && res.created ? `✓ 已建档 ${issue.key}/` : '✓ 已打开已有草稿');
+        } catch (e) {
+          this._notice(`建档失败: ${e.message || e}`, 5000);
+        }
+        await this.renderSandboxSection(host, issue);
+      };
       return;
     }
 
-    // Build rich Markdown
-    const lines = [];
-    lines.push('---');
-    lines.push(`title: "[${issue.key}] ${safeSummary}"`);
-    lines.push(`date: ${fullTimeStr}`);
-    lines.push(`type: jira-issue`);
-    lines.push(`jira_key: "${issue.key}"`);
-    lines.push(`jira_url: "${issue.url || ''}"`);
-    lines.push(`status: "${issue.status || ''}"`);
-    lines.push(`priority: "${issue.priority || 'Medium'}"`);
-    lines.push(`assignee: "${issue.assignee || '未指派'}"`);
-    lines.push(`reporter: "${issue.reporter || '系统'}"`);
-    lines.push('tags:');
-    lines.push('  - jira');
-    lines.push('  - quick-note');
-    lines.push('  - troubleshooting');
-    lines.push('---');
-    lines.push('');
-    lines.push(`# 🎯 [${issue.key}] ${issue.summary}`);
-    lines.push('');
-    lines.push('> [!INFO] 工单元数据卡片');
-    lines.push(`> - **工单编号**: \`${issue.key}\``);
-    lines.push(`> - **当前状态**: \`${issue.status || '未知'}\``);
-    lines.push(`> - **优先级**: \`${issue.priority || 'Medium'}\``);
-    lines.push(`> - **经办人**: ${issue.assignee || '未指派'}`);
-    lines.push(`> - **报告人**: ${issue.reporter || '系统'}`);
-    if (issue.components && issue.components.length > 0) {
-      lines.push(`> - **模块组件**: ${issue.components.join(', ')}`);
-    }
-    if (issue.created) lines.push(`> - **创建时间**: ${issue.created}`);
-    if (issue.updated) lines.push(`> - **更新时间**: ${issue.updated}`);
-    if (issue.url) lines.push(`> - **Jira 链接**: [在浏览器中直达工单](${issue.url})`);
-    lines.push('');
-    lines.push('## 📋 工单详细描述 (Description)');
-    lines.push('');
-    lines.push(issue.description && issue.description.trim() ? issue.description.trim() : '*(暂无详细描述)*');
-    lines.push('');
-
-    // Comments & Activity Log
-    lines.push('## 💬 活动日志与注释历史 (Comments)');
-    lines.push('');
-    if (comments && comments.length > 0) {
-      for (const c of comments) {
-        lines.push(`> [!NOTE] 👤 ${c.author} · ${c.createdFormatted || c.created}${c.isEdited ? ' *(已编辑)*' : ''}`);
-        const bodyLines = (c.body || '').split('\n');
-        for (const bl of bodyLines) {
-          lines.push(`> ${bl}`);
-        }
-        lines.push('');
+    const addBtn = head.createEl('span', { cls: 'tw-ins-draft-link', text: '+ 草稿', attr: { title: '新建 DBG 草稿' } });
+    addBtn.onclick = async () => {
+      addBtn.disabled = true;
+      try {
+        const comments = await this._fetchCommentsQuiet(issue.key);
+        const f = await svc.createDraft(issue, comments);
+        if (f) this._openVaultFile(f);
+        await this.renderSandboxSection(host, issue);
+      } catch (e) {
+        this._notice(`新建草稿失败: ${e.message || e}`, 5000);
+        addBtn.disabled = false;
       }
-    } else {
-      lines.push('*(暂无历史注释记录)*\n');
+    };
+
+    const listEl = host.createDiv({ cls: 'tw-ins-sandbox-list' });
+    let files = [];
+    try { files = await svc.list(issue.key); } catch (_) { files = []; }
+    if (files.length) titleEl.innerHTML = `${getIconPark('folder', 12)}<span>排查沙盒 (${files.length})</span>`;
+    if (!files.length) {
+      listEl.createDiv({ cls: 'tw-ins-sandbox-empty', text: '—' });
+      return;
     }
+    const dirPrefix = `${svc.dirPath(issue.key)}/`;
+    const keyPrefixRe = new RegExp(`^${issue.key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[-_]`, 'i');
+    for (const f of files) {
+      const rel = f.path.startsWith(dirPrefix) ? f.path.slice(dirPrefix.length) : f.path;
+      // 省略冗余前缀: attachments/ 目录与 {KEY}_ 文件名前缀 (完整路径保留在 title)
+      const disp = rel.replace(/^attachments\//i, '').replace(keyPrefixRe, '') || rel;
+      const ft = this._fileTypeInfo(disp);
+      const row = listEl.createDiv({ cls: 'tw-ins-sandbox-row', attr: { title: f.path } });
+      row.innerHTML = `
+        <span class="tw-file-ico ${ft.cls}">${getIconPark(ft.icon, 12)}</span>
+        <span class="tw-sandbox-file-name">${escapeHtml(disp)}</span>
+        <span class="tw-ins-row-actions">
+          <span class="tw-ins-row-icon has-tip" data-act="open" data-tip="打开">${getIconPark('external', 12)}</span>
+          <span class="tw-ins-row-icon has-tip" data-act="split" data-tip="分屏">${getIconPark('dashboard', 12)}</span>
+        </span>
+      `;
+      row.querySelector('[data-act="open"]').onclick = (e) => { e.stopPropagation(); this._openVaultFile(f); };
+      row.querySelector('[data-act="split"]').onclick = (e) => { e.stopPropagation(); this._openVaultFileSplit(f); };
+      row.onclick = () => this._openVaultFile(f);
+    }
+  }
 
-    lines.push('---');
-    lines.push('');
-    lines.push('## 🛠️ 排查与处理过程记录 (Troubleshooting Log)');
-    lines.push('');
-    lines.push('> [!TIP] 复杂问题处理记录');
-    lines.push('> 在此记录该复杂技术问题的排查思路、日志分析、抓包对比、测试复现条件与代码修复方案。');
-    lines.push('');
-    lines.push('### 1. 现象复现与抓包/日志分析');
-    lines.push('- **测试条件/版本**: ');
-    lines.push('- **复现概率**: ');
-    lines.push('- **核心日志/抓包片段**: ');
-    lines.push('```text');
-    lines.push('// 粘贴关键 log 或堆栈信息');
-    lines.push('```');
-    lines.push('');
-    lines.push('### 2. 根因分析 (Root Cause)');
-    lines.push('- ');
-    lines.push('');
-    lines.push('### 3. 处理方案与代码修复 (Fix & Solution)');
-    lines.push('- [ ] 临时规避方案 (Workaround)');
-    lines.push('- [ ] 核心代码改动 (Code Changes)');
-    lines.push('- [ ] 自动化测试 / 验证闭环结果');
-    lines.push('');
+  /* ============================ 联调区 / 结单分流区 (P2a) ============================ */
 
-    const noteContent = lines.join('\n');
-
+  async _sandboxCtx(issue) {
+    const naming = (typeof inferDbgNaming === 'function')
+      ? inferDbgNaming(issue)
+      : { platform: 'COMMON', module: 'GEN' };
+    const ctx = {
+      sandboxDir: this.sandboxService ? this.sandboxService.dirPath(issue.key) : '',
+      draftPath: '',
+      module: naming.module,
+      platform: naming.platform
+    };
     try {
-      await app.vault.create(notePath, noteContent);
-      new NoticeCls(`✓ 已成功存入 00-Inbox/03-Quick-Note/${fileBasename}.md 并已在编辑器中打开`, 4000);
+      const draft = this.sandboxService ? await this.sandboxService.findDraft(issue.key) : null;
+      if (draft) ctx.draftPath = draft.path;
+    } catch (_) {}
+    return ctx;
+  }
 
-      // Open in workspace
-      if (app.workspace && typeof app.workspace.openLinkText === 'function') {
-        app.workspace.openLinkText(notePath, '', false);
-      }
+  /**
+   * 辅助排: 左侧「联调」ghost 图标组 (📎附件 🔍源码 🌿提交 AI填词 + 波形跳工具页),
+   * 右侧「✓ 结单归档 ▴」上拉菜单 (直接结单 / 提炼CASE / 升为专题)
+   */
+  async renderAuxSection(host, issue) {
+    if (!host) return;
+    host.empty();
+    if (!this.onAgentPrompt && !this.onOpenTool && !this.sandboxService && !this.topicService) return;
 
-      if (btnEl) {
-        btnEl.classList.add('copied');
-        const oldHtml = btnEl.innerHTML;
-        btnEl.innerHTML = `${getIconPark('check', 12)} <span>已存入笔记！</span>`;
-        setTimeout(() => {
-          btnEl.classList.remove('copied');
-          btnEl.innerHTML = oldHtml;
-        }, 1800);
+    const row = host.createDiv({ cls: 'tw-ins-aux-row' });
+    const left = row.createDiv({ cls: 'tw-ins-aux-left' });
+    const ctx = await this._sandboxCtx(issue);
+
+    if (this.onAgentPrompt || this.onOpenTool) {
+      left.createDiv({ cls: 'tw-ins-aux-label', text: '联调' });
+      if (this.onAgentPrompt) {
+        this._ghostIconBtn(left, 'paperclip', '附件 · 下载到沙盒', () => {
+          this.onAgentPrompt(buildAttachmentPrompt(issue, ctx));
+          this.closeInspector();
+        });
+        this._ghostIconBtn(left, 'code', '源码 · 检索调用链', () => {
+          this.onAgentPrompt(buildSourcePrompt(issue, ctx));
+          this.closeInspector();
+        });
+        this._ghostIconBtn(left, 'branch', '提交 · 检索关联变更', () => {
+          this.onAgentPrompt(buildGerritPrompt(issue, ctx));
+          this.closeInspector();
+        });
       }
-    } catch (err) {
-      console.error('[JiraPlatformView] Failed to save Quick-Note:', err);
-      new NoticeCls(`❌ 存入 Quick-Note 失败: ${err.message}`, 5000);
+      if (this.onOpenTool) {
+        this._ghostIconBtn(left, 'chart-line', '波形 · 打开分析工具', () => {
+          this.onOpenTool(toolIdForModule(ctx.module));
+          this.closeInspector();
+        });
+      }
     }
+
+    const right = row.createDiv({ cls: 'tw-ins-aux-right' });
+    let topic = null;
+    try { if (this.topicService) topic = await this.topicService.findTopicByJira(issue.key); } catch (_) {}
+    let disp = { disposition: '', closed_at: '' };
+    try { if (this.sandboxService) disp = await this.sandboxService.readDisposition(issue.key); } catch (_) {}
+
+    if (topic) {
+      const badge = right.createEl('span', {
+        cls: 'tw-ins-triage-badge topic',
+        text: `📁 ${topic.title}`,
+        attr: { title: '打开专题' }
+      });
+      badge.onclick = () => { if (this.onOpenTopic) this.onOpenTopic(topic.id); };
+    } else if (disp.disposition === 'closed') {
+      right.createEl('span', {
+        cls: 'tw-ins-triage-badge',
+        text: `已留档 ${disp.closed_at || ''}`.trim()
+      });
+    }
+
+    const wrap = right.createDiv({ cls: 'tw-pop-wrap tw-archive-wrap' });
+    const trig = wrap.createDiv({ cls: 'tw-ins-archive-trigger', attr: { title: '结单归档分流' } });
+    trig.innerHTML = `${getIconPark('check', 13)}<span>结单归档</span>${getIconPark('up', 10)}`;
+    const menu = wrap.createDiv({ cls: 'tw-pop-menu tw-ins-archive-menu' });
+
+    const addItem = (name, title, onClick) => {
+      const it = menu.createEl('div', { cls: 'tw-ins-trans-item', attr: { title: title || '' } });
+      it.innerHTML = `<span class="tw-smi-name">${escapeHtml(name)}</span><span class="tw-smi-arrow">→</span>`;
+      it.onclick = async (e) => {
+        e.stopPropagation();
+        wrap.classList.remove('open');
+        try { await onClick(); } catch (err) {
+          this._notice(`操作失败: ${(err && err.message) || err}`, 5000);
+        }
+      };
+      return it;
+    };
+
+    addItem('直接结单', '留档沙盒, 不动 Jira 状态', async () => {
+      if (!this.sandboxService) { this._notice('请先开始排查建档'); return; }
+      try {
+        await this.sandboxService.setDisposition(issue.key, 'closed');
+        this._notice('✓ 已留档，Jira 状态请用上方流转');
+      } catch (e) {
+        if (String(e && e.message).includes('NO_DRAFT')) {
+          this._notice('请先开始排查建档');
+          return;
+        }
+        throw e;
+      }
+      await this.renderAuxSection(host, issue);
+    });
+
+    if (this.onAgentPrompt) {
+      addItem('提炼CASE', '提炼为 CASE 入库', async () => {
+        const draft = this.sandboxService ? await this.sandboxService.findDraft(issue.key) : null;
+        if (!draft) { this._notice('请先开始排查建档'); return; }
+        this.onAgentPrompt(buildCasePrompt(issue, ctx));
+        this.closeInspector();
+      });
+    }
+
+    if (this.topicService && this.onOpenTopic) {
+      addItem('升为专题', '转为个人专题跟踪', async () => {
+        const res = await this.topicService.ensureTopicFromJira(issue, {
+          module: ctx.module,
+          platform: ctx.platform,
+          sandboxDir: ctx.sandboxDir
+        });
+        this._notice(res.created ? '✓ 已升为专题' : `已有专题「${res.topic.title}」`);
+        this.onOpenTopic(res.topic.id);
+      });
+    }
+
+    trig.onclick = (e) => {
+      e.stopPropagation();
+      const willOpen = !wrap.classList.contains('open');
+      this._closeInspectorPopups();
+      if (willOpen) wrap.classList.add('open');
+    };
+  }
+
+  async _openVaultFile(file) {
+    if (!file) return;
+    try {
+      let leaf = this.app.workspace.getLeaf(false);
+      if (leaf && typeof leaf.then === 'function') leaf = await leaf;
+      if (leaf && typeof leaf.openFile === 'function') {
+        await leaf.openFile(file);
+        return;
+      }
+    } catch (_) {}
+    try { this.app.openWithDefaultApp && this.app.openWithDefaultApp(file.path); } catch (_) {}
+  }
+
+  async _openVaultFileSplit(file) {
+    if (!file) return;
+    try {
+      let leaf = this.app.workspace.getLeaf('split', 'vertical');
+      if (leaf && typeof leaf.then === 'function') leaf = await leaf;
+      if (leaf && typeof leaf.openFile === 'function') {
+        await leaf.openFile(file);
+        return;
+      }
+    } catch (e) {
+      console.warn('[JiraPlatformView] openSplit failed:', e);
+    }
+    this._openVaultFile(file);
   }
 
   closeInspector() {
     if (this._inspectorEscHandler) {
       document.removeEventListener('keydown', this._inspectorEscHandler);
       this._inspectorEscHandler = null;
+    }
+    if (this._inspectorMenuHandler) {
+      document.removeEventListener('click', this._inspectorMenuHandler, true);
+      this._inspectorMenuHandler = null;
     }
     if (this.inspectorContainer) {
       this.inspectorContainer.style.display = 'none';
@@ -34982,6 +37980,1811 @@ function escapeAttr(str) {
     .replace(/'/g, '&#39;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
+}
+
+'use strict';
+/* ============================================================================
+ * radar-service.js — 能力雷达 (P3)
+ * 纯数据计算: 文档权重 + 已关闭 Jira 工单 + 近 90 天活跃 → 各模块 0-100 相对归一化;
+ * 三区: familiar(≥40) / expand(有进行中专题或 ≥15) / blank;
+ * 季度快照 localStorage (保留最近 8 个季度), 供上季度 diff 与虚线对比。
+ * 全部为可测试纯函数 + RadarService (collectDocs/collectJiraClosed/compute/快照)。
+ * ============================================================================ */
+
+// 模块码以 99-Meta/02-Naming-Spec.md §1.3 为准: 全部代码去掉 GEN
+const RADAR_MODULES = ['DISP', 'CAM', 'AUD', 'USB', 'CHG', 'SNS', 'TP', 'PWR', 'STOR', 'CONN', 'MODEM', 'INPUT', 'SEC', 'KERN', 'BUILD', 'HW', 'AI', 'WB'];
+const RADAR_LABELS = {
+  DISP: '显示', CAM: '相机', AUD: '音频', USB: 'USB', CHG: '充电', SNS: '传感',
+  TP: '触控', PWR: '电源', STOR: '存储', CONN: '连接', MODEM: '基带', INPUT: '输入',
+  SEC: '安全', KERN: '内核', BUILD: '构建', HW: '硬件', AI: 'AI', WB: '工作台'
+};
+const RADAR_DOC_WEIGHTS = {
+  ARCH: 3, GUIDE: 2.5, CASE: 2.5, RPT: 2, DBG: 2, CODE: 1.5,
+  SPEC: 1, CHK: 1, NOTE: 1, REF: 0.5, PLAN: 0.5
+};
+const RADAR_WEIGHTS = { doc: 0.6, jira: 0.3, act: 0.1 };
+const RADAR_ZONE_FAMILIAR = 40;
+const RADAR_ZONE_EXPAND = 15;
+const ACTIVE_DAYS = 90;
+const RADAR_SNAPSHOT_KEY = 'tabonkb-radar-snapshots';
+const RADAR_SNAPSHOT_KEEP = 8;
+
+// collectDocs 排除目录前缀 (另加 topicService.rootPath 个人专题区)
+const RADAR_EXCLUDE_DIRS = ['00-Inbox/', '98-Archive/', '99-Meta/', '11-Assets/', 'wiki/', '.obsidian/'];
+
+const _up = (c) => String(c || '').trim().toUpperCase();
+const DAY_MS = 86400000;
+
+/**
+ * computeRadar({docs, jiraClosed, topics, nowMs, weights})
+ * docs: [{module:string|string[], doctype, ts(ms)}] —— module 数组中每个命中模块各计一次
+ * jiraClosed: {CHG: 3, ...} —— 已关闭工单按模块的计数 (GEN/空已由调用方剔除)
+ * 返回 [{code,label,score,raw,D,J,A,active,zone}]，顺序同 RADAR_MODULES
+ */
+function computeRadar(input = {}) {
+  const w = Object.assign({}, RADAR_WEIGHTS, input.weights || {});
+  const nowMs = (input.nowMs != null && Number.isFinite(input.nowMs)) ? input.nowMs : Date.now();
+  const stats = {};
+  for (const code of RADAR_MODULES) stats[code] = { D: 0, J: 0, A: 0 };
+
+  for (const d of (input.docs || [])) {
+    const dw = RADAR_DOC_WEIGHTS[_up(d && d.doctype)] || 0;
+    const mods = Array.isArray(d && d.module) ? d.module : (d && d.module ? [d.module] : []);
+    const ts = Number(d && d.ts);
+    const isAct = dw > 0 && Number.isFinite(ts) && (nowMs - ts) <= ACTIVE_DAYS * DAY_MS;
+    for (const m of mods) {
+      const c = _up(m);
+      if (!stats[c]) continue;
+      stats[c].D += dw;
+      if (isAct) stats[c].A += 1;
+    }
+  }
+
+  const jm = input.jiraClosed || {};
+  for (const code of RADAR_MODULES) {
+    const n = Number(jm[code]);
+    if (Number.isFinite(n)) stats[code].J = n;
+  }
+
+  const activeTopicModules = new Set(
+    (input.topics || []).filter(t => t && t.status === 'in_progress').map(t => _up(t.module))
+  );
+
+  const raws = RADAR_MODULES.map(c => w.doc * stats[c].D + w.jira * stats[c].J + w.act * stats[c].A);
+  const maxRaw = raws.reduce((m, x) => Math.max(m, x), 0);
+
+  return RADAR_MODULES.map((code, i) => {
+    const raw = raws[i];
+    const score = maxRaw > 0 ? Math.round(raw / maxRaw * 100) : 0;
+    const active = activeTopicModules.has(code);
+    const zone = score >= RADAR_ZONE_FAMILIAR ? 'familiar'
+      : (active || score >= RADAR_ZONE_EXPAND ? 'expand' : 'blank');
+    return {
+      code, label: RADAR_LABELS[code] || code, score, raw,
+      D: stats[code].D, J: stats[code].J, A: stats[code].A,
+      active, zone
+    };
+  });
+}
+
+function quarterKey(date) {
+  const d = (date instanceof Date) ? date : new Date(date || Date.now());
+  return `${d.getFullYear()}-Q${Math.floor(d.getMonth() / 3) + 1}`;
+}
+
+function prevQuarterKey(key) {
+  const m = /^(\d{4})-Q([1-4])$/.exec(String(key || ''));
+  if (!m) return '';
+  let y = +m[1];
+  let q = +m[2] - 1;
+  if (q === 0) { q = 4; y -= 1; }
+  return `${y}-Q${q}`;
+}
+
+/** current 每项附加 delta (无 prev 快照或快照缺该 code → null, 表示无可比数据) */
+function diffRadar(current, prevSnapshot) {
+  const prev = (prevSnapshot && typeof prevSnapshot === 'object') ? prevSnapshot : null;
+  return (current || []).map(r => Object.assign({}, r, {
+    delta: (prev && prev[r.code] != null) ? (r.score - prev[r.code]) : null
+  }));
+}
+
+/** 空白区种子推荐: zone==='blank' 模块, 同 module 的 seed/growing 种子, growing 在前再按浇水降序, 每模块 ≤3 */
+function recommendSeedsForBlank(radar, seeds) {
+  const out = [];
+  for (const r of (radar || [])) {
+    if (r.zone !== 'blank') continue;
+    const list = (seeds || [])
+      .filter(s => _up(s && s.module) === r.code && (s.status === 'seed' || s.status === 'growing'))
+      .sort((a, b) => {
+        const ga = a.status === 'growing' ? 0 : 1, gb = b.status === 'growing' ? 0 : 1;
+        return (ga - gb) || ((b.waters || []).length - (a.waters || []).length);
+      })
+      .slice(0, 3);
+    out.push({ code: r.code, label: r.label || RADAR_LABELS[r.code] || r.code, seeds: list });
+  }
+  return out;
+}
+
+class RadarService {
+  constructor(opts = {}) {
+    this.app = opts.app || null;
+    this.topicService = opts.topicService || null;
+    this.getJiraIssues = opts.getJiraIssues || null;   // 同步返回已缓存工单数组 (不触发网络)
+    this.categorizeDone = opts.categorizeDone || null; // (issue)=>bool, 缺省按 statusCategory/status
+    this.storage = opts.storage || ((typeof localStorage !== 'undefined') ? localStorage : null);
+  }
+
+  _isDone(issue) {
+    if (typeof this.categorizeDone === 'function') {
+      try { return !!this.categorizeDone(issue); } catch (_) { return false; }
+    }
+    const cat = String(issue && issue.statusCategory || '').toLowerCase();
+    const s = String(issue && issue.status || '').toLowerCase();
+    return cat === 'done' || s.includes('closed') || s.includes('done') || s.includes('resolved') || s.includes('已解决') || s.includes('关闭') || s.includes('完成');
+  }
+
+  /** 遍历库内 md: 排除 Inbox/Archive/Meta/Assets/wiki/.obsidian 与个人专题区; module 或 doctype 缺失跳过; ts=fm.updated|date→mtime */
+  async collectDocs() {
+    const vault = this.app && this.app.vault;
+    const files = (vault && typeof vault.getMarkdownFiles === 'function') ? vault.getMarkdownFiles() : [];
+    const rootPath = this.topicService ? String(this.topicService.rootPath || '').replace(/\/+$/, '') : '';
+    const out = [];
+    for (const f of files) {
+      const p = String(f && f.path || '');
+      if (!p) continue;
+      if (RADAR_EXCLUDE_DIRS.some(d => p.startsWith(d))) continue;
+      if (rootPath && p.startsWith(rootPath + '/')) continue;
+      let fm = {};
+      try {
+        fm = (this.app.metadataCache && this.app.metadataCache.getFileCache(f) || {}).frontmatter || {};
+      } catch (_) { fm = {}; }
+      const module = Array.isArray(fm.module) ? fm.module.map(_up) : (fm.module ? [_up(fm.module)] : []);
+      const doctype = _up(fm.doctype);
+      if (!module.length || !doctype) continue;
+      let ts = NaN;
+      for (const k of ['updated', 'date']) {
+        if (fm[k]) {
+          const t = Date.parse(String(fm[k]).replace(' ', 'T'));
+          if (!isNaN(t)) { ts = t; break; }
+        }
+      }
+      if (isNaN(ts)) ts = (f.stat && f.stat.mtime) || 0;
+      out.push({ module, doctype, ts });
+    }
+    return out;
+  }
+
+  /** 已缓存工单中 Done 的 → inferDbgNaming 归模块计数 {CHG:n,...}; GEN/无法推断丢弃; 缺省返回 {} */
+  collectJiraClosed() {
+    const counts = {};
+    let issues = [];
+    try { issues = (this.getJiraIssues && this.getJiraIssues()) || []; } catch (_) { issues = []; }
+    let infer = (typeof inferDbgNaming === 'function') ? inferDbgNaming : null;
+    if (!infer) {
+      try { infer = require('./jira-sandbox-service.js').inferDbgNaming; } catch (_) { infer = null; }
+    }
+    for (const i of issues) {
+      if (!this._isDone(i)) continue;
+      const m = infer ? _up(infer(i).module) : '';
+      if (!m || m === 'GEN' || !RADAR_MODULES.includes(m)) continue;
+      counts[m] = (counts[m] || 0) + 1;
+    }
+    return counts;
+  }
+
+  /** 汇总计算: collectDocs + collectJiraClosed + topicService.scan() → computeRadar */
+  async compute(nowMs) {
+    const docs = await this.collectDocs();
+    const jiraClosed = this.collectJiraClosed();
+    let topics = [];
+    try { topics = this.topicService ? await this.topicService.scan() : []; }
+    catch (e) { console.warn('[Radar] scan:', e); }
+    return computeRadar({ docs, jiraClosed, topics, nowMs });
+  }
+
+  /* ---------- 季度快照 (localStorage, 最近 8 个季度) ---------- */
+
+  loadSnapshots() {
+    if (!this.storage) return {};
+    try { return JSON.parse(this.storage.getItem(RADAR_SNAPSHOT_KEY) || '{}') || {}; }
+    catch (_) { return {}; }
+  }
+
+  saveSnapshot(qKey, radar) {
+    if (!this.storage || !qKey) return;
+    const snaps = this.loadSnapshots();
+    const snap = {};
+    for (const r of (radar || [])) snap[r.code] = r.score;
+    snaps[qKey] = snap;
+    // 只保留最近 8 个季度
+    const keys = Object.keys(snaps).sort();
+    while (keys.length > RADAR_SNAPSHOT_KEEP) {
+      delete snaps[keys.shift()];
+    }
+    try { this.storage.setItem(RADAR_SNAPSHOT_KEY, JSON.stringify(snaps)); } catch (_) {}
+  }
+
+  /** 上一个季度的快照 {code:score} 或 null */
+  prevQuarterSnapshot(nowDate) {
+    const snaps = this.loadSnapshots();
+    const key = prevQuarterKey(quarterKey(nowDate || new Date()));
+    return (key && snaps[key]) ? snaps[key] : null;
+  }
+}
+
+/* ==========================================================================
+   TopicView — 任务页「专题」子页 (P1a)
+   左栏: 搜索 + ＋新建 + 4 个可折叠分组 (本周聚焦/工作/深耕/拓展)
+   右栏: 头部(ID·模块/进度/聚焦/归档) + 推进主控卡(Checklist/统一输入条/进展)
+         + 文件舱(过程草稿 | 沉淀与参考)
+   数据: services/topic-service.js (vault 07-Project/00-Personal-Topics/)
+   ========================================================================== */
+
+
+
+
+
+const LS_SELECTED = 'tabonkb-topic-selected';
+const LS_COLLAPSED = 'tabonkb-topic-collapsed';
+const LS_SEEDS_OPEN = 'tabonkb-topic-seeds-open';
+const LS_IDEAS_OPEN = 'tabonkb-topic-ideas-open';
+const LS_WITHERED_OPEN = 'tabonkb-topic-withered-open';
+const LS_WITHER_AT = 'tabonkb-topic-wither-at';
+const LS_REVIEW_WEEK = 'tabonkb-topic-review-week';
+
+const SEED_SOURCE_LABELS = { jira: 'JIRA', note: '笔记', agent: 'AI', manual: '手记' };
+
+// P2b: 入库向导选项 / WeKnora 检索工具名 (与 mcp/weknora-mcp-shared.js 注册一致)
+const INGEST_PLATFORMS = ['QCOM', 'MTK', 'UNISOC', 'EXYNOS', 'HISI', 'RK', 'AW', 'COMMON', 'MULTI'];
+const INGEST_DOCTYPES = ['NOTE', 'ARCH', 'CASE', 'DBG', 'GUIDE', 'SPEC', 'REF', 'CODE', 'RPT', 'CHK', 'PLAN'];
+const WEKNORA_SEARCH_TOOLS = ['weknora_search', 'weknora_read_document'];
+
+function _touchMs(s) {
+  const m = /(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2}))?/.exec(String((s && s.touched) || ''));
+  if (!m) return 0;
+  return new Date(+m[1], +m[2] - 1, +m[3], +(m[4] || 0), +(m[5] || 0)).getTime();
+}
+
+function _touchLabel(s) {
+  const ms = _touchMs(s);
+  const days = ms ? Math.max(0, Math.floor((Date.now() - ms) / 86400000)) : 0;
+  return { days, label: days === 0 ? '今日' : `${days}天前`, warn: days >= 7 };
+}
+
+function _lsGet(k) {
+  try { return typeof localStorage !== 'undefined' ? localStorage.getItem(k) : null; } catch (_) { return null; }
+}
+function _lsSet(k, v) {
+  try { if (typeof localStorage !== 'undefined') localStorage.setItem(k, v); } catch (_) {}
+}
+
+function _notice(msg, ms) {
+  try {
+    if (typeof Notice !== 'undefined') new Notice(msg, ms || 2500);
+  } catch (_) {}
+}
+
+class TopicView {
+  constructor(opts = {}) {
+    this.app = opts.app;
+    this.topicService = opts.topicService;
+    this.agentDrawer = opts.agentDrawer || null;
+
+    this.el = null;
+    this.hostEl = null;
+    this.topics = [];
+    this.seeds = [];
+    this.keyword = '';
+    this.selectedId = null;
+    this.selectedSeedId = null;
+    const _sv = _lsGet(LS_SELECTED) || '';
+    if (_sv.startsWith('seed:')) this.selectedSeedId = _sv.slice(5);
+    else this.selectedId = _sv || null;
+    this.collapsed = new Set((_lsGet(LS_COLLAPSED) || '').split(',').filter(Boolean));
+    this.seedsOpen = _lsGet(LS_SEEDS_OPEN) === '1';     // 默认折叠, 展开过才记 '1'
+    this.ideasOpen = _lsGet(LS_IDEAS_OPEN) === '1';
+    this.withered = [];
+    this.witheredOpen = _lsGet(LS_WITHERED_OPEN) === '1';
+    this.inputMode = 'step';            // 'step' | 'progress' | 'idea'
+    this._inputDraft = '';
+    this._seedDraft = '';
+    this._timelineExpanded = false;
+    this._unsub = null;
+    this._createPop = null;
+    this._createPopCloser = null;
+    this._confirmEl = null;
+    this._editingGoal = false;
+    // P3: 回顾浮窗 / 雷达视图
+    this.getJiraIssues = opts.getJiraIssues || null;     // 同步取已缓存工单 (不触发网络)
+    this.categorizeDone = opts.categorizeDone || null;   // (issue)=>bool
+    this.radarOpen = false;
+    this._radarData = null;
+    this._radarBusy = false;
+    this._radarSvc = null;
+    this._reviewEl = null;
+    this._reviewKeyHandler = null;
+
+    this._searchEl = null;
+    this._groupsEl = null;
+    this._mainEl = null;
+    this._inputEl = null;
+    this._seedInputEl = null;
+  }
+
+  /* ============================ 挂载 ============================ */
+
+  async mount(parentEl) {
+    this.hostEl = parentEl;
+    this.el = parentEl.createDiv({ cls: 'tw-topic-root' });
+    this._buildSkeleton();
+    await this.refresh(true);
+    this._unsub = this.topicService ? this.topicService.onChange(() => this.refresh(false)) : null;
+    // P3: 每周首次打开自动弹出周回顾 (无可回顾内容则静默记周键)
+    try {
+      const lastW = _lsGet(LS_REVIEW_WEEK);
+      const wk = isoWeekKey(new Date());
+      const plan = buildWeeklyReviewPlan(this.topics, this.seeds, new Date());
+      const hasContent = !!(plan.topics.length || plan.seeds.length || plan.ideas.length);
+      if (shouldShowWeeklyReview(lastW, new Date(), hasContent)) {
+        this._openReview();
+      } else if (lastW !== wk && !hasContent) {
+        _lsSet(LS_REVIEW_WEEK, wk);
+      }
+    } catch (_) {}
+  }
+
+  dispose() {
+    if (this._unsub) { try { this._unsub(); } catch (_) {} this._unsub = null; }
+    this._closeCreatePopover();
+    this._closeConfirm();
+    this._closeReview(false);
+    this.el = null;
+    this.hostEl = null;
+    this._searchEl = this._groupsEl = this._mainEl = this._inputEl = null;
+    this._seedInputEl = null;
+  }
+
+  filterKeyword(kw) {
+    this.keyword = String(kw || '').trim();
+    if (this._searchEl && this._searchEl.value !== this.keyword && document.activeElement !== this._searchEl) {
+      this._searchEl.value = this.keyword;
+    }
+    this._renderGroups();
+  }
+
+  /* ============================ 数据 ============================ */
+
+  async refresh(rebuildDetail) {
+    if (!this.topicService) return;
+    try {
+      this.topics = await this.topicService.scan();
+    } catch (e) {
+      console.warn('[TopicView] scan failed:', e);
+      this.topics = [];
+    }
+    try {
+      this.seeds = (typeof this.topicService.scanSeeds === 'function') ? await this.topicService.scanSeeds() : [];
+    } catch (e) {
+      this.seeds = [];
+    }
+    try {
+      this.withered = (typeof this.topicService.scanWithered === 'function') ? await this.topicService.scanWithered() : [];
+    } catch (e) {
+      this.withered = [];
+    }
+    if (!this.el) return;
+
+    // P2b: 90 天自动枯萎 (1 小时节流)
+    try {
+      const last = Number(_lsGet(LS_WITHER_AT) || 0);
+      if (Date.now() - last > 3600e3 && typeof this.topicService.witherStaleSeeds === 'function') {
+        _lsSet(LS_WITHER_AT, String(Date.now()));
+        this.topicService.witherStaleSeeds().then(n => {
+          if (n > 0) {
+            _notice(`🍂 ${n} 颗种子已枯萎`);
+            this.refresh(false);
+          }
+        }).catch(e => console.warn('[TopicView] witherStaleSeeds:', e));
+      }
+    } catch (_) {}
+
+    this._renderGroups();
+
+    if (this.selectedSeedId && !this.seeds.some(s => s.id === this.selectedSeedId)) {
+      this.selectedSeedId = null;
+    }
+    let sel = null;
+    if (this.selectedSeedId) {
+      this.selectedId = null;
+    } else {
+      sel = this.topics.find(t => t.id === this.selectedId) || null;
+      if (!sel && this.topics.length) {
+        sel = [...this.topics].sort((a, b) => (b.maxMtime || 0) - (a.maxMtime || 0))[0];
+      }
+      this.selectedId = sel ? sel.id : null;
+    }
+    const stored = this.selectedSeedId ? `seed:${this.selectedSeedId}` : (this.selectedId || '');
+    if (stored !== (_lsGet(LS_SELECTED) || '')) _lsSet(LS_SELECTED, stored);
+
+    const emptyNow = !sel && !this.selectedSeedId;
+    const wasEmpty = this._mainEl && this._mainEl.dataset && this._mainEl.dataset.empty === '1';
+    if (rebuildDetail || emptyNow !== wasEmpty || !this._mainEl || !this._mainEl.firstChild) {
+      this._renderMain();
+    } else {
+      this._updateDetail();
+    }
+  }
+
+  _selected() {
+    return this.topics.find(t => t.id === this.selectedId) || null;
+  }
+
+  /* ============================ 骨架 ============================ */
+
+  _buildSkeleton() {
+    const side = this.el.createDiv({ cls: 'tw-topic-side' });
+
+    const head = side.createDiv({ cls: 'tw-topic-side-head' });
+    const searchWrap = head.createDiv({ cls: 'tw-topic-search-wrap' });
+    this._searchEl = searchWrap.createEl('input', {
+      cls: 'tw-topic-search',
+      attr: { type: 'text', placeholder: '搜索 标题/模块/ID' }
+    });
+    this._searchEl.value = this.keyword;
+    this._searchEl.addEventListener('input', (e) => {
+      this.keyword = e.target.value.trim();
+      this._renderGroups();
+    });
+    const addBtn = head.createEl('button', { cls: 'tw-topic-add-btn', text: '＋', attr: { title: '新建专题' } });
+    addBtn.onclick = (e) => { e.stopPropagation(); this._toggleCreatePopover(addBtn); };
+    // P3: 🗓 回顾 / 📡 雷达
+    const revBtn = head.createEl('button', { cls: 'tw-topic-icon-btn', text: '🗓', attr: { title: '回顾' } });
+    revBtn.onclick = (e) => { e.stopPropagation(); this._openReview(); };
+    const radarBtn = head.createEl('button', { cls: 'tw-topic-icon-btn', text: '📡', attr: { title: '雷达' } });
+    radarBtn.onclick = (e) => { e.stopPropagation(); this._toggleRadar(); };
+
+    this._groupsEl = side.createDiv({ cls: 'tw-topic-groups' });
+    this._mainEl = this.el.createDiv({ cls: 'tw-topic-main' });
+  }
+
+  /* ============================ 左栏分组 ============================ */
+
+  _matchKw(t) {
+    if (!this.keyword) return true;
+    const kw = this.keyword.toLowerCase();
+    return (t.title || '').toLowerCase().includes(kw)
+      || (t.module || '').toLowerCase().includes(kw)
+      || (t.id || '').toLowerCase().includes(kw);
+  }
+
+  _groupDefs() {
+    const vis = this.topics.filter(t => this._matchKw(t));
+    return [
+      { id: 'star', label: '⭐ 本周聚焦', items: vis.filter(t => t.starred && t.status === 'in_progress') },
+      { id: 'work', label: '💼 工作', items: vis.filter(t => t.track === 'work') },
+      { id: 'deep', label: '🔬 深耕', items: vis.filter(t => t.track === 'deep') },
+      { id: 'broad', label: '🧭 拓展', items: vis.filter(t => t.track === 'broad') }
+    ].map(g => ({ ...g, items: [...g.items].sort((a, b) => (b.maxMtime || 0) - (a.maxMtime || 0)) }));
+  }
+
+  _renderGroups() {
+    if (!this._groupsEl) return;
+    this._groupsEl.empty();
+    const groups = this._groupDefs();
+    let any = false;
+    for (const g of groups) {
+      const gEl = this._groupsEl.createDiv({ cls: 'tw-topic-group' });
+      const isCollapsed = this.collapsed.has(g.id);
+      const head = gEl.createEl('button', { cls: `tw-topic-group-head ${isCollapsed ? 'collapsed' : ''}` });
+      head.innerHTML = `<span class="tw-topic-group-arrow">${isCollapsed ? '▸' : '▾'}</span><span class="tw-topic-group-label">${escapeHtml(g.label)}</span><span class="tw-topic-group-count">${g.items.length}</span>`;
+      head.onclick = () => {
+        if (this.collapsed.has(g.id)) this.collapsed.delete(g.id); else this.collapsed.add(g.id);
+        _lsSet(LS_COLLAPSED, [...this.collapsed].join(','));
+        this._renderGroups();
+      };
+      if (isCollapsed) continue;
+      const body = gEl.createDiv({ cls: 'tw-topic-group-body' });
+      for (const t of g.items) {
+        any = true;
+        body.appendChild(this._buildTopicRow(t));
+      }
+    }
+    if (!any && !this.topics.length) {
+      this._groupsEl.createDiv({ cls: 'tw-topic-side-empty', text: '暂无专题' });
+    } else if (!any) {
+      this._groupsEl.createDiv({ cls: 'tw-topic-side-empty', text: '无匹配' });
+    }
+    this._renderSeedGroup();
+  }
+
+  _matchSeedKw(s) {
+    if (!this.keyword) return true;
+    const kw = this.keyword.toLowerCase();
+    return (s.title || '').toLowerCase().includes(kw)
+      || (s.module || '').toLowerCase().includes(kw)
+      || (s.source_ref || '').toLowerCase().includes(kw);
+  }
+
+  _renderSeedGroup() {
+    if (!this._groupsEl) return;
+    const seeds = (this.seeds || []).filter(s => this._matchSeedKw(s));
+    const gEl = this._groupsEl.createDiv({ cls: 'tw-topic-group tw-seed-group' });
+    const head = gEl.createEl('button', { cls: `tw-topic-group-head ${this.seedsOpen ? '' : 'collapsed'}` });
+    head.innerHTML = `<span class="tw-topic-group-arrow">${this.seedsOpen ? '▾' : '▸'}</span><span class="tw-topic-group-label">🌱 种子池</span><span class="tw-topic-group-count">${seeds.length}</span>`;
+    head.onclick = () => {
+      this.seedsOpen = !this.seedsOpen;
+      _lsSet(LS_SEEDS_OPEN, this.seedsOpen ? '1' : '0');
+      this._renderGroups();
+    };
+    if (!this.seedsOpen) return;
+    const body = gEl.createDiv({ cls: 'tw-topic-group-body' });
+    const growing = seeds.filter(s => s.status === 'growing')
+      .sort((a, b) => ((b.waters || []).length) - ((a.waters || []).length));
+    const fresh = seeds.filter(s => s.status !== 'growing')
+      .sort((a, b) => _touchMs(b) - _touchMs(a));
+    if (growing.length) {
+      body.createDiv({ cls: 'tw-seed-sub', text: '💧 培育中' });
+      for (const s of growing) body.appendChild(this._buildSeedRow(s));
+    }
+    if (fresh.length) {
+      body.createDiv({ cls: 'tw-seed-sub', text: '🌱 新种子' });
+      for (const s of fresh) body.appendChild(this._buildSeedRow(s));
+    }
+    if (!growing.length && !fresh.length) {
+      body.createDiv({ cls: 'tw-seed-empty', text: '—' });
+    }
+    // P2b: 枯萎种子 (默认可折叠, 复活回种子池)
+    const withered = (this.withered || []).filter(s => this._matchSeedKw(s));
+    if (withered.length) {
+      const wHead = body.createEl('button', {
+        cls: `tw-seed-sub tw-seed-wither-head ${this.witheredOpen ? '' : 'collapsed'}`,
+        text: `🍂 枯萎 ${withered.length}`
+      });
+      wHead.onclick = (e) => {
+        e.stopPropagation();
+        this.witheredOpen = !this.witheredOpen;
+        _lsSet(LS_WITHERED_OPEN, this.witheredOpen ? '1' : '0');
+        this._renderGroups();
+      };
+      if (this.witheredOpen) {
+        for (const s of withered) {
+          const row = body.createDiv({ cls: 'tw-seed-wither-row' });
+          row.createEl('span', { cls: 'tw-seed-wither-name', text: s.title || s.id, attr: { title: s.id } });
+          const bR = row.createEl('button', { cls: 'tw-topic-mini-btn', text: '复活' });
+          bR.onclick = async (e) => {
+            e.stopPropagation();
+            try {
+              await this.topicService.reviveSeed(s);
+              _notice('🌱 已复活');
+            } catch (err) { _notice(`复活失败: ${err.message || err}`); }
+            await this.refresh(false);
+          };
+        }
+      }
+    }
+  }
+
+  _buildSeedRow(s) {
+    const row = document.createElement('div');
+    row.className = `tw-topic-row tw-seed-row ${s.id === this.selectedSeedId ? 'active' : ''}`;
+    const top = document.createElement('div');
+    top.className = 'tw-topic-row-top';
+    const title = document.createElement('span');
+    title.className = 'tw-topic-title';
+    title.textContent = s.title || s.id;
+    title.title = s.id;
+    top.appendChild(title);
+    const wc = document.createElement('span');
+    wc.className = 'tw-seed-water-n';
+    wc.textContent = `💧 ${(s.waters || []).length}`;
+    top.appendChild(wc);
+    row.appendChild(top);
+
+    const meta = document.createElement('div');
+    meta.className = 'tw-topic-row-meta';
+    const src = document.createElement('span');
+    src.className = 'tw-seed-src';
+    src.textContent = SEED_SOURCE_LABELS[s.source] || s.source || '手记';
+    meta.appendChild(src);
+    const t = _touchLabel(s);
+    const idle = document.createElement('span');
+    idle.className = `tw-topic-idle ${t.warn ? 'warn' : ''}`;
+    idle.textContent = t.label;
+    meta.appendChild(idle);
+    row.appendChild(meta);
+
+    row.onclick = () => {
+      this.selectedSeedId = s.id;
+      this.selectedId = null;
+      this.radarOpen = false;
+      _lsSet(LS_SELECTED, `seed:${s.id}`);
+      this._renderGroups();
+      this._renderMain();
+    };
+    return row;
+  }
+
+  _buildTopicRow(t) {
+    const row = document.createElement('div');
+    row.className = `tw-topic-row ${t.id === this.selectedId ? 'active' : ''}`;
+    const prog = calcProgress(t.steps);
+    const idle = calcIdle(t.maxMtime, Date.now(), t.status);
+
+    const top = document.createElement('div');
+    top.className = 'tw-topic-row-top';
+    const title = document.createElement('span');
+    title.className = 'tw-topic-title';
+    title.textContent = t.title || t.id;
+    title.title = t.id;
+    top.appendChild(title);
+    const star = document.createElement('button');
+    star.className = `tw-topic-star ${t.starred ? 'on' : ''}`;
+    star.textContent = t.starred ? '⭐' : '☆';
+    star.title = t.starred ? '取消聚焦' : '设为聚焦';
+    star.onclick = async (e) => {
+      e.stopPropagation();
+      try {
+        await this.topicService.toggleStar(t);
+      } catch (err) {
+        _notice(err && err.code === 'STAR_LIMIT' ? '聚焦最多 3 个' : `操作失败: ${err.message}`);
+      }
+      await this.refresh(false);
+    };
+    top.appendChild(star);
+    row.appendChild(top);
+
+    const meta = document.createElement('div');
+    meta.className = 'tw-topic-row-meta';
+    if (t.module) {
+      const mb = document.createElement('span');
+      mb.className = 'tw-topic-badge';
+      mb.textContent = t.module;
+      meta.appendChild(mb);
+    }
+    const idleEl = document.createElement('span');
+    if (t.status === 'paused') {
+      idleEl.className = 'tw-topic-idle paused';
+      idleEl.textContent = '⏸ 暂停';
+    } else if (idle.warn) {
+      idleEl.className = 'tw-topic-idle warn';
+      idleEl.textContent = `⏳ 搁置 ${idle.days} 天`;
+    } else {
+      idleEl.className = 'tw-topic-idle';
+      idleEl.textContent = idle.label;
+    }
+    meta.appendChild(idleEl);
+
+    const progWrap = document.createElement('span');
+    progWrap.className = 'tw-topic-miniprog';
+    const track = document.createElement('span');
+    track.className = 'tw-topic-miniprog-track';
+    const fill = document.createElement('span');
+    fill.className = 'tw-topic-miniprog-fill';
+    fill.style.width = `${prog.percent || 0}%`;
+    track.appendChild(fill);
+    progWrap.appendChild(track);
+    const pct = document.createElement('span');
+    pct.className = 'tw-topic-miniprog-num';
+    pct.textContent = prog.total ? `${prog.done}/${prog.total}` : '—';
+    progWrap.appendChild(pct);
+    meta.appendChild(progWrap);
+
+    const ideaN = (t.ideas || []).filter(i => !i.struck).length;
+    if (ideaN > 0) {
+      const ib = document.createElement('span');
+      ib.className = 'tw-topic-ideas-n';
+      ib.textContent = `💡 ${ideaN}`;
+      meta.appendChild(ib);
+    }
+    row.appendChild(meta);
+
+    row.onclick = () => {
+      this.selectedId = t.id;
+      this.selectedSeedId = null;
+      this.radarOpen = false;
+      _lsSet(LS_SELECTED, t.id);
+      this._timelineExpanded = false;
+      this._renderGroups();
+      this._renderMain();
+    };
+    return row;
+  }
+
+  /* ============================ 新建浮窗 ============================ */
+
+  _toggleCreatePopover(anchorEl) {
+    if (this._createPop) { this._closeCreatePopover(); return; }
+    this._openCreatePopover(anchorEl);
+  }
+
+  _openCreatePopover(anchorEl) {
+    this._closeCreatePopover();
+    const host = this.el;
+    if (!host) return;
+    const pop = host.createDiv({ cls: 'tw-topic-create-pop' });
+    pop.innerHTML = `
+      <input type="text" class="tw-topic-create-title" placeholder="专题标题" maxlength="60" />
+      <div class="tw-topic-create-row">
+        <select class="tw-topic-create-track">${TOPIC_TRACKS.map(t => `<option value="${t.id}">${t.label}</option>`).join('')}</select>
+        <select class="tw-topic-create-module">${TOPIC_MODULE_CODES.map(m => `<option value="${m}"${m === 'GEN' ? ' selected' : ''}>${m}</option>`).join('')}</select>
+      </div>
+      <input type="text" class="tw-topic-create-goal" placeholder="目标 (可选)" maxlength="80" />
+    `;
+    const titleInput = pop.querySelector('.tw-topic-create-title');
+    const goalInput = pop.querySelector('.tw-topic-create-goal');
+    const trackSel = pop.querySelector('.tw-topic-create-track');
+    const modSel = pop.querySelector('.tw-topic-create-module');
+
+    // 定位: 锚点下方, 限制在侧栏宽度内
+    const hostRect = host.getBoundingClientRect();
+    const aRect = anchorEl ? anchorEl.getBoundingClientRect() : null;
+    if (aRect) {
+      pop.style.top = Math.round(aRect.bottom - hostRect.top + 6) + 'px';
+      pop.style.left = Math.max(8, Math.round(aRect.left - hostRect.left - 180)) + 'px';
+    } else {
+      pop.style.top = '48px';
+      pop.style.left = '12px';
+    }
+
+    const submit = async () => {
+      const title = titleInput.value.trim();
+      if (!title) { titleInput.focus(); return; }
+      try {
+        const t = await this.topicService.createTopic({
+          title,
+          track: trackSel.value,
+          module: modSel.value,
+          goal: goalInput.value.trim()
+        });
+        this.selectedId = t.id;
+        _lsSet(LS_SELECTED, t.id);
+        this._closeCreatePopover();
+        await this.refresh(true);
+      } catch (e) {
+        console.warn('[TopicView] createTopic failed:', e);
+        _notice(`创建失败: ${e.message || e}`);
+      }
+    };
+    const onKey = (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); submit(); }
+      else if (e.key === 'Escape') { e.preventDefault(); this._closeCreatePopover(); }
+    };
+    titleInput.addEventListener('keydown', onKey);
+    goalInput.addEventListener('keydown', onKey);
+    trackSel.addEventListener('keydown', onKey);
+    modSel.addEventListener('keydown', onKey);
+
+    this._createPop = pop;
+    this._createPopCloser = (e) => {
+      if (this._createPop && !this._createPop.contains(e.target) && e.target !== anchorEl) this._closeCreatePopover();
+    };
+    setTimeout(() => document.addEventListener('pointerdown', this._createPopCloser, true), 0);
+    setTimeout(() => titleInput.focus(), 30);
+  }
+
+  _closeCreatePopover() {
+    if (this._createPopCloser) {
+      document.removeEventListener('pointerdown', this._createPopCloser, true);
+      this._createPopCloser = null;
+    }
+    if (this._createPop) { this._createPop.remove(); this._createPop = null; }
+  }
+
+  /* ============================ 右栏 ============================ */
+
+  _renderMain() {
+    if (!this._mainEl) return;
+    if (this._inputEl) this._inputDraft = this._inputEl.value;
+    if (this._seedInputEl) this._seedDraft = this._seedInputEl.value;
+    this._mainEl.empty();
+    this._inputEl = null;
+    this._seedInputEl = null;
+    if (this.radarOpen) {
+      this._mainEl.dataset.empty = '0';
+      this._renderRadar();
+      return;
+    }
+    if (this.selectedSeedId) {
+      const s = (this.seeds || []).find(x => x.id === this.selectedSeedId);
+      if (s) {
+        this._mainEl.dataset.empty = '0';
+        this._renderSeedMain(s);
+        return;
+      }
+    }
+    const t = this._selected();
+    if (!t) {
+      this._mainEl.dataset.empty = '1';
+      const empty = this._mainEl.createDiv({ cls: 'tw-topic-empty' });
+      empty.createDiv({ cls: 'tw-topic-empty-text', text: '暂无专题' });
+      const btn = empty.createEl('button', { cls: 'tw-topic-empty-add', text: '＋' });
+      btn.onclick = (e) => { e.stopPropagation(); this._toggleCreatePopover(btn); };
+      return;
+    }
+    this._mainEl.dataset.empty = '0';
+
+    this._headEl = this._mainEl.createDiv({ cls: 'tw-topic-head' });
+    this._fillHead(t);
+
+    // 区域 1: 推进主控卡
+    const card = this._mainEl.createDiv({ cls: 'tw-topic-card tw-topic-master' });
+    this._ideasEl = card.createDiv({ cls: 'tw-idea-area' });
+    this._fillIdeas(t);
+    this._itemsEl = card.createDiv({ cls: 'tw-topic-checklist-items' });
+    this._fillChecklist(t);
+
+    // 统一输入条 (常驻节点, refresh 不重建)
+    const bar = card.createDiv({ cls: 'tw-topic-inputbar' });
+    const mkMode = (id, label) => {
+      const b = bar.createEl('button', {
+        cls: `tw-topic-mode ${this.inputMode === id ? 'active' : ''}`,
+        text: label
+      });
+      b.onclick = () => {
+        this.inputMode = id;
+        bar.querySelectorAll('.tw-topic-mode').forEach(x => x.classList.remove('active'));
+        b.classList.add('active');
+        this._inputEl && this._inputEl.focus();
+      };
+      return b;
+    };
+    mkMode('step', '＋步骤');
+    mkMode('progress', '⏱进展');
+    mkMode('idea', '💡想法');
+    this._inputEl = bar.createEl('input', {
+      cls: 'tw-topic-input',
+      attr: { type: 'text', placeholder: '回车提交' }
+    });
+    this._inputEl.value = this._inputDraft || '';
+    this._inputEl.addEventListener('keydown', async (e) => {
+      if (e.key !== 'Enter') return;
+      e.preventDefault();
+      const v = this._inputEl.value.trim();
+      if (!v) return;
+      const cur = this._selected();
+      if (!cur) return;
+      try {
+        if (this.inputMode === 'step') await this.topicService.addStep(cur, v);
+        else if (this.inputMode === 'idea') await this.topicService.addIdea(cur, v);
+        else await this.topicService.addProgress(cur, v);
+        this._inputEl.value = '';
+        this._inputDraft = '';
+        await this.refresh(false);
+      } catch (err) {
+        _notice(`写入失败: ${err.message || err}`);
+      }
+    });
+    this._inputEl.addEventListener('input', () => { this._inputDraft = this._inputEl.value; });
+
+    this._timelineEl = card.createDiv({ cls: 'tw-topic-timeline' });
+    this._fillTimeline(t);
+
+    // 区域 2: 文件舱
+    this._filesEl = this._mainEl.createDiv({ cls: 'tw-topic-files' });
+    this._fillFiles(t);
+  }
+
+  // refresh 时仅重绘可变区, 保留输入条文本/焦点/模式
+  _updateDetail() {
+    if (this.radarOpen) { this._renderMain(); return; }
+    if (this.selectedSeedId) { this._renderMain(); return; }
+    const t = this._selected();
+    if (!t) { this._renderMain(); return; }
+    if (this._headEl && !this._editingGoal) this._fillHead(t);
+    if (this._ideasEl) this._fillIdeas(t);
+    if (this._itemsEl) this._fillChecklist(t);
+    if (this._timelineEl) this._fillTimeline(t);
+    if (this._filesEl) this._fillFiles(t);
+  }
+
+  /* ============================ 想法区 ============================ */
+
+  _fillIdeas(t) {
+    const host = this._ideasEl;
+    if (!host) return;
+    host.empty();
+    const ideas = t.ideas || [];
+    if (!ideas.length) return;
+    const active = ideas.filter(i => !i.struck).length;
+    const hd = host.createEl('button', { cls: `tw-idea-hd ${this.ideasOpen ? '' : 'collapsed'}` });
+    hd.innerHTML = `<span class="tw-idea-arrow">${this.ideasOpen ? '▾' : '▸'}</span>💡 ${active} 条想法`;
+    hd.onclick = () => {
+      this.ideasOpen = !this.ideasOpen;
+      _lsSet(LS_IDEAS_OPEN, this.ideasOpen ? '1' : '0');
+      this._fillIdeas(this._selected() || t);
+    };
+    if (!this.ideasOpen) return;
+    const list = host.createDiv({ cls: 'tw-idea-list' });
+    for (const i of ideas) {
+      const row = list.createDiv({ cls: `tw-idea-row ${i.struck ? 'struck' : ''}` });
+      row.createEl('span', { cls: 'tw-idea-row-text', text: i.label || i.text });
+      if (i.struck) continue;
+      if (i.source) row.createEl('span', { cls: 'tw-idea-row-src', text: i.source });
+      const acts = row.createDiv({ cls: 'tw-idea-row-acts' });
+      const mk = (label, title, fn) => {
+        const b = acts.createEl('button', { cls: 'tw-idea-act', text: label, attr: { title } });
+        b.onclick = async (e) => {
+          e.stopPropagation();
+          try { await fn(); await this.refresh(false); } catch (err) { _notice(`失败: ${err.message || err}`); }
+        };
+      };
+      mk('→步骤', '转为步骤', () => this.topicService.ideaToStep(t, i.line));
+      mk('⑂分叉', '分叉为种子', async () => {
+        const seed = await this.topicService.forkIdea(t, i.line);
+        if (seed) _notice('🌱 已分叉为种子');
+      });
+      mk('✕', '划掉', () => this.topicService.strikeIdea(t, i.line));
+    }
+  }
+
+  /* ============================ 种子详情 ============================ */
+
+  _renderSeedMain(s) {
+    const head = this._mainEl.createDiv({ cls: 'tw-topic-head' });
+    const r1 = head.createDiv({ cls: 'tw-topic-head-r1' });
+    r1.createDiv({ cls: 'tw-topic-badge tw-seed-badge', text: '🌱 种子' });
+    r1.createDiv({
+      cls: `tw-topic-badge tw-seed-status-badge ${s.status === 'growing' ? 'growing' : ''}`,
+      text: s.status === 'growing' ? '培育中' : '新种子'
+    });
+    r1.createDiv({ cls: 'tw-seed-src', text: SEED_SOURCE_LABELS[s.source] || s.source || '手记' });
+    const ref = String(s.source_ref || '').trim();
+    if (ref) {
+      const refBtn = r1.createEl('button', { cls: 'tw-seed-ref', text: ref });
+      if (/^\[\[.*\]\]$/.test(ref)) {
+        refBtn.onclick = () => this._openLink(parseWikiLink(ref));
+      } else if (/^https?:\/\//.test(ref)) {
+        refBtn.onclick = () => { try { window.open(ref); } catch (_) {} };
+      } else {
+        refBtn.disabled = true;
+        refBtn.classList.add('static');
+      }
+    }
+    head.createDiv({ cls: 'tw-topic-head-title', text: s.title || s.id });
+
+    const card = this._mainEl.createDiv({ cls: 'tw-topic-card tw-seed-card' });
+    card.createDiv({ cls: 'tw-seed-sec-title', text: '想法' });
+    card.createDiv({ cls: 'tw-seed-idea', text: s.idea || '(空)' });
+
+    card.createDiv({ cls: 'tw-seed-sec-title', text: `浇水 ${(s.waters || []).length}` });
+    const wl = card.createDiv({ cls: 'tw-seed-waters' });
+    if (!(s.waters || []).length) {
+      wl.createDiv({ cls: 'tw-seed-water-empty', text: '—' });
+    }
+    for (const w of (s.waters || [])) {
+      const row = wl.createDiv({ cls: 'tw-seed-water-row' });
+      row.createEl('span', { cls: 'tw-seed-water-time', text: w.time || '' });
+      row.createEl('span', { cls: 'tw-seed-water-text', text: w.text || '' });
+      if (w.auto) {
+        row.createEl('span', { cls: 'tw-seed-auto-badge', text: '自动' });
+        const bU = row.createEl('button', { cls: 'tw-seed-undo-btn', text: '撤销' });
+        bU.onclick = async (e) => {
+          e.stopPropagation();
+          try {
+            await this.topicService.unwater(s, w.line);
+            _notice('已撤销');
+          } catch (err) { _notice(`撤销失败: ${err.message || err}`); }
+          await this.refresh(true);
+        };
+      }
+    }
+
+    const bar = card.createDiv({ cls: 'tw-topic-inputbar tw-seed-inputbar' });
+    bar.createEl('span', { cls: 'tw-seed-bar-ico', text: '💧' });
+    this._seedInputEl = bar.createEl('input', {
+      cls: 'tw-topic-input',
+      attr: { type: 'text', placeholder: '浇水…' }
+    });
+    this._seedInputEl.value = this._seedDraft || '';
+    this._seedInputEl.addEventListener('input', () => { this._seedDraft = this._seedInputEl.value; });
+    this._seedInputEl.addEventListener('keydown', async (e) => {
+      if (e.key !== 'Enter') return;
+      e.preventDefault();
+      const v = this._seedInputEl.value.trim();
+      if (!v) return;
+      try {
+        await this.topicService.water(s, v);
+        this._seedDraft = '';
+        await this.refresh(false);
+      } catch (err) {
+        _notice(`浇水失败: ${err.message || err}`);
+      }
+    });
+
+    const acts = card.createDiv({ cls: 'tw-seed-actions' });
+    const bW = acts.createEl('button', { cls: 'tw-seed-btn', text: '💧浇水' });
+    bW.onclick = () => { if (this._seedInputEl) this._seedInputEl.focus(); };
+    if (this.agentDrawer) {
+      const bE = acts.createEl('button', { cls: 'tw-seed-btn', text: '✨评估', attr: { title: 'AI 评估种子' } });
+      bE.onclick = () => this._sendAgentPrompt(buildEvaluatePrompt(s, { weknoraTools: WEKNORA_SEARCH_TOOLS }));
+    }
+    const bS = acts.createEl('button', { cls: 'tw-seed-btn', text: '🌳发芽' });
+    bS.onclick = () => this._sproutDialog(s);
+    const bM = acts.createEl('button', { cls: 'tw-seed-btn', text: '⤵并入' });
+    bM.onclick = () => this._mergeSeed(s);
+    const bD = acts.createEl('button', { cls: 'tw-seed-btn danger', text: '🍂丢弃' });
+    bD.onclick = () => this._discardSeed(s);
+  }
+
+  _sproutDialog(s) {
+    this._closeConfirm();
+    const mask = this.el.createDiv({ cls: 'tw-topic-confirm-mask' });
+    const card = mask.createDiv({ cls: 'tw-topic-confirm tw-seed-sprout' });
+    card.createDiv({ cls: 'tw-topic-confirm-msg', text: '🌳 发芽为专题' });
+    const r1 = card.createDiv({ cls: 'tw-seed-sprout-row' });
+    r1.createEl('label', { text: '方向' });
+    const trackSel = r1.createEl('select', { cls: 'tw-seed-sprout-sel' });
+    for (const t of TOPIC_TRACKS) {
+      const o = trackSel.createEl('option', { value: t.id, text: t.label });
+      if (t.id === (s.track || 'deep')) o.selected = true;
+    }
+    const r2 = card.createDiv({ cls: 'tw-seed-sprout-row' });
+    r2.createEl('label', { text: '模块' });
+    const modSel = r2.createEl('select', { cls: 'tw-seed-sprout-sel' });
+    for (const m of TOPIC_MODULE_CODES) {
+      const o = modSel.createEl('option', { value: m, text: m });
+      if (m === (s.module || 'GEN')) o.selected = true;
+    }
+    const btns = card.createDiv({ cls: 'tw-topic-confirm-btns' });
+    const no = btns.createEl('button', { cls: 'tw-topic-confirm-btn', text: '取消' });
+    const ok = btns.createEl('button', { cls: 'tw-topic-confirm-btn primary', text: '发芽' });
+    no.onclick = () => this._closeConfirm();
+    ok.onclick = async () => {
+      const track = trackSel.value;
+      const module = modSel.value;
+      this._closeConfirm();
+      try {
+        const topic = await this.topicService.sprout(s, { track, module });
+        _notice('🌳 已发芽为专题');
+        this.selectedSeedId = null;
+        this.selectedId = topic.id;
+        _lsSet(LS_SELECTED, topic.id);
+        await this.refresh(true);
+      } catch (e) {
+        _notice(`发芽失败: ${e.message || e}`);
+      }
+    };
+    mask.addEventListener('pointerdown', (e) => { if (e.target === mask) this._closeConfirm(); });
+    this._confirmEl = mask;
+  }
+
+  _mergeSeed(s) {
+    let FSM = null;
+    try { FSM = require('obsidian').FuzzySuggestModal; } catch (_) {}
+    if (!FSM) { _notice('选择不可用'); return; }
+    const topics = this.topics.filter(t => t.status === 'in_progress')
+      .sort((a, b) => {
+        const am = a.module === s.module ? 0 : 1;
+        const bm = b.module === s.module ? 0 : 1;
+        return am - bm || (b.maxMtime || 0) - (a.maxMtime || 0);
+      });
+    if (!topics.length) { _notice('无进行中专题'); return; }
+    const self = this;
+    class SeedMergePicker extends FSM {
+      getItems() { return topics; }
+      getItemText(t) { return `${t.title} · ${t.module || ''} · ${t.id}`; }
+      onChooseItem(t) {
+        (async () => {
+          try {
+            await self.topicService.mergeSeed(s, t);
+            _notice(`⤵ 已并入「${t.title}」`);
+            self.selectedSeedId = null;
+            self.selectedId = t.id;
+            _lsSet(LS_SELECTED, t.id);
+            await self.refresh(true);
+          } catch (e) { _notice(`并入失败: ${e.message || e}`); }
+        })();
+      }
+    }
+    try { new SeedMergePicker(this.app).open(); } catch (e) { _notice(`打开失败: ${e.message || e}`); }
+  }
+
+  async _discardSeed(s) {
+    try {
+      await this.topicService.discardSeed(s);
+      _notice('已移入枯萎');
+    } catch (e) {
+      _notice(`丢弃失败: ${e.message || e}`);
+      return;
+    }
+    const rest = (this.seeds || []).filter(x => x.id !== s.id);
+    if (rest.length) {
+      this.selectedSeedId = rest[0].id;
+      this.selectedId = null;
+      _lsSet(LS_SELECTED, `seed:${rest[0].id}`);
+    } else {
+      this.selectedSeedId = null;
+      const nt = [...this.topics].sort((a, b) => (b.maxMtime || 0) - (a.maxMtime || 0))[0];
+      this.selectedId = nt ? nt.id : null;
+      _lsSet(LS_SELECTED, this.selectedId || '');
+    }
+    await this.refresh(true);
+  }
+
+  _fillHead(t) {
+    this._headEl.empty();
+    const prog = calcProgress(t.steps);
+    const idle = calcIdle(t.maxMtime, Date.now(), t.status);
+
+    const r1 = this._headEl.createDiv({ cls: 'tw-topic-head-r1' });
+    const idBadge = r1.createDiv({ cls: 'tw-topic-badge tw-topic-id-badge', text: `${t.id} · ${t.module || 'GEN'}` });
+    idBadge.title = t.dir;
+    const progBadge = r1.createDiv({ cls: 'tw-topic-badge tw-topic-prog-badge', text: `推进中 ${prog.percent == null ? '—' : prog.percent + '%'}` });
+    if (t.status === 'paused') {
+      r1.createDiv({ cls: 'tw-topic-badge tw-topic-paused-badge', text: '⏸ 暂停' });
+    }
+    const actions = r1.createDiv({ cls: 'tw-topic-head-actions' });
+    const starBtn = actions.createEl('button', { cls: `tw-topic-head-btn ${t.starred ? 'on' : ''}`, text: t.starred ? '⭐ 聚焦' : '☆ 聚焦' });
+    starBtn.onclick = async () => {
+      try {
+        await this.topicService.toggleStar(t);
+      } catch (err) {
+        _notice(err && err.code === 'STAR_LIMIT' ? '聚焦最多 3 个' : `操作失败: ${err.message}`);
+      }
+      await this.refresh(false);
+    };
+    if (this.agentDrawer) {
+      const decBtn = actions.createEl('button', { cls: 'tw-topic-head-btn', text: '✨ 拆解', attr: { title: 'AI 拆解下一步' } });
+      decBtn.onclick = () => this._sendAgentPrompt(buildDecomposePrompt(t));
+    }
+    const archBtn = actions.createEl('button', { cls: 'tw-topic-head-btn', text: '归档' });
+    archBtn.onclick = () => this._onArchive(t);
+
+    if (idle.warn) {
+      this._headEl.createDiv({ cls: 'tw-topic-idle-banner', text: `⏳ 已搁置 ${idle.days} 天` });
+    }
+
+    this._headEl.createDiv({ cls: 'tw-topic-head-title', text: t.title || t.id });
+
+    const r3 = this._headEl.createDiv({ cls: 'tw-topic-head-r3' });
+    const goalEl = r3.createDiv({ cls: 'tw-topic-goal' });
+    this._fillGoal(goalEl, t);
+    const pathBtn = r3.createEl('button', { cls: 'tw-topic-head-btn tw-topic-path-btn', text: '📂 路径', attr: { title: t.dir } });
+    pathBtn.onclick = () => this._revealInTree(t);
+  }
+
+  _fillGoal(goalEl, t) {
+    goalEl.empty();
+    const span = goalEl.createDiv({ cls: 'tw-topic-goal-text', text: `🎯 ${t.goal || '填写目标'}` });
+    if (!t.goal) span.classList.add('placeholder');
+    span.onclick = () => {
+      if (this._editingGoal) return;
+      this._editingGoal = true;
+      goalEl.empty();
+      const input = goalEl.createEl('input', { cls: 'tw-topic-goal-input', attr: { type: 'text' } });
+      input.value = t.goal || '';
+      let done = false;
+      const finish = async (commit) => {
+        if (done) return;
+        done = true;
+        this._editingGoal = false;
+        const v = input.value.trim();
+        if (commit && v !== (t.goal || '')) {
+          try { await this.topicService.setField(t, 'goal', v); } catch (e) { _notice(`保存失败: ${e.message || e}`); }
+          await this.refresh(false);
+          return;
+        }
+        this._fillGoal(goalEl, t);
+      };
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); finish(true); }
+        else if (e.key === 'Escape') { e.preventDefault(); finish(false); }
+      });
+      input.addEventListener('blur', () => finish(true));
+      input.focus();
+      input.select();
+    };
+  }
+
+  _fillChecklist(t) {
+    this._itemsEl.empty();
+    if (!t.steps.length) {
+      this._itemsEl.createDiv({ cls: 'tw-topic-checklist-empty', text: '暂无步骤' });
+      return;
+    }
+    for (const s of t.steps) {
+      const row = this._itemsEl.createDiv({ cls: `tw-topic-check ${s.done ? 'done' : ''}` });
+      const cb = row.createEl('input', { attr: { type: 'checkbox' } });
+      cb.checked = !!s.done;
+      cb.addEventListener('change', async () => {
+        try {
+          await this.topicService.toggleStep(t, s.line, cb.checked);
+          await this.refresh(false);
+        } catch (e) {
+          _notice(`写入失败: ${e.message || e}`);
+          cb.checked = !cb.checked;
+        }
+      });
+      row.createEl('span', { cls: 'tw-topic-check-label', text: s.label || '(空)' });
+    }
+  }
+
+  _fillTimeline(t) {
+    this._timelineEl.empty();
+    const items = t.timeline || [];
+    if (!items.length) {
+      this._timelineEl.createDiv({ cls: 'tw-topic-timeline-empty', text: '暂无进展' });
+      return;
+    }
+    const showAll = this._timelineExpanded;
+    const list = showAll ? items : items.slice(0, 3);
+    for (const it of list) {
+      const row = this._timelineEl.createDiv({ cls: 'tw-topic-timeline-item' });
+      row.createEl('span', { cls: 'tw-topic-timeline-time', text: it.time || '' });
+      row.createEl('span', { cls: 'tw-topic-timeline-text', text: it.text || '' });
+    }
+    if (items.length > 3) {
+      const more = this._timelineEl.createEl('button', {
+        cls: 'tw-topic-timeline-more',
+        text: showAll ? '收起' : `全部 ${items.length} 条`
+      });
+      more.onclick = () => {
+        this._timelineExpanded = !this._timelineExpanded;
+        this._fillTimeline(this._selected() || t);
+      };
+    }
+  }
+
+  _fillFiles(t) {
+    this._filesEl.empty();
+
+    // 左: 过程草稿
+    const left = this._filesEl.createDiv({ cls: 'tw-topic-filecol' });
+    const lh = left.createDiv({ cls: 'tw-topic-filecol-head' });
+    lh.createDiv({ cls: 'tw-topic-filecol-title', text: '📝 过程草稿' });
+    const addDraft = lh.createEl('button', { cls: 'tw-topic-mini-btn', text: '＋草稿' });
+    addDraft.onclick = async () => {
+      try {
+        const f = await this.topicService.createDraft(t);
+        this._openFile(f);
+        await this.refresh(false);
+      } catch (e) { _notice(`创建失败: ${e.message || e}`); }
+    };
+
+    const taskRow = left.createDiv({ cls: 'tw-topic-filerow' });
+    taskRow.createEl('span', { cls: 'tw-topic-filename', text: `🧭 ${TOPIC_TASK_FILE}` });
+    taskRow.onclick = () => this._openFile(t.taskFile);
+
+    const docs = this.topicService.listTopicDocs(t);
+    for (const f of docs) {
+      const r = left.createDiv({ cls: 'tw-topic-filerow' });
+      r.createEl('span', { cls: 'tw-topic-filename', text: f.name, attr: { title: f.path } });
+      const sp = r.createEl('button', { cls: 'tw-topic-mini-btn', text: '分屏' });
+      sp.onclick = (e) => { e.stopPropagation(); this._openSplit(f); };
+      if (this.agentDrawer) {
+        const ig = r.createEl('button', { cls: 'tw-topic-mini-btn', text: '📦入库', attr: { title: '入库向导' } });
+        ig.onclick = (e) => { e.stopPropagation(); this._ingestDialog(t, f); };
+      }
+      r.onclick = () => this._openFile(f);
+    }
+
+    // 右: 沉淀与参考
+    const right = this._filesEl.createDiv({ cls: 'tw-topic-filecol' });
+    const rh = right.createDiv({ cls: 'tw-topic-filecol-head' });
+    rh.createDiv({ cls: 'tw-topic-filecol-title', text: '🏛️ 沉淀与参考' });
+    const addRef = rh.createEl('button', { cls: 'tw-topic-mini-btn', text: '＋关联' });
+    addRef.onclick = () => this._pickDoc(t);
+
+    const pubSec = right.createDiv({ cls: 'tw-topic-filesec' });
+    const pubHead = pubSec.createDiv({ cls: 'tw-topic-filesec-head' });
+    pubHead.createDiv({ cls: 'tw-topic-filesec-title', text: '📗 已入库' });
+    const addPub = pubHead.createEl('button', { cls: 'tw-topic-mini-btn', text: '＋成果', attr: { title: '登记已入库文档' } });
+    addPub.onclick = () => this._pickPublishedDoc(t);
+    this._fillLinkList(pubSec, t.published_docs, t);
+    const refSec = right.createDiv({ cls: 'tw-topic-filesec' });
+    refSec.createDiv({ cls: 'tw-topic-filesec-title', text: '📘 参考' });
+    this._fillLinkList(refSec, t.linked_refs, t);
+  }
+
+  _fillLinkList(secEl, links, t) {
+    const arr = Array.isArray(links) ? links : [];
+    if (!arr.length) {
+      secEl.createDiv({ cls: 'tw-topic-filerow empty', text: '—' });
+      return;
+    }
+    for (const raw of arr) {
+      const p = parseWikiLink(raw);
+      const dest = this._resolveLink(p);
+      const r = secEl.createDiv({ cls: `tw-topic-filerow ${dest ? '' : 'missing'}` });
+      const label = p.split('/').pop().replace(/\.md$/i, '') || p;
+      r.createEl('span', { cls: 'tw-topic-filename', text: label, attr: { title: p } });
+      if (dest) r.onclick = () => this._openLink(p);
+    }
+  }
+
+  _resolveLink(p) {
+    try {
+      if (this.app?.metadataCache?.getFirstLinkpathDest) {
+        return this.app.metadataCache.getFirstLinkpathDest(p, '') || null;
+      }
+    } catch (_) {}
+    try {
+      const v = this.app?.vault;
+      return (v?.getAbstractFileByPath?.(p) || v?.getAbstractFileByPath?.(p + '.md')) || null;
+    } catch (_) { return null; }
+  }
+
+  _openLink(p) {
+    try { this.app.workspace.openLinkText(p, '', false); } catch (_) {}
+  }
+
+  _openFile(file) {
+    if (!file) return;
+    try { this.app.workspace.openLinkText(file.path, '', false); } catch (_) {}
+  }
+
+  async _openSplit(file) {
+    if (!file) return;
+    try {
+      let leaf = this.app.workspace.getLeaf('split', 'vertical');
+      if (leaf && typeof leaf.then === 'function') leaf = await leaf;
+      if (leaf && typeof leaf.openFile === 'function') await leaf.openFile(file);
+    } catch (e) {
+      console.warn('[TopicView] openSplit failed:', e);
+      this._openFile(file);
+    }
+  }
+
+  _revealInTree(t) {
+    try {
+      const fePlugin = this.app.internalPlugins?.getPluginById?.('file-explorer')
+        || this.app.internalPlugins?.plugins?.['file-explorer'];
+      const inst = fePlugin?.instance || fePlugin;
+      const target = t.dirFile || this.app.vault.getAbstractFileByPath(t.dir);
+      if (inst && typeof inst.revealInFolder === 'function' && target) {
+        inst.revealInFolder(target);
+        return;
+      }
+    } catch (_) {}
+    this._openFile(t.taskFile);
+  }
+
+  /* ============================ 关联文档选择 ============================ */
+
+  _pickDoc(t) {
+    let FSM = null;
+    try { FSM = require('obsidian').FuzzySuggestModal; } catch (_) {}
+    if (!FSM) { _notice('文档选择不可用'); return; }
+    let files = [];
+    try { files = this.app.vault.getMarkdownFiles?.() || []; } catch (_) {}
+    const self = this;
+    class TopicDocPicker extends FSM {
+      getItems() { return files; }
+      getItemText(f) { return f.path; }
+      onChooseItem(f) {
+        (async () => {
+          try {
+            await self.topicService.addLinkedRef(t, f);
+            await self.refresh(false);
+          } catch (e) { _notice(`关联失败: ${e.message || e}`); }
+        })();
+      }
+    }
+    try { new TopicDocPicker(this.app).open(); } catch (e) { _notice(`打开失败: ${e.message || e}`); }
+  }
+
+  /* ============================ 归档 ============================ */
+
+  _onArchive(t) {
+    const pendingIdeas = (t.ideas || []).filter(i => !i.struck).length;
+    const gate2 = () => {
+      if (!pendingIdeas) { this._doArchive(t, false); return; }
+      // 闸门②: 未处理想法 -> 转种子 / 仍然归档 / 取消
+      this._confirmButtons(`还有 ${pendingIdeas} 条想法未处理`, [
+        { text: '取消' },
+        { text: '转为种子', cls: 'primary', onClick: () => this._doArchive(t, true) },
+        { text: '仍然归档', cls: 'danger', onClick: () => this._doArchive(t, false) }
+      ]);
+    };
+    const hasPublished = Array.isArray(t.published_docs) && t.published_docs.length > 0;
+    if (hasPublished) gate2();
+    else this._confirm('未沉淀文档，确认归档？', gate2);
+  }
+
+  async _doArchive(t, ideasToSeeds) {
+    try {
+      const res = await this.topicService.archive(t, { ideasToSeeds: !!ideasToSeeds });
+      _notice(res && res.seedsCreated > 0 ? `✓ 已归档，${res.seedsCreated} 条想法转为种子` : '✓ 已归档');
+    } catch (e) {
+      _notice(`归档失败: ${e.message || e}`);
+      return;
+    }
+    // 选中下一个专题 (最近推进优先)
+    const rest = this.topics.filter(x => x.id !== t.id)
+      .sort((a, b) => (b.maxMtime || 0) - (a.maxMtime || 0));
+    this.selectedId = rest.length ? rest[0].id : null;
+    _lsSet(LS_SELECTED, this.selectedId || '');
+    await this.refresh(true);
+  }
+
+  _confirm(msg, onYes) {
+    this._confirmButtons(msg, [
+      { text: '取消' },
+      { text: '仍然归档', cls: 'danger', onClick: onYes }
+    ]);
+  }
+
+  /** 通用确认弹窗: 任意按钮列表 [{text, cls, onClick}] */
+  _confirmButtons(msg, buttons) {
+    this._closeConfirm();
+    const mask = this.el.createDiv({ cls: 'tw-topic-confirm-mask' });
+    const card = mask.createDiv({ cls: 'tw-topic-confirm' });
+    card.createDiv({ cls: 'tw-topic-confirm-msg', text: msg });
+    const row = card.createDiv({ cls: 'tw-topic-confirm-btns' });
+    for (const b of (buttons || [])) {
+      const el = row.createEl('button', { cls: `tw-topic-confirm-btn ${b.cls || ''}`, text: b.text });
+      el.onclick = () => { this._closeConfirm(); if (b.onClick) b.onClick(); };
+    }
+    mask.addEventListener('pointerdown', (e) => { if (e.target === mask) this._closeConfirm(); });
+    this._confirmEl = mask;
+  }
+
+  /* ============================ P2b: AI 与入库 ============================ */
+
+  _sendAgentPrompt(prompt) {
+    if (!this.agentDrawer || !prompt) return;
+    try {
+      if (typeof this.agentDrawer.isOpen === 'function' ? !this.agentDrawer.isOpen() : true) {
+        this.agentDrawer.open();
+      }
+      this.agentDrawer.sendPrompt(prompt);
+    } catch (e) {
+      _notice(`发送失败: ${e.message || e}`);
+    }
+  }
+
+  _fileFm(file) {
+    try { return this.app?.metadataCache?.getFileCache?.(file)?.frontmatter || {}; } catch (_) { return {}; }
+  }
+
+  /** 📦入库向导: 平台/模块/类型/目录 四项 → 生成提示词填 Agent 输入框 (不发送) */
+  _ingestDialog(t, file) {
+    this._closeConfirm();
+    const fm = this._fileFm(file);
+    const mask = this.el.createDiv({ cls: 'tw-topic-confirm-mask' });
+    const card = mask.createDiv({ cls: 'tw-topic-confirm tw-ingest' });
+    card.createDiv({ cls: 'tw-topic-confirm-msg', text: `📦 入库 ${file.name}` });
+    const mkRow = (label) => {
+      const r = card.createDiv({ cls: 'tw-seed-sprout-row' });
+      r.createEl('label', { text: label });
+      return r;
+    };
+    const mkSel = (r, opts, def) => {
+      const sel = r.createEl('select', { cls: 'tw-seed-sprout-sel' });
+      for (const v of opts) {
+        const o = sel.createEl('option', { value: v, text: v });
+        if (v === def) o.selected = true;
+      }
+      return sel;
+    };
+    const selPlat = mkSel(mkRow('平台'), INGEST_PLATFORMS,
+      INGEST_PLATFORMS.includes(String(fm.platform || '').toUpperCase()) ? String(fm.platform).toUpperCase() : 'COMMON');
+    const selMod = mkSel(mkRow('模块'), TOPIC_MODULE_CODES,
+      TOPIC_MODULE_CODES.includes(String(fm.module || '').toUpperCase()) ? String(fm.module).toUpperCase() : (t.module || 'GEN'));
+    const selDoc = mkSel(mkRow('类型'), INGEST_DOCTYPES,
+      INGEST_DOCTYPES.includes(String(fm.doctype || '').toUpperCase()) ? String(fm.doctype).toUpperCase() : 'NOTE');
+    const rDir = mkRow('目录');
+    const dirIn = rDir.createEl('input', { cls: 'tw-seed-sprout-sel tw-ingest-dir', attr: { type: 'text', placeholder: '自动' } });
+
+    const btns = card.createDiv({ cls: 'tw-topic-confirm-btns' });
+    const no = btns.createEl('button', { cls: 'tw-topic-confirm-btn', text: '取消' });
+    const ok = btns.createEl('button', { cls: 'tw-topic-confirm-btn primary', text: '生成提示词' });
+    no.onclick = () => this._closeConfirm();
+    ok.onclick = () => {
+      this._closeConfirm();
+      const module = selMod.value;
+      const prompt = buildIngestPrompt(t, file, {
+        platform: selPlat.value,
+        module,
+        doctype: selDoc.value,
+        targetDir: dirIn.value.trim(),
+        moduleDir: (typeof DBG_MODULE_DIR === 'object' && DBG_MODULE_DIR) ? DBG_MODULE_DIR[module] : ''
+      });
+      this._sendAgentPrompt(prompt);
+    };
+    mask.addEventListener('pointerdown', (e) => { if (e.target === mask) this._closeConfirm(); });
+    this._confirmEl = mask;
+  }
+
+  /** ＋成果: FSM 选库内 md → published_docs + Timeline */
+  _pickPublishedDoc(t) {
+    let FSM = null;
+    try { FSM = require('obsidian').FuzzySuggestModal; } catch (_) {}
+    if (!FSM) { _notice('文档选择不可用'); return; }
+    let files = [];
+    try { files = this.app.vault.getMarkdownFiles?.() || []; } catch (_) {}
+    const self = this;
+    class PubDocPicker extends FSM {
+      getItems() { return files; }
+      getItemText(f) { return f.path; }
+      onChooseItem(f) {
+        (async () => {
+          try {
+            const added = await self.topicService.addPublishedDoc(t, f);
+            if (added) _notice('📦 已登记成果');
+            await self.refresh(false);
+          } catch (e) { _notice(`登记失败: ${e.message || e}`); }
+        })();
+      }
+    }
+    try { new PubDocPicker(this.app).open(); } catch (e) { _notice(`打开失败: ${e.message || e}`); }
+  }
+
+  _closeConfirm() {
+    if (this._confirmEl) { this._confirmEl.remove(); this._confirmEl = null; }
+  }
+
+  /* ============================ P3: 周回顾 ============================ */
+
+  _openReview() {
+    this._closeReview(false);
+    if (!this.el) return;
+    const plan = buildWeeklyReviewPlan(this.topics, this.seeds, new Date());
+    const mask = this.el.createDiv({ cls: 'tw-topic-confirm-mask' });
+    const card = mask.createDiv({ cls: 'tw-topic-confirm tw-review' });
+    const hd = card.createDiv({ cls: 'tw-review-head' });
+    hd.createEl('span', { cls: 'tw-review-title', text: '🗓 本周回顾' });
+
+    // ① 本周聚焦 (进行中专题 ⭐ 开关, 至多 3)
+    const focusSet = new Set();
+    if (plan.topics.length) {
+      const sec = card.createDiv({ cls: 'tw-review-sec' });
+      sec.createDiv({ cls: 'tw-review-sec-title', text: '⭐ 本周聚焦' });
+      for (const f of plan.topics) {
+        if (f.starred) focusSet.add(f.id);
+        const row = sec.createDiv({ cls: 'tw-review-row' });
+        const star = row.createEl('button', { cls: `tw-review-star ${f.starred ? 'on' : ''}`, text: f.starred ? '⭐' : '☆' });
+        star.dataset.topicId = f.id;
+        row.createEl('span', { cls: 'tw-review-row-text', text: f.title || f.id });
+        star.onclick = () => {
+          const id = f.id;
+          if (focusSet.has(id)) {
+            focusSet.delete(id);
+            star.classList.remove('on');
+            star.textContent = '☆';
+          } else {
+            if (focusSet.size >= 3) { _notice('聚焦最多 3 个'); return; }
+            focusSet.add(id);
+            star.classList.add('on');
+            star.textContent = '⭐';
+          }
+        };
+      }
+    }
+
+    // ② 培育中种子分流
+    const seedActs = {};
+    if (plan.seeds.length) {
+      const sec = card.createDiv({ cls: 'tw-review-sec' });
+      sec.createDiv({ cls: 'tw-review-sec-title', text: '💧 培育中' });
+      for (const s of plan.seeds) {
+        seedActs[s.id] = 'keep';
+        const row = sec.createDiv({ cls: 'tw-review-row' });
+        row.createEl('span', { cls: 'tw-review-row-text', text: `${s.title || s.id} · 💧${s.waterCount}` });
+        const seg = row.createDiv({ cls: 'tw-review-seg' });
+        for (const [act, label] of [['sprout', '发芽'], ['keep', '保留'], ['discard', '丢弃']]) {
+          const b = seg.createEl('button', { cls: `tw-review-seg-btn ${act === 'keep' ? 'on' : ''}`, text: label });
+          b.onclick = () => {
+            seedActs[s.id] = act;
+            seg.querySelectorAll('.tw-review-seg-btn').forEach(x => x.classList.remove('on'));
+            b.classList.add('on');
+          };
+        }
+      }
+    }
+
+    // ③ 积压想法 (≥14 天)
+    const ideaActs = {};
+    if (plan.ideas.length) {
+      const sec = card.createDiv({ cls: 'tw-review-sec' });
+      sec.createDiv({ cls: 'tw-review-sec-title', text: '💡 积压想法' });
+      for (const i of plan.ideas) {
+        const key = `${i.topicId}#${i.line}`;
+        ideaActs[key] = { ...i, action: 'keep' };
+        const row = sec.createDiv({ cls: 'tw-review-row' });
+        row.createEl('span', { cls: 'tw-review-row-text', text: `${i.topicTitle || i.topicId}：${i.label}`, attr: { title: i.date || '' } });
+        if (i.date) row.createEl('span', { cls: 'tw-review-date', text: i.date });
+        const seg = row.createDiv({ cls: 'tw-review-seg' });
+        for (const [act, label] of [['step', '→步骤'], ['fork', '分叉'], ['strike', '划掉'], ['keep', '保留']]) {
+          const b = seg.createEl('button', { cls: `tw-review-seg-btn ${act === 'keep' ? 'on' : ''}`, text: label });
+          b.onclick = () => {
+            ideaActs[key].action = act;
+            seg.querySelectorAll('.tw-review-seg-btn').forEach(x => x.classList.remove('on'));
+            b.classList.add('on');
+          };
+        }
+      }
+    }
+
+    const btns = card.createDiv({ cls: 'tw-topic-confirm-btns' });
+    const skip = btns.createEl('button', { cls: 'tw-topic-confirm-btn', text: '跳过本周' });
+    const done = btns.createEl('button', { cls: 'tw-topic-confirm-btn primary', text: '完成' });
+    skip.onclick = () => { this._closeReview(true); };
+    done.onclick = async () => {
+      const focusIds = [...focusSet];
+      const ideaActions = Object.values(ideaActs).map(a => ({ topicId: a.topicId, line: a.line, label: a.label, action: a.action }));
+      this._closeReview(true);
+      try {
+        const r = await this.topicService.applyWeeklyReview({ focusIds, seedActions: seedActs, ideaActions });
+        _notice(`✓ 回顾完成：聚焦 ${r.focused} · 发芽 ${r.sprouted} · 丢弃 ${r.discarded} · 想法 ${r.steps + r.forked + r.struck}`);
+      } catch (e) { _notice(`回顾失败: ${e.message || e}`); }
+      await this.refresh(true);
+    };
+    mask.addEventListener('pointerdown', (e) => { if (e.target === mask) this._closeReview(false); });
+    // Esc 关闭不记周键
+    this._reviewKeyHandler = (e) => {
+      if (e.key === 'Escape') { e.preventDefault(); this._closeReview(false); }
+    };
+    document.addEventListener('keydown', this._reviewKeyHandler, true);
+    this._reviewEl = mask;
+  }
+
+  _closeReview(recordWeek) {
+    if (this._reviewKeyHandler) {
+      document.removeEventListener('keydown', this._reviewKeyHandler, true);
+      this._reviewKeyHandler = null;
+    }
+    if (this._reviewEl) { this._reviewEl.remove(); this._reviewEl = null; }
+    if (recordWeek) _lsSet(LS_REVIEW_WEEK, isoWeekKey(new Date()));
+  }
+
+  /* ============================ P3: 能力雷达 ============================ */
+
+  _radar() {
+    if (!this._radarSvc) {
+      this._radarSvc = new RadarService({
+        app: this.app,
+        topicService: this.topicService,
+        getJiraIssues: this.getJiraIssues,
+        categorizeDone: this.categorizeDone
+      });
+    }
+    return this._radarSvc;
+  }
+
+  _toggleRadar() {
+    this.radarOpen = !this.radarOpen;
+    if (!this.radarOpen) { this._renderMain(); return; }
+    // 每次打开都重新 compute 一次, 并写当前季度快照
+    this._radarData = null;
+    this._renderMain();
+    if (this._radarBusy) return;
+    this._radarBusy = true;
+    const svc = this._radar();
+    const qNow = new Date();
+    svc.compute()
+      .then(radar => {
+        this._radarData = {
+          radar,
+          quarter: quarterKey(qNow),
+          prev: svc.prevQuarterSnapshot(qNow),
+          recommendations: []
+        };
+        // 空白区种子推荐 + 写当前季度快照
+        this._radarData.recommendations = recommendSeedsForBlank(radar, this.seeds || []);
+        try { svc.saveSnapshot(this._radarData.quarter, radar); } catch (_) {}
+      })
+      .catch(e => { _notice(`雷达计算失败: ${e.message || e}`); this._radarData = null; })
+      .finally(() => {
+        this._radarBusy = false;
+        if (this.radarOpen) this._renderRadar();
+      });
+  }
+
+  _renderRadar() {
+    const host = this._mainEl;
+    if (!host) return;
+    host.empty();
+    const root = host.createDiv({ cls: 'tw-radar' });
+    const hd = root.createDiv({ cls: 'tw-radar-head' });
+    hd.createEl('span', { cls: 'tw-radar-title', text: '📡 能力雷达' });
+    const d = this._radarData;
+    if (d && d.quarter) hd.createEl('span', { cls: 'tw-radar-quarter', text: d.quarter });
+    if (!d) {
+      root.createDiv({ cls: 'tw-radar-loading', text: this._radarBusy ? '…' : '—' });
+      return;
+    }
+    this._renderRadarSvg(root, d);
+
+    // 三区 chip 列表 (有上季度快照时带 ▲▼)
+    const diffMap = {};
+    for (const x of diffRadar(d.radar, d.prev)) diffMap[x.code] = x.delta;
+    const zoneDefs = [['familiar', '熟悉'], ['expand', '拓展'], ['blank', '空白']];
+    for (const [zid, zlabel] of zoneDefs) {
+      const items = d.radar.filter(r => r.zone === zid);
+      const row = root.createDiv({ cls: 'tw-radar-zone' });
+      row.createEl('span', { cls: 'tw-radar-zone-label', text: zlabel });
+      const chips = row.createDiv({ cls: 'tw-radar-chips' });
+      for (const r of items) {
+        const delta = diffMap[r.code];
+        const suffix = (delta === null || delta === undefined || delta === 0) ? '' : (delta > 0 ? ` ▲${delta}` : ` ▼${-delta}`);
+        const tip = `${r.code} · 文档 ${r.D} · Jira ${r.J} · 近90天 ${r.A} · raw ${Number(r.raw).toFixed(1)}`;
+        chips.createEl('span', { cls: `tw-radar-chip ${zid}`, text: `${r.label} ${r.score}${suffix}`, attr: { title: tip } });
+      }
+    }
+
+    // 空白区种子推荐
+    const recs = (d.recommendations || []);
+    if (recs.length) {
+      const sec = root.createDiv({ cls: 'tw-radar-rec' });
+      sec.createDiv({ cls: 'tw-radar-rec-title', text: '🌱 建议' });
+      for (const r of recs) {
+        const line = sec.createDiv({ cls: 'tw-radar-rec-line' });
+        line.createEl('span', { cls: 'tw-radar-chip blank', text: r.label });
+        for (const s of r.seeds) {
+          const b = line.createEl('button', { cls: 'tw-radar-rec-seed', text: s.title || s.id });
+          b.onclick = () => {
+            this.selectedSeedId = s.id;
+            this.selectedId = null;
+            this.radarOpen = false;
+            this.seedsOpen = true;
+            _lsSet(LS_SEEDS_OPEN, '1');
+            _lsSet(LS_SELECTED, `seed:${s.id}`);
+            this._renderGroups();
+            this._renderMain();
+          };
+        }
+      }
+    }
+  }
+
+  _renderRadarSvg(host, data) {
+    const mods = RADAR_MODULES;
+    const n = mods.length;
+    const size = 300;
+    const cx = size / 2, cy = size / 2, R = 108;
+    const scoreMap = {};
+    for (const r of data.radar) scoreMap[r.code] = r;
+    const pt = (i, ratio) => {
+      const a = -Math.PI / 2 + (2 * Math.PI * i) / n;
+      return `${(cx + R * ratio * Math.cos(a)).toFixed(1)},${(cy + R * ratio * Math.sin(a)).toFixed(1)}`;
+    };
+    const poly = (vals) => vals.map((v, i) => pt(i, v)).join(' ');
+    const curVals = mods.map(m => (scoreMap[m] ? scoreMap[m].score : 0) / 100);
+    // 上季度快照 (若有) → 虚线多边形
+    const prev = (data.prev && typeof data.prev === 'object') ? data.prev : null;
+    const hasPrev = !!prev;
+    const prevVals = mods.map(m => (prev ? (prev[m] || 0) : 0) / 100);
+
+    let rings = '';
+    for (const lv of [0.25, 0.5, 0.75, 1]) {
+      rings += `<polygon points="${poly(mods.map(() => lv))}" fill="none" stroke="var(--background-modifier-border,#E2E8F0)" stroke-width="0.7"/>`;
+    }
+    let axes = '', labels = '', dots = '';
+    mods.forEach((m, i) => {
+      const a = -Math.PI / 2 + (2 * Math.PI * i) / n;
+      axes += `<line x1="${cx}" y1="${cy}" x2="${(cx + R * Math.cos(a)).toFixed(1)}" y2="${(cy + R * Math.sin(a)).toFixed(1)}" stroke="var(--background-modifier-border,#E2E8F0)" stroke-width="0.7"/>`;
+      const lx = cx + (R + 16) * Math.cos(a), ly = cy + (R + 16) * Math.sin(a);
+      const anchor = Math.abs(Math.cos(a)) < 0.3 ? 'middle' : (Math.cos(a) > 0 ? 'start' : 'end');
+      labels += `<text x="${lx.toFixed(1)}" y="${(ly + 3).toFixed(1)}" text-anchor="${anchor}" class="tw-radar-axlabel">${RADAR_LABELS[m] || m}</text>`;
+      const r = scoreMap[m];
+      if (r) {
+        const [px, py] = pt(i, r.score / 100).split(',');
+        dots += `<circle cx="${px}" cy="${py}" r="2.6" class="tw-radar-dot"><title>${m} · 文档 ${r.D} · Jira ${r.J} · 近90天 ${r.A} · raw ${Number(r.raw).toFixed(1)}</title></circle>`;
+      }
+    });
+    const prevPoly = hasPrev
+      ? `<polygon points="${poly(prevVals)}" fill="none" stroke="var(--text-muted,#64748B)" stroke-width="1" stroke-dasharray="4 3" opacity="0.7"/>`
+      : '';
+    host.createDiv({ cls: 'tw-radar-svg' }).innerHTML =
+      `<svg viewBox="0 0 ${size} ${size}" class="tw-radar-plot" role="img" aria-label="能力雷达">
+        ${rings}${axes}
+        ${prevPoly}
+        <polygon points="${poly(curVals)}" class="tw-radar-area"/>
+        ${dots}${labels}
+      </svg>`;
+  }
+}
+
+function escapeHtml(str) {
+  if (str == null) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 /**
@@ -46971,6 +51774,306 @@ if (typeof module !== 'undefined' && module.exports) {
   
 }
 
+// components/idea-capture-palette.js
+// 全局「记灵感」浮动捕获面板: Alt+I 全局唤起, Ctrl+I 在非编辑器环境唤起
+// 样式/交互参照 explore-palette.js (body 级遮罩 + 居中毛玻璃面板)
+
+/**
+ * Ctrl+I 是否应让出给编辑器原生行为 (斜体/补全):
+ * activeEl 或其祖先命中 .cm-editor / .monaco-editor → true
+ */
+function shouldYieldCtrlI(activeEl) {
+  if (!activeEl || typeof activeEl.closest !== 'function') return false;
+  return !!(activeEl.closest('.cm-editor') || activeEl.closest('.monaco-editor'));
+}
+
+/**
+ * 记灵感上下文合并: overrides 显式给出的键 (含 null/'') 覆盖 base;
+ * 用于 Jira 抽屉 🌱 等入口屏蔽活动文件/选区并注入 jiraKey/module
+ */
+function mergeCaptureContext(base, overrides) {
+  const ctx = { ...(base || {}) };
+  for (const k of Object.keys(overrides || {})) {
+    ctx[k] = overrides[k];
+  }
+  return ctx;
+}
+
+function _esc(s) {
+  if (s == null) return '';
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+const IDEA_TRACK_OPTS = [
+  { id: 'work', label: '工作' },
+  { id: 'deep', label: '深耕' },
+  { id: 'broad', label: '拓展' }
+];
+
+class IdeaCapturePalette {
+  /**
+   * @param {object} opts {app, topicService, getContext}
+   * getContext() -> {selectedTopicId?, jiraKey?, activeFilePath?, selectionText?, selectionFromAgent?}
+   */
+  constructor(opts = {}) {
+    this.app = opts.app;
+    this.topicService = opts.topicService;
+    this.getContext = opts.getContext;
+    this.overlayEl = null;
+    this.inputEl = null;
+    this.destInputEl = null;
+    this.destChipEl = null;
+    this.destListEl = null;
+    this.trackChipsEl = null;
+    this.topics = [];
+    this.target = { type: 'seed' };
+    this.seedTrack = '';
+    this._ctx = {};
+    this._destIdx = 0;
+    this._destItems = [];
+    this._destroyFns = [];
+  }
+
+  isOpen() {
+    return !!(this.overlayEl && this.overlayEl.isConnected);
+  }
+
+  toggle(overrides) {
+    if (this.isOpen()) this.close();
+    else this.open(overrides);
+  }
+
+  _listen(el, ev, fn, capture) {
+    el.addEventListener(ev, fn, capture);
+    this._destroyFns.push(() => el.removeEventListener(ev, fn, capture));
+  }
+
+  async open(overrides = {}) {
+    if (this.isOpen()) {
+      this.inputEl && this.inputEl.focus();
+      return;
+    }
+    const o = document.createElement('div');
+    o.className = 'tw-idea-overlay';
+    o.innerHTML = `
+      <div class="tw-idea-panel">
+        <input class="tw-idea-input" type="text" placeholder="记下灵感…" />
+        <div class="tw-idea-dest">
+          <span class="tw-idea-dest-label">去向</span>
+          <button class="tw-idea-dest-chip" type="button"></button>
+          <span class="tw-idea-tracks"></span>
+          <input class="tw-idea-dest-input" type="text" placeholder="搜去向…" />
+        </div>
+        <div class="tw-idea-dest-list"></div>
+      </div>`;
+    document.body.appendChild(o);
+    this.overlayEl = o;
+    this.inputEl = o.querySelector('.tw-idea-input');
+    this.destChipEl = o.querySelector('.tw-idea-dest-chip');
+    this.destInputEl = o.querySelector('.tw-idea-dest-input');
+    this.destListEl = o.querySelector('.tw-idea-dest-list');
+    this.trackChipsEl = o.querySelector('.tw-idea-tracks');
+
+    // 上下文 + 默认去向
+    const base = (this.getContext && this.getContext()) || {};
+    this._ctx = mergeCaptureContext(base, overrides.context);
+    try {
+      this.topics = await this.topicService.scan();
+    } catch (_) {
+      this.topics = [];
+    }
+    let target = overrides.target;
+    if (!target && typeof inferCaptureTarget === 'function') {
+      target = inferCaptureTarget(this._ctx, this.topics);
+    }
+    this._setTarget(target || { type: 'seed' });
+
+    // 预填: overrides.text 优先, 其次选区文本
+    let text = overrides.text;
+    if (text == null) text = this._ctx.selectionText || '';
+    text = String(text || '').trim().slice(0, 300);
+    this.inputEl.value = text;
+
+    this._bind(o);
+    this._renderDest();
+    this.inputEl.focus();
+    if (text) this.inputEl.select();
+  }
+
+  _bind(o) {
+    this._listen(this.inputEl, 'keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); this._submit(); }
+      else if (e.key === 'Tab' && !e.shiftKey) { e.preventDefault(); this._focusDestInput(); }
+    });
+    this._listen(this.destInputEl, 'focus', () => { this._destIdx = 0; this._renderDestList(); });
+    this._listen(this.destInputEl, 'input', () => { this._destIdx = 0; this._renderDestList(); });
+    this._listen(this.destInputEl, 'blur', () => {
+      setTimeout(() => { if (this.destListEl) this.destListEl.classList.remove('open'); }, 150);
+    });
+    this._listen(this.destInputEl, 'keydown', (e) => {
+      if (e.key === 'ArrowDown') { e.preventDefault(); this._moveDest(1); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); this._moveDest(-1); }
+      else if (e.key === 'Enter') {
+        e.preventDefault();
+        const it = this._destItems[this._destIdx];
+        if (it) this._pickTarget(it);
+      } else if (e.key === 'Tab') { e.preventDefault(); this.inputEl.focus(); }
+    });
+    this._listen(this.destChipEl, 'click', () => this._focusDestInput());
+    this._listen(this.trackChipsEl, 'click', (e) => {
+      const btn = e.target.closest('[data-track]');
+      if (!btn) return;
+      const tr = btn.getAttribute('data-track');
+      this.seedTrack = (this.seedTrack === tr) ? '' : tr;
+      this._renderDest();
+    });
+    this._listen(o, 'keydown', (e) => {
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); this.close(); }
+    }, true);
+    this._listen(o, 'mousedown', (e) => {
+      if (e.target === o) this.close();
+    });
+    this._listen(this.destListEl, 'mousedown', (e) => {
+      const row = e.target.closest('[data-idx]');
+      if (!row) return;
+      e.preventDefault();
+      const it = this._destItems[Number(row.getAttribute('data-idx'))];
+      if (it) this._pickTarget(it);
+    });
+  }
+
+  _focusDestInput() {
+    if (this.destInputEl) {
+      this.destInputEl.focus();
+      this._destIdx = 0;
+      this._renderDestList();
+    }
+  }
+
+  _setTarget(t) {
+    if (t && t.type === 'topic' && t.id) {
+      const topic = (this.topics || []).find(x => x.id === t.id);
+      this.target = { type: 'topic', id: t.id, title: (topic && topic.title) || t.title || t.id };
+      this.seedTrack = '';
+    } else {
+      this.target = { type: 'seed' };
+      this.seedTrack = (t && t.track) || '';
+    }
+  }
+
+  _pickTarget(it) {
+    this._setTarget(it);
+    this._renderDest();
+    if (this.destInputEl) {
+      this.destInputEl.value = '';
+      this.destListEl.classList.remove('open');
+    }
+    this.inputEl.focus();
+  }
+
+  _moveDest(d) {
+    if (!this._destItems.length) return;
+    this._destIdx = (this._destIdx + d + this._destItems.length) % this._destItems.length;
+    this._renderDestList();
+  }
+
+  _destCandidates(q) {
+    const kw = String(q || '').trim().toLowerCase();
+    const items = [{ type: 'seed', icon: '🌱', label: '新种子', sub: '记入种子池' }];
+    for (const t of (this.topics || []).filter(x => x.status === 'in_progress')) {
+      items.push({ type: 'topic', id: t.id, icon: '📁', label: t.title, sub: `${t.module || ''} ${t.id}`.trim() });
+    }
+    if (!kw) return items;
+    return items.filter(it => {
+      const hay = it.type === 'seed'
+        ? '新种子 seed 种子'
+        : `${it.label} ${it.id} ${it.sub}`.toLowerCase();
+      return hay.toLowerCase().includes(kw);
+    });
+  }
+
+  _renderDest() {
+    if (!this.destChipEl) return;
+    if (this.target.type === 'topic') {
+      this.destChipEl.innerHTML = `<span class="tw-idea-dest-ico">📁</span>${_esc(this.target.title)}`;
+      if (this.trackChipsEl) { this.trackChipsEl.innerHTML = ''; this.trackChipsEl.style.display = 'none'; }
+    } else {
+      this.destChipEl.innerHTML = `<span class="tw-idea-dest-ico">🌱</span>新种子`;
+      if (this.trackChipsEl) {
+        this.trackChipsEl.style.display = '';
+        this.trackChipsEl.innerHTML = IDEA_TRACK_OPTS.map(t =>
+          `<button type="button" class="tw-idea-track${this.seedTrack === t.id ? ' on' : ''}" data-track="${t.id}">${t.label}</button>`
+        ).join('');
+      }
+    }
+  }
+
+  _renderDestList() {
+    if (!this.destListEl) return;
+    this._destItems = this._destCandidates(this.destInputEl ? this.destInputEl.value : '');
+    if (this._destIdx >= this._destItems.length) this._destIdx = 0;
+    if (!this._destItems.length) {
+      this.destListEl.classList.add('open');
+      this.destListEl.innerHTML = `<div class="tw-idea-dest-empty">无匹配</div>`;
+      return;
+    }
+    this.destListEl.classList.add('open');
+    this.destListEl.innerHTML = this._destItems.map((it, i) => `
+      <div class="tw-idea-dest-item${i === this._destIdx ? ' active' : ''}" data-idx="${i}">
+        <span class="tw-idea-dest-ico">${it.icon}</span>
+        <span class="tw-idea-dest-name">${_esc(it.label)}</span>
+        <span class="tw-idea-dest-sub">${_esc(it.sub || '')}</span>
+      </div>`).join('');
+  }
+
+  async _submit() {
+    const text = this.inputEl ? this.inputEl.value.trim() : '';
+    if (!text) return;
+    const ctx = this._ctx || {};
+    let source = 'manual';
+    if (ctx.jiraKey) source = 'jira';
+    else if (ctx.selectionFromAgent) source = 'agent';
+    else if (ctx.activeFilePath) source = 'note';
+    const source_ref = ctx.jiraKey
+      || (ctx.activeFilePath ? `[[${String(ctx.activeFilePath).replace(/\.[^./\\]+$/, '')}]]` : '');
+    const target = this.target && this.target.type === 'topic'
+      ? { type: 'topic', id: this.target.id }
+      : { type: 'seed', track: this.seedTrack || '' };
+    try {
+      const res = await this.topicService.captureIdea({
+        text,
+        target,
+        context: { source, source_ref, module: ctx.module || '' }
+      });
+      if (res && res.kind === 'topic') {
+        new Notice(`💡 已记入「${res.topic.title}」`);
+      } else {
+        new Notice('🌱 已记入种子');
+      }
+      this.close();
+    } catch (e) {
+      new Notice(`记灵感失败: ${(e && e.message) || e}`);
+    }
+  }
+
+  close() {
+    for (const fn of this._destroyFns.splice(0)) {
+      try { fn(); } catch (_) {}
+    }
+    if (this.overlayEl) {
+      this.overlayEl.remove();
+      this.overlayEl = null;
+    }
+    this.inputEl = this.destInputEl = this.destChipEl = this.destListEl = this.trackChipsEl = null;
+    this._destItems = [];
+    this._destIdx = 0;
+  }
+
+  dispose() {
+    this.close();
+  }
+}
+
 /**
  * ExploreView: Handles the "探索" tab inside TabonKB Workbench.
  * - Sub-tab 1: [ 🤖 AI ] Full-featured Agent Hub Workspace
@@ -49592,6 +54695,7 @@ class DshWorkbenchView {
     this._statusUnsub = null;
     this._authUnsub = null;
     this._activeFileUnsub = null;
+    this._dshSid = '__draft__';
     this._boundOnMouseMove = null;
     this._boundOnMouseUp = null;
 
@@ -49603,11 +54707,14 @@ class DshWorkbenchView {
         return;
       }
       if (evt.data.type === 'tabonkb-dsh-ctx-state-req') {
+        this._dshSid = this._normalizeDshSid(evt.data.sid);
+        this._migrateDshDraftTo(this._dshSid);
+        this._mirrorDshCtxToAgent(this.getDshCtxState(this._dshSid), this._dshSid);
         this.sendDshCtxState();
         return;
       }
       if (evt.data.type === 'tabonkb-dsh-ctx-set') {
-        this.applyDshCtxSelection(evt.data.key, evt.data.value);
+        this.applyDshCtxSelection(evt.data.key, evt.data.value, evt.data.sid);
         return;
       }
       if (evt.data.type === 'tabonkb-dsh-new-chat') {
@@ -50107,37 +55214,100 @@ div[data-sidebar-collapsed] div[class*="_root"][class*="_collapsed"] {
     } catch (_) {}
   }
 
-  /**
-   * 定位自研 Agent 抽屉实例 (若工作台视图存活)。
-   * 两侧共用同一组 localStorage/process.env 键, 抽屉存活时优先委托其 save* 方法,
-   * 保证胶囊条/浮窗标注即时刷新且语义完全一致。
-   */
-  getAgentDrawer() {
-    try {
-      const leaves = this.app?.workspace?.getLeavesOfType?.('tabonkb-workbench-view') || [];
-      for (const leaf of leaves) {
-        const drawer = leaf?.view?.agentDrawer;
-        if (drawer) return drawer;
-      }
-    } catch (_) {}
-    return null;
+  // ---- DSH 工程上下文: 按 DSH 会话 id 分桶独立持久化 (与 pi 会话生命周期彻底解耦) ----
+
+  _normalizeDshSid(sid) {
+    const s = (typeof sid === 'string' ? sid : '').trim();
+    return s || '__draft__';
   }
 
-  /** 读取四项工程上下文的当前值 (与 PiDrawerView 持久化键同源) */
-  getDshCtxState() {
+  _dshCtxDefaults() {
+    return { opengrok: 'auto', gerrit: 'all', jira: null, localproj: null };
+  }
+
+  _dshCtxHasSelection(v) {
+    return !!(v && typeof v === 'object' &&
+      ((v.opengrok && v.opengrok !== 'auto') || (v.gerrit && v.gerrit !== 'all') ||
+       (v.jira && v.jira.key) || (v.localproj && v.localproj.id)));
+  }
+
+  /** 旧版共享键快照 (仅供一次性迁移种子; pi 会话键此后归 pi 独占, DSH 不再读写) */
+  _legacyDshCtxValues() {
     const ls = (k) => { try { return localStorage.getItem(k); } catch (_) { return null; } };
     let jira = null, lp = null;
     try { jira = JSON.parse(ls('tabonkb-jira-selected-issue') || 'null'); } catch (_) {}
     try { lp = JSON.parse(ls('tabonkb-local-selected-project') || 'null'); } catch (_) {}
-    if (lp && lp.id && !lp.priDriverRel && lp.platform && lp.project) {
-      lp.priDriverRel = `pri_project/driver/${lp.platform}/${lp.project}/base`;
-      lp.publicDriverRel = 'pri_project/driver/public';
-    }
     return {
       opengrok: ls('tabonkb-opengrok-selected-project') || 'auto',
       gerrit: ls('tabonkb-gerrit-selected-filter') || 'all',
       jira: (jira && jira.key) ? jira : null,
       localproj: (lp && lp.id) ? lp : null
+    };
+  }
+
+  _readDshCtxMap() {
+    let map = null;
+    try { map = JSON.parse(localStorage.getItem('tabonkb-dsh-ctx-map-v1') || 'null'); } catch (_) {}
+    if (!map || typeof map !== 'object') {
+      map = {};
+      // 一次性迁移: 旧全局共享键 → 草稿桶; __migrated 哨兵保证只执行一次
+      try {
+        if (!localStorage.getItem('tabonkb-dsh-ctx-migrated')) {
+          const legacy = this._legacyDshCtxValues();
+          if (this._dshCtxHasSelection(legacy)) map.__draft__ = legacy;
+          localStorage.setItem('tabonkb-dsh-ctx-migrated', '1');
+        }
+      } catch (_) {}
+      this._writeDshCtxMap(map);
+    }
+    return map;
+  }
+
+  _writeDshCtxMap(map) {
+    try {
+      // LRU 裁剪: 至多保留 150 个会话桶 (__draft__/__last 等元键除外)
+      const keys = Object.keys(map).filter(k => !k.startsWith('__'));
+      if (keys.length > 150) {
+        keys.sort((a, b) => (map[a]._t || 0) - (map[b]._t || 0));
+        for (let i = 0; i < keys.length - 150; i++) delete map[keys[i]];
+      }
+      localStorage.setItem('tabonkb-dsh-ctx-map-v1', JSON.stringify(map));
+    } catch (_) {}
+  }
+
+  /** 草稿态选择的上下文迁移: 草稿发出首条消息产生会话 uuid 后, 绑定随人走 */
+  _migrateDshDraftTo(skey) {
+    try {
+      if (!skey || skey === '__draft__') return;
+      const map = this._readDshCtxMap();
+      if (map.__last !== '__draft__') return;      // 仅草稿→新会话的直接转变才迁移
+      if (map[skey]) return;                        // 目标桶已存在 (含显式空) 不覆盖
+      const draft = map.__draft__;
+      if (!this._dshCtxHasSelection(draft)) return;
+      map[skey] = Object.assign({}, draft, { _t: Date.now() });
+      map.__draft__ = this._dshCtxDefaults();
+      this._writeDshCtxMap(map);
+      this._mirrorDshCtxToAgent(map[skey], skey);
+    } catch (_) {}
+  }
+
+  /** 读取指定 DSH 会话的四项工程上下文 (无桶 → 默认未选) */
+  getDshCtxState(sid) {
+    const skey = this._normalizeDshSid(sid);
+    const map = this._readDshCtxMap();
+    const e = map[skey];
+    const d = this._dshCtxDefaults();
+    if (!e || typeof e !== 'object') return d;
+    const lp = (e.localproj && e.localproj.id) ? e.localproj : null;
+    if (lp && !lp.priDriverRel && lp.platform && lp.project) {
+      lp.priDriverRel = `pri_project/driver/${lp.platform}/${lp.project}/base`;
+      lp.publicDriverRel = 'pri_project/driver/public';
+    }
+    return {
+      opengrok: e.opengrok || 'auto',
+      gerrit: e.gerrit || 'all',
+      jira: (e.jira && e.jira.key) ? e.jira : null,
+      localproj: lp
     };
   }
 
@@ -50199,7 +55369,8 @@ div[data-sidebar-collapsed] div[class*="_root"][class*="_collapsed"] {
     try {
       const win = this.iframeEl && this.iframeEl.contentWindow;
       if (!win) return;
-      const msg = { type: 'tabonkb-dsh-ctx-state', values: this.getDshCtxState() };
+      const skey = this._normalizeDshSid(this._dshSid);
+      const msg = { type: 'tabonkb-dsh-ctx-state', sid: skey, values: this.getDshCtxState(skey) };
       if (withLists) msg.lists = this.getDshCtxLists();
       win.postMessage(msg, '*');
     } catch (_) {}
@@ -50210,132 +55381,106 @@ div[data-sidebar-collapsed] div[class*="_root"][class*="_collapsed"] {
    * 抽屉存活时委托其 save* 系列方法 (内部完成 localStorage/env/胶囊刷新),
    * 否则直接写入同一组键, 保证两侧一致。
    */
-  applyDshCtxSelection(key, value) {
-    const drawer = this.getAgentDrawer();
+  /**
+   * 应用来自 Harness「+」菜单的上下文选择: 写入该 DSH 会话的独立桶,
+   * 并镜像到 agent 实时通道 (process.env 供 daemon/MCP 链路, active-context.json 供运行中扩展按调用读取)。
+   * 不再触碰 pi 共享 localStorage 键 —— 两侧上下文彻底解耦。
+   */
+  applyDshCtxSelection(key, value, sid) {
+    const skey = this._normalizeDshSid(sid);
     let label = '';
     try {
+      const map = this._readDshCtxMap();
+      const cur = this.getDshCtxState(skey);
       if (key === 'opengrok') {
-        const v = (value && value !== 'auto') ? String(value) : 'auto';
-        if (drawer && typeof drawer.saveProject === 'function') {
-          drawer.saveProject(v);
-        } else {
-          try { localStorage.setItem('tabonkb-opengrok-selected-project', v); } catch (_) {}
-        }
-        try {
-          if (v !== 'auto') process.env.OPENGROK_DEFAULT_PROJECT = v;
-          else delete process.env.OPENGROK_DEFAULT_PROJECT;
-        } catch (_) {}
-        label = `✓ OpenGrok: ${v === 'auto' ? 'Auto' : v}`;
+        cur.opengrok = (value && value !== 'auto') ? String(value) : 'auto';
+        label = `✓ OpenGrok: ${cur.opengrok === 'auto' ? 'Auto' : cur.opengrok}`;
       } else if (key === 'gerrit') {
-        const v = value || 'all';
-        if (drawer && typeof drawer.saveGerritFilter === 'function') {
-          drawer.saveGerritFilter(v);
-        } else {
-          try { localStorage.setItem('tabonkb-gerrit-selected-filter', v); } catch (_) {}
-        }
-        try {
-          if (v !== 'all') process.env.TABONKB_GERRIT_FILTER = v;
-          else delete process.env.TABONKB_GERRIT_FILTER;
-        } catch (_) {}
+        cur.gerrit = value || 'all';
         label = '✓ Gerrit 已更新';
       } else if (key === 'jira') {
-        const issue = (value && value.key) ? {
+        cur.jira = (value && value.key) ? {
           key: value.key, summary: value.summary || '', status: value.status || '',
           priority: value.priority || '', assignee: value.assignee || '', url: value.url || ''
         } : null;
-        if (drawer && typeof drawer.saveJiraIssue === 'function') {
-          drawer.saveJiraIssue(issue);
-        } else {
-          try {
-            if (issue) localStorage.setItem('tabonkb-jira-selected-issue', JSON.stringify(issue));
-            else localStorage.removeItem('tabonkb-jira-selected-issue');
-          } catch (_) {}
-        }
-        try {
-          if (issue) process.env.TABONKB_JIRA_ISSUE_JSON = JSON.stringify(issue);
-          else delete process.env.TABONKB_JIRA_ISSUE_JSON;
-        } catch (_) {}
-        label = issue ? `✓ Jira: ${issue.key}` : '✓ 已清除 Jira 绑定';
+        label = cur.jira ? `✓ Jira: ${cur.jira.key}` : '✓ 已清除 Jira 绑定';
       } else if (key === 'localproj') {
-        const proj = (value && value.id) ? value : null;
-        if (drawer && typeof drawer.saveLocalProject === 'function') {
-          drawer.saveLocalProject(proj);
-        } else {
-          try {
-            if (proj) localStorage.setItem('tabonkb-local-selected-project', JSON.stringify(proj));
-            else localStorage.removeItem('tabonkb-local-selected-project');
-            if (typeof process !== 'undefined' && process.env) {
-              if (proj) process.env.TABONKB_LOCAL_PROJECT_JSON = JSON.stringify(proj);
-              else delete process.env.TABONKB_LOCAL_PROJECT_JSON;
-            }
-          } catch (_) {}
-        }
-        label = proj ? `✓ 本地工程: ${proj.label || proj.project}` : '✓ 已清除本地工程';
+        cur.localproj = (value && value.id) ? value : null;
+        label = cur.localproj ? `✓ 本地工程: ${cur.localproj.label || cur.localproj.project}` : '✓ 已清除本地工程';
+      } else {
+        return;
       }
+      cur._t = Date.now();
+      map[skey] = cur;
+      map.__last = skey;
+      this._dshSid = skey;
+      this._writeDshCtxMap(map);
+      this._mirrorDshCtxToAgent(cur);
     } catch (_) {}
-    this._persistActiveContextFile();
     this.sendDshCtxState(false);
     if (label) { try { new NoticeCls(label, 1800); } catch (_) {} }
   }
 
   /**
-   * 新对话开始: 四项工程上下文恢复未选择默认态
-   * (OpenGrok→auto, Gerrit→all, Jira→解绑, 本地工程→解绑),
-   * 抽屉存活时委托其 save* 保持胶囊条同步。
+   * 新对话开始: 仅重置草稿桶 (__draft__), 历史会话桶不受影响;
+   * env/文件镜像同步回到未选中态。
    */
   resetDshCtxSelections() {
     try {
-      const drawer = this.getAgentDrawer();
-      if (drawer) {
-        if (typeof drawer.saveProject === 'function') drawer.saveProject('auto');
-        if (typeof drawer.saveGerritFilter === 'function') drawer.saveGerritFilter('all');
-        if (typeof drawer.saveJiraIssue === 'function') drawer.saveJiraIssue(null);
-        if (typeof drawer.saveLocalProject === 'function') drawer.saveLocalProject(null);
-      } else {
-        try {
-          localStorage.setItem('tabonkb-opengrok-selected-project', 'auto');
-          localStorage.setItem('tabonkb-gerrit-selected-filter', 'all');
-          localStorage.removeItem('tabonkb-jira-selected-issue');
-          localStorage.removeItem('tabonkb-local-selected-project');
-        } catch (_) {}
-      }
-      try {
-        delete process.env.OPENGROK_DEFAULT_PROJECT;
-        delete process.env.TABONKB_LOCAL_PROJECT_JSON;
-        delete process.env.TABONKB_JIRA_ISSUE_JSON;
-        delete process.env.TABONKB_GERRIT_FILTER;
-      } catch (_) {}
-      this._persistActiveContextFile();
+      const map = this._readDshCtxMap();
+      const d = this._dshCtxDefaults();
+      map.__draft__ = d;
+      map.__last = '__draft__';
+      this._dshSid = '__draft__';
+      this._writeDshCtxMap(map);
+      this._mirrorDshCtxToAgent(d);
       try { new NoticeCls('✓ 新对话: 上下文已重置', 1600); } catch (_) {}
     } catch (_) {}
     this.sendDshCtxState(false);
   }
 
-  _persistActiveContextFile() {
+  /** 将指定 DSH 会话上下文镜像到 agent 实时通道 (env + active-context.json) */
+  _mirrorDshCtxToAgent(v, sid) {
+    const vals = v || this._dshCtxDefaults();
+    const skey = this._normalizeDshSid(sid || this._dshSid);
+    try {
+      if (vals.opengrok && vals.opengrok !== 'auto') process.env.OPENGROK_DEFAULT_PROJECT = vals.opengrok;
+      else delete process.env.OPENGROK_DEFAULT_PROJECT;
+      if (vals.gerrit && vals.gerrit !== 'all') process.env.TABONKB_GERRIT_FILTER = vals.gerrit;
+      else delete process.env.TABONKB_GERRIT_FILTER;
+      if (vals.jira && vals.jira.key) process.env.TABONKB_JIRA_ISSUE_JSON = JSON.stringify(vals.jira);
+      else delete process.env.TABONKB_JIRA_ISSUE_JSON;
+      if (vals.localproj && vals.localproj.id) process.env.TABONKB_LOCAL_PROJECT_JSON = JSON.stringify(vals.localproj);
+      else delete process.env.TABONKB_LOCAL_PROJECT_JSON;
+    } catch (_) {}
     try {
       
       
       const basePath = this.app?.vault?.adapter?.basePath || (typeof process !== 'undefined' ? process.cwd() : '');
       if (!basePath) return;
       const target = path.join(basePath, '.obsidian', 'plugins', 'tabonkb-workbench', 'active-context.json');
-      const drawer = this.getAgentDrawer();
-      let lp = drawer?.selectedLocalProject;
-      let ji = drawer?.selectedJiraIssue;
-      let op = drawer?.selectedProject;
-      let gf = drawer?.selectedGerritFilter;
-      if (!drawer && typeof localStorage !== 'undefined') {
-        try { lp = JSON.parse(localStorage.getItem('tabonkb-local-selected-project') || 'null'); } catch (_) {}
-        try { ji = JSON.parse(localStorage.getItem('tabonkb-jira-selected-issue') || 'null'); } catch (_) {}
-        try { op = localStorage.getItem('tabonkb-opengrok-selected-project') || 'auto'; } catch (_) {}
-        try { gf = localStorage.getItem('tabonkb-gerrit-selected-filter') || 'all'; } catch (_) {}
-      }
       const payload = {
-        selectedLocalProject: lp || null,
-        selectedJiraIssue: ji || null,
-        selectedProject: op || 'auto',
-        selectedGerritFilter: gf || 'all',
+        selectedLocalProject: vals.localproj || null,
+        selectedJiraIssue: vals.jira || null,
+        selectedProject: vals.opengrok || 'auto',
+        selectedGerritFilter: vals.gerrit || 'all',
+        source: 'dsh',
+        sid: skey,
         updatedAt: Date.now()
       };
+      // state-req 随 bridge 轮询高频触发: 同值跳过写盘 —— 先读现文件比对四字段+sid,
+      // 内容一致则直接返回 (pi 侧覆写后内容不同会重新落盘, 自愈并发覆盖)
+      try {
+        const cur = JSON.parse(fs.readFileSync(target, 'utf8'));
+        if (cur &&
+          JSON.stringify(cur.selectedLocalProject || null) === JSON.stringify(payload.selectedLocalProject) &&
+          JSON.stringify(cur.selectedJiraIssue || null) === JSON.stringify(payload.selectedJiraIssue) &&
+          (cur.selectedProject || 'auto') === payload.selectedProject &&
+          (cur.selectedGerritFilter || 'all') === payload.selectedGerritFilter &&
+          cur.sid === payload.sid && cur.source === 'dsh') {
+          return;
+        }
+      } catch (_) {}
       fs.writeFileSync(target, JSON.stringify(payload, null, 2), 'utf8');
     } catch (_) {}
   }
@@ -62926,6 +68071,7 @@ class ForceGraphCanvas {
 
     this.alpha = 1.0;
     this.animFrameId = null;
+    this._disposed = false;
     this.isPanning = false;
     this.isDragging = false;
     this.panStart = { x: 0, y: 0 };
@@ -63019,11 +68165,12 @@ class ForceGraphCanvas {
       this.settingsPopover.toggleClass('open', !this.settingsPopover.hasClass('open'));
     };
 
-    document.addEventListener('click', (e) => {
+    this._docClickHandler = (e) => {
       if (this.settingsPopover && this.settingsPopover.hasClass('open') && !this.settingsPopover.contains(e.target) && e.target !== btnSettings) {
         this.settingsPopover.removeClass('open');
       }
-    });
+    };
+    document.addEventListener('click', this._docClickHandler);
 
     this.bindEvents();
 
@@ -63289,6 +68436,7 @@ class ForceGraphCanvas {
   }
 
   handleResize() {
+    if (this._disposed || !this.canvasWrap) return;
     const rect = this.canvasWrap.getBoundingClientRect();
     if (rect.width === 0 || rect.height === 0) return;
     const dpr = Math.max(window.devicePixelRatio || 1, 2);
@@ -63310,7 +68458,30 @@ class ForceGraphCanvas {
     this.draw();
   }
 
+  // 整页重建/视图关闭时释放: 取消 rAF 仿真、断开 ResizeObserver、移除 document 监听。
+  // 缺失此清理时旧画布实例被监听器闭包常驻持有, 且 tick 在脱离文档的画布上空转。
+  dispose() {
+    this._disposed = true;
+    if (this.animFrameId) {
+      cancelAnimationFrame(this.animFrameId);
+      this.animFrameId = null;
+    }
+    if (this.resizeObserver) {
+      try { this.resizeObserver.disconnect(); } catch (e) {}
+      this.resizeObserver = null;
+    }
+    if (this._docClickHandler) {
+      document.removeEventListener('click', this._docClickHandler);
+      this._docClickHandler = null;
+    }
+    this.nodes = [];
+    this.edges = [];
+    if (this.nodeMap) this.nodeMap.clear();
+    if (this.adjMap) this.adjMap.clear();
+  }
+
   setData(graphData) {
+    if (this._disposed) return;
     this.nodes = graphData.nodes || [];
     this.edges = graphData.edges || [];
     this.nodeMap.clear();
@@ -63385,6 +68556,7 @@ class ForceGraphCanvas {
   }
 
   applyThemeLayout(themeKey = this.currentTheme) {
+    if (this._disposed) return;
     const w = this.width || 600;
     const h = this.height || 420;
     const cx = w / 2;
@@ -63625,9 +68797,11 @@ class ForceGraphCanvas {
   }
 
   startSimulation() {
+    if (this._disposed) return;
     if (this.animFrameId) cancelAnimationFrame(this.animFrameId);
     let stepCount = 0;
     const tick = () => {
+      if (this._disposed) { this.animFrameId = null; return; }
       stepCount++;
       if (this.alpha > 0.005) {
         this.stepPhysics();
@@ -63649,6 +68823,7 @@ class ForceGraphCanvas {
   }
 
   wakeUpSimulation() {
+    if (this._disposed) return;
     this.alpha = 0.35;
     this.updateStatusText('微调拓扑中...', false);
     if (!this.animFrameId) {
@@ -63867,7 +69042,7 @@ class ForceGraphCanvas {
   }
 
   draw() {
-    if (!this.ctx) return;
+    if (this._disposed || !this.ctx) return;
     const ctx = this.ctx;
     const dpr = this.canvas.width / (this.width || 1) || Math.max(window.devicePixelRatio || 1, 2);
     if (!Number.isFinite(this.transform.x) || !Number.isFinite(this.transform.y) || !Number.isFinite(this.transform.scale) || this.transform.scale <= 0) {
@@ -64487,6 +69662,7 @@ class ForceGraphCanvas {
   }
 
   focusNode(nodeId) {
+    if (this._disposed) return;
     const node = this.nodeMap.get(nodeId);
     if (!node) return;
     this.selectedNode = node;
@@ -64503,6 +69679,7 @@ class ForceGraphCanvas {
   }
 
   filterModule(mod) {
+    if (this._disposed) return;
     this.activeFilter = mod;
     this.draw();
   }
@@ -64532,10 +69709,20 @@ class TabonKBWorkbenchView extends ItemView {
     this.knowledgePanelMode = 'overview'; // 'overview' | 'detail'
 
     this.isLoadingDocs = false;
+    // 并发/渲染调度状态: loadVaultDocs 在飞共享 Promise + 脏标记补扫 + 渲染合并节流
+    this._docsInFlight = false;
+    this._docsPromise = null;
+    this._docsDirty = false;
+    this._renderQueued = false;
+    this._lastRefreshRenderAt = 0;
+    this._refreshRenderTimer = null;
     this.graphCanvas = null;
 
     // Full-page independent subsystems
     this.jiraPlatform = null;
+    this.topicView = null;
+    this.topicService = null;
+    this._ownTopicService = false;
     this.rssCenter = null;
     this.jiraCard = null;
     this.rssCard = null;
@@ -64924,7 +70111,7 @@ class TabonKBWorkbenchView extends ItemView {
   }
 
   updateHomeTrendCard() {
-    if (!this.homeTrendCardEl) return;
+    if (!this.homeTrendCardEl || !this.homeTrendCardEl.isConnected) return;
     const issues = this.getHomeTrendIssues();
     const timeRange = this.getHomeTrendTimeRange();
     // 按容器实际像素宽度 1:1 渲染 viewBox，避免侧栏收起时 SVG 非等比拉伸导致文字/数据点变形
@@ -65473,7 +70660,7 @@ class TabonKBWorkbenchView extends ItemView {
   }
 
   updateHomeHeatmapCard() {
-    if (!this.homeHeatCardEl) return;
+    if (!this.homeHeatCardEl || !this.homeHeatCardEl.isConnected) return;
     const data = this.calculateHeatmapData();
     const dim = this.heatmapDimension || 'all';
 
@@ -66695,7 +71882,7 @@ class TabonKBWorkbenchView extends ItemView {
   }
 
   updateAgentUsageCard(skipRemoteFetch = false) {
-    if (!this.agentUsageCardEl) return;
+    if (!this.agentUsageCardEl || !this.agentUsageCardEl.isConnected) return;
     // 异步非阻塞桥接 Magpie 快照 (1500ms 超时 + 8s TTL + 离线静默兜底), 绝不阻塞首屏渲染栈
     if (!skipRemoteFetch) this.refreshMagpieObservability(false);
     const stats = this.collectAgentUsageStats();
@@ -67028,9 +72215,10 @@ class TabonKBWorkbenchView extends ItemView {
     });
     if (!this._auDocBound) {
       this._auDocBound = true;
-      document.addEventListener('click', (e) => {
+      this._auDocClickHandler = (e) => {
         if (this._auDayLock != null && !(e.target && e.target.closest && e.target.closest('.tw-au-daily-chart'))) this._auHideDayPopover();
-      }, true);
+      };
+      document.addEventListener('click', this._auDocClickHandler, true);
     }
 
     this.agentUsageCardEl.querySelectorAll('.tw-au-row[data-rk]').forEach(el => {
@@ -67168,6 +72356,7 @@ class TabonKBWorkbenchView extends ItemView {
   }
 
   async refreshVaultDocs() {
+    globalThis.__twRefreshCount = (globalThis.__twRefreshCount || 0) + 1;
     await this.loadVaultDocs();
     // Agent 任务流式执行中 / 发送中 / 非首页时跳过全量 render()：vault create/modify/delete
     // 与 metadataCache.resolved 事件在 Agent 写文件或附件落盘时高频触发，整页重建会销毁
@@ -67179,17 +72368,51 @@ class TabonKBWorkbenchView extends ItemView {
     if (hubBusy || drawerBusy || this.activeTab !== 'home') {
       return;
     }
+    // 渲染合并闸: 同一轮扫描的多个并发等待方共享一个 render 名额,
+    // 避免 vault 事件风暴期间每次事件都触发整页 DOM 重建导致主线程饥饿。
+    if (this._renderQueued) return;
+    // 最小间隔节流 + 尾随一次: 持续写入 (Agent 落盘/索引级联) 时渲染频率封顶 ~1次/1.2s
+    const _now = Date.now();
+    const _elapsed = _now - (this._lastRefreshRenderAt || 0);
+    if (_elapsed < 1200) {
+      if (!this._refreshRenderTimer) {
+        this._refreshRenderTimer = setTimeout(() => {
+          this._refreshRenderTimer = null;
+          this._lastRefreshRenderAt = Date.now();
+          if (this.activeTab !== 'home') return;
+          try { this.render(); } catch (e) { console.error('[TabonKB Workbench] Refresh render failed:', e); }
+        }, 1200 - _elapsed);
+      }
+      return;
+    }
+    this._renderQueued = true;
     try {
+      await Promise.resolve();
       this.render();
+      this._lastRefreshRenderAt = Date.now();
     } catch (err) {
       console.error('[TabonKB Workbench] Refresh render failed:', err);
+    } finally {
+      this._renderQueued = false;
     }
   }
 
-  async onClose() {
+  async _disposeViewResources() {
+    // bak 后部还有一个同名 onClose() (JS 类同名方法后者覆盖), 全量清理移至此方法并由其调用,
+    // 否则本块清理 (定时器/订阅/子视图/画布) 永远是死代码。
+    this._disposeStageResources();
     if (this._mqAutoRefreshTimer) {
       clearInterval(this._mqAutoRefreshTimer);
       this._mqAutoRefreshTimer = null;
+    }
+    if (this._refreshRenderTimer) {
+      clearTimeout(this._refreshRenderTimer);
+      this._refreshRenderTimer = null;
+    }
+    if (this._auDocClickHandler) {
+      document.removeEventListener('click', this._auDocClickHandler, true);
+      this._auDocClickHandler = null;
+      this._auDocBound = false;
     }
     if (this._navRailKeyHandler) {
       document.removeEventListener('keydown', this._navRailKeyHandler, true);
@@ -67215,6 +72438,18 @@ class TabonKBWorkbenchView extends ItemView {
     if (this.jiraPlatform) {
       this.jiraPlatform = null;
     }
+    if (this.topicView) {
+      try { this.topicView.dispose && this.topicView.dispose(); } catch (_) {}
+      this.topicView = null;
+    }
+    if (this.topicService) {
+      // 插件级单例 (this._ownTopicService === false) 不得由视图 dispose
+      if (this._ownTopicService !== false) {
+        try { this.topicService.dispose && this.topicService.dispose(); } catch (_) {}
+      }
+      this.topicService = null;
+    }
+    this._ownTopicService = false;
     if (this.jiraCard) {
       this.jiraCard.dispose();
       this.jiraCard = null;
@@ -67247,14 +72482,36 @@ class TabonKBWorkbenchView extends ItemView {
   }
 
   async loadVaultDocs() {
-    // 并发闸: 索引期 vault 事件风暴会排队触发全量扫描, 在飞时直接复用本次结果
-    if (this._docsInFlight) return;
+    // 并发闸 v2: 扫描在飞时调用方共享本次扫描 Promise 并标脏 (此前直接 return
+    // 秒放行, await 方随即整页 render(), vault 事件风暴 → 每秒多次全量重建,
+    // 叠加 ForceGraph/ResizeObserver 泄漏后主线程饥饿黑屏)。扫描期间新增的
+    // 变更由脏标记驱动收尾合并补扫一次。
+    if (this._docsInFlight) {
+      this._docsDirty = true;
+      return this._docsPromise || Promise.resolve();
+    }
     this._docsInFlight = true;
     this.isLoadingDocs = true;
+    this._docsPromise = this._scanVaultDocs();
+    try {
+      await this._docsPromise;
+    } finally {
+      this._docsPromise = null;
+      this.isLoadingDocs = false;
+      this._docsInFlight = false;
+    }
+    if (this._docsDirty) {
+      this._docsDirty = false;
+      // 走 refreshVaultDocs 统一补扫重绘 (含忙闲判断与渲染合并闸)
+      Promise.resolve().then(() => this.refreshVaultDocs());
+    }
+  }
+
+  async _scanVaultDocs() {
+    globalThis.__twScanCount = (globalThis.__twScanCount || 0) + 1;
     try {
       const vault = this.app?.vault;
       if (!vault || typeof vault.getMarkdownFiles !== 'function') {
-        this.isLoadingDocs = false;
         return;
       }
 
@@ -67381,9 +72638,6 @@ class TabonKBWorkbenchView extends ItemView {
       this.scheduleWeknoraMerge();
     } catch (err) {
       console.error('[TabonKB Workbench] Error in loadVaultDocs:', err);
-    } finally {
-      this.isLoadingDocs = false;
-      this._docsInFlight = false;
     }
   }
 
@@ -67454,6 +72708,9 @@ class TabonKBWorkbenchView extends ItemView {
       if (!container) return;
       this.ensureStylesheet(container.ownerDocument);
       this.setupCustomHeader();
+      globalThis.__twRenderCount = (globalThis.__twRenderCount || 0) + 1;
+      // 整页重建前释放上一页签活跃资源 (ForceGraph 仿真 rAF / ResizeObserver / document 监听)
+      this._disposeStageResources();
       container.empty();
       this._harnessMounted = false; // 整体重建后旧挂载标记必然失效
       container.addClass('tabonkb-workbench-container', 'with-drawer');
@@ -67567,6 +72824,25 @@ class TabonKBWorkbenchView extends ItemView {
         if (btn) btn.onclick = () => this.refreshVaultDocs();
       }
     }
+  }
+
+  _disposeStageResources() {
+    // 释放当前页签渲染产生的活跃资源: container.empty() 只清 DOM 子树,
+    // ForceGraph 的 rAF 仿真/ResizeObserver/document click 闭包仍持有旧实例,
+    // 叠加事件风暴重渲染会造成僵尸仿真堆积与主线程饥饿。
+    if (this.graphCanvas) {
+      try { this.graphCanvas.dispose && this.graphCanvas.dispose(); } catch (e) {}
+      this.graphCanvas = null;
+    }
+    if (this._homeTrendResizeObs) {
+      try { this._homeTrendResizeObs.disconnect(); } catch (e) {}
+      this._homeTrendResizeObs = null;
+    }
+    this.homeTrendCardEl = null;
+    this.homeHeatCardEl = null;
+    this.agentUsageCardEl = null;
+    this.contextCard = null;
+    this.tableCard = null;
   }
 
   getExploreSubTab() {
@@ -67912,7 +73188,9 @@ class TabonKBWorkbenchView extends ItemView {
     `;
 
     if (this.activeTab === 'tasks') {
-      searchPlaceholder = '在 Jira 任务中搜索：输入 Key、摘要、经办人、状态或描述...';
+      searchPlaceholder = this.getTasksSubTab() === 'topics'
+        ? '在专题中搜索：输入标题、模块或目录 ID...'
+        : '在 Jira 任务中搜索：输入 Key、摘要、经办人、状态或描述...';
       rightActionHtml = `<span class="tw-search-hint">ESC 清空</span>`;
     } else if (this.activeTab === 'news') {
       searchPlaceholder = '在技术资讯中搜索：输入关键词实时匹配并高亮...';
@@ -67957,7 +73235,9 @@ class TabonKBWorkbenchView extends ItemView {
           await this.handleOmniSearch(this.keyword);
         }, 200);
       } else if (this.activeTab === 'tasks') {
-        if (this.jiraPlatform) {
+        if (this.getTasksSubTab() === 'topics') {
+          if (this.topicView) this.topicView.filterKeyword(this.keyword);
+        } else if (this.jiraPlatform) {
           this.jiraPlatform.filterKeyword(this.keyword);
         }
       } else if (this.activeTab === 'news') {
@@ -67990,7 +73270,11 @@ class TabonKBWorkbenchView extends ItemView {
           this.platformFilter = '';
           this.render();
         } else if (this.activeTab === 'tasks') {
-          this.jiraPlatform?.filterKeyword('');
+          if (this.getTasksSubTab() === 'topics') {
+            this.topicView?.filterKeyword('');
+          } else {
+            this.jiraPlatform?.filterKeyword('');
+          }
         } else if (this.activeTab === 'news') {
           this.rssCenter?.filterKeyword('');
         } else if (this.activeTab === 'explore') {
@@ -68160,7 +73444,98 @@ class TabonKBWorkbenchView extends ItemView {
     this.renderTableOnly();
   }
 
+  getTasksSubTab() {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        const s = localStorage.getItem('tabonkb-tasks-subtab');
+        if (s === 'jira' || s === 'topics') return s;
+      }
+    } catch (e) {}
+    return 'jira';
+  }
+
+  saveTasksSubTab(sub) {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('tabonkb-tasks-subtab', sub);
+      }
+    } catch (e) {}
+  }
+
   renderTasksTab(stage) {
+    const sub = this.getTasksSubTab();
+    const bar = stage.createDiv({ cls: 'tw-tasks-subtabs' });
+    for (const [id, label] of [['jira', '问题单'], ['topics', '专题']]) {
+      const btn = bar.createEl('button', { cls: `tw-tasks-subtab-btn ${sub === id ? 'active' : ''}`, text: label });
+      btn.onclick = () => {
+        if (this.getTasksSubTab() === id) return;
+        this.saveTasksSubTab(id);
+        if (this.jiraPlatform) { this.jiraPlatform = null; }
+        if (this.topicView) { try { this.topicView.dispose(); } catch (_) {} this.topicView = null; }
+        this.render();
+      };
+    }
+    const host = stage.createDiv({ cls: 'tw-tasks-subhost' });
+
+    // 非当前子页的残留视图先清理 (含整页重渲染时旧 topicView 的 vault 订阅)
+    if (sub !== 'topics' && this.topicView) {
+      try { this.topicView.dispose(); } catch (_) {}
+      this.topicView = null;
+    }
+    if (sub !== 'jira' && this.jiraPlatform) {
+      this.jiraPlatform = null;
+    }
+
+    if (sub === 'topics') {
+      // 个人专题子页 (P1a/P1b): 数据全部落 vault 07-Project/00-Personal-Topics/
+      // P1b: 优先复用插件级单例 (记灵感浮窗共用), 视图只 dispose 自建实例
+      if (!this.topicService) {
+        const plugin = this.plugin || this.app.plugins?.getPlugin?.('tabonkb-workbench') || this.app.plugins?.plugins?.['tabonkb-workbench'];
+        if (plugin && typeof plugin.getTopicService === 'function') {
+          this.topicService = plugin.getTopicService();
+          this._ownTopicService = false;
+        } else {
+          this.topicService = new TopicService({ app: this.app });
+          this._ownTopicService = true;
+        }
+      }
+      if (this.topicView) {
+        try { this.topicView.dispose(); } catch (_) {}
+        this.topicView = null;
+      }
+      this.topicView = new TopicView({
+        app: this.app,
+        topicService: this.topicService,
+        agentDrawer: this.agentDrawer,
+        // P3: 能力雷达 —— 只读 Jira 内存缓存 (jiraService._cache, 不触发网络), Done 判定沿用 JiraPlatformView.categorizeStatus
+        getJiraIssues: () => {
+          try {
+            const plg = this.plugin || this.app.plugins?.getPlugin?.('tabonkb-workbench') || this.app.plugins?.plugins?.['tabonkb-workbench'];
+            const c = plg && plg.jiraService && plg.jiraService._cache;
+            return (c && Array.isArray(c.issues)) ? c.issues : [];
+          } catch (e) { return []; }
+        },
+        categorizeDone: (issue) => {
+          try {
+            const jpv = this.jiraPlatform;
+            if (jpv && typeof jpv.categorizeStatus === 'function') {
+              return jpv.categorizeStatus(issue.status, issue.statusCategory) === 'done';
+            }
+          } catch (e) {}
+          // 与 JiraPlatformView.categorizeStatus 的 done 判定等价 (topics 子页时 jiraPlatform 已置空)
+          const s = String(issue && issue.status || '').toLowerCase();
+          const cat = String(issue && issue.statusCategory || '').toLowerCase();
+          return cat === 'done' || s.includes('closed') || s.includes('done') || s.includes('resolved')
+            || s.includes('fixed') || s.includes('已解决') || s.includes('关闭') || s.includes('完成') || s.includes('验证通过');
+        }
+      });
+      this.topicView.mount(host);
+      if (this.keyword) {
+        this.topicView.filterKeyword(this.keyword);
+      }
+      return;
+    }
+
     const plugin = this.app.plugins?.getPlugin?.('tabonkb-workbench') || this.app.plugins?.plugins?.['tabonkb-workbench'];
     const jiraService = plugin?.jiraService || new JiraService({ app: this.app, getConfig: () => DEFAULT_SETTINGS.jira });
 
@@ -68181,10 +73556,51 @@ class TabonKBWorkbenchView extends ItemView {
           `请调用 jira_get_issue 获取完整详情，用 jira_list_attachments 查看附件；如有日志/抓包等附件，用 jira_download_attachment 下载到 00-Inbox/03-Quick-Note/${issue.key}/attachments/ 后分析。` +
           `分析结论与产物写入 00-Inbox/03-Quick-Note/${issue.key}/ 目录。`
         );
-      }
+      },
+      // P1c: 抽屉「🌱 灵感」→ 记灵感浮窗, 注入 jiraKey/推断模块, 屏蔽活动文件与选区
+      onCaptureIdea: (issue) => {
+        const m = (typeof inferDbgNaming === 'function') ? inferDbgNaming(issue).module : '';
+        const ctx = {
+          jiraKey: issue.key,
+          selectedTopicId: null,
+          activeFilePath: null,
+          selectionText: '',
+          selectionFromAgent: false
+        };
+        if (m && m !== 'GEN') ctx.module = m;
+        if (plugin && typeof plugin.getIdeaPalette === 'function') {
+          plugin.getIdeaPalette().open({ context: ctx });
+        }
+      },
+      // P2a: 联调区 AI 按钮 -> 只填词到 Agent 输入框 (不自动发送), 用户确认后回车
+      onAgentPrompt: (promptText) => {
+        if (!this.agentDrawer.isOpen()) {
+          this.agentDrawer.open();
+        }
+        this.agentDrawer.sendPrompt(promptText);
+      },
+      // P2a: ⚡ 波形 -> 跳工具页并选中对应工具 (一次性消费 _pendingToolId)
+      onOpenTool: (toolId) => {
+        this._pendingToolId = toolId || null;
+        this.setActiveTab('tools');
+      },
+      // P2a: 升为专题 -> 切 tasks/专题子页并选中新专题
+      onOpenTopic: (topicId) => {
+        this.saveTasksSubTab('topics');
+        try {
+          if (typeof localStorage !== 'undefined') {
+            localStorage.setItem('tabonkb-topic-selected', topicId);
+          }
+        } catch (e) {}
+        if (this.jiraPlatform) {
+          try { this.jiraPlatform.closeInspector(); } catch (e) {}
+        }
+        this.render();
+      },
+      topicService: (plugin && typeof plugin.getTopicService === 'function') ? plugin.getTopicService() : null
     });
 
-    this.jiraPlatform.mount(stage);
+    this.jiraPlatform.mount(host);
     if (this.keyword) {
       this.jiraPlatform.filterKeyword(this.keyword);
     }
@@ -68329,6 +73745,17 @@ class TabonKBWorkbenchView extends ItemView {
       app: this.app,
       plugin: this.plugin
     });
+
+    // P2a: Jira 抽屉「⚡ 波形」指定的一次性目标工具, 挂载前应用并沿用 localStorage 持久化
+    if (this._pendingToolId) {
+      try {
+        if (this.toolsView.tools && this.toolsView.tools.some(t => t.id === this._pendingToolId)) {
+          this.toolsView.activeToolId = this._pendingToolId;
+          if (typeof this.toolsView._saveActiveToolId === 'function') this.toolsView._saveActiveToolId();
+        }
+      } catch (e) {}
+      this._pendingToolId = null;
+    }
 
     this.toolsView.mount(stage);
   }
@@ -68759,7 +74186,8 @@ class TabonKBWorkbenchView extends ItemView {
         const wk = wkTopoSlimGraph(cached, s.topoGrouping || 'semantic');
         const base = this.vaultGraphData || this.graphData;
         this.graphData = wkTopoMerge(base, wk, 800);
-        if (this.graphCanvas) this.graphCanvas.setData(this.graphData);
+        // 异步回写时画布可能已被整页重建 dispose (旧实例引用需 _disposed 拦截)
+        if (this.graphCanvas && !this.graphCanvas._disposed) this.graphCanvas.setData(this.graphData);
         this.updateWkTopoStatus(true, this.graphData.nodes.filter(n => n.source === 'weknora').length);
       } catch (e) {
         console.warn('[TabonKB] WeKnora 拓扑合并失败:', e);
@@ -68772,7 +74200,7 @@ class TabonKBWorkbenchView extends ItemView {
   }
 
   updateWkTopoStatus(ok, wkCount) {
-    const el = this.graphCanvas && this.graphCanvas.statusEl;
+    const el = this.graphCanvas && !this.graphCanvas._disposed && this.graphCanvas.statusEl;
     if (!el) return;
     el.innerHTML = ok
       ? `<span class="tw-graph-dot" style="background:#10B981;"></span><span id="twStatusText">✓ 轻量知识拓扑 就绪 · 含 WeKnora ${wkCount} 节点</span>`
@@ -68786,7 +74214,7 @@ class TabonKBWorkbenchView extends ItemView {
       const raw = await wkTopoFetchEgo(vb, node.wkSlug, 150);
       const wk = wkTopoSlimGraph(raw, s.topoGrouping || 'semantic');
       this.graphData = wkTopoMerge(this.graphData, wk, 800);
-      if (this.graphCanvas) this.graphCanvas.setData(this.graphData);
+      if (this.graphCanvas && !this.graphCanvas._disposed) this.graphCanvas.setData(this.graphData);
       new Notice(`WeKnora 邻居展开: +${wk.nodes.length} 节点`);
     } catch (e) {
       new Notice('WeKnora ego 展开失败: ' + e.message);
@@ -68804,17 +74232,18 @@ class TabonKBWorkbenchView extends ItemView {
     }
   }
 
-  onClose() {
-    // 视图关闭释放图数据 (磁盘缓存保留), 避免常驻内存
+  async onClose() {
+    // 注意: 本方法是类中唯二 onClose 中的后者, 实际生效 (JS 同名方法后者覆盖)。
+    // 因此必须在此完成全量清理 —— 定时器/订阅/子视图/画布, 缺失会整片泄漏。
     this.graphData = { nodes: [], edges: [] };
     this.vaultGraphData = null;
     this.realDocs = [];
     if (this.graphCanvas) {
-      if (this.graphCanvas.animFrameId) cancelAnimationFrame(this.graphCanvas.animFrameId);
-      this.graphCanvas.nodes = [];
-      this.graphCanvas.edges = [];
-      this.graphCanvas.nodeMap.clear();
-      this.graphCanvas.adjMap.clear();
+      try { this.graphCanvas.dispose && this.graphCanvas.dispose(); } catch (e) {}
+      this.graphCanvas = null;
+    }
+    if (typeof this._disposeViewResources === 'function') {
+      try { await this._disposeViewResources(); } catch (e) {}
     }
     return Promise.resolve();
   }
@@ -69275,6 +74704,35 @@ module.exports = class TabonKBWorkbenchPlugin extends Plugin {
     try { globalThis.__twBootMark && __twBootMark('onload:settings+theme'); } catch (e) {}
     this.applyWorkbenchTheme(this.settings.workbenchTheme);
 
+    // 渲染进程死亡取证心跳: 黑屏=渲染器被杀时, 本文件保留被杀前内存曲线与渲染/刷新计数。
+    // appendFileSync ~150B/10s 开销可忽略; >4MB 自动转存 .prev 保留上次崩溃现场。
+    try {
+      if (!globalThis.__twMemBeat) {
+        globalThis.__twMemBeat = setInterval(() => {
+          try {
+            const fs = require('fs'), path = require('path');
+            const dir = path.join(this.app?.vault?.adapter?.basePath || '', '.obsidian', 'plugins', 'tabonkb-workbench');
+            const fp = path.join(dir, 'renderer-heartbeat.jsonl');
+            if (fs.existsSync(fp) && fs.statSync(fp).size > 4 * 1024 * 1024) {
+              try { fs.renameSync(fp, fp.replace('.jsonl', '.prev.jsonl')); } catch (_) {}
+            }
+            const mu = (typeof process !== 'undefined' && process.memoryUsage) ? process.memoryUsage() : {};
+            const pm = (typeof performance !== 'undefined' && performance.memory) ? performance.memory : {};
+            fs.appendFileSync(fp, JSON.stringify({
+              t: new Date().toISOString(),
+              heapMB: Math.round((mu.heapUsed || pm.usedJSHeapSize || 0) / 1048576),
+              rssMB: Math.round((mu.rss || 0) / 1048576),
+              extMB: Math.round((mu.external || 0) / 1048576),
+              renders: globalThis.__twRenderCount || 0,
+              refreshes: globalThis.__twRefreshCount || 0,
+              scans: globalThis.__twScanCount || 0
+            }) + String.fromCharCode(10), 'utf8');
+          } catch (_) {}
+        }, 10000);
+        globalThis.__twMemBeat.unref && globalThis.__twMemBeat.unref();
+      }
+    } catch (_) {}
+
     this.jiraService = new JiraService({
       app: this.app,
       getConfig: () => this.settings.jira
@@ -69459,6 +74917,33 @@ module.exports = class TabonKBWorkbenchPlugin extends Plugin {
       },
     });
 
+    // P1b 记灵感: Alt+I 全局唤起 (含编辑器内, 命令热键由 Obsidian 注册)
+    this.addCommand({
+      id: 'capture-idea',
+      name: '记灵感',
+      hotkeys: [{ modifiers: ['Alt'], key: 'i' }],
+      callback: () => { this.getIdeaPalette().toggle(); },
+    });
+
+    // P1b Ctrl+I: Obsidian Keymap 在 window 捕获阶段先处理, document 级监听收不到——
+    // 参照探索页 Ctrl+F 的 scope.register 置顶方案; 编辑器内 return undefined 让出原生斜体
+    this._ideaScopeKey = null;
+    try {
+      const scope = this.app && this.app.scope;
+      if (scope && typeof scope.register === 'function' && Array.isArray(scope.keys)) {
+        const handler = scope.register(['Ctrl'], 'i', (evt, info) => {
+          if (typeof shouldYieldCtrlI === 'function' && shouldYieldCtrlI(document.activeElement)) {
+            return undefined; // .cm-editor/.monaco-editor 内: 不 preventDefault, 斜体/补全照常
+          }
+          this.getIdeaPalette().toggle();
+          return false;
+        });
+        const pos = scope.keys.indexOf(handler);
+        if (pos > 0) { scope.keys.splice(pos, 1); scope.keys.unshift(handler); }
+        this._ideaScopeKey = { scope, handler };
+      }
+    } catch (_) {}
+
     this._lastObsidianDark = typeof TabonKBThemeEngine !== 'undefined' ? TabonKBThemeEngine.isObsidianDark() : false;
     this.registerEvent(this.app.workspace.on('css-change', () => {
       const curDark = typeof TabonKBThemeEngine !== 'undefined' ? TabonKBThemeEngine.isObsidianDark() : false;
@@ -69473,11 +74958,69 @@ module.exports = class TabonKBWorkbenchPlugin extends Plugin {
     try {
       this.app.workspace.onLayoutReady(() => {
         try { globalThis.__twBootMark && __twBootMark('layout:ready'); } catch (e) {}
+        // P2b: 自动浇水监听 + 90 天枯萎首扫 (延迟 5s)
+        try { this.getTopicService()?.startAutoWater?.(); } catch (e) { console.warn('[TopicService] startAutoWater:', e); }
+        this._witherTimer = setTimeout(() => {
+          try {
+            this.getTopicService()?.witherStaleSeeds?.().then(n => {
+              try { if (n > 0 && typeof Notice !== 'undefined') new Notice(`🍂 ${n} 颗种子已枯萎`); } catch (e) {}
+            }).catch(e => console.warn('[TopicService] witherStaleSeeds:', e));
+          } catch (e) { console.warn('[TopicService] witherStaleSeeds:', e); }
+        }, 5000);
       });
       setTimeout(() => {
         try { globalThis.__twBootFlush && __twBootFlush(this.app?.vault?.adapter?.basePath); } catch (e) {}
       }, 6500);
     } catch (e) {}
+  }
+
+  // P1b: 插件级 TopicService 懒单例 (专题视图与记灵感浮窗共用)
+  getTopicService() {
+    if (!this.topicService && typeof TopicService !== 'undefined') {
+      this.topicService = new TopicService({ app: this.app });
+    }
+    return this.topicService;
+  }
+
+  getIdeaPalette() {
+    if (!this.ideaPalette && typeof IdeaCapturePalette !== 'undefined') {
+      this.ideaPalette = new IdeaCapturePalette({
+        app: this.app,
+        topicService: this.getTopicService(),
+        getContext: () => this.getIdeaCaptureContext()
+      });
+    }
+    return this.ideaPalette;
+  }
+
+  // 记灵感上下文: 工作台 tasks 子页的选中专题/选中工单 + 活动文件 + 选区
+  getIdeaCaptureContext() {
+    const ctx = { selectedTopicId: null, jiraKey: null, activeFilePath: null, selectionText: '', selectionFromAgent: false };
+    try {
+      const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_WORKBENCH);
+      const view = leaves[0] && leaves[0].view;
+      if (view && view.activeTab === 'tasks') {
+        const sub = typeof view.getTasksSubTab === 'function' ? view.getTasksSubTab() : 'jira';
+        if (sub === 'topics') {
+          ctx.selectedTopicId = (view.topicView && view.topicView.selectedId) || null;
+        } else {
+          const iss = view.jiraPlatform && view.jiraPlatform.selectedIssue;
+          ctx.jiraKey = (iss && iss.key) || null;
+        }
+      }
+    } catch (_) {}
+    try {
+      const f = this.app.workspace.getActiveFile && this.app.workspace.getActiveFile();
+      ctx.activeFilePath = (f && f.path) || null;
+    } catch (_) {}
+    try {
+      const sel = (typeof window !== 'undefined' && window.getSelection) ? window.getSelection() : null;
+      ctx.selectionText = sel ? String(sel.toString() || '') : '';
+      let node = sel && sel.anchorNode ? sel.anchorNode : null;
+      if (node && node.nodeType !== 1) node = node.parentElement;
+      ctx.selectionFromAgent = !!(node && node.closest && node.closest('.tw-msg-content'));
+    } catch (_) {}
+    return ctx;
   }
 
   async getSecret(secretName) {
@@ -69612,6 +75155,10 @@ module.exports = class TabonKBWorkbenchPlugin extends Plugin {
   }
 
   onunload() {
+    if (globalThis.__twMemBeat) {
+      try { clearInterval(globalThis.__twMemBeat); } catch (_) {}
+      globalThis.__twMemBeat = null;
+    }
     const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_WORKBENCH);
     leaves.forEach(leaf => {
       if (leaf.view) {
@@ -69632,6 +75179,25 @@ module.exports = class TabonKBWorkbenchPlugin extends Plugin {
         }
       }
     });
+
+    // P1b: 记灵感浮窗/Ctrl+I 热键/插件级 TopicService 释放
+    if (this._ideaScopeKey) {
+      try { this._ideaScopeKey.scope.unregister(this._ideaScopeKey.handler); } catch (_) {}
+      this._ideaScopeKey = null;
+    }
+    if (this.ideaPalette) {
+      try { this.ideaPalette.dispose(); } catch (_) {}
+      this.ideaPalette = null;
+    }
+    if (this._witherTimer) {
+      try { clearTimeout(this._witherTimer); } catch (_) {}
+      this._witherTimer = null;
+    }
+    if (this.topicService) {
+      try { this.topicService.stopAutoWater && this.topicService.stopAutoWater(); } catch (_) {}
+      try { this.topicService.dispose && this.topicService.dispose(); } catch (_) {}
+      this.topicService = null;
+    }
 
     if (this.companionServer) {
       this.companionServer.stop();

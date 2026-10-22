@@ -17,4 +17,5 @@ __pycache__/
 # Runtime cache & diagnostic profiles
 .startup-profile.json
 active-context.json
+renderer-heartbeat.jsonl
 

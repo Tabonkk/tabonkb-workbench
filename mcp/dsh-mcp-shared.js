@@ -1,5 +1,5 @@
 /* ==========================================================================
-   DSH MCP Shared — 把 TabonKB 6 大 MCP 工具动态接入 DeepSeek Harness
+   DSH MCP Shared — 把 TabonKB 10 大 MCP 工具动态接入 DeepSeek Harness
    支持:
    1. tabonkb-vendor: vendor-portal-mcp.js (stdio, Node)
    2. weknora: weknora-mcp.js (stdio, Node)
@@ -7,6 +7,10 @@
    4. gerrit: gerrit-mcp.js (stdio, Node)
    5. drawio: drawio-mcp.js (stdio, Node, 依赖 DrawioBroker 端口 6011)
    6. codegraph: ssh.exe -> tankaikun@192.168.1.62 codegraph serve (stdio, ssh)
+   7. powerz: powerz-mcp.js (stdio, Node)
+   8. dslogic: dslogic-mcp.js (stdio, Node)
+   9. jira: jira-mcp.js (stdio, Node)
+   10. workbench: workbench-mcp.js (stdio, Node, 会话绑定+本地工程只读)
 
    安全红线:
    - 绝不在生成的 YAML 中硬编码任何明文密码/Token
@@ -21,6 +25,10 @@ const path = require('path');
 
 // 预设块版本标记: 用于 cordis.patch.yml 幂等同步与升级自愈
 const TABONKB_PRESET_MARKER = 'tabonkb-presets-v2';
+
+// DSH MCP 子进程宿主标记: 名字刻意不带 DSH_ 前缀、不匹配 /KEY|PASSWORD|SECRET|TOKEN/i,
+// 才能穿过 dsh-mcp-client 的 scrubbedParentEnv 合并进子进程 env
+const DSH_MCP_HOST_ENV = { TABONKB_MCP_HOST: 'dsh' };
 
 /**
  * R14: 探测 %APPDATA% 下的便携 Node 目录 (node-v*)，避免硬编码版本号
@@ -127,8 +135,11 @@ function resolveSshExe() {
  * @param {string} vaultBasePath - 工作区根路径
  * @returns {Array<object>} 6 个标准的 MCP 插件插入配置项
  */
+// MCP command 使用 GUI 子系统 node 副本避免 conhost 闪屏；bundle 内由 vendor-mcp-shared.js 提供
+function dshMcpGuiNodeExe(e) { return typeof mcpResolveGuiNodeExe === 'function' ? mcpResolveGuiNodeExe(e) : e; }
+
 function buildDshMcpEntries(vaultBasePath) {
-  const nodeExe = resolveDshNodeExe();
+  const nodeExe = dshMcpGuiNodeExe(resolveDshNodeExe());
   const entries = [];
 
   // 1. vendor-portal
@@ -141,6 +152,7 @@ function buildDshMcpEntries(vaultBasePath) {
       transport: 'stdio',
       command: nodeExe,
       args: [vendorPath],
+      env: DSH_MCP_HOST_ENV,
       failOnStartupError: false,
       toolCallTimeoutMs: 60000
     }
@@ -156,6 +168,7 @@ function buildDshMcpEntries(vaultBasePath) {
       transport: 'stdio',
       command: nodeExe,
       args: [weknoraPath],
+      env: DSH_MCP_HOST_ENV,
       failOnStartupError: false,
       toolCallTimeoutMs: 60000
     }
@@ -171,6 +184,7 @@ function buildDshMcpEntries(vaultBasePath) {
       transport: 'stdio',
       command: nodeExe,
       args: [opengrokPath],
+      env: DSH_MCP_HOST_ENV,
       failOnStartupError: false,
       toolCallTimeoutMs: 30000
     }
@@ -186,6 +200,7 @@ function buildDshMcpEntries(vaultBasePath) {
       transport: 'stdio',
       command: nodeExe,
       args: [gerritPath],
+      env: DSH_MCP_HOST_ENV,
       failOnStartupError: false,
       toolCallTimeoutMs: 30000
     }
@@ -201,6 +216,7 @@ function buildDshMcpEntries(vaultBasePath) {
       transport: 'stdio',
       command: nodeExe,
       args: [drawioPath],
+      env: DSH_MCP_HOST_ENV,
       failOnStartupError: false,
       toolCallTimeoutMs: 30000
     }
@@ -224,6 +240,7 @@ function buildDshMcpEntries(vaultBasePath) {
         'serve',
         '--mcp'
       ],
+      env: DSH_MCP_HOST_ENV,
       failOnStartupError: false,
       toolCallTimeoutMs: 60000
     }
@@ -239,6 +256,7 @@ function buildDshMcpEntries(vaultBasePath) {
       transport: 'stdio',
       command: nodeExe,
       args: [powerzPath],
+      env: DSH_MCP_HOST_ENV,
       failOnStartupError: false,
       toolCallTimeoutMs: 30000
     }
@@ -254,8 +272,41 @@ function buildDshMcpEntries(vaultBasePath) {
       transport: 'stdio',
       command: nodeExe,
       args: [dslogicPath],
+      env: DSH_MCP_HOST_ENV,
       failOnStartupError: false,
       toolCallTimeoutMs: 120000
+    }
+  });
+
+  // 9. jira (工单检索/详情/注释/附件; 凭据子进程自读 .secrets.json, 不依赖 env)
+  const jiraPath = resolveScriptPath(vaultBasePath, 'jira-mcp.js');
+  entries.push({
+    id: 'mcp-jira',
+    name: '@deepseek-ai/dsh-mcp-client',
+    config: {
+      serverName: 'jira',
+      transport: 'stdio',
+      command: nodeExe,
+      args: [jiraPath],
+      env: DSH_MCP_HOST_ENV,
+      failOnStartupError: false,
+      toolCallTimeoutMs: 30000
+    }
+  });
+
+  // 10. workbench (会话绑定上下文 + 本地工程三层穿透只读)
+  const workbenchPath = resolveScriptPath(vaultBasePath, 'workbench-mcp.js');
+  entries.push({
+    id: 'mcp-workbench',
+    name: '@deepseek-ai/dsh-mcp-client',
+    config: {
+      serverName: 'workbench',
+      transport: 'stdio',
+      command: nodeExe,
+      args: [workbenchPath],
+      env: DSH_MCP_HOST_ENV,
+      failOnStartupError: false,
+      toolCallTimeoutMs: 30000
     }
   });
 
@@ -315,6 +366,8 @@ function buildDshDaemonEnv(vaultBasePath) {
   // 二者均已在 applyDshCtxSelection / saveProject / saveLocalProject 中写入 process.env。
   if (process.env.OPENGROK_DEFAULT_PROJECT) env.OPENGROK_DEFAULT_PROJECT = process.env.OPENGROK_DEFAULT_PROJECT;
   if (process.env.TABONKB_LOCAL_PROJECT_JSON) env.TABONKB_LOCAL_PROJECT_JSON = process.env.TABONKB_LOCAL_PROJECT_JSON;
+  if (process.env.TABONKB_JIRA_ISSUE_JSON) env.TABONKB_JIRA_ISSUE_JSON = process.env.TABONKB_JIRA_ISSUE_JSON;
+  if (process.env.TABONKB_GERRIT_FILTER) env.TABONKB_GERRIT_FILTER = process.env.TABONKB_GERRIT_FILTER;
 
   // 释放权限给 Harness：允许派生外部程序 (cmd.exe/git.exe/ssh.exe) 与跨目录访问，免借票审批
   env.DSH_PERMISSION_MODE = 'danger-full-access';
@@ -329,13 +382,20 @@ function buildDshDaemonEnv(vaultBasePath) {
  * 符合 @deepseek-ai/dsh-agent-preset 官方规范
  */
 function buildTabonKbPresets(vaultBasePath) {
+  // 公共尾部小节: 两个预设共用「工作台上下文」获取方式 (工具侧实时值, 不读文件/env 快照)
+  const wbCtxSection = [
+    '',
+    '工作台上下文（会话当前绑定，实时变化）：需要当前 OpenGrok 工程 / Gerrit 过滤器 / Jira 工单 / 本地工程时，先调 workbench_context 取实时值。',
+    '读本地工程源码用 project_read_file，并显式传 project（取自 workbench_context 或 project_list）。',
+    'opengrok / gerrit / jira 工具缺省参数时自动取当前绑定；显式参数始终优先。'
+  ].join('\n');
   const getCommonPlugins = (personaPrefix) => [
     {
       id: 'persona',
       name: '@deepseek-ai/dsh-persona',
       config: {
-        prefix: personaPrefix.trim(),
-        suffix: '当前工作区为 TabonKB 研发知识库，工作路径为 {{cwd}}。'
+        prefix: personaPrefix.trim() + wbCtxSection,
+        suffix: '当前工作区为 TabonKB 研发知识库。'
       }
     },
     {
@@ -485,12 +545,13 @@ Bringup 或多步疑难排障，先用规划模式拆成可观测的小步，每
 引用代码统一给出「路径:行号」（如 drivers/power/supply/xxx.c:123 或 03-Driver/05-Charger/xxx.md），便于工作台右侧点击联动。
 结论按「现象 / 根因 / 证据（日志片段+出处）/ 改动 / 验证 / 遗留风险」六段式整理，写入 00-Inbox/ 或对应模块目录（03-Driver/<模块>/、04-Debug/、06-Spec/）；正式命名归档与索引维护交给「知识库管理」预设。
 
-七、会话工程上下文（用户在「+」菜单绑定，经环境变量下发）
-1. 本地工程 TABONKB_LOCAL_PROJECT_JSON（JSON：serverId/serverName/workspaceName/linuxPath/platform/project/priDriverRel/publicDriverRel）为最高优先级事实源：检索与定位优先项目专属定制路径 priDriverRel，其次公共差分 publicDriverRel，原厂基线仅作对照且禁止直接修改；建议编译/烧录命令一律按该工程的 platform+project 组装，不要凭通用模板。
-2. OpenGrok OPENGROK_DEFAULT_PROJECT：非空即代表用户圈定的目标源码工程，opengrok_search_code / opengrok_list_projects 的 project 参数默认取该值，跨库联检仅在用户明确要求时放宽。
-3. Jira 工单绑定 TABONKB_JIRA_ISSUE_JSON（JSON：key/summary/status/priority/assignee/url）：先用 jira_get_issue 拉取描述/复现条件，再 jira_list_attachments 与 jira_download_attachment 取证附件；答复引用工单号并贴合其环境。
-4. Gerrit 过滤器 TABONKB_GERRIT_FILTER（all/open/merged/mine/reviewing）：gerrit_search_changes 默认按该范围组织查询条件，非 all 时优先收窄到对应变更集。
-5. 新建对话时上述绑定会被清空；若环境变量缺失或为空，按未绑定处理，不要沿用上一会话的工程假设。`),
+七、会话工程上下文（用户在「+」菜单绑定，按会话独立、实时变化）
+四项绑定（OpenGrok 工程 / Gerrit 过滤器 / Jira 工单 / 本地工程）的实时值一律通过 workbench_context 工具获取；禁止读取 active-context.json 文件或依赖环境变量快照（二者都可能滞后或是别的会话的值）。
+1. 本地工程绑定（字段含 serverName/workspaceName/linuxPath/platform/project/priDriverRel/publicDriverRel）为最高优先级事实源：检索与定位优先项目专属定制路径 priDriverRel，其次公共差分 publicDriverRel，原厂基线仅作对照且禁止直接修改；建议编译/烧录命令一律按该工程的 platform+project 组装，不要凭通用模板。
+2. OpenGrok 工程：非 'auto' 即代表用户圈定的目标源码工程，opengrok_search_code / opengrok_list_projects 的 project 参数缺省时自动取该绑定值，跨库联检仅在用户明确要求时放宽。
+3. Jira 工单绑定：先用 jira_get_issue 拉取描述/复现条件，再 jira_list_attachments 与 jira_download_attachment 取证附件；上述工具缺省 issue_key 时自动使用绑定工单；答复引用工单号并贴合其环境。
+4. Gerrit 过滤器（all/open/merged/mine/reviewing）：gerrit_search_changes 的 query 缺省或未含 status:/owner:/reviewer: 时自动按绑定范围收窄，显式写这些操作符可覆盖。
+5. 上述绑定随 DSH 会话独立保存；workbench_context 显示未绑定时按无绑定处理，不要沿用上一会话的工程假设。`),
           planningGroup,
           compactionGroup
         ]
@@ -593,6 +654,12 @@ function renderPresetsYaml(presets) {
               } else {
                 lines.push(`              ${ck}: ${JSON.stringify(cv)}`);
               }
+            } else if (cv && typeof cv === 'object') {
+              // dict 值 (如 env) 序列化为子映射, 避免输出 [object Object]
+              lines.push(`              ${ck}:`);
+              for (const [ok, ov] of Object.entries(cv)) {
+                lines.push(`                ${ok}: ${typeof ov === 'string' ? JSON.stringify(ov) : ov}`);
+              }
             } else {
               lines.push(`              ${ck}: ${cv}`);
             }
@@ -631,6 +698,12 @@ function generateDshCordisPatchYaml(vaultBasePath) {
     lines.push(`        args:`);
     for (const a of item.config.args) {
       lines.push(`          - ${JSON.stringify(a)}`);
+    }
+    if (item.config.env && typeof item.config.env === 'object') {
+      lines.push(`        env:`);
+      for (const [ek, ev] of Object.entries(item.config.env)) {
+        lines.push(`          ${ek}: ${JSON.stringify(String(ev))}`);
+      }
     }
     lines.push(`        failOnStartupError: ${item.config.failOnStartupError}`);
     lines.push(`        toolCallTimeoutMs: ${item.config.toolCallTimeoutMs}`);

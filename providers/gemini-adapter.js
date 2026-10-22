@@ -83,6 +83,7 @@ class GeminiAdapter extends AgentAdapter {
       try {
         const bin = this.resolveGeminiBinary();
         const proc = child_process.spawn(bin.cmd, [...bin.prefixArgs, '--version'], {
+          windowsHide: true,
           stdio: ['pipe', 'pipe', 'pipe']
         });
 
@@ -173,6 +174,7 @@ class GeminiAdapter extends AgentAdapter {
           env: Object.assign({}, process.env, buildVendorEnv(vaultPath), {
             GEMINI_CLI_TRUST_WORKSPACE: 'true'
           }),
+          windowsHide: true,
           stdio: ['pipe', 'pipe', 'pipe']
         });
 

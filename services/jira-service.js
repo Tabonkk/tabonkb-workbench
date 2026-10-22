@@ -1702,35 +1702,32 @@ const JIRA_TOOLS = [
   },
   {
     name: 'jira_get_issue',
-    description: '查阅指定 Jira 工单完整详情：标题、状态、经办人/报告人、优先级、模块组件、标签、修复版本、解决结果、完整描述、最近 12 条注释、附件清单，以及该工单在知识库的专属工作目录 (00-Inbox/03-Quick-Note/<KEY>/)。只读工具。',
+    description: '查阅指定 Jira 工单完整详情：标题、状态、经办人/报告人、优先级、模块组件、标签、修复版本、解决结果、完整描述、最近 12 条注释、附件清单，以及该工单在知识库的专属工作目录 (00-Inbox/03-Quick-Note/<KEY>/)。缺省 issue_key 时取工作台绑定工单。只读工具。',
     inputSchema: {
       type: 'object',
       properties: {
-        issue_key: { type: 'string', description: 'Jira 工单号 (如 SPE123-199)' }
-      },
-      required: ['issue_key']
+        issue_key: { type: 'string', description: 'Jira 工单号 (如 SPE123-199)；缺省取工作台绑定' }
+      }
     }
   },
   {
     name: 'jira_get_comments',
-    description: '查阅指定 Jira 工单的全部历史注释/讨论记录（含作者与时间）。只读工具。',
+    description: '查阅指定 Jira 工单的全部历史注释/讨论记录（含作者与时间）。缺省 issue_key 时取工作台绑定工单。只读工具。',
     inputSchema: {
       type: 'object',
       properties: {
-        issue_key: { type: 'string', description: 'Jira 工单号' }
-      },
-      required: ['issue_key']
+        issue_key: { type: 'string', description: 'Jira 工单号；缺省取工作台绑定' }
+      }
     }
   },
   {
     name: 'jira_list_attachments',
-    description: '列出指定 Jira 工单挂载的全部附件（文件名/大小/类型/上传人），用于定位 log 日志、截图、抓包文件。只读工具。',
+    description: '列出指定 Jira 工单挂载的全部附件（文件名/大小/类型/上传人），用于定位 log 日志、截图、抓包文件。缺省 issue_key 时取工作台绑定工单。只读工具。',
     inputSchema: {
       type: 'object',
       properties: {
-        issue_key: { type: 'string', description: 'Jira 工单号' }
-      },
-      required: ['issue_key']
+        issue_key: { type: 'string', description: 'Jira 工单号；缺省取工作台绑定' }
+      }
     }
   },
   {
@@ -1739,10 +1736,10 @@ const JIRA_TOOLS = [
     inputSchema: {
       type: 'object',
       properties: {
-        issue_key: { type: 'string', description: 'Jira 工单号' },
+        issue_key: { type: 'string', description: 'Jira 工单号；缺省取工作台绑定' },
         attachment: { type: 'string', description: '附件 id、完整文件名或文件名片段（如 "logcat" / "main.log" / "12893"）' }
       },
-      required: ['issue_key', 'attachment']
+      required: ['attachment']
     }
   }
 ];
@@ -1805,9 +1802,46 @@ function _jiraFmtAttachments(atts, issueKey) {
   return lines.join('\n');
 }
 
+// 需要 issue_key 的工具集合 (search 不在内)
+const JIRA_ISSUE_KEY_TOOLS = new Set(['jira_get_issue', 'jira_get_comments', 'jira_list_attachments', 'jira_download_attachment']);
+
+// DSH MCP 子进程工作台上下文 (bundle 内为全局函数, 独立运行时按路径探测)
+function jiraLoadWbCtx() {
+  try {
+    if (typeof getHostContext === 'function' && typeof isDshHost === 'function') {
+      return { isDshHost, getHostContext };
+    }
+    const fs = require('fs');
+    const path = require('path');
+    const cands = [
+      path.join(__dirname, 'workbench-context.js'),
+      path.join(__dirname, 'services', 'workbench-context.js'),
+      path.join(__dirname, '..', 'services', 'workbench-context.js'),
+      path.join(process.cwd(), '.obsidian', 'plugins', 'tabonkb-workbench', 'services', 'workbench-context.js')
+    ];
+    for (const c of cands) {
+      let m = null;
+      try { if (fs.existsSync(c)) m = require(c); } catch (_) {}
+      if (m && typeof m.isDshHost === 'function') return m;
+    }
+  } catch (_) {}
+  return null;
+}
+
 async function runJiraTool(name, args, service) {
   args = args || {};
   const svc = service || new JiraService();
+
+  // DSH 宿主: issue_key 缺省时回退工作台绑定工单 (显式值永不覆盖)
+  let bindNote = '';
+  if (JIRA_ISSUE_KEY_TOOLS.has(name) && !String(args.issue_key || args.key || '').trim()) {
+    const wb = jiraLoadWbCtx();
+    const bound = (wb && wb.isDshHost()) ? (wb.getHostContext() || {}).jira : null;
+    if (bound && bound.key) {
+      args = Object.assign({}, args, { issue_key: bound.key });
+      bindNote = `(未指定 issue_key, 使用工作台绑定工单 ${bound.key})\n`;
+    }
+  }
 
   switch (name) {
     case 'jira_search_issues': {
@@ -1831,25 +1865,25 @@ async function runJiraTool(name, args, service) {
       if (!key) throw new Error('缺少 issue_key 参数');
       const d = await svc.getIssueDetail(key);
       const ws = svc.getIssueWorkspaceDir(key);
-      return _jiraFmtIssueDetail(d, ws);
+      return bindNote + _jiraFmtIssueDetail(d, ws);
     }
     case 'jira_get_comments': {
       const key = String(args.issue_key || args.key || '').trim().toUpperCase();
       if (!key) throw new Error('缺少 issue_key 参数');
       const comments = await svc.getIssueComments(key);
-      if (!comments || comments.length === 0) return `工单 ${key} 无注释记录。`;
+      if (!comments || comments.length === 0) return bindNote + `工单 ${key} 无注释记录。`;
       const lines = [`### 工单 ${key} 注释 (共 ${comments.length} 条):`, ''];
       comments.forEach(c => {
         lines.push(`- **${c.author}** (${c.createdFormatted || c.created})${c.isEdited ? ' *(已编辑)*' : ''}:`);
         lines.push(`  ${(c.body || '').split('\n').join('\n  ')}`);
       });
-      return lines.join('\n');
+      return bindNote + lines.join('\n');
     }
     case 'jira_list_attachments': {
       const key = String(args.issue_key || args.key || '').trim().toUpperCase();
       if (!key) throw new Error('缺少 issue_key 参数');
       const atts = await svc.listIssueAttachments(key);
-      return _jiraFmtAttachments(atts, key);
+      return bindNote + _jiraFmtAttachments(atts, key);
     }
     case 'jira_download_attachment': {
       const key = String(args.issue_key || args.key || '').trim().toUpperCase();
@@ -1857,7 +1891,7 @@ async function runJiraTool(name, args, service) {
       const ref = args.attachment || args.attachment_id || args.filename;
       const r = await svc.downloadAttachment(key, ref);
       const ws = svc.getIssueWorkspaceDir(key);
-      return [
+      return bindNote + [
         `✓ 附件已下载: **${r.filename}** (${(r.bytes / 1024).toFixed(1)} KB)`,
         `- 本地绝对路径: \`${r.savedAbsPath}\``,
         `- 知识库相对路径: \`${r.savedRelPath}\``,

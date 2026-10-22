@@ -74,6 +74,7 @@ class CodexAdapter extends AgentAdapter {
       try {
         const bin = this.resolveCodexBinary();
         const proc = child_process.spawn(bin.cmd, [...bin.prefixArgs, '--version'], {
+          windowsHide: true,
           stdio: ['pipe', 'pipe', 'pipe']
         });
 
@@ -163,6 +164,7 @@ class CodexAdapter extends AgentAdapter {
           env: Object.assign({}, process.env, {
             CODEX_MANAGED_PACKAGE_ROOT: 'C:\\Users\\Administrator\\AppData\\Roaming\\node-v24.15.0\\node_modules\\@openai\\codex'
           }),
+          windowsHide: true,
           stdio: ['pipe', 'pipe', 'pipe']
         });
 

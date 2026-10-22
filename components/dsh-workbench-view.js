@@ -62,6 +62,7 @@ class DshWorkbenchView {
     this._statusUnsub = null;
     this._authUnsub = null;
     this._activeFileUnsub = null;
+    this._dshSid = '__draft__';
     this._boundOnMouseMove = null;
     this._boundOnMouseUp = null;
 
@@ -73,11 +74,14 @@ class DshWorkbenchView {
         return;
       }
       if (evt.data.type === 'tabonkb-dsh-ctx-state-req') {
+        this._dshSid = this._normalizeDshSid(evt.data.sid);
+        this._migrateDshDraftTo(this._dshSid);
+        this._mirrorDshCtxToAgent(this.getDshCtxState(this._dshSid), this._dshSid);
         this.sendDshCtxState();
         return;
       }
       if (evt.data.type === 'tabonkb-dsh-ctx-set') {
-        this.applyDshCtxSelection(evt.data.key, evt.data.value);
+        this.applyDshCtxSelection(evt.data.key, evt.data.value, evt.data.sid);
         return;
       }
       if (evt.data.type === 'tabonkb-dsh-new-chat') {
@@ -577,37 +581,100 @@ div[data-sidebar-collapsed] div[class*="_root"][class*="_collapsed"] {
     } catch (_) {}
   }
 
-  /**
-   * 定位自研 Agent 抽屉实例 (若工作台视图存活)。
-   * 两侧共用同一组 localStorage/process.env 键, 抽屉存活时优先委托其 save* 方法,
-   * 保证胶囊条/浮窗标注即时刷新且语义完全一致。
-   */
-  getAgentDrawer() {
-    try {
-      const leaves = this.app?.workspace?.getLeavesOfType?.('tabonkb-workbench-view') || [];
-      for (const leaf of leaves) {
-        const drawer = leaf?.view?.agentDrawer;
-        if (drawer) return drawer;
-      }
-    } catch (_) {}
-    return null;
+  // ---- DSH 工程上下文: 按 DSH 会话 id 分桶独立持久化 (与 pi 会话生命周期彻底解耦) ----
+
+  _normalizeDshSid(sid) {
+    const s = (typeof sid === 'string' ? sid : '').trim();
+    return s || '__draft__';
   }
 
-  /** 读取四项工程上下文的当前值 (与 PiDrawerView 持久化键同源) */
-  getDshCtxState() {
+  _dshCtxDefaults() {
+    return { opengrok: 'auto', gerrit: 'all', jira: null, localproj: null };
+  }
+
+  _dshCtxHasSelection(v) {
+    return !!(v && typeof v === 'object' &&
+      ((v.opengrok && v.opengrok !== 'auto') || (v.gerrit && v.gerrit !== 'all') ||
+       (v.jira && v.jira.key) || (v.localproj && v.localproj.id)));
+  }
+
+  /** 旧版共享键快照 (仅供一次性迁移种子; pi 会话键此后归 pi 独占, DSH 不再读写) */
+  _legacyDshCtxValues() {
     const ls = (k) => { try { return localStorage.getItem(k); } catch (_) { return null; } };
     let jira = null, lp = null;
     try { jira = JSON.parse(ls('tabonkb-jira-selected-issue') || 'null'); } catch (_) {}
     try { lp = JSON.parse(ls('tabonkb-local-selected-project') || 'null'); } catch (_) {}
-    if (lp && lp.id && !lp.priDriverRel && lp.platform && lp.project) {
-      lp.priDriverRel = `pri_project/driver/${lp.platform}/${lp.project}/base`;
-      lp.publicDriverRel = 'pri_project/driver/public';
-    }
     return {
       opengrok: ls('tabonkb-opengrok-selected-project') || 'auto',
       gerrit: ls('tabonkb-gerrit-selected-filter') || 'all',
       jira: (jira && jira.key) ? jira : null,
       localproj: (lp && lp.id) ? lp : null
+    };
+  }
+
+  _readDshCtxMap() {
+    let map = null;
+    try { map = JSON.parse(localStorage.getItem('tabonkb-dsh-ctx-map-v1') || 'null'); } catch (_) {}
+    if (!map || typeof map !== 'object') {
+      map = {};
+      // 一次性迁移: 旧全局共享键 → 草稿桶; __migrated 哨兵保证只执行一次
+      try {
+        if (!localStorage.getItem('tabonkb-dsh-ctx-migrated')) {
+          const legacy = this._legacyDshCtxValues();
+          if (this._dshCtxHasSelection(legacy)) map.__draft__ = legacy;
+          localStorage.setItem('tabonkb-dsh-ctx-migrated', '1');
+        }
+      } catch (_) {}
+      this._writeDshCtxMap(map);
+    }
+    return map;
+  }
+
+  _writeDshCtxMap(map) {
+    try {
+      // LRU 裁剪: 至多保留 150 个会话桶 (__draft__/__last 等元键除外)
+      const keys = Object.keys(map).filter(k => !k.startsWith('__'));
+      if (keys.length > 150) {
+        keys.sort((a, b) => (map[a]._t || 0) - (map[b]._t || 0));
+        for (let i = 0; i < keys.length - 150; i++) delete map[keys[i]];
+      }
+      localStorage.setItem('tabonkb-dsh-ctx-map-v1', JSON.stringify(map));
+    } catch (_) {}
+  }
+
+  /** 草稿态选择的上下文迁移: 草稿发出首条消息产生会话 uuid 后, 绑定随人走 */
+  _migrateDshDraftTo(skey) {
+    try {
+      if (!skey || skey === '__draft__') return;
+      const map = this._readDshCtxMap();
+      if (map.__last !== '__draft__') return;      // 仅草稿→新会话的直接转变才迁移
+      if (map[skey]) return;                        // 目标桶已存在 (含显式空) 不覆盖
+      const draft = map.__draft__;
+      if (!this._dshCtxHasSelection(draft)) return;
+      map[skey] = Object.assign({}, draft, { _t: Date.now() });
+      map.__draft__ = this._dshCtxDefaults();
+      this._writeDshCtxMap(map);
+      this._mirrorDshCtxToAgent(map[skey], skey);
+    } catch (_) {}
+  }
+
+  /** 读取指定 DSH 会话的四项工程上下文 (无桶 → 默认未选) */
+  getDshCtxState(sid) {
+    const skey = this._normalizeDshSid(sid);
+    const map = this._readDshCtxMap();
+    const e = map[skey];
+    const d = this._dshCtxDefaults();
+    if (!e || typeof e !== 'object') return d;
+    const lp = (e.localproj && e.localproj.id) ? e.localproj : null;
+    if (lp && !lp.priDriverRel && lp.platform && lp.project) {
+      lp.priDriverRel = `pri_project/driver/${lp.platform}/${lp.project}/base`;
+      lp.publicDriverRel = 'pri_project/driver/public';
+    }
+    return {
+      opengrok: e.opengrok || 'auto',
+      gerrit: e.gerrit || 'all',
+      jira: (e.jira && e.jira.key) ? e.jira : null,
+      localproj: lp
     };
   }
 
@@ -669,7 +736,8 @@ div[data-sidebar-collapsed] div[class*="_root"][class*="_collapsed"] {
     try {
       const win = this.iframeEl && this.iframeEl.contentWindow;
       if (!win) return;
-      const msg = { type: 'tabonkb-dsh-ctx-state', values: this.getDshCtxState() };
+      const skey = this._normalizeDshSid(this._dshSid);
+      const msg = { type: 'tabonkb-dsh-ctx-state', sid: skey, values: this.getDshCtxState(skey) };
       if (withLists) msg.lists = this.getDshCtxLists();
       win.postMessage(msg, '*');
     } catch (_) {}
@@ -680,132 +748,106 @@ div[data-sidebar-collapsed] div[class*="_root"][class*="_collapsed"] {
    * 抽屉存活时委托其 save* 系列方法 (内部完成 localStorage/env/胶囊刷新),
    * 否则直接写入同一组键, 保证两侧一致。
    */
-  applyDshCtxSelection(key, value) {
-    const drawer = this.getAgentDrawer();
+  /**
+   * 应用来自 Harness「+」菜单的上下文选择: 写入该 DSH 会话的独立桶,
+   * 并镜像到 agent 实时通道 (process.env 供 daemon/MCP 链路, active-context.json 供运行中扩展按调用读取)。
+   * 不再触碰 pi 共享 localStorage 键 —— 两侧上下文彻底解耦。
+   */
+  applyDshCtxSelection(key, value, sid) {
+    const skey = this._normalizeDshSid(sid);
     let label = '';
     try {
+      const map = this._readDshCtxMap();
+      const cur = this.getDshCtxState(skey);
       if (key === 'opengrok') {
-        const v = (value && value !== 'auto') ? String(value) : 'auto';
-        if (drawer && typeof drawer.saveProject === 'function') {
-          drawer.saveProject(v);
-        } else {
-          try { localStorage.setItem('tabonkb-opengrok-selected-project', v); } catch (_) {}
-        }
-        try {
-          if (v !== 'auto') process.env.OPENGROK_DEFAULT_PROJECT = v;
-          else delete process.env.OPENGROK_DEFAULT_PROJECT;
-        } catch (_) {}
-        label = `✓ OpenGrok: ${v === 'auto' ? 'Auto' : v}`;
+        cur.opengrok = (value && value !== 'auto') ? String(value) : 'auto';
+        label = `✓ OpenGrok: ${cur.opengrok === 'auto' ? 'Auto' : cur.opengrok}`;
       } else if (key === 'gerrit') {
-        const v = value || 'all';
-        if (drawer && typeof drawer.saveGerritFilter === 'function') {
-          drawer.saveGerritFilter(v);
-        } else {
-          try { localStorage.setItem('tabonkb-gerrit-selected-filter', v); } catch (_) {}
-        }
-        try {
-          if (v !== 'all') process.env.TABONKB_GERRIT_FILTER = v;
-          else delete process.env.TABONKB_GERRIT_FILTER;
-        } catch (_) {}
+        cur.gerrit = value || 'all';
         label = '✓ Gerrit 已更新';
       } else if (key === 'jira') {
-        const issue = (value && value.key) ? {
+        cur.jira = (value && value.key) ? {
           key: value.key, summary: value.summary || '', status: value.status || '',
           priority: value.priority || '', assignee: value.assignee || '', url: value.url || ''
         } : null;
-        if (drawer && typeof drawer.saveJiraIssue === 'function') {
-          drawer.saveJiraIssue(issue);
-        } else {
-          try {
-            if (issue) localStorage.setItem('tabonkb-jira-selected-issue', JSON.stringify(issue));
-            else localStorage.removeItem('tabonkb-jira-selected-issue');
-          } catch (_) {}
-        }
-        try {
-          if (issue) process.env.TABONKB_JIRA_ISSUE_JSON = JSON.stringify(issue);
-          else delete process.env.TABONKB_JIRA_ISSUE_JSON;
-        } catch (_) {}
-        label = issue ? `✓ Jira: ${issue.key}` : '✓ 已清除 Jira 绑定';
+        label = cur.jira ? `✓ Jira: ${cur.jira.key}` : '✓ 已清除 Jira 绑定';
       } else if (key === 'localproj') {
-        const proj = (value && value.id) ? value : null;
-        if (drawer && typeof drawer.saveLocalProject === 'function') {
-          drawer.saveLocalProject(proj);
-        } else {
-          try {
-            if (proj) localStorage.setItem('tabonkb-local-selected-project', JSON.stringify(proj));
-            else localStorage.removeItem('tabonkb-local-selected-project');
-            if (typeof process !== 'undefined' && process.env) {
-              if (proj) process.env.TABONKB_LOCAL_PROJECT_JSON = JSON.stringify(proj);
-              else delete process.env.TABONKB_LOCAL_PROJECT_JSON;
-            }
-          } catch (_) {}
-        }
-        label = proj ? `✓ 本地工程: ${proj.label || proj.project}` : '✓ 已清除本地工程';
+        cur.localproj = (value && value.id) ? value : null;
+        label = cur.localproj ? `✓ 本地工程: ${cur.localproj.label || cur.localproj.project}` : '✓ 已清除本地工程';
+      } else {
+        return;
       }
+      cur._t = Date.now();
+      map[skey] = cur;
+      map.__last = skey;
+      this._dshSid = skey;
+      this._writeDshCtxMap(map);
+      this._mirrorDshCtxToAgent(cur);
     } catch (_) {}
-    this._persistActiveContextFile();
     this.sendDshCtxState(false);
     if (label) { try { new NoticeCls(label, 1800); } catch (_) {} }
   }
 
   /**
-   * 新对话开始: 四项工程上下文恢复未选择默认态
-   * (OpenGrok→auto, Gerrit→all, Jira→解绑, 本地工程→解绑),
-   * 抽屉存活时委托其 save* 保持胶囊条同步。
+   * 新对话开始: 仅重置草稿桶 (__draft__), 历史会话桶不受影响;
+   * env/文件镜像同步回到未选中态。
    */
   resetDshCtxSelections() {
     try {
-      const drawer = this.getAgentDrawer();
-      if (drawer) {
-        if (typeof drawer.saveProject === 'function') drawer.saveProject('auto');
-        if (typeof drawer.saveGerritFilter === 'function') drawer.saveGerritFilter('all');
-        if (typeof drawer.saveJiraIssue === 'function') drawer.saveJiraIssue(null);
-        if (typeof drawer.saveLocalProject === 'function') drawer.saveLocalProject(null);
-      } else {
-        try {
-          localStorage.setItem('tabonkb-opengrok-selected-project', 'auto');
-          localStorage.setItem('tabonkb-gerrit-selected-filter', 'all');
-          localStorage.removeItem('tabonkb-jira-selected-issue');
-          localStorage.removeItem('tabonkb-local-selected-project');
-        } catch (_) {}
-      }
-      try {
-        delete process.env.OPENGROK_DEFAULT_PROJECT;
-        delete process.env.TABONKB_LOCAL_PROJECT_JSON;
-        delete process.env.TABONKB_JIRA_ISSUE_JSON;
-        delete process.env.TABONKB_GERRIT_FILTER;
-      } catch (_) {}
-      this._persistActiveContextFile();
+      const map = this._readDshCtxMap();
+      const d = this._dshCtxDefaults();
+      map.__draft__ = d;
+      map.__last = '__draft__';
+      this._dshSid = '__draft__';
+      this._writeDshCtxMap(map);
+      this._mirrorDshCtxToAgent(d);
       try { new NoticeCls('✓ 新对话: 上下文已重置', 1600); } catch (_) {}
     } catch (_) {}
     this.sendDshCtxState(false);
   }
 
-  _persistActiveContextFile() {
+  /** 将指定 DSH 会话上下文镜像到 agent 实时通道 (env + active-context.json) */
+  _mirrorDshCtxToAgent(v, sid) {
+    const vals = v || this._dshCtxDefaults();
+    const skey = this._normalizeDshSid(sid || this._dshSid);
+    try {
+      if (vals.opengrok && vals.opengrok !== 'auto') process.env.OPENGROK_DEFAULT_PROJECT = vals.opengrok;
+      else delete process.env.OPENGROK_DEFAULT_PROJECT;
+      if (vals.gerrit && vals.gerrit !== 'all') process.env.TABONKB_GERRIT_FILTER = vals.gerrit;
+      else delete process.env.TABONKB_GERRIT_FILTER;
+      if (vals.jira && vals.jira.key) process.env.TABONKB_JIRA_ISSUE_JSON = JSON.stringify(vals.jira);
+      else delete process.env.TABONKB_JIRA_ISSUE_JSON;
+      if (vals.localproj && vals.localproj.id) process.env.TABONKB_LOCAL_PROJECT_JSON = JSON.stringify(vals.localproj);
+      else delete process.env.TABONKB_LOCAL_PROJECT_JSON;
+    } catch (_) {}
     try {
       const fs = require('fs');
       const path = require('path');
       const basePath = this.app?.vault?.adapter?.basePath || (typeof process !== 'undefined' ? process.cwd() : '');
       if (!basePath) return;
       const target = path.join(basePath, '.obsidian', 'plugins', 'tabonkb-workbench', 'active-context.json');
-      const drawer = this.getAgentDrawer();
-      let lp = drawer?.selectedLocalProject;
-      let ji = drawer?.selectedJiraIssue;
-      let op = drawer?.selectedProject;
-      let gf = drawer?.selectedGerritFilter;
-      if (!drawer && typeof localStorage !== 'undefined') {
-        try { lp = JSON.parse(localStorage.getItem('tabonkb-local-selected-project') || 'null'); } catch (_) {}
-        try { ji = JSON.parse(localStorage.getItem('tabonkb-jira-selected-issue') || 'null'); } catch (_) {}
-        try { op = localStorage.getItem('tabonkb-opengrok-selected-project') || 'auto'; } catch (_) {}
-        try { gf = localStorage.getItem('tabonkb-gerrit-selected-filter') || 'all'; } catch (_) {}
-      }
       const payload = {
-        selectedLocalProject: lp || null,
-        selectedJiraIssue: ji || null,
-        selectedProject: op || 'auto',
-        selectedGerritFilter: gf || 'all',
+        selectedLocalProject: vals.localproj || null,
+        selectedJiraIssue: vals.jira || null,
+        selectedProject: vals.opengrok || 'auto',
+        selectedGerritFilter: vals.gerrit || 'all',
+        source: 'dsh',
+        sid: skey,
         updatedAt: Date.now()
       };
+      // state-req 随 bridge 轮询高频触发: 同值跳过写盘 —— 先读现文件比对四字段+sid,
+      // 内容一致则直接返回 (pi 侧覆写后内容不同会重新落盘, 自愈并发覆盖)
+      try {
+        const cur = JSON.parse(fs.readFileSync(target, 'utf8'));
+        if (cur &&
+          JSON.stringify(cur.selectedLocalProject || null) === JSON.stringify(payload.selectedLocalProject) &&
+          JSON.stringify(cur.selectedJiraIssue || null) === JSON.stringify(payload.selectedJiraIssue) &&
+          (cur.selectedProject || 'auto') === payload.selectedProject &&
+          (cur.selectedGerritFilter || 'all') === payload.selectedGerritFilter &&
+          cur.sid === payload.sid && cur.source === 'dsh') {
+          return;
+        }
+      } catch (_) {}
       fs.writeFileSync(target, JSON.stringify(payload, null, 2), 'utf8');
     } catch (_) {}
   }

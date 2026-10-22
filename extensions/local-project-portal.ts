@@ -2,6 +2,9 @@ import { Type } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import * as path from "node:path";
 import * as fs from "node:fs";
+import * as os from "node:os";
+import * as crypto from "node:crypto";
+import * as child_process from "node:child_process";
 
 // Pi 原生扩展：本地多服务器工程三层差分穿透、安全修改与远程编译引擎
 export default function (pi: ExtensionAPI) {
@@ -15,10 +18,104 @@ export default function (pi: ExtensionAPI) {
     }
   }
 
+  // 本地写边界内核 (local_copy/local_move 共用 local_exec 的写根判定)
+  let lexCore: any = null;
+  const lexPath = path.resolve(process.cwd(), ".obsidian/plugins/tabonkb-workbench/services/local-exec-core.js");
+  if (fs.existsSync(lexPath)) {
+    try {
+      lexCore = require(lexPath);
+    } catch (e) {
+      console.warn("[LocalProjectExtension] Failed to require local-exec-core:", e);
+    }
+  }
+
+  const vaultRoot = process.env.TABONKB_VAULT_PATH || process.cwd();
+
+  function getPermMode(): string {
+    const m = process.env.TABONKB_PERM_MODE || "";
+    return m === "readonly" || m === "full" ? m : "readwrite";
+  }
+
+  /** 写目标边界: 知识库根/TEMP + 当前工程 priDriverRel/publicDriverRel (与 local-exec-portal 同规则)
+   *  各根同时补 realpathSync.native 长路径形态 (os.tmpdir() 返回 ADMINI~1 类 8.3 短名, 前缀比较需双形态) */
+  function getLocalWriteRoots(): string[] {
+    const roots: string[] = [vaultRoot, os.tmpdir()];
+    const proj = getActiveProject();
+    if (proj) {
+      const bases = [proj.fullPathWin, proj.uncPath]
+        .filter((b: any) => !!b)
+        .map((b: any) => String(b).replace(/[\\/]+$/, ""));
+      const rels = [proj.priDriverRel, proj.publicDriverRel]
+        .filter((r: any) => !!r)
+        .map((r: any) => String(r).replace(/\//g, "\\").replace(/^\\+|\\+$/g, ""));
+      for (const base of bases) {
+        if (rels.length) {
+          for (const rel of rels) roots.push(`${base}\\${rel}`);
+        } else if (proj.platform && proj.project) {
+          roots.push(`${base}\\pri_project\\driver\\${proj.platform}\\${proj.project}`);
+          roots.push(`${base}\\pri_project\\driver\\public`);
+        }
+      }
+    }
+    for (const r of roots.slice()) {
+      try {
+        const rp = fs.realpathSync.native(r);
+        if (!roots.includes(rp)) roots.push(rp);
+      } catch (_) {}
+    }
+    return roots.filter((r, i) => roots.indexOf(r) === i);
+  }
+
+  const textRes = (text: string, details?: any, isError?: boolean) =>
+    ({ content: [{ type: "text", text }], details, isError });
+
+  /** 流式 sha256 + 字节数 (复制后一步校验) */
+  function sha256File(p: string): Promise<{ sha: string; bytes: number }> {
+    return new Promise((resolve, reject) => {
+      const h = crypto.createHash("sha256");
+      let bytes = 0;
+      const s = fs.createReadStream(p);
+      s.on("data", (d: Buffer) => { bytes += d.length; h.update(d); });
+      s.on("error", reject);
+      s.on("end", () => resolve({ sha: h.digest("hex"), bytes }));
+    });
+  }
+
+  /** local_copy/local_move 共用的目标校验: 返回 {dst} 或 {err} */
+  function resolveCopyTarget(src: string, dstIn: string): { dst?: string; err?: any } {
+    const ctx = { writeRoots: getLocalWriteRoots(), vaultRoot };
+    if (!lexCore.localWriteTargetOk(dstIn, ctx)) {
+      return { err: textRes(`目标不在允许写入范围 (知识库/当前工程/TEMP): ${dstIn}`, { denied: true }, true) };
+    }
+    let dst = lexCore.normWinPath(dstIn);
+    try {
+      if (fs.existsSync(dst) && fs.statSync(dst).isDirectory()) {
+        // 写根本身即目录: 必须显式给文件名, 不允许把根目录当目标
+        if (lexCore.isRootItself(dst, vaultRoot) || ctx.writeRoots.some((r: string) => lexCore.isRootItself(dst, r))) {
+          return { err: textRes(`目标为允许写根目录本身，请给出文件名: ${dst}`, { denied: true }, true) };
+        }
+        // 目标是已存在的普通目录 → 拷入同名文件
+        dst = path.join(dst, path.basename(src));
+        if (!lexCore.localWriteTargetOk(dst, ctx)) {
+          return { err: textRes(`目标不在允许写入范围: ${dst}`, { denied: true }, true) };
+        }
+      }
+    } catch (_) {}
+    return { dst };
+  }
+
   function getActiveProject() {
     try {
       const saved = process.env.TABONKB_LOCAL_PROJECT_JSON;
       if (saved) return JSON.parse(saved);
+    } catch (_) {}
+    // active-context.json 兜底: env 为 spawn 快照可能滞后, 文件由 UI 每次变更落盘 (与 local-exec/remote-exec 同规则)
+    try {
+      const f = path.resolve(process.cwd(), ".obsidian", "plugins", "tabonkb-workbench", "active-context.json");
+      if (fs.existsSync(f)) {
+        const j = JSON.parse(fs.readFileSync(f, "utf8"));
+        if (j && j.selectedLocalProject) return j.selectedLocalProject;
+      }
     } catch (_) {}
     // 默认回退到列表中首个可用工程 (如 62 上的 W/03-mtk-ww)
     if (localSvc && typeof localSvc.getAllAvailableLocalProjects === 'function') {
@@ -176,6 +273,108 @@ export default function (pi: ExtensionAPI) {
           resolve({ content: [{ type: "text", text: `派生 SSH 进程失败: ${err.message}` }], details: { error: err.message } });
         });
       });
+    }
+  });
+
+  // 4. 字节级本地文件复制 (PDF/二进制搬运), 写目标限定写根
+  pi.registerTool({
+    name: "local_copy",
+    label: "本地文件: 字节级复制",
+    description: "将本地文件逐字节复制到目标路径（字节级复制不改 MD5/SHA256，适合 PDF/二进制等任意文件搬运）。写目标限定知识库/当前工程/TEMP；目标为已存在目录时拷入同名文件；父目录自动创建；完成后返回目标字节数与 sha256 一步校验。只读模式拒绝执行。",
+    parameters: Type.Object({
+      src: Type.String({ description: "源文件绝对路径 (必须已存在且为文件)" }),
+      dst: Type.String({ description: "目标绝对路径 (知识库/当前工程/TEMP 内; 为已存在目录时拷入同名文件)" }),
+      overwrite: Type.Optional(Type.Boolean({ description: "目标已存在时是否覆盖, 缺省 false" }))
+    }),
+    async execute(_id: string, params: any) {
+      if (!lexCore) {
+        return textRes("local-exec-core 模块未加载。", { error: "no_core" }, true);
+      }
+      if (getPermMode() === "readonly") {
+        return textRes("当前为「只读」模式，不允许 local_copy。可在输入框左下角切换权限模式", { denied: true, mode: "readonly" }, true);
+      }
+      const src = String(params.src || "").trim();
+      const dstIn = String(params.dst || "").trim();
+      if (!src || !dstIn) {
+        return textRes("缺少 src/dst 参数。", { error: "bad_args" }, true);
+      }
+      let st: any = null;
+      try { st = fs.statSync(src); } catch (_) {}
+      if (!st || !st.isFile()) {
+        return textRes(`源不存在或不是文件: ${src}`, { error: "src_not_file" }, true);
+      }
+      const t = resolveCopyTarget(src, dstIn);
+      if (t.err) return t.err;
+      const dst = t.dst as string;
+      const overwrite = params.overwrite === true;
+      if (fs.existsSync(dst) && !overwrite) {
+        return textRes(`目标已存在，置 overwrite:true 覆盖: ${dst}`, { error: "exists" }, true);
+      }
+      try {
+        fs.mkdirSync(path.dirname(dst), { recursive: true });
+        fs.copyFileSync(src, dst);
+        const { sha, bytes } = await sha256File(dst);
+        const msg = `[字节级复制完成]\n- 源: ${src}\n- 目标: ${dst}\n- 字节数: ${bytes}\n- SHA256: ${sha}\n(与源文件逐字节一致，可对照校验)`;
+        return textRes(msg, { bytes, sha256: sha, src, dst });
+      } catch (e: any) {
+        return textRes(`复制失败: ${e.message}`, { error: e.message }, true);
+      }
+    }
+  });
+
+  // 5. 字节级本地文件移动 (优先 rename, 跨盘回退复制+删源)
+  pi.registerTool({
+    name: "local_move",
+    label: "本地文件: 字节级移动",
+    description: "将本地文件逐字节移动到目标路径（字节级内容不变，MD5/SHA256 保持一致）。优先 rename，跨盘自动回退为复制+删源。写目标限定知识库/当前工程/TEMP；父目录自动创建；完成后返回目标字节数与 sha256 一步校验。只读模式拒绝执行。",
+    parameters: Type.Object({
+      src: Type.String({ description: "源文件绝对路径 (必须已存在且为文件)" }),
+      dst: Type.String({ description: "目标绝对路径 (知识库/当前工程/TEMP 内; 为已存在目录时移入同名文件)" }),
+      overwrite: Type.Optional(Type.Boolean({ description: "目标已存在时是否覆盖, 缺省 false" }))
+    }),
+    async execute(_id: string, params: any) {
+      if (!lexCore) {
+        return textRes("local-exec-core 模块未加载。", { error: "no_core" }, true);
+      }
+      if (getPermMode() === "readonly") {
+        return textRes("当前为「只读」模式，不允许 local_move。可在输入框左下角切换权限模式", { denied: true, mode: "readonly" }, true);
+      }
+      const src = String(params.src || "").trim();
+      const dstIn = String(params.dst || "").trim();
+      if (!src || !dstIn) {
+        return textRes("缺少 src/dst 参数。", { error: "bad_args" }, true);
+      }
+      let st: any = null;
+      try { st = fs.statSync(src); } catch (_) {}
+      if (!st || !st.isFile()) {
+        return textRes(`源不存在或不是文件: ${src}`, { error: "src_not_file" }, true);
+      }
+      // local_move 会删除源文件 (rename 或 copy+unlink): 非 full 档下源也必须在写根内, 否则构成写根外任意文件删除原语
+      if (getPermMode() !== "full" && !lexCore.localWriteTargetOk(src, { writeRoots: getLocalWriteRoots(), vaultRoot })) {
+        return textRes(`local_move 会删除源文件，源须在写根内（知识库/当前工程/TEMP）；跨位置搬运请用 local_copy: ${src}`, { denied: true, mode: getPermMode() }, true);
+      }
+      const t = resolveCopyTarget(src, dstIn);
+      if (t.err) return t.err;
+      const dst = t.dst as string;
+      const overwrite = params.overwrite === true;
+      if (fs.existsSync(dst) && !overwrite) {
+        return textRes(`目标已存在，置 overwrite:true 覆盖: ${dst}`, { error: "exists" }, true);
+      }
+      try {
+        fs.mkdirSync(path.dirname(dst), { recursive: true });
+        try {
+          fs.renameSync(src, dst);
+        } catch (_) {
+          // 跨盘/占用失败回退: 复制后删源
+          fs.copyFileSync(src, dst);
+          fs.unlinkSync(src);
+        }
+        const { sha, bytes } = await sha256File(dst);
+        const msg = `[字节级移动完成]\n- 源: ${src}\n- 目标: ${dst}\n- 字节数: ${bytes}\n- SHA256: ${sha}\n(与源文件逐字节一致，可对照校验)`;
+        return textRes(msg, { bytes, sha256: sha, src, dst });
+      } catch (e: any) {
+        return textRes(`移动失败: ${e.message}`, { error: e.message }, true);
+      }
     }
   });
 }

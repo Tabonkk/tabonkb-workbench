@@ -61,6 +61,9 @@ const GERRIT_MCP_TOOL_HINT = '\n\n[系统指令] 你已接入公司内网 Gerrit
   '5. gerrit_list_projects (获取 Gerrit 代码托管工程仓库清单)\n' +
   '【权限安全边界】当前工具严格限定为只读查阅模式。你只允许检索变更、阅读评审记录与比对补丁代码，严禁执行或建议执行任何提交评审意见 (Review)、打分 (Vote)、代码合入 (Submit) 或废弃变更 (Abandon) 操作。';
 
+// MCP command 使用 GUI 子系统 node 副本避免 conhost 闪屏；bundle 内由 vendor-mcp-shared.js 提供
+function gerritMcpGuiNodeExe(e) { return typeof mcpResolveGuiNodeExe === 'function' ? mcpResolveGuiNodeExe(e) : e; }
+
 // ---- Hermes: 全局注册 (幂等, 异步不阻塞) ----
 function ensureHermesGerritMcp(hermesBin, prefixArgs, vaultBasePath) {
   return new Promise((resolve) => {
@@ -72,7 +75,7 @@ function ensureHermesGerritMcp(hermesBin, prefixArgs, vaultBasePath) {
       listProc.on('error', (e) => resolve({ ok: false, error: e.message }));
       listProc.on('close', () => {
         if (listOut.indexOf(GERRIT_MCP_SERVER_NAME) >= 0) { resolve({ ok: true, already: true }); return; }
-        const nodeExe = gerritMcpResolveNodeExe();
+        const nodeExe = gerritMcpGuiNodeExe(gerritMcpResolveNodeExe());
         const script = gerritMcpScriptPath(vaultBasePath);
         const addProc = child_process.spawn(hermesBin, [...pre, 'mcp', 'add', GERRIT_MCP_SERVER_NAME, '--command', nodeExe, '--args', script], { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
         let out = '';

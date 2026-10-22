@@ -42,6 +42,9 @@ const DRAWIO_MCP_TOOL_HINT = '\n\n[系统指令] 你已接入绘图工具 tabonk
   '5. drawio_export：写入 00-Inbox/04-Agent-Diagrams/ 的 .drawio 与 PNG。\n' +
   '回合结束时系统会关掉绘图进程，并把 PNG 显示在对话里。回复里说明图已生成即可，不要自己输出图片 markdown。';
 
+// MCP command 使用 GUI 子系统 node 副本避免 conhost 闪屏；bundle 内由 vendor-mcp-shared.js 提供
+function drawioMcpGuiNodeExe(e) { return typeof mcpResolveGuiNodeExe === 'function' ? mcpResolveGuiNodeExe(e) : e; }
+
 function ensureHermesDrawioMcp(hermesBin, prefixArgs, vaultBasePath) {
   return new Promise((resolve) => {
     try {
@@ -52,7 +55,7 @@ function ensureHermesDrawioMcp(hermesBin, prefixArgs, vaultBasePath) {
       listProc.on('error', (e) => resolve({ ok: false, error: e.message }));
       listProc.on('close', () => {
         if (listOut.indexOf(DRAWIO_MCP_SERVER_NAME) >= 0) { resolve({ ok: true, already: true }); return; }
-        const nodeExe = drawioMcpResolveNodeExe();
+        const nodeExe = drawioMcpGuiNodeExe(drawioMcpResolveNodeExe());
         const script = drawioMcpScriptPath(vaultBasePath);
         const addProc = child_process.spawn(hermesBin, [...pre, 'mcp', 'add', DRAWIO_MCP_SERVER_NAME, '--command', nodeExe, '--args', script], { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
         let out = '';

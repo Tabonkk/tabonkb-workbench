@@ -51,8 +51,25 @@ function opengrokLoadConfig(override) {
   const og = (data && data.opengrok) || {};
   const baseUrl = opengrokNormalizeBase(override.baseUrl || process.env.OPENGROK_BASE_URL || og.baseUrl || DEFAULT_OPENGROK_BASE_URL);
   const defaultProject = (override.defaultProject || process.env.OPENGROK_DEFAULT_PROJECT || og.defaultProject || DEFAULT_OPENGROK_PROJECT).trim();
+  const staticDefault = (og.defaultProject || DEFAULT_OPENGROK_PROJECT).trim();
   const timeoutMs = parseInt(override.timeout || og.timeout || '15000', 10);
-  return { baseUrl, defaultProject, timeoutMs };
+  return { baseUrl, defaultProject, staticDefault, timeoutMs };
+}
+
+// 工作台实时上下文: <插件目录>/active-context.json 由 UI 选择在每次变更时落盘,
+// 进程级 env (spawn 快照) 可能滞后 —— 文件值 (selectedProject 非 'auto') 优先。
+function opengrokReadActiveContext(dir) {
+  try {
+    // 测试/特殊部署可用 env 显式指定文件路径
+    const override = process.env.TABONKB_ACTIVE_CONTEXT_FILE;
+    if (override) {
+      const j = opengrokReadJsonSafe(override);
+      return (j && typeof j === 'object') ? j : null;
+    }
+    const d = dir || opengrokResolvePluginDir();
+    const ac = opengrokReadJsonSafe(path.join(d, 'active-context.json'));
+    return (ac && typeof ac === 'object') ? ac : null;
+  } catch (_) { return null; }
 }
 
 // 平台/业务关键词别名字典映射表
@@ -73,6 +90,7 @@ class OpengrokService {
     cfg = cfg || opengrokLoadConfig();
     this.baseUrl = cfg.baseUrl || DEFAULT_OPENGROK_BASE_URL;
     this.defaultProject = cfg.defaultProject || DEFAULT_OPENGROK_PROJECT;
+    this.staticDefault = cfg.staticDefault || DEFAULT_OPENGROK_PROJECT;
     this.timeoutMs = cfg.timeoutMs || 15000;
     this._cachedProjects = null;
     this._cacheTime = 0;
@@ -164,10 +182,33 @@ class OpengrokService {
     ];
   }
 
+  // 实时生效的圈定工程:
+  // - DSH MCP 子进程侧 (TABONKB_MCP_HOST=dsh 标记; DSH_* env 已被 scrub 故不能用):
+  //   env 是 daemon spawn 快照可能滞后, active-context.json 由 UI 每次变更落盘为活值
+  //   —— 文件优先, 'auto'=未绑定回退静态默认;
+  // - pi 扩展/宿主侧: env 是本进程自身会话的权威快照 (pi 会话或 UI 最近镜像), 文件可能
+  //   被另一 surface 覆写 —— env 优先, 不回读文件。
+  _effDefaultProject() {
+    try {
+      if (process.env.TABONKB_MCP_HOST === 'dsh') {
+        const ac = opengrokReadActiveContext();
+        // 只采信 DSH 侧落盘的文件 (source:'dsh'); pi 侧覆写无 source, 不当本 surface 绑定
+        if (ac && ac.source === 'dsh') {
+          const p = ac.selectedProject;
+          if (p && p !== 'auto') return String(p);
+          if ('selectedProject' in ac) return this.staticDefault;
+        }
+      }
+      return process.env.OPENGROK_DEFAULT_PROJECT || this.defaultProject;
+    } catch (_) {
+      return this.defaultProject;
+    }
+  }
+
   // 2. 智能工程推断 (根据提示词/别名解析出最适合的 project 参数)
   inferProjects(hint) {
     if (!hint || typeof hint !== 'string') {
-      return [this.defaultProject || 'W_sprd_os_dev'];
+      return [this._effDefaultProject() || 'W_sprd_os_dev'];
     }
     const clean = hint.trim().toLowerCase();
 
@@ -187,7 +228,7 @@ class OpengrokService {
       }
     }
 
-    return matched.length > 0 ? matched : [this.defaultProject || 'W_sprd_os_dev'];
+    return matched.length > 0 ? matched : [this._effDefaultProject() || 'W_sprd_os_dev'];
   }
 
   // 3. 核心检索接口 (支持全文 full、符号定义 defs、引用 refs、文件路径 path)
@@ -303,7 +344,7 @@ class OpengrokService {
   // 4. 源码直读 (支持行范围切片与行号呈现)
   async readSourceFile(params) {
     params = params || {};
-    const project = (params.project || this.defaultProject || '').trim();
+    const project = (params.project || this._effDefaultProject() || '').trim();
     let filePath = (params.file_path || params.filePath || params.path || '').trim();
 
     if (!project) throw new Error('Missing project parameter');
@@ -580,5 +621,6 @@ module.exports = {
   loadConfig: opengrokLoadConfig,
   opengrokLoadConfig,
   normalizeBase: opengrokNormalizeBase,
-  opengrokNormalizeBase
+  opengrokNormalizeBase,
+  opengrokReadActiveContext
 };

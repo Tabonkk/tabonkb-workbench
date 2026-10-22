@@ -221,6 +221,8 @@ class AgentSessionManager {
       const cleanSessions = (agent.sessions || []).slice(0, 50).map(s => ({
         id: s.id || ('sess_' + Date.now()),
         title: s.title || '对话',
+        pinned: s.pinned === true,
+        customTitle: s.customTitle === true,
         createdAt: s.createdAt || Date.now(),
         updatedAt: s.updatedAt || Date.now(),
         // 服务端会话 ID (NiceAIGC conversation_id / 叶子消息链): 必须随白名单序列化, 否则落盘即丢无法续接
@@ -367,7 +369,36 @@ class AgentSessionManager {
 
   getSessions(agentId) {
     const agent = this.getAgent(agentId);
-    return (agent.sessions || []).slice().sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+    // 置顶会话沉底前优先, 组内仍按最近活跃降序
+    return (agent.sessions || []).slice().sort((a, b) => {
+      const pa = a.pinned === true ? 1 : 0;
+      const pb = b.pinned === true ? 1 : 0;
+      if (pa !== pb) return pb - pa;
+      return (b.updatedAt || 0) - (a.updatedAt || 0);
+    });
+  }
+
+  togglePinSession(agentId, sessionId) {
+    const agent = this.getAgent(agentId);
+    const s = (agent.sessions || []).find(x => x.id === sessionId);
+    if (!s) return false;
+    s.pinned = !s.pinned;
+    agent.updatedAt = Date.now();
+    this.saveSessions();
+    return s.pinned;
+  }
+
+  renameSession(agentId, sessionId, title) {
+    const agent = this.getAgent(agentId);
+    const s = (agent.sessions || []).find(x => x.id === sessionId);
+    const t = String(title || '').trim().replace(/\s+/g, ' ').slice(0, 60);
+    if (!s || !t || s.title === t) return false;
+    s.title = t;
+    // 人工命名后不再被首条消息自动标题覆盖
+    s.customTitle = true;
+    agent.updatedAt = Date.now();
+    this.saveSessions();
+    return true;
   }
 
   getActiveSession(agentId) {
@@ -530,7 +561,7 @@ class AgentSessionManager {
       const title = (msg.text || '').trim().slice(0, 36).replace(/\n/g, ' ') || 
                     (msg.images && msg.images.length > 0 ? `[图片] ${msg.images[0].name || ''}`.trim() : '新对话');
       active = this.createSession(agentId, title);
-    } else if (active.title === '新对话' && msg.role === 'user') {
+    } else if (active.title === '新对话' && !active.customTitle && msg.role === 'user') {
       const title = (msg.text || '').trim().slice(0, 36).replace(/\n/g, ' ') || 
                     (msg.images && msg.images.length > 0 ? `[图片] ${msg.images[0].name || ''}`.trim() : '');
       if (title) active.title = title;

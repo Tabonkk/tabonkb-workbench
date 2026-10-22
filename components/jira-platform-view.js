@@ -1,5 +1,10 @@
 const { getIconPark } = require('../ui/iconpark.js');
 const { formatRelativeTime } = require('../services/jira-service.js');
+const {
+  JiraSandboxService, inferDbgNaming,
+  buildAttachmentPrompt, buildSourcePrompt, buildGerritPrompt, buildCasePrompt,
+  toolIdForModule
+} = require('../services/jira-sandbox-service.js');
 
 /**
  * JiraPlatformView: Full-screen Jira Management Platform for TabonKB.
@@ -30,6 +35,15 @@ class JiraPlatformView {
     this.app = options.app;
     this.onOpenSettings = options.onOpenSettings;
     this.onAskAgent = options.onAskAgent;
+    this.onCaptureIdea = options.onCaptureIdea || null;
+    // P2a: 联调区 / 结单分流区 回调与专题服务
+    this.onAgentPrompt = options.onAgentPrompt || null;
+    this.onOpenTool = options.onOpenTool || null;
+    this.onOpenTopic = options.onOpenTopic || null;
+    this.topicService = options.topicService || null;
+    // P1c: 排查沙盒 (一单一目录 00-Inbox/03-Quick-Note/{KEY}/)
+    this.sandboxService = options.sandboxService
+      || (typeof JiraSandboxService !== 'undefined' ? new JiraSandboxService({ app: options.app }) : null);
 
     this.containerEl = null;
     this.issues = [];
@@ -294,6 +308,19 @@ class JiraPlatformView {
       return 'inprogress';
     }
     return 'todo';
+  }
+
+  /** P2b: 流转成功后目标状态属 Done → 相关种子自动浇水 (异常静默, 不影响流转) */
+  _autoWaterOnDone(issue) {
+    try {
+      if (!issue || this.categorizeStatus(issue.status, issue.statusCategory) !== 'done') return;
+      const svc = this.topicService;
+      if (!svc || typeof svc.autoWaterForIssue !== 'function') return;
+      Promise.resolve(svc.autoWaterForIssue(issue))
+        .catch(e => console.warn('[Jira] autoWaterForIssue:', e));
+    } catch (e) {
+      console.warn('[Jira] autoWaterForIssue:', e);
+    }
   }
 
   // 经办人是否为本账户（Server 比 username，Cloud 比 accountId/email）
@@ -741,19 +768,26 @@ class JiraPlatformView {
     };
     document.addEventListener('keydown', this._inspectorEscHandler);
 
+    // Outside-click collapses any open pop menu (status dropdown / archive up-menu)
+    if (this._inspectorMenuHandler) document.removeEventListener('click', this._inspectorMenuHandler, true);
+    this._inspectorMenuHandler = (e) => {
+      const wrap = e.target && e.target.closest ? e.target.closest('.tw-pop-wrap') : null;
+      const keep = (wrap && this.inspectorContainer && this.inspectorContainer.contains(wrap)) ? wrap : null;
+      this._closeInspectorPopups(keep);
+    };
+    document.addEventListener('click', this._inspectorMenuHandler, true);
+
     // 1. Header
     const head = drawer.createDiv({ cls: 'tw-inspector-header' });
-    const catKey = this.categorizeStatus(issue.status, issue.statusCategory);
     const pCls = resolveKanbanPriorityClass(issue.priority);
     head.innerHTML = `
       <div class="tw-ins-head-left">
         <span class="tw-ins-key" title="点击复制工单号">${escapeHtml(issue.key)}</span>
-        <span class="tw-ins-status-badge cat-${catKey}">${escapeHtml(issue.status)}</span>
         ${issue.priority ? `<span class="tw-kcard-priority ${pCls}">${escapeHtml(issue.priority)}</span>` : ''}
       </div>
       <div class="tw-ins-head-actions">
-        ${issue.url ? `<button class="tw-ins-icon-btn" id="twInsBtnExt" title="${escapeAttr(issue.url)}">${getIconPark('external', 13)}</button>` : ''}
-        <button class="tw-ins-icon-btn" id="twInsBtnClose" title="关闭 (Esc)">${getIconPark('close', 13)}</button>
+        ${issue.url ? `<button class="clickable-icon tw-ins-ghost-icon" id="twInsBtnExt" title="${escapeAttr(issue.url)}">${getIconPark('external', 13)}</button>` : ''}
+        <button class="clickable-icon tw-ins-ghost-icon" id="twInsBtnClose" title="关闭 (Esc)">${getIconPark('close', 13)}</button>
       </div>
     `;
     head.querySelector('#twInsBtnClose').onclick = () => this.closeInspector();
@@ -769,69 +803,70 @@ class JiraPlatformView {
     // 2. Content Body
     const body = drawer.createDiv({ cls: 'tw-inspector-body' });
 
-    // Summary
-    body.createEl('h2', { cls: 'tw-ins-summary', text: issue.summary });
+    // Summary + status pill trigger (available transitions live in its dropdown)
+    const sumRow = body.createDiv({ cls: 'tw-ins-summary-row' });
+    const catKey = this.categorizeStatus(issue.status, issue.statusCategory);
+    sumRow.innerHTML = `
+      <h2 class="tw-ins-summary">${escapeHtml(issue.summary)}</h2>
+      <div class="tw-pop-wrap tw-status-pill-wrap">
+        <button class="clickable-icon tw-ins-status-trigger cat-${catKey}" id="twStatusPill" title="展开可执行流转">
+          <span class="tw-ins-status-dot"></span>
+          <span class="tw-status-pill-name">${escapeHtml(issue.status)}</span>
+          ${getIconPark('down', 10)}
+        </button>
+        <div class="tw-pop-menu tw-ins-trans-dropdown" id="twStatusMenu">
+          <span class="tw-trans-loading">检测流转…</span>
+        </div>
+      </div>
+    `;
+    const pillWrap = sumRow.querySelector('.tw-status-pill-wrap');
+    sumRow.querySelector('#twStatusPill').onclick = (e) => {
+      e.stopPropagation();
+      const willOpen = !pillWrap.classList.contains('open');
+      this._closeInspectorPopups();
+      if (willOpen) pillWrap.classList.add('open');
+    };
 
-    // Transitions Section (Status Flow Buttons)
+    // Inline transition form + feedback mount (unchanged form logic, no flat button row)
     const transSec = body.createDiv({ cls: 'tw-ins-transitions-sec' });
     transSec.innerHTML = `
-      <div class="tw-ins-sec-title" title="端内快速流转，无需跳转网页">
-        <span>${getIconPark('refresh', 12)}</span>
-        <span>流转</span>
-      </div>
-      <div class="tw-transitions-btn-group" id="twTransitionBtnGroup">
-        <span class="tw-trans-loading">检测流转…</span>
-      </div>
       <div class="tw-trans-inline-form-container" id="twTransInlineFormContainer" style="display:none;"></div>
       <div class="tw-trans-feedback" id="twTransFeedback" style="display:none;"></div>
     `;
 
-    // Load available transitions
+    // Load available transitions into the status dropdown
     this.loadAndRenderTransitions(
       issue,
-      transSec.querySelector('#twTransitionBtnGroup'),
+      sumRow.querySelector('#twStatusMenu'),
       transSec.querySelector('#twTransInlineFormContainer'),
       transSec.querySelector('#twTransFeedback')
     );
 
-    // Meta Grid
+    // Meta card: 两行 tw-meta-row —— 第 1 行人员/模块, 第 2 行时间; '·' 在行内项目之间, 杜绝换行悬尾圆点
     const metaGrid = body.createDiv({ cls: 'tw-ins-meta-grid' });
-    metaGrid.innerHTML = `
-      <div class="tw-meta-item">
-        <span class="tw-meta-label">经办人</span>
-        <span class="tw-meta-val">${escapeHtml(issue.assignee || '未指派')}</span>
-      </div>
-      <div class="tw-meta-item">
-        <span class="tw-meta-label">报告人</span>
-        <span class="tw-meta-val">${escapeHtml(issue.reporter || '系统')}</span>
-      </div>
-      <div class="tw-meta-item">
-        <span class="tw-meta-label">更新</span>
-        <span class="tw-meta-val">${escapeHtml(issue.updated || '未知')}</span>
-      </div>
-      ${issue.created ? `
-        <div class="tw-meta-item">
-          <span class="tw-meta-label">创建</span>
-          <span class="tw-meta-val">${escapeHtml(issue.created)}</span>
-        </div>
-      ` : ''}
-      ${(issue.components && issue.components.length > 0) ? `
-        <div class="tw-meta-item full">
-          <span class="tw-meta-label">模块</span>
-          <span class="tw-meta-val tw-meta-chips">${issue.components.map(c => `<span class="tw-ins-chip">${escapeHtml(c)}</span>`).join('')}</span>
-        </div>
-      ` : ''}
-    `;
-
-    // Description Section
-    const descSec = body.createDiv({ cls: 'tw-ins-desc-sec' });
-    descSec.createDiv({ cls: 'tw-ins-sec-title', text: '描述' });
-    const descBox = descSec.createDiv({ cls: 'tw-ins-desc-box' });
-    if (issue.description && issue.description.trim()) {
-      descBox.innerHTML = escapeHtml(issue.description).replace(/\n/g, '<br>');
-    } else {
-      descBox.innerHTML = '<span class="tw-ins-desc-empty">暂无描述</span>';
+    const metaRow1 = [
+      { l: '经办人', v: escapeHtml(issue.assignee || '未指派') },
+      { l: '报告人', v: escapeHtml(issue.reporter || '系统') }
+    ];
+    if (issue.components && issue.components.length > 0) {
+      metaRow1.push({ l: '模块', v: issue.components.map(c => `<span class="tw-ins-chip">${escapeHtml(c)}</span>`).join('') });
     }
+    const metaRow2 = [{ l: '更新', v: escapeHtml(issue.updated || '未知') }];
+    if (issue.created) metaRow2.push({ l: '创建', v: escapeHtml(issue.created) });
+    const renderMetaRow = (items) => `<div class="tw-meta-row">${items.map((it, i) =>
+      `${i ? '<span class="tw-meta-sep">·</span>' : ''}<span class="tw-meta-item"><span class="tw-meta-label">${it.l}</span><span class="tw-meta-val">${it.v}</span></span>`
+    ).join('')}</div>`;
+    metaGrid.innerHTML = renderMetaRow(metaRow1) + renderMetaRow(metaRow2);
+
+    // Description Section (【key】val structured render + empty-field collapse)
+    // Fold toggle lives at the right of the section header — never a grey box inside the card
+    const descSec = body.createDiv({ cls: 'tw-ins-desc-sec' });
+    const descHead = descSec.createDiv({ cls: 'tw-ins-sec-header' });
+    descHead.createDiv({ cls: 'tw-ins-sec-title', text: '描述' });
+    const foldLink = descHead.createEl('span', { cls: 'tw-ins-fold-link' });
+    foldLink.style.display = 'none';
+    const descBox = descSec.createDiv({ cls: 'tw-ins-desc-box' });
+    this._renderStructuredDesc(descBox, issue.description, foldLink);
 
     // Activity Log & Comments Section
     const activitySec = body.createDiv({ cls: 'tw-ins-activity-sec' });
@@ -842,19 +877,17 @@ class JiraPlatformView {
           <span>注释</span>
           <span class="tw-ins-comments-count" id="twInsCommentsCount"></span>
         </div>
-        <button class="tw-ins-refresh-comments-btn" id="twBtnRefreshComments" title="刷新注释">
+        <button class="clickable-icon tw-ins-ghost-icon tw-ins-refresh-comments-btn" id="twBtnRefreshComments" title="刷新注释">
           ${getIconPark('refresh', 12)}
         </button>
       </div>
 
-      <!-- Add comment box -->
+      <!-- Add comment box: textarea + inline circular send button -->
       <div class="tw-ins-add-comment-box">
-        <textarea class="tw-ins-comment-input" id="twInsCommentInput" placeholder="添加注释… (Ctrl+Enter 提交)" rows="3"></textarea>
-        <div class="tw-ins-comment-actions">
-          <button class="tw-ins-submit-comment-btn" id="twBtnSubmitComment" disabled>
-            ${getIconPark('send', 12)} <span>提交</span>
-          </button>
-        </div>
+        <textarea class="tw-ins-comment-input" id="twInsCommentInput" placeholder="添加注释… (Ctrl+Enter 提交)" rows="2"></textarea>
+        <button class="clickable-icon tw-ins-submit-comment-btn" id="twBtnSubmitComment" title="提交 (Ctrl+Enter)" disabled>
+          ${getIconPark('arrow-up', 13)}
+        </button>
       </div>
 
       <!-- Comments list -->
@@ -891,7 +924,7 @@ class JiraPlatformView {
         if (!text) return;
         btnSubmitComment.disabled = true;
         const prevHtml = btnSubmitComment.innerHTML;
-        btnSubmitComment.innerHTML = `<span class="tw-loading-spin"></span> <span>提交中...</span>`;
+        btnSubmitComment.innerHTML = `<span class="tw-loading-spin"></span>`;
         try {
           const res = await this.jiraService.addIssueComment(issue.key, text);
           if (res && res.success) {
@@ -924,36 +957,43 @@ class JiraPlatformView {
 
     this.loadAndRenderComments(issue, commentsListEl, commentsCountEl);
 
-    // 3. Actions Footer
+    // 2.5 排查沙盒 (P1c): 一单一目录 00-Inbox/03-Quick-Note/{KEY}/
+    const sandboxSec = body.createDiv({ cls: 'tw-ins-sandbox' });
+    this.renderSandboxSection(sandboxSec, issue);
+
+    // 2.6 辅助排 (P2a): 联调 ghost 图标 + 结单归档上拉菜单 (联调/结单分流合并为一排)
+    const auxSec = body.createDiv({ cls: 'tw-ins-aux' });
+    this.renderAuxSection(auxSec, issue);
+
+    // 3. Actions Footer: ghost icons + primary Agent pill
     const footer = drawer.createDiv({ cls: 'tw-inspector-footer' });
 
-    // Copy Markdown Link Button
-    const btnCopy = footer.createEl('button', { cls: 'tw-ins-action-btn primary', title: '复制 Markdown 引用链接' });
-    btnCopy.innerHTML = `${getIconPark('copy', 12)} <span>复制引用</span>`;
+    // Copy Markdown link (ghost icon)
+    const btnCopy = footer.createEl('button', {
+      cls: 'clickable-icon tw-ins-ghost-icon tw-ins-ghost-lg has-tip',
+      attr: { 'data-tip': '复制引用', 'aria-label': '复制 Markdown 引用链接' }
+    });
+    btnCopy.innerHTML = getIconPark('copy', 16);
     btnCopy.onclick = () => {
       const mdLink = `[${issue.key}](${issue.url}): ${issue.summary}`;
       navigator.clipboard.writeText(mdLink);
-      btnCopy.classList.add('copied');
-      btnCopy.querySelector('span').textContent = '已复制';
-      setTimeout(() => {
-        btnCopy.classList.remove('copied');
-        btnCopy.querySelector('span').textContent = '复制引用';
-      }, 1500);
+      btnCopy.classList.add('is-ok');
+      setTimeout(() => btnCopy.classList.remove('is-ok'), 1500);
     };
 
-    // Add to 00-Inbox/03-Quick-Note Button
-    const btnQuickNote = footer.createEl('button', {
-      cls: 'tw-ins-action-btn quicknote',
-      title: '存入 00-Inbox/03-Quick-Note 进行排查记录'
+    // 🌱 记灵感 (ghost icon): 唤起全局记灵感浮窗, 注入 jiraKey 上下文
+    const btnIdea = footer.createEl('button', {
+      cls: 'clickable-icon tw-ins-ghost-icon tw-ins-ghost-lg has-tip',
+      attr: { 'data-tip': '记为灵感', 'aria-label': '把此工单记为灵感' }
     });
-    btnQuickNote.innerHTML = `${getIconPark('file-text', 12)} <span>存笔记</span>`;
-    btnQuickNote.onclick = async () => {
-      await this.exportIssueToQuickNote(issue, btnQuickNote);
+    btnIdea.innerHTML = getIconPark('lightbulb', 16);
+    btnIdea.onclick = () => {
+      if (this.onCaptureIdea) this.onCaptureIdea(issue);
     };
 
-    // Ask Agent Hub Button
-    const btnAgent = footer.createEl('button', { cls: 'tw-ins-action-btn secondary', title: '向 Agent 提问此工单' });
-    btnAgent.innerHTML = `${getIconPark('robot', 13)} <span>问 Agent</span>`;
+    // Ask Agent Hub (primary pill CTA)
+    const btnAgent = footer.createEl('button', { cls: 'clickable-icon tw-ins-primary-agent-btn', title: '向 Agent 提问此工单' });
+    btnAgent.innerHTML = `${getIconPark('sparkles', 14)} <span>问 Agent 诊断</span>`;
     btnAgent.onclick = () => {
       if (this.onAskAgent) {
         this.onAskAgent(issue);
@@ -967,8 +1007,13 @@ class JiraPlatformView {
     };
   }
 
-  async loadAndRenderTransitions(issue, containerEl, formContainerEl, feedbackEl) {
-    if (!containerEl || !this.jiraService) return;
+  async loadAndRenderTransitions(issue, menuEl, formContainerEl, feedbackEl) {
+    if (!menuEl || !this.jiraService) return;
+
+    const closeMenu = () => {
+      const w = menuEl.closest('.tw-pop-wrap');
+      if (w) w.classList.remove('open');
+    };
 
     let transitions = [];
     try {
@@ -977,59 +1022,61 @@ class JiraPlatformView {
       console.warn('[JiraPlatformView] Failed to fetch transitions:', e);
     }
 
-    // If API returned available transitions, render them
+    // If API returned available transitions, render them as dropdown menu items
     if (transitions && transitions.length > 0) {
-      containerEl.innerHTML = '';
+      menuEl.innerHTML = '';
       for (const t of transitions) {
         const hasReq = Array.isArray(t.requiredFields) && t.requiredFields.length > 0;
-        const btn = containerEl.createEl('button', {
-          cls: `tw-trans-btn${t.hasScreen || hasReq || t.isResolve ? ' has-screen' : ''}`,
-          text: `→ ${t.name}`
+        const item = menuEl.createEl('div', {
+          cls: `tw-ins-trans-item${t.hasScreen || hasReq || t.isResolve ? ' has-screen' : ''}`
         });
+        item.innerHTML = `<span class="tw-smi-name">${escapeHtml(t.name)}${hasReq ? '<span class="tw-smi-star">*</span>' : ''}</span><span class="tw-smi-arrow">→</span>`;
 
         if (hasReq) {
-          btn.title = `包含必填项: ${t.requiredFields.map(f => f.name).join(', ')}`;
+          item.title = `包含必填项: ${t.requiredFields.map(f => f.name).join(', ')}`;
         } else if (t.isResolve) {
-          btn.title = '端内流转并设置解决结果';
+          item.title = '端内流转并设置解决结果';
         } else if (t.hasScreen) {
-          btn.title = '此流转包含专属字段设置';
+          item.title = '此流转包含专属字段设置';
         }
 
-        btn.onclick = () => {
+        item.onclick = (e) => {
+          e.stopPropagation();
+          closeMenu();
           // If the form is already open for this transition, clicking again closes it
           if (formContainerEl && formContainerEl.style.display !== 'none' && formContainerEl.dataset.currentTransId === String(t.id)) {
             formContainerEl.style.display = 'none';
             formContainerEl.innerHTML = '';
-            btn.classList.remove('active-trans');
             return;
           }
 
           // If transition needs inputs (isResolve, hasScreen, or has fields)
           if (t.isResolve || t.hasScreen || (t.fieldList && t.fieldList.length > 0)) {
-            this.renderInlineTransitionForm(issue, t, btn, formContainerEl, feedbackEl);
+            this.renderInlineTransitionForm(issue, t, item, formContainerEl, feedbackEl);
           } else {
-            this.handleDoTransition(issue, t, btn, formContainerEl, feedbackEl);
+            this.handleDoTransition(issue, t, item, formContainerEl, feedbackEl);
           }
         };
       }
       return;
     }
 
-    // Fallback standard workflow buttons if server doesn't support transition enumeration
-    containerEl.innerHTML = `
-      <button class="tw-trans-btn" data-target="To Do">← 待办 (To Do)</button>
-      <button class="tw-trans-btn" data-target="In Progress">→ 进行中 (In Progress)</button>
-      <button class="tw-trans-btn" data-target="In Review">→ 评审 (Review)</button>
-      <button class="tw-trans-btn" data-target="Done">✓ 完成 (Done)</button>
+    // Fallback standard workflow items if server doesn't support transition enumeration
+    menuEl.innerHTML = `
+      <div class="tw-ins-trans-item" data-target="To Do"><span class="tw-smi-name">待办 (To Do)</span><span class="tw-smi-arrow">←</span></div>
+      <div class="tw-ins-trans-item" data-target="In Progress"><span class="tw-smi-name">进行中 (In Progress)</span><span class="tw-smi-arrow">→</span></div>
+      <div class="tw-ins-trans-item" data-target="In Review"><span class="tw-smi-name">评审 (Review)</span><span class="tw-smi-arrow">→</span></div>
+      <div class="tw-ins-trans-item" data-target="Done"><span class="tw-smi-name">完成 (Done)</span><span class="tw-smi-arrow">✓</span></div>
     `;
 
-    containerEl.querySelectorAll('.tw-trans-btn').forEach(btn => {
+    menuEl.querySelectorAll('.tw-ins-trans-item').forEach(btn => {
       const target = btn.getAttribute('data-target');
-      if (target.toLowerCase() === issue.status.toLowerCase()) {
-        btn.classList.add('current');
-        btn.disabled = true;
-      }
-      btn.onclick = () => {
+      const isCurrent = target.toLowerCase() === issue.status.toLowerCase();
+      if (isCurrent) btn.classList.add('current');
+      btn.onclick = (e) => {
+        e.stopPropagation();
+        if (isCurrent) return;
+        closeMenu();
         const isDone = target === 'Done';
         const tObj = { id: target, name: target, isResolve: isDone };
         if (isDone) {
@@ -1056,7 +1103,7 @@ class JiraPlatformView {
     // Highlight active button
     const group = btnEl?.parentElement;
     if (group) {
-      group.querySelectorAll('.tw-trans-btn').forEach(b => b.classList.remove('active-trans'));
+      group.querySelectorAll('.tw-trans-btn, .tw-status-menu-item, .tw-ins-trans-item').forEach(b => b.classList.remove('active-trans'));
     }
     if (btnEl) btnEl.classList.add('active-trans');
 
@@ -1206,7 +1253,7 @@ class JiraPlatformView {
             <span class="tw-trans-form-icon">⚡</span>
             <span>端内流转：<strong>${escapeHtml(issue.key)}</strong> → <span class="tw-trans-target-badge">${escapeHtml(targetName)}</span></span>
           </div>
-          <button class="tw-trans-form-close" id="twBtnCloseTransForm" title="取消并关闭">✕</button>
+          <button class="clickable-icon tw-ins-ghost-icon tw-trans-form-close" id="twBtnCloseTransForm" title="取消并关闭">${getIconPark('close', 13)}</button>
         </div>
 
         <div class="tw-trans-form-body">
@@ -1332,6 +1379,7 @@ class JiraPlatformView {
         await this.jiraService.doTransition(issue.key, transitionId, targetName, customFields, commentText);
         issue.status = targetName;
         issue.updated = '刚刚';
+        this._autoWaterOnDone(issue);
         this.renderStage();
         this.renderMetricsBar(this.containerEl.querySelector('.tw-jira-platform'));
 
@@ -1361,7 +1409,7 @@ class JiraPlatformView {
   async handleDoTransition(issue, transition, btnEl, formContainerEl, feedbackEl) {
     if (this.isTransitioning) return;
     this.isTransitioning = true;
-    const oldText = btnEl.textContent;
+    const oldHtml = btnEl.innerHTML;
     btnEl.textContent = '正在流转...';
     btnEl.disabled = true;
 
@@ -1380,6 +1428,7 @@ class JiraPlatformView {
       await this.jiraService.doTransition(issue.key, transitionId, targetName);
       issue.status = targetName;
       issue.updated = '刚刚';
+      this._autoWaterOnDone(issue);
       this.renderStage();
       this.renderMetricsBar(this.containerEl.querySelector('.tw-jira-platform'));
       btnEl.textContent = `✓ 已变更为 ${targetName}`;
@@ -1391,7 +1440,7 @@ class JiraPlatformView {
       }, 600);
     } catch (err) {
       console.error(`[Jira] 状态流转异常:`, err);
-      btnEl.textContent = oldText;
+      btnEl.innerHTML = oldHtml;
       btnEl.disabled = false;
 
       const detailMsg = err.detailMsg || err.message || '流转失败';
@@ -1424,7 +1473,7 @@ class JiraPlatformView {
       this.isTransitioning = false;
       if (btnEl && !btnEl.textContent.startsWith('✓')) {
         btnEl.disabled = false;
-        btnEl.textContent = oldText;
+        btnEl.innerHTML = oldHtml;
       }
     }
   }
@@ -1473,7 +1522,7 @@ class JiraPlatformView {
                 ${c.isEdited ? '<span class="tw-ins-comment-edited">已编辑</span>' : ''}
               </div>
             </div>
-            <div class="tw-ins-comment-body">${escapeHtml(c.body).replace(/\n/g, '<br>')}</div>
+            <div class="tw-ins-comment-body">${this._renderCommentBodyHtml(c.body, issue)}</div>
           </div>
         `;
       }
@@ -1488,170 +1537,446 @@ class JiraPlatformView {
     }
   }
 
-  async exportIssueToQuickNote(issue, btnEl = null) {
+  /* ================= 描述结构化 & 评论净化 & 弹层管理 ================= */
+
+  _isEmptyDescVal(v) {
+    const t = String(v || '').trim();
+    return t === '' || t === '/' || t === '无' || t === '—' || /^n\/?a$/i.test(t);
+  }
+
+  /** 解析描述中的【字段名】内容 行：双栏渲染 + 空值折叠 (折叠开关在外部标题行 foldLink) */
+  _renderStructuredDesc(descBox, rawDesc, foldLink = null) {
+    const raw = String(rawDesc || '').trim();
+    if (!raw) {
+      descBox.innerHTML = '<span class="tw-ins-desc-empty">暂无描述</span>';
+      return;
+    }
+
+    const rows = [];
+    let cur = null;
+    for (const line of raw.split(/\r?\n/)) {
+      const m = line.match(/^\s*【([^】\n]{1,40})】\s*([\s\S]*)$/);
+      if (m) {
+        cur = { key: m[1].trim(), val: m[2] };
+        rows.push(cur);
+      } else if (cur) {
+        cur.val += '\n' + line;
+      } else {
+        const last = rows[rows.length - 1];
+        if (last && last.key === null) last.val += '\n' + line;
+        else rows.push({ key: null, val: line });
+      }
+    }
+
+    let collapsed = 0;
+    let html = '';
+    for (const r of rows) {
+      if (r.key === null) {
+        const v = r.val.replace(/\n+$/, '');
+        if (v.trim()) html += `<div class="tw-desc-plain">${escapeHtml(v).replace(/\n/g, '<br>')}</div>`;
+        continue;
+      }
+      const v = r.val.replace(/\n+$/, '').trim();
+      const empty = this._isEmptyDescVal(v);
+      if (empty) collapsed++;
+      html += `<div class="tw-desc-row${empty ? ' is-empty' : ''}"><span class="tw-desc-k">${escapeHtml(r.key)}</span><span class="tw-desc-v">${v ? escapeHtml(v).replace(/\n/g, '<br>') : '/'}</span></div>`;
+    }
+
+    if (!html) {
+      descBox.innerHTML = '<span class="tw-ins-desc-empty">暂无描述</span>';
+      return;
+    }
+
+    descBox.innerHTML = html;
+    if (foldLink) {
+      if (collapsed) {
+        descBox.classList.add('has-collapsed');
+        foldLink.style.display = '';
+        foldLink.textContent = `已折叠 ${collapsed} 项空字段`;
+        foldLink.onclick = (e) => {
+          e.stopPropagation();
+          const showAll = descBox.classList.toggle('show-all');
+          foldLink.textContent = showAll ? '收起空字段' : `已折叠 ${collapsed} 项空字段`;
+        };
+      } else {
+        foldLink.style.display = 'none';
+      }
+    }
+  }
+
+  _decodeEntities(str) {
+    const s = String(str == null ? '' : str);
+    if (!/&[a-zA-Z#0-9]+;/.test(s)) return s;
+    if (typeof document !== 'undefined') {
+      const ta = document.createElement('textarea');
+      ta.innerHTML = s;
+      return ta.value;
+    }
+    return s
+      .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+  }
+
+  /**
+   * Jira 评论智能净化：剥离 <p>/<span>/<sup>/<img> 等标签取纯文本；
+   * 文件类 <a href> 提取为独立附件胶囊，普通链接保留锚文本。
+   * @returns {{text: string, attachments: Array<{url:string,label:string}>}}
+   */
+  _sanitizeJiraCommentBody(rawBody, issue) {
+    let t = String(rawBody == null ? '' : rawBody);
+    const attachments = [];
+    const fileExt = '(?:png|jpe?g|gif|webp|bmp|mp4|mov|avi|mkv|webm|zip|rar|7z|tar|gz|pdf|docx?|xlsx?|pptx?|txt|log|csv|md|json|xml|bin|hex|apk|patch|diff|wav|mp3|db|datalog|h|c|cpp|java|py|js|ts|html?)';
+    const fileExtRe = new RegExp('\\.' + fileExt + '($|[?#])', 'i');
+
+    // 1. Extract anchors: file-like → attachment chip; others → keep label text
+    t = t.replace(/<a\b[^>]*href\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))[^>]*>([\s\S]*?)<\/a>/gi, (_m, dq, sq, uq, inner) => {
+      const href = dq || sq || uq || '';
+      const label = this._decodeEntities(String(inner).replace(/<[^>]+>/g, '')).trim();
+      if (/attachment/i.test(href) || fileExtRe.test(href) || fileExtRe.test(label)) {
+        let url = href;
+        try { url = new URL(href, (issue && issue.url) || undefined).href; } catch (_) {}
+        attachments.push({ url, label: label || (href.split('/').pop() || '附件') });
+        return '';
+      }
+      return label || href;
+    });
+
+    // 2. Drop media/script/style entirely
+    t = t.replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, ' ');
+    t = t.replace(/<img\b[^>]*>/gi, '');
+    // 3. Block-level boundaries → newlines
+    t = t.replace(/<br\b[^>]*>/gi, '\n');
+    t = t.replace(/<\/(p|div|li|ul|ol|h[1-6]|blockquote|pre|tr|table|section|article)\s*>/gi, '\n');
+    t = t.replace(/<li\b[^>]*>/gi, '• ');
+    // 4. Strip all remaining tags (span, sup, nobr, b, i, font, em, strong, u ...)
+    t = t.replace(/<[^>]+>/g, '');
+    // 5. Decode entities & normalize
+    t = this._decodeEntities(t);
+    t = t.split('\n').map(l => l.replace(/[\t ]+$/g, '')).join('\n')
+      .replace(/\n{3,}/g, '\n\n').trim();
+
+    return { text: t, attachments };
+  }
+
+  _renderCommentBodyHtml(rawBody, issue) {
+    const { text, attachments } = this._sanitizeJiraCommentBody(rawBody, issue);
+    const attachHtml = attachments.length
+      ? `<div class="tw-comment-attach-row">${attachments.map(a =>
+          `<a class="tw-comment-attach" href="${escapeAttr(a.url)}" target="_blank" rel="noopener" title="${escapeAttr(a.url)}">${getIconPark('paperclip', 11)}<span>${escapeHtml(a.label)}</span></a>`
+        ).join('')}</div>`
+      : '';
+    return `${escapeHtml(text).replace(/\n/g, '<br>')}${attachHtml}`;
+  }
+
+  _closeInspectorPopups(keepWrap = null) {
+    if (!this.inspectorContainer) return;
+    this.inspectorContainer.querySelectorAll('.tw-pop-wrap.open').forEach(w => {
+      if (w !== keepWrap) w.classList.remove('open');
+    });
+  }
+
+  /** 无框呼吸图标按钮: clickable-icon 豁免原生按钮样式 + data-tip 顶部微提示 */
+  _ghostIconBtn(host, icon, tip, onClick, extraCls = '') {
+    const b = host.createEl('button', {
+      cls: `clickable-icon tw-ins-ghost-icon has-tip${extraCls ? ' ' + extraCls : ''}`,
+      attr: { 'data-tip': tip, 'aria-label': tip }
+    });
+    b.innerHTML = getIconPark(icon, 15);
+    b.onclick = async (e) => {
+      e.stopPropagation();
+      try { await onClick(); } catch (err) {
+        this._notice(`操作失败: ${(err && err.message) || err}`, 5000);
+      }
+    };
+    return b;
+  }
+
+  /* ============================ 排查沙盒 (P1c) ============================ */
+
+  _notice(msg, ms) {
     const app = this.app || (typeof window !== 'undefined' ? window.app : null);
     const NoticeCls = typeof Notice !== 'undefined' ? Notice : (app?.Notice || class { constructor(m) { console.log(m); } });
+    try { new NoticeCls(msg, ms || 2500); } catch (_) {}
+  }
 
-    if (!app || !app.vault) {
-      new NoticeCls('无法访问 Obsidian Vault，无法执行存入操作');
-      return;
-    }
-
-    const targetFolder = '00-Inbox/03-Quick-Note';
-    try {
-      if (!app.vault.getAbstractFileByPath(targetFolder)) {
-        await app.vault.createFolder(targetFolder).catch(() => {});
-      }
-    } catch (e) {}
-
-    // Fetch comments for richer note context
-    let comments = [];
+  async _fetchCommentsQuiet(key) {
     try {
       if (this.jiraService && typeof this.jiraService.getIssueComments === 'function') {
-        comments = await this.jiraService.getIssueComments(issue.key);
+        return await this.jiraService.getIssueComments(key);
       }
     } catch (e) {
-      console.warn('[JiraPlatformView] Failed to fetch comments for Quick-Note:', e);
+      console.warn('[JiraPlatformView] Failed to fetch comments for sandbox:', e);
     }
+    return [];
+  }
 
-    const now = new Date();
-    const dateStr = now.toISOString().slice(0, 10);
-    const fullTimeStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
+  _fileTypeInfo(path) {
+    const ext = (String(path).split('.').pop() || '').toLowerCase();
+    if (['md', 'markdown'].includes(ext)) return { cls: 'f-md', icon: 'file-text' };
+    if (['rar', 'zip', '7z', 'tar', 'gz'].includes(ext)) return { cls: 'f-rar', icon: 'layers' };
+    if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg'].includes(ext)) return { cls: 'f-img', icon: 'pic' };
+    if (['csv', 'xls', 'xlsx'].includes(ext)) return { cls: 'f-csv', icon: 'file-csv' };
+    if (['txt', 'log', 'json', 'xml'].includes(ext)) return { cls: 'f-txt', icon: 'file-text' };
+    return { cls: 'f-def', icon: 'file-text' };
+  }
 
-    const safeSummary = (issue.summary || 'Jira工单')
-      .replace(/[\\/:*?"<>|#^\[\]!]/g, '')
-      .replace(/\s+/g, ' ')
-      .trim();
-    const fileBasename = `${dateStr} [${issue.key}] ${safeSummary.slice(0, 36).trim()}`;
-    const notePath = `${targetFolder}/${fileBasename}.md`;
+  async renderSandboxSection(host, issue) {
+    const svc = this.sandboxService;
+    if (!host || !svc) return;
+    host.empty();
+    const head = host.createDiv({ cls: 'tw-ins-sandbox-head' });
+    const titleEl = head.createDiv({ cls: 'tw-ins-sandbox-title' });
+    titleEl.innerHTML = `${getIconPark('folder', 12)}<span>排查沙盒</span>`;
+    let exists = false;
+    try { exists = await svc.exists(issue.key); } catch (_) { exists = false; }
 
-    // Check if note already exists
-    const existingFile = app.vault.getAbstractFileByPath(notePath);
-    if (existingFile) {
-      if (app.workspace && typeof app.workspace.openLinkText === 'function') {
-        app.workspace.openLinkText(notePath, '', false);
+    if (!exists) {
+      // P2a: 该工单已升专题 → 不显示建档入口, 改显示专题跳转行
+      let topic = null;
+      try { if (this.topicService) topic = await this.topicService.findTopicByJira(issue.key); } catch (_) {}
+      if (topic) {
+        const link = head.createEl('span', {
+          cls: 'tw-ins-sandbox-topic',
+          text: `📁 已升专题「${topic.title}」`,
+          attr: { title: '打开专题' }
+        });
+        link.onclick = () => { if (this.onOpenTopic) this.onOpenTopic(topic.id); };
+        return;
       }
-      new NoticeCls(`✓ 该工单笔记已存在，已为您在编辑器中打开: ${fileBasename}.md`, 4000);
-      if (btnEl) {
-        btnEl.classList.add('copied');
-        const oldHtml = btnEl.innerHTML;
-        btnEl.innerHTML = `${getIconPark('check', 12)} <span>已在编辑器打开</span>`;
-        setTimeout(() => {
-          btnEl.classList.remove('copied');
-          btnEl.innerHTML = oldHtml;
-        }, 1800);
-      }
+      const btn = head.createEl('span', { cls: 'tw-ins-draft-link', text: '＋ 开始排查建档', attr: { title: '创建排查目录' } });
+      btn.onclick = async () => {
+        btn.disabled = true;
+        try {
+          const comments = await this._fetchCommentsQuiet(issue.key);
+          const res = await svc.create(issue, comments);
+          if (res && res.file) this._openVaultFile(res.file);
+          this._notice(res && res.created ? `✓ 已建档 ${issue.key}/` : '✓ 已打开已有草稿');
+        } catch (e) {
+          this._notice(`建档失败: ${e.message || e}`, 5000);
+        }
+        await this.renderSandboxSection(host, issue);
+      };
       return;
     }
 
-    // Build rich Markdown
-    const lines = [];
-    lines.push('---');
-    lines.push(`title: "[${issue.key}] ${safeSummary}"`);
-    lines.push(`date: ${fullTimeStr}`);
-    lines.push(`type: jira-issue`);
-    lines.push(`jira_key: "${issue.key}"`);
-    lines.push(`jira_url: "${issue.url || ''}"`);
-    lines.push(`status: "${issue.status || ''}"`);
-    lines.push(`priority: "${issue.priority || 'Medium'}"`);
-    lines.push(`assignee: "${issue.assignee || '未指派'}"`);
-    lines.push(`reporter: "${issue.reporter || '系统'}"`);
-    lines.push('tags:');
-    lines.push('  - jira');
-    lines.push('  - quick-note');
-    lines.push('  - troubleshooting');
-    lines.push('---');
-    lines.push('');
-    lines.push(`# 🎯 [${issue.key}] ${issue.summary}`);
-    lines.push('');
-    lines.push('> [!INFO] 工单元数据卡片');
-    lines.push(`> - **工单编号**: \`${issue.key}\``);
-    lines.push(`> - **当前状态**: \`${issue.status || '未知'}\``);
-    lines.push(`> - **优先级**: \`${issue.priority || 'Medium'}\``);
-    lines.push(`> - **经办人**: ${issue.assignee || '未指派'}`);
-    lines.push(`> - **报告人**: ${issue.reporter || '系统'}`);
-    if (issue.components && issue.components.length > 0) {
-      lines.push(`> - **模块组件**: ${issue.components.join(', ')}`);
-    }
-    if (issue.created) lines.push(`> - **创建时间**: ${issue.created}`);
-    if (issue.updated) lines.push(`> - **更新时间**: ${issue.updated}`);
-    if (issue.url) lines.push(`> - **Jira 链接**: [在浏览器中直达工单](${issue.url})`);
-    lines.push('');
-    lines.push('## 📋 工单详细描述 (Description)');
-    lines.push('');
-    lines.push(issue.description && issue.description.trim() ? issue.description.trim() : '*(暂无详细描述)*');
-    lines.push('');
-
-    // Comments & Activity Log
-    lines.push('## 💬 活动日志与注释历史 (Comments)');
-    lines.push('');
-    if (comments && comments.length > 0) {
-      for (const c of comments) {
-        lines.push(`> [!NOTE] 👤 ${c.author} · ${c.createdFormatted || c.created}${c.isEdited ? ' *(已编辑)*' : ''}`);
-        const bodyLines = (c.body || '').split('\n');
-        for (const bl of bodyLines) {
-          lines.push(`> ${bl}`);
-        }
-        lines.push('');
+    const addBtn = head.createEl('span', { cls: 'tw-ins-draft-link', text: '+ 草稿', attr: { title: '新建 DBG 草稿' } });
+    addBtn.onclick = async () => {
+      addBtn.disabled = true;
+      try {
+        const comments = await this._fetchCommentsQuiet(issue.key);
+        const f = await svc.createDraft(issue, comments);
+        if (f) this._openVaultFile(f);
+        await this.renderSandboxSection(host, issue);
+      } catch (e) {
+        this._notice(`新建草稿失败: ${e.message || e}`, 5000);
+        addBtn.disabled = false;
       }
-    } else {
-      lines.push('*(暂无历史注释记录)*\n');
+    };
+
+    const listEl = host.createDiv({ cls: 'tw-ins-sandbox-list' });
+    let files = [];
+    try { files = await svc.list(issue.key); } catch (_) { files = []; }
+    if (files.length) titleEl.innerHTML = `${getIconPark('folder', 12)}<span>排查沙盒 (${files.length})</span>`;
+    if (!files.length) {
+      listEl.createDiv({ cls: 'tw-ins-sandbox-empty', text: '—' });
+      return;
     }
+    const dirPrefix = `${svc.dirPath(issue.key)}/`;
+    const keyPrefixRe = new RegExp(`^${issue.key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[-_]`, 'i');
+    for (const f of files) {
+      const rel = f.path.startsWith(dirPrefix) ? f.path.slice(dirPrefix.length) : f.path;
+      // 省略冗余前缀: attachments/ 目录与 {KEY}_ 文件名前缀 (完整路径保留在 title)
+      const disp = rel.replace(/^attachments\//i, '').replace(keyPrefixRe, '') || rel;
+      const ft = this._fileTypeInfo(disp);
+      const row = listEl.createDiv({ cls: 'tw-ins-sandbox-row', attr: { title: f.path } });
+      row.innerHTML = `
+        <span class="tw-file-ico ${ft.cls}">${getIconPark(ft.icon, 12)}</span>
+        <span class="tw-sandbox-file-name">${escapeHtml(disp)}</span>
+        <span class="tw-ins-row-actions">
+          <span class="tw-ins-row-icon has-tip" data-act="open" data-tip="打开">${getIconPark('external', 12)}</span>
+          <span class="tw-ins-row-icon has-tip" data-act="split" data-tip="分屏">${getIconPark('dashboard', 12)}</span>
+        </span>
+      `;
+      row.querySelector('[data-act="open"]').onclick = (e) => { e.stopPropagation(); this._openVaultFile(f); };
+      row.querySelector('[data-act="split"]').onclick = (e) => { e.stopPropagation(); this._openVaultFileSplit(f); };
+      row.onclick = () => this._openVaultFile(f);
+    }
+  }
 
-    lines.push('---');
-    lines.push('');
-    lines.push('## 🛠️ 排查与处理过程记录 (Troubleshooting Log)');
-    lines.push('');
-    lines.push('> [!TIP] 复杂问题处理记录');
-    lines.push('> 在此记录该复杂技术问题的排查思路、日志分析、抓包对比、测试复现条件与代码修复方案。');
-    lines.push('');
-    lines.push('### 1. 现象复现与抓包/日志分析');
-    lines.push('- **测试条件/版本**: ');
-    lines.push('- **复现概率**: ');
-    lines.push('- **核心日志/抓包片段**: ');
-    lines.push('```text');
-    lines.push('// 粘贴关键 log 或堆栈信息');
-    lines.push('```');
-    lines.push('');
-    lines.push('### 2. 根因分析 (Root Cause)');
-    lines.push('- ');
-    lines.push('');
-    lines.push('### 3. 处理方案与代码修复 (Fix & Solution)');
-    lines.push('- [ ] 临时规避方案 (Workaround)');
-    lines.push('- [ ] 核心代码改动 (Code Changes)');
-    lines.push('- [ ] 自动化测试 / 验证闭环结果');
-    lines.push('');
+  /* ============================ 联调区 / 结单分流区 (P2a) ============================ */
 
-    const noteContent = lines.join('\n');
-
+  async _sandboxCtx(issue) {
+    const naming = (typeof inferDbgNaming === 'function')
+      ? inferDbgNaming(issue)
+      : { platform: 'COMMON', module: 'GEN' };
+    const ctx = {
+      sandboxDir: this.sandboxService ? this.sandboxService.dirPath(issue.key) : '',
+      draftPath: '',
+      module: naming.module,
+      platform: naming.platform
+    };
     try {
-      await app.vault.create(notePath, noteContent);
-      new NoticeCls(`✓ 已成功存入 00-Inbox/03-Quick-Note/${fileBasename}.md 并已在编辑器中打开`, 4000);
+      const draft = this.sandboxService ? await this.sandboxService.findDraft(issue.key) : null;
+      if (draft) ctx.draftPath = draft.path;
+    } catch (_) {}
+    return ctx;
+  }
 
-      // Open in workspace
-      if (app.workspace && typeof app.workspace.openLinkText === 'function') {
-        app.workspace.openLinkText(notePath, '', false);
-      }
+  /**
+   * 辅助排: 左侧「联调」ghost 图标组 (📎附件 🔍源码 🌿提交 AI填词 + 波形跳工具页),
+   * 右侧「✓ 结单归档 ▴」上拉菜单 (直接结单 / 提炼CASE / 升为专题)
+   */
+  async renderAuxSection(host, issue) {
+    if (!host) return;
+    host.empty();
+    if (!this.onAgentPrompt && !this.onOpenTool && !this.sandboxService && !this.topicService) return;
 
-      if (btnEl) {
-        btnEl.classList.add('copied');
-        const oldHtml = btnEl.innerHTML;
-        btnEl.innerHTML = `${getIconPark('check', 12)} <span>已存入笔记！</span>`;
-        setTimeout(() => {
-          btnEl.classList.remove('copied');
-          btnEl.innerHTML = oldHtml;
-        }, 1800);
+    const row = host.createDiv({ cls: 'tw-ins-aux-row' });
+    const left = row.createDiv({ cls: 'tw-ins-aux-left' });
+    const ctx = await this._sandboxCtx(issue);
+
+    if (this.onAgentPrompt || this.onOpenTool) {
+      left.createDiv({ cls: 'tw-ins-aux-label', text: '联调' });
+      if (this.onAgentPrompt) {
+        this._ghostIconBtn(left, 'paperclip', '附件 · 下载到沙盒', () => {
+          this.onAgentPrompt(buildAttachmentPrompt(issue, ctx));
+          this.closeInspector();
+        });
+        this._ghostIconBtn(left, 'code', '源码 · 检索调用链', () => {
+          this.onAgentPrompt(buildSourcePrompt(issue, ctx));
+          this.closeInspector();
+        });
+        this._ghostIconBtn(left, 'branch', '提交 · 检索关联变更', () => {
+          this.onAgentPrompt(buildGerritPrompt(issue, ctx));
+          this.closeInspector();
+        });
       }
-    } catch (err) {
-      console.error('[JiraPlatformView] Failed to save Quick-Note:', err);
-      new NoticeCls(`❌ 存入 Quick-Note 失败: ${err.message}`, 5000);
+      if (this.onOpenTool) {
+        this._ghostIconBtn(left, 'chart-line', '波形 · 打开分析工具', () => {
+          this.onOpenTool(toolIdForModule(ctx.module));
+          this.closeInspector();
+        });
+      }
     }
+
+    const right = row.createDiv({ cls: 'tw-ins-aux-right' });
+    let topic = null;
+    try { if (this.topicService) topic = await this.topicService.findTopicByJira(issue.key); } catch (_) {}
+    let disp = { disposition: '', closed_at: '' };
+    try { if (this.sandboxService) disp = await this.sandboxService.readDisposition(issue.key); } catch (_) {}
+
+    if (topic) {
+      const badge = right.createEl('span', {
+        cls: 'tw-ins-triage-badge topic',
+        text: `📁 ${topic.title}`,
+        attr: { title: '打开专题' }
+      });
+      badge.onclick = () => { if (this.onOpenTopic) this.onOpenTopic(topic.id); };
+    } else if (disp.disposition === 'closed') {
+      right.createEl('span', {
+        cls: 'tw-ins-triage-badge',
+        text: `已留档 ${disp.closed_at || ''}`.trim()
+      });
+    }
+
+    const wrap = right.createDiv({ cls: 'tw-pop-wrap tw-archive-wrap' });
+    const trig = wrap.createDiv({ cls: 'tw-ins-archive-trigger', attr: { title: '结单归档分流' } });
+    trig.innerHTML = `${getIconPark('check', 13)}<span>结单归档</span>${getIconPark('up', 10)}`;
+    const menu = wrap.createDiv({ cls: 'tw-pop-menu tw-ins-archive-menu' });
+
+    const addItem = (name, title, onClick) => {
+      const it = menu.createEl('div', { cls: 'tw-ins-trans-item', attr: { title: title || '' } });
+      it.innerHTML = `<span class="tw-smi-name">${escapeHtml(name)}</span><span class="tw-smi-arrow">→</span>`;
+      it.onclick = async (e) => {
+        e.stopPropagation();
+        wrap.classList.remove('open');
+        try { await onClick(); } catch (err) {
+          this._notice(`操作失败: ${(err && err.message) || err}`, 5000);
+        }
+      };
+      return it;
+    };
+
+    addItem('直接结单', '留档沙盒, 不动 Jira 状态', async () => {
+      if (!this.sandboxService) { this._notice('请先开始排查建档'); return; }
+      try {
+        await this.sandboxService.setDisposition(issue.key, 'closed');
+        this._notice('✓ 已留档，Jira 状态请用上方流转');
+      } catch (e) {
+        if (String(e && e.message).includes('NO_DRAFT')) {
+          this._notice('请先开始排查建档');
+          return;
+        }
+        throw e;
+      }
+      await this.renderAuxSection(host, issue);
+    });
+
+    if (this.onAgentPrompt) {
+      addItem('提炼CASE', '提炼为 CASE 入库', async () => {
+        const draft = this.sandboxService ? await this.sandboxService.findDraft(issue.key) : null;
+        if (!draft) { this._notice('请先开始排查建档'); return; }
+        this.onAgentPrompt(buildCasePrompt(issue, ctx));
+        this.closeInspector();
+      });
+    }
+
+    if (this.topicService && this.onOpenTopic) {
+      addItem('升为专题', '转为个人专题跟踪', async () => {
+        const res = await this.topicService.ensureTopicFromJira(issue, {
+          module: ctx.module,
+          platform: ctx.platform,
+          sandboxDir: ctx.sandboxDir
+        });
+        this._notice(res.created ? '✓ 已升为专题' : `已有专题「${res.topic.title}」`);
+        this.onOpenTopic(res.topic.id);
+      });
+    }
+
+    trig.onclick = (e) => {
+      e.stopPropagation();
+      const willOpen = !wrap.classList.contains('open');
+      this._closeInspectorPopups();
+      if (willOpen) wrap.classList.add('open');
+    };
+  }
+
+  async _openVaultFile(file) {
+    if (!file) return;
+    try {
+      let leaf = this.app.workspace.getLeaf(false);
+      if (leaf && typeof leaf.then === 'function') leaf = await leaf;
+      if (leaf && typeof leaf.openFile === 'function') {
+        await leaf.openFile(file);
+        return;
+      }
+    } catch (_) {}
+    try { this.app.openWithDefaultApp && this.app.openWithDefaultApp(file.path); } catch (_) {}
+  }
+
+  async _openVaultFileSplit(file) {
+    if (!file) return;
+    try {
+      let leaf = this.app.workspace.getLeaf('split', 'vertical');
+      if (leaf && typeof leaf.then === 'function') leaf = await leaf;
+      if (leaf && typeof leaf.openFile === 'function') {
+        await leaf.openFile(file);
+        return;
+      }
+    } catch (e) {
+      console.warn('[JiraPlatformView] openSplit failed:', e);
+    }
+    this._openVaultFile(file);
   }
 
   closeInspector() {
     if (this._inspectorEscHandler) {
       document.removeEventListener('keydown', this._inspectorEscHandler);
       this._inspectorEscHandler = null;
+    }
+    if (this._inspectorMenuHandler) {
+      document.removeEventListener('click', this._inspectorMenuHandler, true);
+      this._inspectorMenuHandler = null;
     }
     if (this.inspectorContainer) {
       this.inspectorContainer.style.display = 'none';

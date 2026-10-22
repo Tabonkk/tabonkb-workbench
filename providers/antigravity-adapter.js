@@ -15,13 +15,16 @@ const child_process = require('child_process');
  * 确保 Antigravity CLI 拥有 TabonKB 专有 MCP 工具与工作区信任配置 (幂等, 自动写入)
  * 配置写入 ~/.gemini/config/mcp_config.json 以及 ~/.gemini/antigravity-cli/settings.json
  */
+// MCP command 使用 GUI 子系统 node 副本避免 conhost 闪屏；bundle 内由 vendor-mcp-shared.js 提供
+function agyMcpGuiNodeExe(e) { return typeof mcpResolveGuiNodeExe === 'function' ? mcpResolveGuiNodeExe(e) : e; }
+
 function ensureAgyMcpServers(vaultBasePath) {
   try {
     const userProfile = process.env.USERPROFILE || 'C:\\Users\\Administrator';
     const configDir = path.join(userProfile, '.gemini', 'config');
     const mcpConfigFile = path.join(configDir, 'mcp_config.json');
 
-    const nodeExe = weknoraMcpResolveNodeExe();
+    const nodeExe = agyMcpGuiNodeExe(weknoraMcpResolveNodeExe());
     const tools = {
       [WEKNORA_MCP_SERVER_NAME]: weknoraMcpScriptPath(vaultBasePath),
       [VENDOR_MCP_SERVER_NAME]: vendorMcpScriptPath(vaultBasePath),

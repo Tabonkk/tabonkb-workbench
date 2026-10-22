@@ -3655,6 +3655,7 @@ class ForceGraphCanvas {
 
     this.alpha = 1.0;
     this.animFrameId = null;
+    this._disposed = false;
     this.isPanning = false;
     this.isDragging = false;
     this.panStart = { x: 0, y: 0 };
@@ -3748,11 +3749,12 @@ class ForceGraphCanvas {
       this.settingsPopover.toggleClass('open', !this.settingsPopover.hasClass('open'));
     };
 
-    document.addEventListener('click', (e) => {
+    this._docClickHandler = (e) => {
       if (this.settingsPopover && this.settingsPopover.hasClass('open') && !this.settingsPopover.contains(e.target) && e.target !== btnSettings) {
         this.settingsPopover.removeClass('open');
       }
-    });
+    };
+    document.addEventListener('click', this._docClickHandler);
 
     this.bindEvents();
 
@@ -4018,6 +4020,7 @@ class ForceGraphCanvas {
   }
 
   handleResize() {
+    if (this._disposed || !this.canvasWrap) return;
     const rect = this.canvasWrap.getBoundingClientRect();
     if (rect.width === 0 || rect.height === 0) return;
     const dpr = Math.max(window.devicePixelRatio || 1, 2);
@@ -4039,7 +4042,30 @@ class ForceGraphCanvas {
     this.draw();
   }
 
+  // 整页重建/视图关闭时释放: 取消 rAF 仿真、断开 ResizeObserver、移除 document 监听。
+  // 缺失此清理时旧画布实例被监听器闭包常驻持有, 且 tick 在脱离文档的画布上空转。
+  dispose() {
+    this._disposed = true;
+    if (this.animFrameId) {
+      cancelAnimationFrame(this.animFrameId);
+      this.animFrameId = null;
+    }
+    if (this.resizeObserver) {
+      try { this.resizeObserver.disconnect(); } catch (e) {}
+      this.resizeObserver = null;
+    }
+    if (this._docClickHandler) {
+      document.removeEventListener('click', this._docClickHandler);
+      this._docClickHandler = null;
+    }
+    this.nodes = [];
+    this.edges = [];
+    if (this.nodeMap) this.nodeMap.clear();
+    if (this.adjMap) this.adjMap.clear();
+  }
+
   setData(graphData) {
+    if (this._disposed) return;
     this.nodes = graphData.nodes || [];
     this.edges = graphData.edges || [];
     this.nodeMap.clear();
@@ -4114,6 +4140,7 @@ class ForceGraphCanvas {
   }
 
   applyThemeLayout(themeKey = this.currentTheme) {
+    if (this._disposed) return;
     const w = this.width || 600;
     const h = this.height || 420;
     const cx = w / 2;
@@ -4354,9 +4381,11 @@ class ForceGraphCanvas {
   }
 
   startSimulation() {
+    if (this._disposed) return;
     if (this.animFrameId) cancelAnimationFrame(this.animFrameId);
     let stepCount = 0;
     const tick = () => {
+      if (this._disposed) { this.animFrameId = null; return; }
       stepCount++;
       if (this.alpha > 0.005) {
         this.stepPhysics();
@@ -4378,6 +4407,7 @@ class ForceGraphCanvas {
   }
 
   wakeUpSimulation() {
+    if (this._disposed) return;
     this.alpha = 0.35;
     this.updateStatusText('微调拓扑中...', false);
     if (!this.animFrameId) {
@@ -4596,7 +4626,7 @@ class ForceGraphCanvas {
   }
 
   draw() {
-    if (!this.ctx) return;
+    if (this._disposed || !this.ctx) return;
     const ctx = this.ctx;
     const dpr = this.canvas.width / (this.width || 1) || Math.max(window.devicePixelRatio || 1, 2);
     if (!Number.isFinite(this.transform.x) || !Number.isFinite(this.transform.y) || !Number.isFinite(this.transform.scale) || this.transform.scale <= 0) {
@@ -5216,6 +5246,7 @@ class ForceGraphCanvas {
   }
 
   focusNode(nodeId) {
+    if (this._disposed) return;
     const node = this.nodeMap.get(nodeId);
     if (!node) return;
     this.selectedNode = node;
@@ -5232,6 +5263,7 @@ class ForceGraphCanvas {
   }
 
   filterModule(mod) {
+    if (this._disposed) return;
     this.activeFilter = mod;
     this.draw();
   }
@@ -5361,6 +5393,7 @@ class TabonKBWorkbenchView extends ItemView {
   }
 
   async refreshVaultDocs() {
+    globalThis.__twRefreshCount = (globalThis.__twRefreshCount || 0) + 1;
     await this.loadVaultDocs();
     // Agent 任务流式执行中 / 发送中 / 非首页时跳过全量 render()：vault create/modify/delete
     // 与 metadataCache.resolved 事件在 Agent 写文件或附件落盘时高频触发，整页重建会销毁
@@ -5372,10 +5405,32 @@ class TabonKBWorkbenchView extends ItemView {
     if (hubBusy || drawerBusy || this.activeTab !== 'home') {
       return;
     }
+    // 渲染合并闸: 同一轮扫描的多个并发等待方共享一个 render 名额,
+    // 避免 vault 事件风暴期间每次事件都触发整页 DOM 重建导致主线程饥饿。
+    if (this._renderQueued) return;
+    // 最小间隔节流 + 尾随一次: 持续写入 (Agent 落盘/索引级联) 时渲染频率封顶 ~1次/1.2s
+    const _now = Date.now();
+    const _elapsed = _now - (this._lastRefreshRenderAt || 0);
+    if (_elapsed < 1200) {
+      if (!this._refreshRenderTimer) {
+        this._refreshRenderTimer = setTimeout(() => {
+          this._refreshRenderTimer = null;
+          this._lastRefreshRenderAt = Date.now();
+          if (this.activeTab !== 'home') return;
+          try { this.render(); } catch (e) { console.error('[TabonKB Workbench] Refresh render failed:', e); }
+        }, 1200 - _elapsed);
+      }
+      return;
+    }
+    this._renderQueued = true;
     try {
+      await Promise.resolve();
       this.render();
+      this._lastRefreshRenderAt = Date.now();
     } catch (err) {
       console.error('[TabonKB Workbench] Refresh render failed:', err);
+    } finally {
+      this._renderQueued = false;
     }
   }
 
@@ -5386,14 +5441,36 @@ class TabonKBWorkbenchView extends ItemView {
   }
 
   async loadVaultDocs() {
-    // 并发闸: 索引期 vault 事件风暴会排队触发全量扫描, 在飞时直接复用本次结果
-    if (this._docsInFlight) return;
+    // 并发闸 v2: 扫描在飞时调用方共享本次扫描 Promise 并标脏 (此前直接 return
+    // 秒放行, await 方随即整页 render(), vault 事件风暴 → 每秒多次全量重建,
+    // 叠加 ForceGraph/ResizeObserver 泄漏后主线程饥饿黑屏)。扫描期间新增的
+    // 变更由脏标记驱动收尾合并补扫一次。
+    if (this._docsInFlight) {
+      this._docsDirty = true;
+      return this._docsPromise || Promise.resolve();
+    }
     this._docsInFlight = true;
     this.isLoadingDocs = true;
+    this._docsPromise = this._scanVaultDocs();
+    try {
+      await this._docsPromise;
+    } finally {
+      this._docsPromise = null;
+      this.isLoadingDocs = false;
+      this._docsInFlight = false;
+    }
+    if (this._docsDirty) {
+      this._docsDirty = false;
+      // 走 refreshVaultDocs 统一补扫重绘 (含忙闲判断与渲染合并闸)
+      Promise.resolve().then(() => this.refreshVaultDocs());
+    }
+  }
+
+  async _scanVaultDocs() {
+    globalThis.__twScanCount = (globalThis.__twScanCount || 0) + 1;
     try {
       const vault = this.app?.vault;
       if (!vault || typeof vault.getMarkdownFiles !== 'function') {
-        this.isLoadingDocs = false;
         return;
       }
 
@@ -5515,9 +5592,6 @@ class TabonKBWorkbenchView extends ItemView {
       this.scheduleWeknoraMerge();
     } catch (err) {
       console.error('[TabonKB Workbench] Error in loadVaultDocs:', err);
-    } finally {
-      this.isLoadingDocs = false;
-      this._docsInFlight = false;
     }
   }
 
@@ -6135,7 +6209,8 @@ class TabonKBWorkbenchView extends ItemView {
         const wk = wkTopoSlimGraph(cached, s.topoGrouping || 'semantic');
         const base = this.vaultGraphData || this.graphData;
         this.graphData = wkTopoMerge(base, wk, 800);
-        if (this.graphCanvas) this.graphCanvas.setData(this.graphData);
+        // 异步回写时画布可能已被整页重建 dispose (旧实例引用需 _disposed 拦截)
+        if (this.graphCanvas && !this.graphCanvas._disposed) this.graphCanvas.setData(this.graphData);
         this.updateWkTopoStatus(true, this.graphData.nodes.filter(n => n.source === 'weknora').length);
       } catch (e) {
         console.warn('[TabonKB] WeKnora 拓扑合并失败:', e);
@@ -6148,7 +6223,7 @@ class TabonKBWorkbenchView extends ItemView {
   }
 
   updateWkTopoStatus(ok, wkCount) {
-    const el = this.graphCanvas && this.graphCanvas.statusEl;
+    const el = this.graphCanvas && !this.graphCanvas._disposed && this.graphCanvas.statusEl;
     if (!el) return;
     el.innerHTML = ok
       ? `<span class="tw-graph-dot" style="background:#10B981;"></span><span id="twStatusText">✓ 轻量知识拓扑 就绪 · 含 WeKnora ${wkCount} 节点</span>`
@@ -6162,7 +6237,7 @@ class TabonKBWorkbenchView extends ItemView {
       const raw = await wkTopoFetchEgo(vb, node.wkSlug, 150);
       const wk = wkTopoSlimGraph(raw, s.topoGrouping || 'semantic');
       this.graphData = wkTopoMerge(this.graphData, wk, 800);
-      if (this.graphCanvas) this.graphCanvas.setData(this.graphData);
+      if (this.graphCanvas && !this.graphCanvas._disposed) this.graphCanvas.setData(this.graphData);
       new Notice(`WeKnora 邻居展开: +${wk.nodes.length} 节点`);
     } catch (e) {
       new Notice('WeKnora ego 展开失败: ' + e.message);
@@ -6180,17 +6255,18 @@ class TabonKBWorkbenchView extends ItemView {
     }
   }
 
-  onClose() {
-    // 视图关闭释放图数据 (磁盘缓存保留), 避免常驻内存
+  async onClose() {
+    // 注意: 本方法是类中唯二 onClose 中的后者, 实际生效 (JS 同名方法后者覆盖)。
+    // 因此必须在此完成全量清理 —— 定时器/订阅/子视图/画布, 缺失会整片泄漏。
     this.graphData = { nodes: [], edges: [] };
     this.vaultGraphData = null;
     this.realDocs = [];
     if (this.graphCanvas) {
-      if (this.graphCanvas.animFrameId) cancelAnimationFrame(this.graphCanvas.animFrameId);
-      this.graphCanvas.nodes = [];
-      this.graphCanvas.edges = [];
-      this.graphCanvas.nodeMap.clear();
-      this.graphCanvas.adjMap.clear();
+      try { this.graphCanvas.dispose && this.graphCanvas.dispose(); } catch (e) {}
+      this.graphCanvas = null;
+    }
+    if (typeof this._disposeViewResources === 'function') {
+      try { await this._disposeViewResources(); } catch (e) {}
     }
     return Promise.resolve();
   }

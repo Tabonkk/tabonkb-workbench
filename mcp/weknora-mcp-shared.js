@@ -59,6 +59,9 @@ function buildWeknoraEnv(vaultBasePath) {
 // 提示语: 引导各 CLI 优先用 WeKnora 知识库工具
 const WEKNORA_MCP_TOOL_HINT = '\n\n[系统指令] 你已接入团队知识库 MCP 工具 ' + WEKNORA_MCP_SERVER_NAME + ' (WeKnora)。用户询问项目沉淀知识、历史排障、平台文档或知识库内容时, 默认只调用 weknora_search (混合检索, 返回片段)。不要默认调用 weknora_ask: 它会在服务端再跑一轮完整 RAG, 经常耗时数分钟。仅当用户明确要求知识库直接给出带引用的成稿、且 search 片段不够时, 才单独调用 weknora_ask。不要把 weknora_search 与 weknora_ask 放进同一次工具批次: deferred 工具不能并行, 且 ask 内部已经包含检索。需要全文再用 weknora_read_document。写入用 weknora_add_document / weknora_update_document / weknora_delete_document。';
 
+// MCP command 使用 GUI 子系统 node 副本避免 conhost 闪屏；bundle 内由 vendor-mcp-shared.js 提供
+function weknoraMcpGuiNodeExe(e) { return typeof mcpResolveGuiNodeExe === 'function' ? mcpResolveGuiNodeExe(e) : e; }
+
 // ---- Hermes: 全局注册 (幂等, 异步不阻塞) ----
 function ensureHermesWeknoraMcp(hermesBin, prefixArgs, vaultBasePath) {
   return new Promise((resolve) => {
@@ -70,7 +73,7 @@ function ensureHermesWeknoraMcp(hermesBin, prefixArgs, vaultBasePath) {
       listProc.on('error', (e) => resolve({ ok: false, error: e.message }));
       listProc.on('close', () => {
         if (listOut.indexOf(WEKNORA_MCP_SERVER_NAME) >= 0) { resolve({ ok: true, already: true }); return; }
-        const nodeExe = weknoraMcpResolveNodeExe();
+        const nodeExe = weknoraMcpGuiNodeExe(weknoraMcpResolveNodeExe());
         const script = weknoraMcpScriptPath(vaultBasePath);
         const addProc = child_process.spawn(hermesBin, [...pre, 'mcp', 'add', WEKNORA_MCP_SERVER_NAME, '--command', nodeExe, '--args', script], { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
         let out = '';

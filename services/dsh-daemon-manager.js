@@ -743,8 +743,8 @@ function getDshContextBridgeScript() {
     '._3e4SsG_sectionTitle:not(:first-child),.twx-sec-title{border-top:.5px solid rgba(128,128,128,.12)!important;margin-top:4px!important;padding-top:5px!important;}',
     '.twx-sec-name{font-weight:600!important;color:inherit!important;}',
     // 滚动微角标：提示当前显示子项范围，支持点击与滚轮交互
-    '.twx-sec-badge{display:inline-flex!important;align-items:center!important;font-size:9.5px!important;font-weight:500!important;font-family:ui-monospace,SFMono-Regular,Menlo,monospace!important;color:var(--dsw-alias-label-tertiary,#9ca3af)!important;background:rgba(128,128,128,.08)!important;padding:1px 5px!important;border-radius:4px!important;cursor:pointer!important;transition:all .12s ease!important;}',
-    '.twx-sec-badge:hover{background:rgba(128,128,128,.18)!important;color:var(--dsw-alias-label-primary,#111827)!important;}',
+    '.twx-sec-badge{display:none!important;}',
+    '.twx-plus-menu [role="listbox"]{overflow-y:auto!important;overscroll-behavior:contain;scrollbar-width:thin;}',
     // 上下文分组子项按钮：完全复刻原生 _3e4SsG_item 尺寸与状态（不设 !important，确保可被隐藏规则覆盖）
     '.twx-item{display:flex;align-items:center;gap:7px;width:100%;min-height:34px;height:34px;padding:6px 8px;margin:0;box-sizing:border-box;border:none;border-radius:var(--dsw-radius-md,6px);background:transparent;cursor:pointer;font-size:13px;line-height:20px;color:var(--dsw-alias-label-primary,#111827);text-align:left;}',
     '.twx-item:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(128,128,128,.08))!important;}',
@@ -798,8 +798,7 @@ function getDshContextBridgeScript() {
     '@media (prefers-color-scheme:dark){.twx-panel,.twx-plus-menu{background:rgba(26,26,30,.97)!important;border-color:rgba(255,255,255,.1);box-shadow:0 16px 36px -4px rgba(0,0,0,.45),0 0 1px 1px rgba(255,255,255,.06);color:#f3f4f6;}.twx-item{color:#f3f4f6!important;}.twx-sec-badge{color:#9ca3af!important;background:rgba(255,255,255,.08)!important;}.twx-sec-badge:hover{color:#f3f4f6!important;background:rgba(255,255,255,.16)!important;}.twx-search-box{background:rgba(255,255,255,.05);border-color:rgba(255,255,255,.1);}.twx-search-box:focus-within{background:rgba(255,255,255,.08);border-color:rgba(52,211,153,.5);box-shadow:0 0 0 2px rgba(16,185,129,.2);}.twx-p-nav{border-color:rgba(255,255,255,.08);color:#f3f4f6;}.twx-back{color:#94a3b8;}.twx-back:hover{color:#f8fafc;background:rgba(255,255,255,.08);}.twx-nav-title{color:#f3f4f6;}.twx-cur{background:rgba(16,185,129,.08);border-color:rgba(16,185,129,.25);}.twx-cur-badge{color:#34d399;background:rgba(16,185,129,.16);}.twx-cur-name{color:#f3f4f6;}.twx-cur-desc{color:#9ca3af;}.twx-cur-clear-btn{color:#9ca3af;background:transparent;border:none;}.twx-cur-clear-btn:hover{color:#f87171;background:rgba(239,68,68,.18);}.twx-opt:hover{background:rgba(255,255,255,.06);}.twx-opt .t-name{color:#f3f4f6;}.twx-opt .t-desc{color:#9ca3af;}.twx-chip{color:var(--dsw-alias-label-secondary,var(--dsw-text-secondary,var(--ds-text-secondary,#9ca3af)));}.twx-chip:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(255,255,255,.08));color:var(--dsw-alias-label-primary,var(--ds-text-primary,#f3f4f6));}}',
     '.dark .twx-panel,[data-theme="dark"] .twx-panel,.dark .twx-plus-menu,[data-theme="dark"] .twx-plus-menu{background:rgba(26,26,30,.97)!important;border-color:rgba(255,255,255,.1);box-shadow:0 16px 36px -4px rgba(0,0,0,.45),0 0 1px 1px rgba(255,255,255,.06);color:#f3f4f6;}',
     '.dark .twx-item,[data-theme="dark"] .twx-item{color:#f3f4f6!important;}',
-    '.dark .twx-sec-badge,[data-theme="dark"] .twx-sec-badge{color:#9ca3af!important;background:rgba(255,255,255,.08)!important;}',
-    '.dark .twx-sec-badge:hover,[data-theme="dark"] .twx-sec-badge:hover{color:#f3f4f6!important;background:rgba(255,255,255,.16)!important;}',
+    '.dark .twx-sec-badge,[data-theme="dark"] .twx-sec-badge{display:none!important;}',
     '.dark .twx-search-box,[data-theme="dark"] .twx-search-box{background:rgba(255,255,255,.05);border-color:rgba(255,255,255,.1);}',
     '.dark .twx-search-box:focus-within,[data-theme="dark"] .twx-search-box:focus-within{background:rgba(255,255,255,.08);border-color:rgba(52,211,153,.5);box-shadow:0 0 0 2px rgba(16,185,129,.2);}',
     '.dark .twx-p-nav,[data-theme="dark"] .twx-p-nav{border-color:rgba(255,255,255,.08);color:#f3f4f6;}',
@@ -821,7 +820,7 @@ function getDshContextBridgeScript() {
     '.twx-chip-icon svg{width:14px;height:14px;display:block;}',
     '.twx-chip-label{text-overflow:ellipsis;white-space:nowrap;min-width:0;overflow:hidden;}',
     // 终极隐藏兜底（位于样式表最末尾，保证最高层叠权重，彻底消除 ghost 占位空白）
-    '[data-twx-hidden="true"],.twx-item[data-twx-hidden="true"],._3e4SsG_item[data-twx-hidden="true"],button[data-twx-hidden="true"]{display:none!important;height:0!important;min-height:0!important;max-height:0!important;padding:0!important;margin:0!important;border:none!important;opacity:0!important;overflow:hidden!important;pointer-events:none!important;visibility:hidden!important;}'
+    '[data-twx-hidden]{visibility:visible!important;}'
   ].join('\\n');
 
   var styleEl = document.createElement('style');
@@ -874,64 +873,29 @@ function getDshContextBridgeScript() {
   var lpNav = { step: 'servers', serverId: null, workspaceName: null, platform: null };
 
   // 「添加」「指令」「上下文」三组统一 2 行限高窗口与独立平滑滚轮/点击步进
-  var groupOffsets = { add: 0, cmd: 0, ctx: 0 };
   var groupItems = { add: [], cmd: [], ctx: [] };
 
   function updateGroupVisibility(grp) {
+    // 全部显示: 原生条目不再折叠 (此前 2 项滑窗+徽章翻页会让用户误以为原生条目消失)
     var items = groupItems[grp] || [];
-    var off = groupOffsets[grp] || 0;
     for (var i = 0; i < items.length; i++) {
       var item = items[i];
       if (!item) continue;
-      if (i >= off && i <= off + 1) {
-        item.removeAttribute('data-twx-hidden');
-        item.style.removeProperty('display');
-        item.style.removeProperty('height');
-        item.style.removeProperty('min-height');
-        item.style.removeProperty('padding');
-        item.style.removeProperty('margin');
-        item.style.removeProperty('visibility');
-      } else {
-        item.setAttribute('data-twx-hidden', 'true');
-        item.style.setProperty('display', 'none', 'important');
-        item.style.setProperty('height', '0px', 'important');
-        item.style.setProperty('min-height', '0px', 'important');
-        item.style.setProperty('padding', '0px', 'important');
-        item.style.setProperty('margin', '0px', 'important');
-        item.style.setProperty('visibility', 'hidden', 'important');
-      }
-    }
-    if (menuEl) {
-      var badge = menuEl.querySelector('[data-twx-badge="' + grp + '"]');
-      if (badge && items.length > 0) {
-        var start = Math.min(off + 1, items.length);
-        var end = Math.min(off + 2, items.length);
-        badge.textContent = start + '-' + end + '/' + items.length;
-      }
-      var lb = menuEl.querySelector('[role="listbox"]') || menuEl.querySelector('._3e4SsG_viewport') || menuEl;
-      if (lb && lb.scrollTop > 0) lb.scrollTop = 0;
+      item.removeAttribute('data-twx-hidden');
+      item.style.removeProperty('display');
+      item.style.removeProperty('height');
+      item.style.removeProperty('min-height');
+      item.style.removeProperty('padding');
+      item.style.removeProperty('margin');
+      item.style.removeProperty('visibility');
     }
   }
 
   function setupGroupBadges(titleEl, grp, labelText) {
     if (!titleEl) return;
     titleEl.setAttribute('data-twx-title-grp', grp);
-    var badge = titleEl.querySelector('.twx-sec-badge');
-    if (!badge) {
-      titleEl.innerHTML = '<span class="twx-sec-name">' + esc(labelText) + '</span>' +
-        '<span class="twx-sec-badge" data-twx-badge="' + grp + '" title="滚轮滑动或点击切换">' +
-        (groupOffsets[grp] + 1) + '-' + (groupOffsets[grp] + 2) + '/4</span>';
-      badge = titleEl.querySelector('.twx-sec-badge');
-      if (badge) {
-        badge.onclick = function (e) {
-          e.stopPropagation();
-          var items = groupItems[grp] || [];
-          var maxOff = Math.max(0, items.length - 2);
-          groupOffsets[grp] = groupOffsets[grp] >= maxOff ? 0 : maxOff;
-          updateGroupVisibility(grp);
-        };
-      }
-    }
+    // 只给自建的 ctx 标题补文案; 原生标题保持 innerHTML 原样 (避免扰动 React 托管节点)
+    if (grp === 'ctx' && !(titleEl.textContent || '').trim()) titleEl.textContent = labelText;
   }
 
   function esc(s) {
@@ -940,19 +904,30 @@ function getDshContextBridgeScript() {
       .replace(/"/g, '&quot;').replace(/'/g, '&#039;');
   }
 
+  // 当前 DSH 会话标识: 会话根节点 data-conversation-session="<uuid>" (草稿/首页态无此属性 → '')
+  function currentSid() {
+    try {
+      var el = document.querySelector('[data-conversation-session]');
+      return (el && el.getAttribute('data-conversation-session')) || '';
+    } catch (_) { return ''; }
+  }
+
   function askHost() {
     try {
       if (window.parent && window.parent !== window) {
-        window.parent.postMessage({ type: 'tabonkb-dsh-ctx-state-req' }, '*');
+        window.parent.postMessage({ type: 'tabonkb-dsh-ctx-state-req', sid: currentSid() }, '*');
       }
     } catch (_) {}
   }
 
+  // ctxState.values 当前所属会话 (host 归一化后的 sid): 供 pollSession 判断旧值是否需立即摘除
+  var valuesSid = '';
   window.addEventListener('message', function (e) {
     if (!e || !e.data) return;
     if (e.data.type === 'tabonkb-dsh-ctx-state') {
       ctxState.values = e.data.values || {};
       if (e.data.lists) ctxState.lists = e.data.lists;
+      valuesSid = e.data.sid || '';
       refreshVals();
       updateCtxChips();
       if (panelEl) renderPanelList();
@@ -982,13 +957,13 @@ function getDshContextBridgeScript() {
   var MENU_KEYS = ['文件', 'file', '目标', 'goal', '压缩', 'compact', '权限', 'permission', '模型', 'model', '下载', 'export', '添加', '指令'];
   function looksLikeAttachMenu(el) {
     if (!el || el.nodeType !== 1) return false;
-    // 先做廉价的几何/定位过滤, 只有「底部浮层」才读取 innerText (避免高频 mutation 下的强制排版)
-    var r = el.getBoundingClientRect();
-    if (r.width < 150 || r.height < 110) return false;
-    if (r.top < window.innerHeight * 0.25) return false;
-    var cs = getComputedStyle(el);
-    if (cs.position !== 'fixed' && cs.position !== 'absolute') return false;
-    var t = (el.innerText || '').toLowerCase();
+    // 结构判定 (不依赖屏幕位置: 菜单位置随布局 —— 空会话输入框居中 / 对话态贴底 —— 与条目数变化,
+    // 任何几何阈值都会在某种布局下误杀): 候选须是「包含 listbox 且其中有 option 条目」的外层容器,
+    // 取最小面积者即菜单表面; 再以文本关键词确认。仅用 textContent, 不触发强制排版。
+    if (!el.offsetWidth || !el.offsetHeight) return false;
+    var lb = el.querySelector('[role="listbox"]');
+    if (!lb || !lb.querySelector('[role="option"]')) return false;
+    var t = (el.textContent || '').toLowerCase();
     if (t.length < 20 || t.length > 3000) return false;
     var hits = 0;
     for (var i = 0; i < MENU_KEYS.length; i++) {
@@ -1036,9 +1011,6 @@ function getDshContextBridgeScript() {
   function onMenuFound(menu) {
     if (menu !== menuEl) {
       menuEl = menu;
-      groupOffsets.add = 0;
-      groupOffsets.cmd = 0;
-      groupOffsets.ctx = 0;
       applyMenuOpacity(menu);
       injectGroup(menu);
     } else if (!menuEl.querySelector('.twx-sec-title')) {
@@ -1113,7 +1085,9 @@ function getDshContextBridgeScript() {
       ctxTitle.className = '_3e4SsG_sectionTitle twx-sec-title';
       ctxTitle.setAttribute('role', 'presentation');
       setupGroupBadges(ctxTitle, 'ctx', '上下文');
-      listbox.appendChild(ctxTitle);
+      // 「上下文」组置于菜单最前 (首屏即可见, 不受固定高度裁剪)
+      listbox.insertBefore(ctxTitle, listbox.firstChild);
+      var ctxAnchor = ctxTitle;
 
       var ctxItems = [];
       for (var j = 0; j < ROWS.length; j++) {
@@ -1130,7 +1104,8 @@ function getDshContextBridgeScript() {
           '<span class="_3e4SsG_itemName twx-name">' + r.name + '</span>' +
           '<span class="_3e4SsG_itemDescription twx-val">' + esc(valLabel(r.key)) + '</span>' +
           '<span class="twx-arrow">›</span>';
-        listbox.appendChild(btn);
+        ctxAnchor.after(btn);
+        ctxAnchor = btn;
         ctxItems.push(btn);
       }
       groupItems.ctx = ctxItems;
@@ -1220,7 +1195,7 @@ function getDshContextBridgeScript() {
   function postSet(key, value) {
     try {
       if (window.parent && window.parent !== window) {
-        window.parent.postMessage({ type: 'tabonkb-dsh-ctx-set', key: key, value: value }, '*');
+        window.parent.postMessage({ type: 'tabonkb-dsh-ctx-set', key: key, value: value, sid: currentSid() }, '*');
       }
     } catch (_) {}
   }
@@ -1605,12 +1580,28 @@ function getDshContextBridgeScript() {
     var bare = (path === '/' || path === '/index.html') && (hash === '' || hash === '#/' || hash === '#');
     if (bare) notifyNewChat();
   }
+  // 会话切换侦测: DSH 以 cordis 事件总线驱动会话切换 (URL 未必变化), 轮询 DOM 上的
+  // data-conversation-session 属性; sid 变化即摘除旧会话胶囊并向 host 拉取新会话独立上下文
+  var lastSid = '';
+  function pollSession() {
+    var s = currentSid();
+    if (s === lastSid) return;
+    lastSid = s;
+    // 现有 values 若非本会话数据 → 立即摘除避免跨会话显示旧绑定; host 回包后再渲染新会话绑定
+    if (valuesSid !== (s || '__draft__')) {
+      ctxState.values = {};
+      updateCtxChips();
+      if (panelEl) renderPanelList();
+    }
+    askHost();
+  }
+  function pollRouteAndSession() { checkRoute(); pollSession(); }
   try {
     var _ps = history.pushState, _rs = history.replaceState;
-    history.pushState = function () { var r = _ps.apply(this, arguments); setTimeout(checkRoute, 0); return r; };
-    history.replaceState = function () { var r = _rs.apply(this, arguments); setTimeout(checkRoute, 0); return r; };
-    window.addEventListener('popstate', function () { setTimeout(checkRoute, 0); });
-    setInterval(checkRoute, 1200);
+    history.pushState = function () { var r = _ps.apply(this, arguments); setTimeout(pollRouteAndSession, 0); return r; };
+    history.replaceState = function () { var r = _rs.apply(this, arguments); setTimeout(pollRouteAndSession, 0); return r; };
+    window.addEventListener('popstate', function () { setTimeout(pollRouteAndSession, 0); });
+    setInterval(pollRouteAndSession, 1200);
     lastHref = location.href;
   } catch (_) {}
 
@@ -1664,92 +1655,7 @@ function getDshContextBridgeScript() {
     openPanel(it.getAttribute('data-k'), it);
   }, true);
 
-  // 鼠标滚轮滑动：悬停在任意分组区域（标题或子项）时，滑动下拉/上滑展示该组其他子项
-  var wheelAccum = { add: 0, cmd: 0, ctx: 0 };
-  var lastWheelStep = 0;
-
-  document.addEventListener('wheel', function (e) {
-    if (!menuEl || !menuEl.isConnected) return;
-    var target = e.target;
-    if (!target) return;
-    if (!menuEl.contains(target)) return;
-
-    var grp = null;
-    var itemEl = target.closest('[data-twx-grp]');
-    if (itemEl) {
-      grp = itemEl.getAttribute('data-twx-grp');
-    } else {
-      var titleEl = target.closest('._3e4SsG_sectionTitle, .twx-sec-title');
-      if (titleEl && titleEl.getAttribute('data-twx-title-grp')) {
-        grp = titleEl.getAttribute('data-twx-title-grp');
-      }
-    }
-    // 鼠标位于分组标题、子项间隙或菜单内边距时，基于 clientY 命中最近的分组
-    if (!grp && menuEl) {
-      var titles = menuEl.querySelectorAll('[data-twx-title-grp]');
-      for (var ti = titles.length - 1; ti >= 0; ti--) {
-        var tr = titles[ti].getBoundingClientRect();
-        if (e.clientY >= tr.top - 2) {
-          grp = titles[ti].getAttribute('data-twx-title-grp');
-          break;
-        }
-      }
-      if (!grp) grp = 'add';
-    }
-    if (!grp) return;
-
-    var items = groupItems[grp] || [];
-    var maxOff = Math.max(0, items.length - 2);
-    if (maxOff <= 0) return;
-
-    e.preventDefault();
-    e.stopPropagation();
-
-    var lb = menuEl.querySelector('[role="listbox"]') || menuEl.querySelector('._3e4SsG_viewport') || menuEl;
-    if (lb && lb.scrollTop > 0) lb.scrollTop = 0;
-
-    var now = Date.now();
-    wheelAccum[grp] += e.deltaY;
-
-    if (Math.abs(wheelAccum[grp]) >= 20 && (now - lastWheelStep > 40)) {
-      lastWheelStep = now;
-      if (wheelAccum[grp] > 0) {
-        if (groupOffsets[grp] < maxOff) {
-          groupOffsets[grp]++;
-          updateGroupVisibility(grp);
-        }
-      } else {
-        if (groupOffsets[grp] > 0) {
-          groupOffsets[grp]--;
-          updateGroupVisibility(grp);
-        }
-      }
-      wheelAccum[grp] = 0;
-    }
-  }, { passive: false });
-
-  // 键盘方向键联动：如果高亮项超出当前可见的 2 项，自动调整 offset 滚动使其可见
-  document.addEventListener('keydown', function (e) {
-    if (!menuEl || !menuEl.isConnected) return;
-    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
-    setTimeout(function () {
-      if (!menuEl) return;
-      var activeEl = menuEl.querySelector('._3e4SsG_item._3e4SsG_active, [role="option"][aria-selected="true"]');
-      if (!activeEl) return;
-      var grp = activeEl.getAttribute('data-twx-grp');
-      var idxStr = activeEl.getAttribute('data-twx-idx');
-      if (!grp || idxStr == null) return;
-      var idx = parseInt(idxStr, 10);
-      var cur = groupOffsets[grp] || 0;
-      if (idx < cur) {
-        groupOffsets[grp] = idx;
-        updateGroupVisibility(grp);
-      } else if (idx > cur + 1) {
-        groupOffsets[grp] = idx - 1;
-        updateGroupVisibility(grp);
-      }
-    }, 20);
-  }, true);
+  // 原生条目全量展示后, 菜单内滚轮/方向键交由 DSH 原生处理 (不再拦截)
 
   var scanQueued = false;
   var pendingRoots = [];

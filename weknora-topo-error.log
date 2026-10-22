@@ -85,3 +85,12 @@
 [2026-10-08T01:46:00.907Z] MERGE: Error: net::ERR_EMPTY_RESPONSE
     at SimpleURLLoaderWrapper.<anonymous> (node:electron/js2c/browser_init:2:130476)
     at SimpleURLLoaderWrapper.emit (node:events:519:28)
+[2026-10-20T16:00:23.745Z] MERGE: Error: net::ERR_CONNECTION_REFUSED
+    at SimpleURLLoaderWrapper.<anonymous> (node:electron/js2c/browser_init:2:130476)
+    at SimpleURLLoaderWrapper.emit (node:events:519:28)
+[2026-10-20T16:02:31.839Z] MERGE: Error: net::ERR_CONNECTION_TIMED_OUT
+    at SimpleURLLoaderWrapper.<anonymous> (node:electron/js2c/browser_init:2:130476)
+    at SimpleURLLoaderWrapper.emit (node:events:519:28)
+[2026-10-20T16:03:18.603Z] MERGE: Error: net::ERR_CONNECTION_TIMED_OUT
+    at SimpleURLLoaderWrapper.<anonymous> (node:electron/js2c/browser_init:2:130476)
+    at SimpleURLLoaderWrapper.emit (node:events:519:28)

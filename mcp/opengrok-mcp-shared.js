@@ -63,6 +63,9 @@ const OPENGROK_MCP_TOOL_HINT = '\n\n[系统指令] 你已接入公司内网 Open
   '- AIoT: 对应 `S_U_aiot_oversea_release`\n' +
   '凡涉及驱动源码、寄存器定义、内核函数、DTS设备树、Makefile 配置时，必须优先调用 opengrok_search_code 检索代码，再调用 opengrok_read_file 查看函数具体实现，给出精准的代码分析与行号引用。';
 
+// MCP command 使用 GUI 子系统 node 副本避免 conhost 闪屏；bundle 内由 vendor-mcp-shared.js 提供
+function opengrokMcpGuiNodeExe(e) { return typeof mcpResolveGuiNodeExe === 'function' ? mcpResolveGuiNodeExe(e) : e; }
+
 // ---- Hermes: 全局注册 (幂等, 异步不阻塞) ----
 function ensureHermesOpengrokMcp(hermesBin, prefixArgs, vaultBasePath) {
   return new Promise((resolve) => {
@@ -74,7 +77,7 @@ function ensureHermesOpengrokMcp(hermesBin, prefixArgs, vaultBasePath) {
       listProc.on('error', (e) => resolve({ ok: false, error: e.message }));
       listProc.on('close', () => {
         if (listOut.indexOf(OPENGROK_MCP_SERVER_NAME) >= 0) { resolve({ ok: true, already: true }); return; }
-        const nodeExe = opengrokMcpResolveNodeExe();
+        const nodeExe = opengrokMcpGuiNodeExe(opengrokMcpResolveNodeExe());
         const script = opengrokMcpScriptPath(vaultBasePath);
         const addProc = child_process.spawn(hermesBin, [...pre, 'mcp', 'add', OPENGROK_MCP_SERVER_NAME, '--command', nodeExe, '--args', script], { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
         let out = '';

@@ -24,6 +24,32 @@ function vendorMcpResolveNodeExe() {
   return 'node';
 }
 
+// Windows 下第三方 CLI (agy/gemini/hermes/dsh) 拉起 MCP stdio 子进程时不带 CREATE_NO_WINDOW；
+// node.exe 是控制台子系统 (Subsystem=3)，每次拉起都会分配一个 conhost 窗口造成 CMD 黑框闪屏。
+// 生成同内容的 GUI 子系统副本 (Subsystem 3→2)，子进程不再分配控制台，stdin/stdout 管道不受影响。
+// 副本与源同目录 (node-gui.exe)，按 size+mtime 校验缓存；任何失败回退原 node 路径。
+function mcpResolveGuiNodeExe(nodeExe) {
+  try {
+    if (process.platform !== 'win32' || !nodeExe || !fs.existsSync(nodeExe)) return nodeExe;
+    const guiExe = path.join(path.dirname(nodeExe), 'node-gui.exe');
+    const srcStat = fs.statSync(nodeExe);
+    try {
+      const g = fs.statSync(guiExe);
+      if (g.size === srcStat.size && g.mtimeMs >= srcStat.mtimeMs) return guiExe;
+    } catch (_) {}
+    const buf = fs.readFileSync(nodeExe);
+    if (buf.length < 0x400 || buf.readUInt16LE(0) !== 0x5A4D) return nodeExe; // 'MZ'
+    const pe = buf.readUInt32LE(0x3C);
+    if (pe + 94 > buf.length || buf.readUInt32LE(pe) !== 0x00004550) return nodeExe; // 'PE\0\0'
+    const subOff = pe + 4 + 20 + 68; // OptionalHeader.Subsystem (PE32/PE32+ 同偏移)
+    if (buf.readUInt16LE(subOff) !== 3) return nodeExe; // 仅控制台子系统需要转换
+    buf.writeUInt16LE(2, subOff); // IMAGE_SUBSYSTEM_WINDOWS_GUI
+    fs.writeFileSync(guiExe + '.tmp', buf);
+    fs.renameSync(guiExe + '.tmp', guiExe);
+    return guiExe;
+  } catch (_) { return nodeExe; }
+}
+
 function vendorMcpScriptPath(vaultBasePath) {
   const candidates = [
     vaultBasePath ? path.join(vaultBasePath, '.obsidian', 'plugins', 'tabonkb-workbench', 'mcp', 'vendor-portal-mcp.js') : '',
@@ -71,7 +97,7 @@ function ensureHermesVendorMcp(hermesBin, prefixArgs, vaultBasePath) {
       listProc.on('error', (e) => resolve({ ok: false, error: e.message }));
       listProc.on('close', () => {
         if (listOut.indexOf(VENDOR_MCP_SERVER_NAME) >= 0) { resolve({ ok: true, already: true }); return; }
-        const nodeExe = vendorMcpResolveNodeExe();
+        const nodeExe = mcpResolveGuiNodeExe(vendorMcpResolveNodeExe());
         const script = vendorMcpScriptPath(vaultBasePath);
         const addProc = child_process.spawn(hermesBin, [...pre, 'mcp', 'add', VENDOR_MCP_SERVER_NAME, '--command', nodeExe, '--args', script], { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
         let out = '';
@@ -100,7 +126,7 @@ function ensureGeminiVendorMcp(vaultBasePath) {
       try { cfg = JSON.parse(fs.readFileSync(file, 'utf8')) || {}; } catch (e) { cfg = {}; }
     }
     cfg.mcpServers = cfg.mcpServers || {};
-    const nodeExe = vendorMcpResolveNodeExe();
+    const nodeExe = mcpResolveGuiNodeExe(vendorMcpResolveNodeExe());
     const script = vendorMcpScriptPath(vaultBasePath);
     const cur = cfg.mcpServers[VENDOR_MCP_SERVER_NAME];
     const same = cur && cur.command === nodeExe && Array.isArray(cur.args) && cur.args[0] === script;
@@ -115,6 +141,7 @@ function ensureGeminiVendorMcp(vaultBasePath) {
 module.exports = {
   VENDOR_MCP_SERVER_NAME,
   VENDOR_MCP_TOOL_HINT,
+  mcpResolveGuiNodeExe,
   vendorMcpResolveNodeExe,
   vendorMcpScriptPath,
   buildVendorEnv,

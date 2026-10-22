@@ -530,6 +530,27 @@ function _gerritFmtProjects(projects) {
   return lines.join('\n');
 }
 
+// DSH MCP 子进程工作台上下文 (bundle 内为全局函数, 独立运行时按路径探测)
+function gerritLoadWbCtx() {
+  try {
+    if (typeof getHostContext === 'function' && typeof isDshHost === 'function') {
+      return { isDshHost, getHostContext, gerritFilterToQuery, gerritFilterLabel };
+    }
+    const cands = [
+      path.join(__dirname, 'workbench-context.js'),
+      path.join(__dirname, 'services', 'workbench-context.js'),
+      path.join(__dirname, '..', 'services', 'workbench-context.js'),
+      path.join(process.cwd(), '.obsidian', 'plugins', 'tabonkb-workbench', 'services', 'workbench-context.js')
+    ];
+    for (const c of cands) {
+      let m = null;
+      try { if (fs.existsSync(c)) m = require(c); } catch (_) {}
+      if (m && typeof m.isDshHost === 'function') return m;
+    }
+  } catch (_) {}
+  return null;
+}
+
 // 统一的只读工具分发器
 async function runGerritTool(name, args, service) {
   args = args || {};
@@ -537,8 +558,21 @@ async function runGerritTool(name, args, service) {
 
   switch (name) {
     case 'gerrit_search_changes': {
-      const res = await svc.searchChanges(args);
-      return _gerritFmtChanges(res);
+      // DSH 宿主: query 缺省或未含显式 status:/owner:/reviewer: 时附加工作台绑定过滤器
+      let effArgs = args;
+      let bindNote = '';
+      const wb = gerritLoadWbCtx();
+      const ctx = (wb && wb.isDshHost()) ? wb.getHostContext() : null;
+      const fq = (ctx && wb.gerritFilterToQuery) ? wb.gerritFilterToQuery(ctx.gerrit) : '';
+      if (fq) {
+        const q = String(args.query || '').trim();
+        if (!q || !/(?:^|\s)(?:status|owner|reviewer)\s*:/.test(q)) {
+          effArgs = Object.assign({}, args, { query: q ? `${q} ${fq}` : fq });
+          bindNote = `(已按工作台 Gerrit 过滤器「${wb.gerritFilterLabel(ctx.gerrit)}」附加 ${fq}; query 中显式写 status:/owner:/reviewer: 可覆盖)\n`;
+        }
+      }
+      const res = await svc.searchChanges(effArgs);
+      return bindNote + _gerritFmtChanges(res);
     }
     case 'gerrit_get_change': {
       const cid = args.change_id || args.id || args.number;
@@ -573,14 +607,13 @@ const GERRIT_TOOLS = [
       properties: {
         query: {
           type: 'string',
-          description: 'Gerrit 检索表达式 (如 status:open project:kernel, 或 charger, 或 commit:6a8f12)'
+          description: 'Gerrit 检索表达式 (如 status:open project:kernel, 或 charger, 或 commit:6a8f12)；缺省时取工作台绑定过滤器，否则默认 status:open'
         },
         limit: {
           type: 'number',
           description: '返回结果数量上限，默认 15，最多 30'
         }
-      },
-      required: ['query']
+      }
     }
   },
   {

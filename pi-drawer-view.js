@@ -1872,16 +1872,18 @@ class PiDrawerView {
     if (this.ctxPopoverEl && this.ctxPopoverEl.style.display === 'flex') this._renderCtxPopover();
   }
 
-  /** 本地缓存键：agent + 会话维度，重载后先回填上次值再等权威刷新覆盖 */
+  /** 本地缓存键：agent + 会话维度，重载后先回填上次值再等权威刷新覆盖。
+   *  sid 未定时返回 null 不读写——旧的 'default' 共享桶会让不同会话互相串值。 */
   _ctxCacheKey() {
     const agentId = this.hub && this.hub.activeAgentId;
     const sm = this.hub && this.hub.sessionManager;
     const sid = sm && typeof sm.getActiveSessionId === 'function' ? sm.getActiveSessionId(agentId) : null;
-    return agentId ? `${agentId}:${sid || 'default'}` : null;
+    return (agentId && sid) ? `${agentId}:${sid}` : null;
   }
 
   _loadCtxCache() {
     const key = this._ctxCacheKey();
+    this._ctxLoadedKey = key;
     if (!key) return;
     try {
       const map = JSON.parse(localStorage.getItem('tabonkb-ctx-usage') || '{}');
@@ -1909,6 +1911,8 @@ class PiDrawerView {
         keys.sort((a, b) => (map[a].updatedAt || 0) - (map[b].updatedAt || 0));
         keys.slice(0, keys.length - 30).forEach(k => delete map[k]);
       }
+      // 自清理早期版本遗留的 'agentId:default' 共享桶（会造成跨会话串值）
+      for (const k of Object.keys(map)) { if (k.endsWith(':default')) delete map[k]; }
       localStorage.setItem('tabonkb-ctx-usage', JSON.stringify(map));
     } catch (_) {}
   }
@@ -1945,10 +1949,14 @@ class PiDrawerView {
       return;
     }
     if (this.ctxWrapEl) this.ctxWrapEl.style.display = '';
-    // 重载/切会话时先回填本地缓存避免闪 --，权威值到达后覆盖
+    // 重载/切会话时先回填本地缓存避免闪 --，权威值到达后覆盖；
+    // 缓存键变化（sid 恢复/切会话）时清掉旧键加载的值重新读取，防串会话残留
+    if (this._ctxLoadedKey !== this._ctxCacheKey()) this._ctxUsage = null;
     if (!this._ctxUsage) this._loadCtxCache();
+    const keyAtQuery = this._ctxCacheKey();
     try {
       const cu = await adapter.getContextUsage();
+      if (this._ctxCacheKey() !== keyAtQuery) return; // await 期间会话/agent 已切换，陈旧结果丢弃
       if (cu) {
         if (cu.tokens === null && this._ctxUsage && typeof this._ctxUsage.tokens === 'number') {
           // 上游暂不可知（bridge 预热/compact 后）≠ 真实为 0：保留已知 tokens，窗口更新则重算占比
@@ -1961,6 +1969,7 @@ class PiDrawerView {
         } else {
           this._ctxUsage = cu;
         }
+        this._ctxLoadedKey = keyAtQuery;
         this._persistCtxUsage();
       }
     } catch (_) {}
@@ -1999,6 +2008,7 @@ class PiDrawerView {
       contextWindow: win,
       percent: win > 0 ? (tokens / win) * 100 : null
     };
+    this._ctxLoadedKey = this._ctxCacheKey();
     this._persistCtxUsage();
     this._updateCtxPill();
   }
@@ -9127,11 +9137,11 @@ class PiDrawerView {
       const timeStr = this.formatRelativeTime(s.updatedAt || s.createdAt);
 
       html += `
-        <div class="tw-history-item ${isActive ? 'active' : ''}" data-session-id="${escapeAttr(s.id)}">
+        <div class="tw-history-item ${isActive ? 'active' : ''} ${s.pinned ? 'pinned' : ''}" data-session-id="${escapeAttr(s.id)}">
           <div class="tw-history-item-left">
             <span class="tw-history-item-icon">${getIconPark('topic', 13)}</span>
             <div class="tw-history-item-info">
-              <div class="tw-history-item-title" title="${escapeAttr(s.title || '对话')}">${escapeHtml(s.title || '对话')}</div>
+              <div class="tw-history-item-title" title="${escapeAttr(s.title || '对话')}">${s.pinned ? `<span class="tw-history-pin-mark">${getIconPark('pin', 9)}</span>` : ''}${escapeHtml(s.title || '对话')}</div>
               <div class="tw-history-item-meta">
                 <span>${escapeHtml(timeStr)}</span>
                 <span>·</span>
@@ -9139,7 +9149,13 @@ class PiDrawerView {
               </div>
             </div>
           </div>
-          <span class="tw-history-delete-btn" data-delete-id="${escapeAttr(s.id)}" title="删除此记录" role="button" tabindex="0" aria-label="删除会话记录">
+          <span class="tw-history-act-btn tw-history-pin-btn ${s.pinned ? 'on' : ''}" data-pin-id="${escapeAttr(s.id)}" title="${s.pinned ? '取消置顶' : '置顶'}" role="button" tabindex="0" aria-label="置顶会话">
+            ${getIconPark('pin', 13)}
+          </span>
+          <span class="tw-history-act-btn tw-history-rename-btn" data-rename-id="${escapeAttr(s.id)}" title="重命名" role="button" tabindex="0" aria-label="重命名会话">
+            ${getIconPark('edit', 13)}
+          </span>
+          <span class="tw-history-act-btn tw-history-delete-btn" data-delete-id="${escapeAttr(s.id)}" title="删除此记录" role="button" tabindex="0" aria-label="删除会话记录">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
               <path d="M4 7h16"/>
               <path d="M10 11v6"/>
@@ -9156,10 +9172,65 @@ class PiDrawerView {
     // Bind item clicks (switch session)
     listEl.querySelectorAll('.tw-history-item').forEach(itemEl => {
       itemEl.onclick = (e) => {
-        if (e.target.closest('.tw-history-delete-btn')) return;
+        if (e.target.closest('.tw-history-act-btn') || e.target.closest('.tw-history-rename-input')) return;
         const sid = itemEl.getAttribute('data-session-id');
         this.loadHistorySession(sid);
       };
+    });
+
+    // 置顶/取消置顶
+    listEl.querySelectorAll('.tw-history-pin-btn').forEach(btn => {
+      const handlePin = (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        const sid = btn.getAttribute('data-pin-id');
+        if (this.hub && this.hub.sessionManager) {
+          this.hub.sessionManager.togglePinSession(agentId, sid);
+        }
+        this.renderHistoryPanel();
+      };
+      btn.onclick = handlePin;
+      btn.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') handlePin(e); };
+    });
+
+    // 行内重命名: 标题换输入框, Enter/失焦提交, Esc 取消
+    listEl.querySelectorAll('.tw-history-rename-btn').forEach(btn => {
+      const startRename = (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        const sid = btn.getAttribute('data-rename-id');
+        const itemEl = btn.closest('.tw-history-item');
+        const titleEl = itemEl && itemEl.querySelector('.tw-history-item-title');
+        if (!titleEl || itemEl.querySelector('.tw-history-rename-input')) return;
+        const oldTitle = (this.hub.sessionManager.getSessions(agentId).find(x => x.id === sid) || {}).title || '';
+        const input = document.createElement('input');
+        input.className = 'tw-history-rename-input';
+        input.type = 'text';
+        input.value = oldTitle;
+        input.maxLength = 60;
+        titleEl.replaceWith(input);
+        input.focus();
+        input.select();
+        let done = false;
+        const commit = (save) => {
+          if (done) return;
+          done = true;
+          const v = input.value.trim();
+          if (save && v && v !== oldTitle && this.hub && this.hub.sessionManager) {
+            this.hub.sessionManager.renameSession(agentId, sid, v);
+          }
+          this.renderHistoryPanel();
+        };
+        input.addEventListener('keydown', (ev) => {
+          ev.stopPropagation();
+          if (ev.key === 'Enter') { ev.preventDefault(); commit(true); }
+          else if (ev.key === 'Escape') { ev.preventDefault(); commit(false); }
+        });
+        input.addEventListener('click', (ev) => ev.stopPropagation());
+        input.addEventListener('blur', () => commit(true));
+      };
+      btn.onclick = startRename;
+      btn.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') startRename(e); };
     });
 
     // Bind delete clicks

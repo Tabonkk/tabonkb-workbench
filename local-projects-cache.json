@@ -95,6 +95,25 @@
     "publicDriverRel": "pri_project/driver/public"
   },
   {
+    "id": "62_01_mt6789_E200Q",
+    "serverId": "62",
+    "serverName": "62 服务器",
+    "serverIp": "192.168.1.62",
+    "user": "tankaikun",
+    "sshHost": "192.168.1.62",
+    "workspaceId": "01",
+    "workspaceName": "01",
+    "fullPathWin": "Y:\\01",
+    "uncPath": "\\\\192.168.1.62\\tankaikun\\01",
+    "linuxPath": "/dfb/tankaikun/share/01",
+    "platform": "mt6789",
+    "project": "E200Q",
+    "label": "01/E200Q",
+    "shortDesc": "192.168.1.62 · mt6789/E200Q",
+    "priDriverRel": "pri_project/driver/mt6789/E200Q/base",
+    "publicDriverRel": "pri_project/driver/public"
+  },
+  {
     "id": "62_01_mt6789_F1",
     "serverId": "62",
     "serverName": "62 服务器",

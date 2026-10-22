@@ -66,6 +66,9 @@ const JIRA_MCP_TOOL_HINT = '\n\n[系统指令] 你已接入公司内网 Jira 缺
   '【产物归档约定】凡针对某工单的排查/分析任务：日志等下载产物固定存放 00-Inbox/03-Quick-Note/<工单号>/attachments/；分析结论、复现报告、修复建议等 Markdown 产物写入 00-Inbox/03-Quick-Note/<工单号>/ 目录根级（先创建该目录再写文件）。\n' +
   '【权限安全边界】工具仅支持检索、查阅与附件下载。严禁执行或建议执行任何 Jira 写操作（新建/编辑工单、状态流转、发表评论、上传附件）。';
 
+// MCP command 使用 GUI 子系统 node 副本避免 conhost 闪屏；bundle 内由 vendor-mcp-shared.js 提供
+function jiraMcpGuiNodeExe(e) { return typeof mcpResolveGuiNodeExe === 'function' ? mcpResolveGuiNodeExe(e) : e; }
+
 // ---- Hermes: 全局注册 (幂等, 异步不阻塞) ----
 function ensureHermesJiraMcp(hermesBin, prefixArgs, vaultBasePath) {
   return new Promise((resolve) => {
@@ -77,7 +80,7 @@ function ensureHermesJiraMcp(hermesBin, prefixArgs, vaultBasePath) {
       listProc.on('error', (e) => resolve({ ok: false, error: e.message }));
       listProc.on('close', () => {
         if (listOut.indexOf(JIRA_MCP_SERVER_NAME) >= 0) { resolve({ ok: true, already: true }); return; }
-        const nodeExe = jiraMcpResolveNodeExe();
+        const nodeExe = jiraMcpGuiNodeExe(jiraMcpResolveNodeExe());
         const script = jiraMcpScriptPath(vaultBasePath);
         const addProc = child_process.spawn(hermesBin, [...pre, 'mcp', 'add', JIRA_MCP_SERVER_NAME, '--command', nodeExe, '--args', script], { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
         let out = '';

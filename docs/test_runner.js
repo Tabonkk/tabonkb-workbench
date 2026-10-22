@@ -32,7 +32,7 @@ async function runAllSuites() {
   console.log('>>> Suite 1: Code Integrity & Manifest Verification');
   const manifest = JSON.parse(fs.readFileSync(path.join(pluginDir, 'manifest.json'), 'utf8'));
   assert(manifest.id === 'tabonkb-workbench', 'manifest.json has correct id');
-  assert(manifest.version === '1.7.0', 'manifest.json has version 1.7.0');
+  assert(manifest.version === '1.8.0', 'manifest.json has version 1.8.0');
   assert(fs.existsSync(path.join(pluginDir, 'main.js')), 'main.js exists');
   assert(fs.existsSync(path.join(pluginDir, 'styles.css')), 'styles.css exists');
 
@@ -242,9 +242,18 @@ async function runAllSuites() {
   console.log('\n>>> Suite 11: DSH MCP Bridge & Entries (DSH-MCP-01)');
   const { buildDshMcpEntries } = require(path.join(pluginDir, 'mcp', 'dsh-mcp-shared.js'));
   const mcpEntries = buildDshMcpEntries('d:\\work\\Mgmt\\TabonKB');
-  assert(mcpEntries.length === 8, `DSH-MCP-01: buildDshMcpEntries() output 8 items (got: ${mcpEntries.length})`);
+  assert(mcpEntries.length === 10, `DSH-MCP-01: buildDshMcpEntries() output 10 items (got: ${mcpEntries.length})`);
   assert(mcpEntries.some(e => e.config && e.config.serverName === 'dslogic'),
     'DSH-MCP-01: dslogic entry registered');
+  assert(mcpEntries.some(e => e.config && e.config.serverName === 'jira'),
+    'DSH-MCP-01: jira entry registered');
+  assert(mcpEntries.some(e => e.config && e.config.serverName === 'workbench'),
+    'DSH-MCP-01: workbench entry registered');
+  // DSH 侧宿主标记: 穿过 scrubbedParentEnv 的唯一通道, 所有条目统一携带
+  for (const e of mcpEntries) {
+    assert(e.config && e.config.env && e.config.env.TABONKB_MCP_HOST === 'dsh',
+      `DSH-MCP-01: ${e.id} carries env TABONKB_MCP_HOST=dsh`);
+  }
 
   const yamlContent = mcpEntries.map(e => JSON.stringify(e)).join('\n');
   assert(!yamlContent.includes('password') && !yamlContent.includes('token'), 'DSH-MCP-01: No plaintext credentials in entries');
@@ -282,6 +291,13 @@ async function runAllSuites() {
 
   const fullPatchYaml = generateDshCordisPatchYaml('d:\\work\\Mgmt\\TabonKB');
   assert(fullPatchYaml.includes('preset-tabonkb-dev') && fullPatchYaml.includes('preset-tabonkb-knowledge'), 'DSH-PRESET-01: patch YAML contains both v2 presets');
+  // DSH persona/system-prompt 对文本做严格 {{var}} 插值, 仅 provider/model 已注册, 其余变量会令整轮运行失败
+  const unknownPromptVars = [...fullPatchYaml.matchAll(/\{\{\s*([^}\s]+)\s*\}\}/g)].map(m => m[1]).filter(n => !['provider', 'model'].includes(n));
+  assert(unknownPromptVars.length === 0, `DSH-PRESET-01: persona text references only registered prompt variables (unknown: ${unknownPromptVars.join(',') || 'none'})`);
+  assert(fullPatchYaml.includes('env:') && fullPatchYaml.includes('TABONKB_MCP_HOST: "dsh"'),
+    'DSH-PRESET-01: patch YAML emits config.env host marker for MCP children');
+  assert(fullPatchYaml.includes('serverName: jira') && fullPatchYaml.includes('serverName: workbench'),
+    'DSH-PRESET-01: patch YAML registers jira + workbench MCP entries');
   assert(!fullPatchYaml.includes('tabonkb-hw-driver') && !fullPatchYaml.includes('tabonkb-full-copilot'), 'DSH-PRESET-01: patch YAML drops all legacy presets');
   assert(!fullPatchYaml.includes('id: permission') && !fullPatchYaml.includes('id: sandbox-policy'), 'DSH-PERM-01: patch YAML leaves native base permission presets intact to prevent plugin crash');
 
@@ -500,6 +516,392 @@ async function runAllSuites() {
   mockWbView.dispose();
   dshWbView.dispose();
   hub.destroy();
+
+  // --- Suite 16b: DSH Per-Session Context Isolation (DSH-CTX-01) ---
+  console.log('\n>>> Suite 16b: DSH Per-Session Context Isolation (DSH-CTX-01)');
+  const { getDshContextBridgeScript } = require('../services/dsh-daemon-manager.js');
+  const ctxBridgeSrc = getDshContextBridgeScript();
+  assert(ctxBridgeSrc.includes('data-conversation-session'), 'DSH-CTX-01: bridge reads data-conversation-session attribute');
+  assert(ctxBridgeSrc.includes("sid: currentSid()"), 'DSH-CTX-01: bridge reports sid in state-req/ctx-set messages');
+  assert(ctxBridgeSrc.includes('pollSession') && ctxBridgeSrc.includes('valuesSid'), 'DSH-CTX-01: bridge polls session switch and tracks values ownership');
+  assert(ctxBridgeSrc.includes("'__draft__'"), 'DSH-CTX-01: bridge normalizes draft sid for values comparison');
+  assert(!ctxBridgeSrc.includes('window.innerHeight * 0.5') && !ctxBridgeSrc.includes('window.innerHeight * 0.25') &&
+    ctxBridgeSrc.includes("querySelector('[role=\"listbox\"]')"),
+    'DSH-CTX-01: menu detection is structural (listbox+option), no viewport-geometry thresholds');
+  assert(ctxBridgeSrc.includes('listbox.insertBefore(ctxTitle, listbox.firstChild)') && !ctxBridgeSrc.includes('listbox.appendChild(ctxTitle)'),
+    'DSH-CTX-01: context group is injected as the first group of the + menu');
+  assert(!ctxBridgeSrc.includes('data-twx-badge=') && !ctxBridgeSrc.includes("setAttribute('data-twx-hidden'") && !ctxBridgeSrc.includes('wheelAccum'),
+    'DSH-CTX-01: native menu items are no longer collapsed (2-item window, badges, wheel paging removed)');
+
+  // 独立 localStorage 桩 (此前 suite 可能已建, 统一重置数据)
+  if (typeof global.localStorage === 'undefined' || !global.localStorage._data) {
+    global.localStorage = {
+      _data: {},
+      getItem(k) { return this._data[k] !== undefined ? this._data[k] : null; },
+      setItem(k, v) { this._data[k] = String(v); },
+      removeItem(k) { delete this._data[k]; }
+    };
+  }
+  global.localStorage._data = {};
+  const ctxVaultDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tw-ctx-'));
+  fs.mkdirSync(path.join(ctxVaultDir, '.obsidian', 'plugins', 'tabonkb-workbench'), { recursive: true });
+  const ctxView = new DshWorkbenchView({ app: { vault: { adapter: { basePath: ctxVaultDir } } }, plugin: {} });
+  assert(typeof ctxView.applyDshCtxSelection === 'function' && typeof ctxView._readDshCtxMap === 'function',
+    'DSH-CTX-01: view exposes per-session ctx APIs');
+
+  // 会话隔离: A 会话选择不影响 B 会话与草稿桶
+  const lpTest = { id: 'srv/ws/mt6789/A17', platform: 'mt6789', project: 'A17', label: 'A17' };
+  ctxView.applyDshCtxSelection('localproj', lpTest, 'sess-AAA');
+  ctxView.applyDshCtxSelection('opengrok', 'V_sprd_os_dev', 'sess-AAA');
+  assert(ctxView.getDshCtxState('sess-AAA').localproj.label === 'A17', 'DSH-CTX-01: session A bucket stores selection');
+  assert(ctxView.getDshCtxState('sess-BBB').localproj === null, 'DSH-CTX-01: session B isolated from A');
+  assert(ctxView.getDshCtxState('').localproj === null, 'DSH-CTX-01: draft bucket isolated from A');
+  assert(process.env.TABONKB_LOCAL_PROJECT_JSON.includes('A17'), 'DSH-CTX-01: env mirror reflects active session ctx');
+
+  // apply 不再写 pi 共享 localStorage 键 (解耦断言)
+  assert(!global.localStorage.getItem('tabonkb-local-selected-project') ||
+         !global.localStorage.getItem('tabonkb-local-selected-project').includes('A17'),
+    'DSH-CTX-01: apply does not write shared pi localproj key');
+
+  // 新会话仅重置草稿桶, 历史会话桶保留
+  global.localStorage.setItem('tabonkb-dsh-ctx-map-v1', JSON.stringify({
+    'sess-AAA': ctxView.getDshCtxState('sess-AAA'),
+    '__draft__': { opengrok: 'x1', gerrit: 'mine', jira: { key: 'J-1' }, localproj: null },
+    '__last': '__draft__'
+  }));
+  ctxView.resetDshCtxSelections();
+  assert(ctxView.getDshCtxState('__draft__').opengrok === 'auto' && !ctxView.getDshCtxState('__draft__').jira,
+    'DSH-CTX-01: new-chat resets only draft bucket');
+  assert(ctxView.getDshCtxState('sess-AAA').localproj.label === 'A17', 'DSH-CTX-01: new-chat preserves session buckets');
+
+  // 草稿→新会话迁移 (仅直接转变且目标无桶时)
+  global.localStorage.setItem('tabonkb-dsh-ctx-map-v1', JSON.stringify({
+    'sess-AAA': ctxView.getDshCtxState('sess-AAA'),
+    '__draft__': { opengrok: 'auto', gerrit: 'all', jira: { key: 'NEW-7' }, localproj: null },
+    '__last': '__draft__'
+  }));
+  ctxView._dshSid = 'sess-NEW';
+  ctxView._migrateDshDraftTo('sess-NEW');
+  assert(ctxView.getDshCtxState('sess-NEW').jira.key === 'NEW-7', 'DSH-CTX-01: draft ctx migrates to materialized session');
+  assert(ctxView.getDshCtxState('__draft__').jira === null, 'DSH-CTX-01: draft cleared after migration');
+  ctxView._migrateDshDraftTo('sess-AAA');
+  assert(ctxView.getDshCtxState('sess-AAA').jira === null, 'DSH-CTX-01: existing bucket not overwritten by migration');
+
+  // active-context.json 镜像带 source/sid
+  const actxFile = path.join(ctxVaultDir, '.obsidian', 'plugins', 'tabonkb-workbench', 'active-context.json');
+  const actx = JSON.parse(fs.readFileSync(actxFile, 'utf8'));
+  assert(actx.source === 'dsh' && actx.sid === 'sess-NEW' && actx.selectedJiraIssue.key === 'NEW-7',
+    'DSH-CTX-01: active-context.json mirrors session ctx with source/sid');
+
+  // 镜像去重: 同值再调不写盘; 外部覆写(pi 侧无 source/sid)后自愈重写
+  const origWrite = fs.writeFileSync;
+  let writes = 0;
+  fs.writeFileSync = function (...a) { writes++; return origWrite.apply(fs, a); };
+  try {
+    ctxView._mirrorDshCtxToAgent(ctxView.getDshCtxState('sess-NEW'), 'sess-NEW');
+    assert(writes === 0, 'DSH-CTX-01: mirror dedup skips rewrite when file already matches');
+    origWrite.call(fs, actxFile, JSON.stringify({ selectedProject: 'auto', selectedGerritFilter: 'all', selectedJiraIssue: null, selectedLocalProject: null, updatedAt: 1 }), 'utf8');
+    ctxView._mirrorDshCtxToAgent(ctxView.getDshCtxState('sess-NEW'), 'sess-NEW');
+    assert(writes === 1, 'DSH-CTX-01: mirror rewrites after external overwrite (self-heal)');
+  } finally {
+    fs.writeFileSync = origWrite;
+  }
+  const actx3 = JSON.parse(fs.readFileSync(actxFile, 'utf8'));
+  assert(actx3.sid === 'sess-NEW' && actx3.selectedJiraIssue.key === 'NEW-7',
+    'DSH-CTX-01: healed mirror restores dsh source/sid');
+  ctxView.dispose();
+
+  // opengrok _effDefaultProject 双侧语义: DSH MCP 子进程 (TABONKB_MCP_HOST=dsh) 文件优先,
+  // pi/host 侧 env 优先 (DSH_PERMISSION_MODE 在 MCP 子进程中被 scrub, 不能作判定依据)
+  const { OpengrokService } = require('../services/opengrok-service.js');
+  const ogT = fs.mkdtempSync(path.join(os.tmpdir(), 'tw-og-'));
+  const ogFile = path.join(ogT, 'active-context.json');
+  fs.writeFileSync(ogFile, JSON.stringify({ selectedProject: 'W_mp1_os_dev', source: 'dsh' }), 'utf8');
+  const oldDshHost = process.env.TABONKB_MCP_HOST;
+  const oldAcf = process.env.TABONKB_ACTIVE_CONTEXT_FILE;
+  const oldOg = process.env.OPENGROK_DEFAULT_PROJECT;
+  try {
+    process.env.TABONKB_ACTIVE_CONTEXT_FILE = ogFile;
+    const svc = new OpengrokService({ baseUrl: 'http://x/source', defaultProject: 'ENV_PROJ', staticDefault: 'STATIC_PROJ' });
+    process.env.TABONKB_MCP_HOST = 'dsh';
+    process.env.OPENGROK_DEFAULT_PROJECT = 'STALE_ENV_PROJ';
+    assert(svc._effDefaultProject() === 'W_mp1_os_dev', 'DSH-CTX-01: DSH MCP side prefers live file over stale spawn env');
+    fs.writeFileSync(ogFile, JSON.stringify({ selectedProject: 'auto', source: 'dsh' }), 'utf8');
+    assert(svc._effDefaultProject() === 'STATIC_PROJ', 'DSH-CTX-01: file auto means unbound -> static default, not stale env');
+    // pi 侧覆写 (无 source) -> 不采信文件, 回退 env
+    fs.writeFileSync(ogFile, JSON.stringify({ selectedProject: 'PI_SIDE_PROJ' }), 'utf8');
+    assert(svc._effDefaultProject() === 'STALE_ENV_PROJ', 'DSH-CTX-01: file without dsh source is not trusted (pi overwrite)');
+    fs.writeFileSync(ogFile, JSON.stringify({ selectedProject: 'OTHER_PROJ', source: 'pi' }), 'utf8');
+    assert(svc._effDefaultProject() === 'STALE_ENV_PROJ', 'DSH-CTX-01: file with foreign source is not trusted');
+    delete process.env.TABONKB_MCP_HOST;
+    assert(svc._effDefaultProject() === 'STALE_ENV_PROJ', 'DSH-CTX-01: pi/host side keeps env authority');
+    delete process.env.OPENGROK_DEFAULT_PROJECT;
+    assert(svc._effDefaultProject() === 'ENV_PROJ', 'DSH-CTX-01: pi/host side falls back to ctor cfg without env');
+  } finally {
+    if (oldDshHost === undefined) delete process.env.TABONKB_MCP_HOST; else process.env.TABONKB_MCP_HOST = oldDshHost;
+    if (oldAcf === undefined) delete process.env.TABONKB_ACTIVE_CONTEXT_FILE; else process.env.TABONKB_ACTIVE_CONTEXT_FILE = oldAcf;
+    if (oldOg === undefined) delete process.env.OPENGROK_DEFAULT_PROJECT; else process.env.OPENGROK_DEFAULT_PROJECT = oldOg;
+  }
+
+  // persona 指引 agent 走 workbench_context 取实时绑定 (不再读 active-context.json 文件)
+  const dshShared = require('../mcp/dsh-mcp-shared.js');
+  const dshPresets = dshShared.buildTabonKbPresets('d:/vault-test');
+  const presetJson = JSON.stringify(dshPresets);
+  assert(presetJson.includes('workbench_context') && presetJson.includes('project_read_file') && presetJson.includes('Gerrit 过滤器'),
+    'DSH-CTX-01: persona directs agent to workbench_context/project_read_file for bindings');
+  const lpPortalSrc = fs.readFileSync(path.join(pluginDir, 'extensions', 'local-project-portal.ts'), 'utf8');
+  assert(lpPortalSrc.includes('active-context.json'), 'DSH-CTX-01: local-project-portal has active-context.json fallback');
+
+  // --- Suite 16c: DSH Workbench Context & MCP Baseline (DSH-WB-01) ---
+  console.log('\n>>> Suite 16c: DSH Workbench Context & MCP Baseline (DSH-WB-01)');
+  const wbCtx = require('../services/workbench-context.js');
+  const wbT = fs.mkdtempSync(path.join(os.tmpdir(), 'tw-wb-'));
+
+  // 临时三层工程树: Tier2(项目) > Tier1(public) > Tier0(基线)
+  const wbProjRoot = path.join(wbT, 'proj');
+  fs.mkdirSync(path.join(wbProjRoot, 'pri_project', 'driver', 'mt6858', 'K90GF2', 'base', 'drivers'), { recursive: true });
+  fs.mkdirSync(path.join(wbProjRoot, 'pri_project', 'driver', 'public', 'drivers'), { recursive: true });
+  fs.mkdirSync(path.join(wbProjRoot, 'drivers'), { recursive: true });
+  fs.writeFileSync(path.join(wbProjRoot, 'pri_project', 'driver', 'mt6858', 'K90GF2', 'base', 'drivers', 'x.c'), 'TIER2-x\n');
+  fs.writeFileSync(path.join(wbProjRoot, 'pri_project', 'driver', 'public', 'drivers', 'x.c'), 'TIER1-x\n');
+  fs.writeFileSync(path.join(wbProjRoot, 'drivers', 'x.c'), 'TIER0-x\n');
+  fs.writeFileSync(path.join(wbProjRoot, 'pri_project', 'driver', 'public', 'drivers', 'y.c'), 'TIER1-y\n');
+  fs.writeFileSync(path.join(wbProjRoot, 'drivers', 'y.c'), 'TIER0-y\n');
+  fs.writeFileSync(path.join(wbProjRoot, 'z.c'), 'TIER0-z\n');
+  // ctx 里 localProject 为残缺记录 (无 priDriverRel, id 在真实清单中不存在 -> 走后备钩子)
+  const wbFakeLp = {
+    id: 'dshwb_fake_proj', label: 'TEST/K90GF2', serverName: '测试服务器', serverId: '62',
+    workspaceName: 'W/99-test', platform: 'mt6858', project: 'K90GF2',
+    fullPathWin: wbProjRoot, linuxPath: '/dfb/tankaikun/share/01/W/99-test'
+  };
+  const wbCtxFile = path.join(wbT, 'active-context.json');
+  fs.writeFileSync(wbCtxFile, JSON.stringify({
+    selectedProject: 'W_mp1_os_dev', selectedGerritFilter: 'open',
+    selectedJiraIssue: { key: 'SPE-123', summary: '快充异常', status: '开放' },
+    selectedLocalProject: wbFakeLp, source: 'dsh', sid: 'sess-T', updatedAt: Date.now()
+  }));
+  const wbCtxFileEmpty = path.join(wbT, 'active-context-empty.json');
+  fs.writeFileSync(wbCtxFileEmpty, JSON.stringify({ selectedProject: 'auto', selectedGerritFilter: 'all', source: 'dsh' }));
+  // pi 侧覆写形态 (无 source) 与异 source 形态
+  const wbCtxFilePi = path.join(wbT, 'active-context-pi.json');
+  fs.writeFileSync(wbCtxFilePi, JSON.stringify({
+    selectedProject: 'PI_PROJ', selectedGerritFilter: 'reviewing',
+    selectedJiraIssue: { key: 'PI-9' }, selectedLocalProject: wbFakeLp, updatedAt: Date.now()
+  }));
+  const wbCtxFileOther = path.join(wbT, 'active-context-other.json');
+  fs.writeFileSync(wbCtxFileOther, JSON.stringify({ selectedProject: 'PI_PROJ', source: 'pi', selectedGerritFilter: 'reviewing' }));
+
+  const oldWbHost = process.env.TABONKB_MCP_HOST;
+  const oldWbAcf = process.env.TABONKB_ACTIVE_CONTEXT_FILE;
+  try {
+    process.env.TABONKB_MCP_HOST = 'dsh';
+    process.env.TABONKB_ACTIVE_CONTEXT_FILE = wbCtxFile;
+    const lc = wbCtx.readLiveContext();
+    assert(lc && lc.opengrok === 'W_mp1_os_dev' && lc.gerrit === 'open' && lc.jira && lc.jira.key === 'SPE-123' && lc.localProject.id === 'dshwb_fake_proj',
+      'DSH-WB-01: readLiveContext normalizes live bindings');
+    const hc = wbCtx.getHostContext();
+    assert(hc && hc.localProject && hc.localProject.priDriverRel === 'pri_project/driver/mt6858/K90GF2/base' && hc.localProject.fullPathWin === wbProjRoot,
+      'DSH-WB-01: getHostContext backfills partial localProject via fullPathWin fallback');
+    // 全量字段回查: 真实缓存清单中的 id 命中
+    const realLp = (require('../services/local-project-service.js').getAllAvailableLocalProjects() || [])[0];
+    if (realLp) {
+      const partial = { id: realLp.id, label: realLp.label, platform: realLp.platform, project: realLp.project };
+      const resolved = wbCtx.resolveLocalProjectBinding(partial);
+      assert(resolved && resolved.fullPathWin === realLp.fullPathWin && resolved.priDriverRel === realLp.priDriverRel,
+        'DSH-WB-01: resolveLocalProjectBinding upgrades partial record by id');
+    }
+    delete process.env.TABONKB_MCP_HOST;
+    assert(wbCtx.readLiveContext() === null && wbCtx.getHostContext() === null,
+      'DSH-WB-01: non-DSH host refuses file context');
+    process.env.TABONKB_MCP_HOST = 'dsh';
+    // 跨 surface 防线: pi 覆写 (无 source) / 异 source 文件在 DSH 宿主下视为未绑定
+    process.env.TABONKB_ACTIVE_CONTEXT_FILE = wbCtxFilePi;
+    const hcPi = wbCtx.getHostContext();
+    assert(wbCtx.readLiveContext() === null && hcPi && hcPi.opengrok === 'auto' && hcPi.gerrit === 'all' && !hcPi.jira && !hcPi.localProject,
+      'DSH-WB-01: pi-written file (no source) treated as unbound on DSH host');
+    process.env.TABONKB_ACTIVE_CONTEXT_FILE = wbCtxFileOther;
+    assert(wbCtx.readLiveContext() === null && wbCtx.getHostContext().opengrok === 'auto',
+      'DSH-WB-01: foreign source value treated as unbound on DSH host');
+    process.env.TABONKB_ACTIVE_CONTEXT_FILE = wbCtxFile;
+    assert(wbCtx.readLiveContext() && wbCtx.readLiveContext().opengrok === 'W_mp1_os_dev',
+      'DSH-WB-01: dsh source file is trusted again');
+    // 路径穿越防线
+    for (const bad of ['..\\..\\x', 'a/../../b', 'a\\..\\..\\b', 'C:\\Windows\\win.ini', '\\\\srv\\share\\x', '//srv/share/x']) {
+      const rr = await wbCtx.runWorkbenchTool('project_read_file', { file_path: bad });
+      assert(rr.isError === true && rr.text.includes('必须是工程内相对路径'),
+        `DSH-WB-01: traversal rejected: ${JSON.stringify(bad)}`);
+    }
+    for (const ok of ['drivers/x.c', './drivers/x.c', '/drivers/y.c']) {
+      const rr = await wbCtx.runWorkbenchTool('project_read_file', { file_path: ok });
+      assert(rr.isError === false && rr.text.includes('源码文件解析成功'),
+        `DSH-WB-01: normal relative path resolves: ${JSON.stringify(ok)}`);
+    }
+    // gerritFilterToQuery 全映射
+    const fq = wbCtx.gerritFilterToQuery;
+    assert(fq('open') === 'status:open' && fq('merged') === 'status:merged' && fq('mine') === 'owner:self' &&
+      fq('reviewing') === 'reviewer:self status:open' && fq('all') === '' && fq(null) === '' && fq('bogus') === '',
+      'DSH-WB-01: gerritFilterToQuery covers all filters');
+  } finally {
+    if (oldWbHost === undefined) delete process.env.TABONKB_MCP_HOST; else process.env.TABONKB_MCP_HOST = oldWbHost;
+    if (oldWbAcf === undefined) delete process.env.TABONKB_ACTIVE_CONTEXT_FILE; else process.env.TABONKB_ACTIVE_CONTEXT_FILE = oldWbAcf;
+  }
+
+  // 2) gerrit/jira 绑定默认值 (桩 svc + env 切换)
+  const { runGerritTool } = require('../services/gerrit-service.js');
+  const { runJiraTool } = require('../services/jira-service.js');
+  const gerritStub = { searchChanges: async (o) => ({ query: o.query || 'status:open', total: 0, changes: [], baseUrl: 'http://g' }) };
+  const jiraStub = {
+    getIssueDetail: async (k) => ({ key: k, summary: 's', status: '开放', priority: 'P1', assignee: 'a', reporter: 'r', created: 'c', updated: 'u', components: [], labels: [], fixVersions: [], url: 'u', description: 'd', attachments: [], commentCount: 0, comments: [] }),
+    getIssueWorkspaceDir: () => ({ relDir: '00-Inbox/03-Quick-Note/SPE-123' }),
+    getIssueComments: async () => [],
+    listIssueAttachments: async () => [],
+    downloadAttachment: async () => ({ filename: 'f.log', bytes: 1, savedAbsPath: 'a', savedRelPath: 'r' })
+  };
+  const oldWbHost2 = process.env.TABONKB_MCP_HOST;
+  const oldWbAcf2 = process.env.TABONKB_ACTIVE_CONTEXT_FILE;
+  try {
+    process.env.TABONKB_MCP_HOST = 'dsh';
+    process.env.TABONKB_ACTIVE_CONTEXT_FILE = wbCtxFile;
+    // DSH + 绑定 open: query 缺省 -> 注入 status:open + 说明行
+    let g = await runGerritTool('gerrit_search_changes', {}, gerritStub);
+    assert(g.includes('status:open') && g.startsWith('(已按工作台 Gerrit 过滤器「开放中」'),
+      'DSH-WB-01: gerrit default filter injected with explanation');
+    // query 无显式操作符 -> 追加
+    g = await runGerritTool('gerrit_search_changes', { query: 'charger' }, gerritStub);
+    assert(g.includes('charger status:open') && g.startsWith('(已按工作台 Gerrit 过滤器'),
+      'DSH-WB-01: gerrit filter appended to free-text query');
+    // 显式操作符 -> 不覆盖 (建议文案里含 status:open, 只核对查询回显与无说明行)
+    g = await runGerritTool('gerrit_search_changes', { query: 'status:merged charger' }, gerritStub);
+    assert(!g.startsWith('(已按工作台') && g.includes('「status:merged charger」'),
+      'DSH-WB-01: explicit status: operator is never overridden');
+    // Jira: 缺省 -> 绑定工单 + 说明行
+    let jr = await runJiraTool('jira_get_issue', {}, jiraStub);
+    assert(jr.startsWith('(未指定 issue_key, 使用工作台绑定工单 SPE-123)') && jr.includes('SPE-123'),
+      'DSH-WB-01: jira bound issue_key injected with explanation');
+    jr = await runJiraTool('jira_get_issue', { issue_key: 'OTHER-9' }, jiraStub);
+    assert(!jr.startsWith('(未指定 issue_key') && jr.includes('OTHER-9'),
+      'DSH-WB-01: explicit issue_key is never overridden');
+    // 无绑定 -> 原错误
+    process.env.TABONKB_ACTIVE_CONTEXT_FILE = wbCtxFileEmpty;
+    let jerr = '';
+    try { await runJiraTool('jira_get_issue', {}, jiraStub); } catch (e) { jerr = e.message; }
+    assert(jerr === '缺少 issue_key 参数', 'DSH-WB-01: no jira binding preserves original error');
+    g = await runGerritTool('gerrit_search_changes', {}, gerritStub);
+    assert(!g.startsWith('(已按工作台') && g.includes('status:open'),
+      'DSH-WB-01: gerrit all-filter binding keeps default behavior');
+    // pi 覆写文件 (无 source) -> 不触发任何默认注入
+    process.env.TABONKB_ACTIVE_CONTEXT_FILE = wbCtxFilePi;
+    let jerr2 = '';
+    try { await runJiraTool('jira_get_issue', {}, jiraStub); } catch (e) { jerr2 = e.message; }
+    assert(jerr2 === '缺少 issue_key 参数', 'DSH-WB-01: pi-written file never injects jira binding');
+    g = await runGerritTool('gerrit_search_changes', {}, gerritStub);
+    assert(!g.startsWith('(已按工作台'), 'DSH-WB-01: pi-written file never injects gerrit filter');
+    // 非 DSH 宿主 -> 零变化
+    delete process.env.TABONKB_MCP_HOST;
+    process.env.TABONKB_ACTIVE_CONTEXT_FILE = wbCtxFile;
+    jr = '';
+    try { await runJiraTool('jira_get_issue', {}, jiraStub); } catch (e) { jr = e.message; }
+    assert(jr === '缺少 issue_key 参数', 'DSH-WB-01: non-DSH host never injects jira binding');
+    g = await runGerritTool('gerrit_search_changes', {}, gerritStub);
+    assert(!g.startsWith('(已按工作台'), 'DSH-WB-01: non-DSH host never injects gerrit filter');
+  } finally {
+    if (oldWbHost2 === undefined) delete process.env.TABONKB_MCP_HOST; else process.env.TABONKB_MCP_HOST = oldWbHost2;
+    if (oldWbAcf2 === undefined) delete process.env.TABONKB_ACTIVE_CONTEXT_FILE; else process.env.TABONKB_ACTIVE_CONTEXT_FILE = oldWbAcf2;
+  }
+
+  // 3) MCP 端到端: 与 DSH 完全一致的 scrub 语义构造子进程 env
+  function wbScrubEnv(extra) {
+    const env = Object.assign({}, process.env);
+    for (const k of Object.keys(env)) {
+      if (k.startsWith('DSH_') || /KEY|PASSWORD|SECRET|TOKEN/i.test(k)) delete env[k];
+    }
+    return Object.assign(env, extra || {});
+  }
+  function wbMcpCall(env, reqs) {
+    const r = child_process.spawnSync(process.execPath, [path.join(pluginDir, 'mcp', 'workbench-mcp.js')], {
+      input: reqs.map(q => JSON.stringify(q)).join('\n') + '\n',
+      env, encoding: 'utf8', timeout: 30000, windowsHide: true
+    });
+    const out = String(r.stdout || '').split('\n').filter(Boolean).map(l => { try { return JSON.parse(l); } catch (_) { return null; } }).filter(Boolean);
+    const byId = {};
+    out.forEach(m => { if (m.id != null) byId[m.id] = m; });
+    return { byId, stderr: String(r.stderr || '') };
+  }
+  const wbEnv = wbScrubEnv({ TABONKB_MCP_HOST: 'dsh', TABONKB_ACTIVE_CONTEXT_FILE: wbCtxFile });
+  assert(!wbEnv.DSH_PERMISSION_MODE && !wbEnv.JIRA_TOKEN, 'DSH-WB-01: test env replicates DSH scrub semantics');
+  let mcp = wbMcpCall(wbEnv, [
+    { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2024-11-05' } },
+    { jsonrpc: '2.0', id: 2, method: 'tools/list' },
+    { jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'workbench_context', arguments: {} } },
+    { jsonrpc: '2.0', id: 4, method: 'tools/call', params: { name: 'project_read_file', arguments: { file_path: 'drivers/x.c' } } },
+    { jsonrpc: '2.0', id: 5, method: 'tools/call', params: { name: 'project_read_file', arguments: { file_path: 'drivers/y.c' } } },
+    { jsonrpc: '2.0', id: 6, method: 'tools/call', params: { name: 'project_read_file', arguments: { file_path: 'z.c' } } },
+    { jsonrpc: '2.0', id: 7, method: 'tools/call', params: { name: 'project_read_file', arguments: { file_path: 'x.c', project: 'NO_SUCH_PROJ' } } }
+  ]);
+  assert(mcp.byId[1] && mcp.byId[1].result && mcp.byId[1].result.serverInfo.name === 'tabonkb-workbench', 'DSH-WB-01: MCP initialize handshake');
+  const wbToolNames = (mcp.byId[2]?.result?.tools || []).map(t => t.name);
+  assert(wbToolNames.includes('workbench_context') && wbToolNames.includes('project_list') && wbToolNames.includes('project_read_file'),
+    'DSH-WB-01: tools/list exposes 3 read-only tools');
+  const ctxText = mcp.byId[3]?.result?.content?.[0]?.text || '';
+  assert(ctxText.includes('W_mp1_os_dev') && ctxText.includes('SPE-123') && ctxText.includes('K90GF2') && !mcp.byId[3].result.isError,
+    'DSH-WB-01: workbench_context returns live bindings over scrub env');
+  const t2 = mcp.byId[4]?.result?.content?.[0]?.text || '';
+  assert(t2.includes('Tier 2') && t2.includes('TIER2-x') && t2.includes('工作台当前绑定'), 'DSH-WB-01: Tier2 wins and echoes binding source');
+  const t1 = mcp.byId[5]?.result?.content?.[0]?.text || '';
+  assert(t1.includes('Tier 1') && t1.includes('TIER1-y'), 'DSH-WB-01: Tier1 wins over Tier0');
+  const t0 = mcp.byId[6]?.result?.content?.[0]?.text || '';
+  assert(t0.includes('Tier 0') && t0.includes('TIER0-z'), 'DSH-WB-01: Tier0 baseline resolved');
+  assert(mcp.byId[7]?.result?.isError === true && (mcp.byId[7].result.content[0].text || '').includes('project_list'),
+    'DSH-WB-01: unknown explicit project id errors with project_list hint');
+  // 无绑定 ctx -> project_read_file 明确报错
+  mcp = wbMcpCall(wbScrubEnv({ TABONKB_MCP_HOST: 'dsh', TABONKB_ACTIVE_CONTEXT_FILE: wbCtxFileEmpty }), [
+    { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'project_read_file', arguments: { file_path: 'x.c' } } }
+  ]);
+  assert(mcp.byId[1]?.result?.isError === true && /未指定 project|无绑定/.test(mcp.byId[1].result.content[0].text || ''),
+    'DSH-WB-01: no bound project yields clear error');
+  // 非 DSH 标记 -> workbench_context 报错
+  mcp = wbMcpCall(wbScrubEnv({ TABONKB_ACTIVE_CONTEXT_FILE: wbCtxFile }), [
+    { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'workbench_context', arguments: {} } }
+  ]);
+  assert(mcp.byId[1]?.result?.isError === true && /TABONKB_MCP_HOST/.test(mcp.byId[1].result.content[0].text || ''),
+    'DSH-WB-01: non-DSH host workbench_context errors clearly');
+  // DSH 宿主 + pi 覆写文件 (无 source) -> 全未绑定
+  mcp = wbMcpCall(wbScrubEnv({ TABONKB_MCP_HOST: 'dsh', TABONKB_ACTIVE_CONTEXT_FILE: wbCtxFilePi }), [
+    { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'workbench_context', arguments: {} } }
+  ]);
+  const piCtxText = mcp.byId[1]?.result?.content?.[0]?.text || '';
+  assert(piCtxText.includes('未绑定') && !piCtxText.includes('PI-9') && !piCtxText.includes('PI_PROJ'),
+    'DSH-WB-01: pi-written file yields all-unbound workbench_context');
+
+  // 4) opengrok 在 scrub 环境下按 TABONKB_MCP_HOST 取活文件
+  const ogT2 = fs.mkdtempSync(path.join(os.tmpdir(), 'tw-og2-'));
+  const ogFile2 = path.join(ogT2, 'active-context.json');
+  fs.writeFileSync(ogFile2, JSON.stringify({ selectedProject: 'W_sprd_os_dev', source: 'dsh' }));
+  const ogScript = [
+    `const { OpengrokService } = require(${JSON.stringify(path.join(pluginDir, 'services', 'opengrok-service.js'))});`,
+    `const svc = new OpengrokService({ baseUrl: 'http://x/source', defaultProject: 'ENV_PROJ', staticDefault: 'STATIC_PROJ' });`,
+    `process.stdout.write(svc._effDefaultProject());`
+  ].join('\n');
+  const ogRes = child_process.spawnSync(process.execPath, ['-e', ogScript], {
+    env: wbScrubEnv({ TABONKB_MCP_HOST: 'dsh', TABONKB_ACTIVE_CONTEXT_FILE: ogFile2, OPENGROK_DEFAULT_PROJECT: 'STALE_ENV_PROJ' }),
+    encoding: 'utf8', timeout: 15000, windowsHide: true
+  });
+  assert(String(ogRes.stdout).trim() === 'W_sprd_os_dev',
+    `DSH-WB-01: opengrok MCP child prefers live file under scrub env (got: ${String(ogRes.stdout).trim()})`);
+  const ogRes2 = child_process.spawnSync(process.execPath, ['-e', ogScript], {
+    env: wbScrubEnv({ TABONKB_ACTIVE_CONTEXT_FILE: ogFile2, OPENGROK_DEFAULT_PROJECT: 'STALE_ENV_PROJ' }),
+    encoding: 'utf8', timeout: 15000, windowsHide: true
+  });
+  assert(String(ogRes2.stdout).trim() === 'STALE_ENV_PROJ',
+    'DSH-WB-01: non-DSH host keeps env authority (file untouched)');
+
+  // 5) dsh-mcp-shared: 新条目 + env 标记
+  const dshSharedSrc = fs.readFileSync(path.join(pluginDir, 'mcp', 'dsh-mcp-shared.js'), 'utf8');
+  assert(dshSharedSrc.includes('DSH_MCP_HOST_ENV') && dshSharedSrc.includes('workbench-mcp.js') && dshSharedSrc.includes('jira-mcp.js'),
+    'DSH-WB-01: dsh-mcp-shared registers jira+workbench with host env');
+  const patchY = dshShared.generateDshCordisPatchYaml('d:\\work\\Mgmt\\TabonKB');
+  assert(/env:\s*\n\s*TABONKB_MCP_HOST: "dsh"/.test(patchY), 'DSH-WB-01: generated YAML carries env section');
+  assert(!/TABONKB_MCP_HOST.*password|password.*TABONKB_MCP_HOST/i.test(patchY), 'DSH-WB-01: env section carries no secrets');
 
   // --- Suite 17: Antigravity CLI Adapter & Thinking Pipeline (AGY-ADP-01, AGY-THINK-01) ---
   console.log('\n>>> Suite 17: Antigravity CLI Adapter & Thinking Pipeline (AGY-ADP-01, AGY-THINK-01)');
@@ -2664,6 +3066,1637 @@ async function runAllSuites() {
     const r29 = Drawer29d._probeWorkspaceAnchors('pri_project\\a.c');
     const bt1 = Date.now() - bt0;
     assert(r29 === null && bt1 < 1500 && probedPaths29.length < 40, `FL-10d: budget exhaustion returns null in time (took ${bt1}ms, probed ${probedPaths29.length})`);
+  }
+
+  // --- Suite 30: TOPIC-SVC —— 个人专题 00-TASK.md 解析/写回幂等 + 派生字段 + 目录命名 (P1a) ---
+  console.log('\n>>> Suite 30: TOPIC-SVC (Personal Topics 00-TASK.md Core)');
+  {
+    const TS = require(path.join(pluginDir, 'services', 'topic-service.js'));
+
+    const sample = [
+      '---',
+      'title: "测试专题"',
+      '---',
+      '',
+      '## 执行步骤 (Checklist)',
+      '- [ ] 待推进',
+      '- [x] 已完成',
+      '- [X] 大写完成',
+      '',
+      '## 想法 (Ideas)',
+      '- 💡 **[2026-10-21]** 想法一',
+      '',
+      '## 进展日志 (Timeline)',
+      '- **[2026-10-20 10:40]** 进展A',
+      '- **[2026-10-19 09:00]** 进展B',
+      '',
+      '## 备注',
+      '- [ ] 章节外的复选框不算',
+      ''
+    ].join('\n');
+
+    // ① parseTaskBody: 复选框三态识别 / 章节外忽略 / 宽松标题匹配 / 缺失章节空数组
+    const pr1 = TS.parseTaskBody(sample);
+    assert(pr1.steps.length === 3, `TOPIC-01a: steps parsed from Checklist section only (got ${pr1.steps.length})`);
+    assert(pr1.steps[0].done === false && pr1.steps[1].done === true && pr1.steps[2].done === true, 'TOPIC-01b: [ ]/[x]/[X] done flags recognized');
+    assert(pr1.steps[0].label === '待推进' && pr1.steps[2].label === '大写完成', 'TOPIC-01c: step labels extracted');
+    assert(pr1.ideas.length === 1 && pr1.ideas[0].text.includes('想法一'), 'TOPIC-01d: ideas section parsed');
+    assert(pr1.timeline.length === 2 && pr1.timeline[0].time === '2026-10-20 10:40' && pr1.timeline[0].text === '进展A', 'TOPIC-01e: timeline entries parsed with time');
+    const prLoose = TS.parseTaskBody('## 执行步骤\n- [ ] 裸标题也识别\n');
+    assert(prLoose.steps.length === 1 && prLoose.steps[0].label === '裸标题也识别', 'TOPIC-01f: loose heading match (## 执行步骤 without suffix)');
+    const prNone = TS.parseTaskBody('# 只有标题\n正文没有章节\n- [ ] 顶层复选框不算\n');
+    assert(prNone.steps.length === 0 && prNone.ideas.length === 0 && prNone.timeline.length === 0, 'TOPIC-01g: missing sections return empty arrays');
+
+    // ② toggleStep: 仅目标行变化 + CRLF 保持
+    const stepLine = pr1.steps[0].line;
+    const tog = TS.toggleStep(sample, stepLine, true);
+    const srcLines = sample.split('\n');
+    const togLines = tog.split('\n');
+    assert(togLines[stepLine] === '- [x] 待推进', 'TOPIC-02a: toggleStep marks target line done');
+    assert(srcLines.every((l, i) => i === stepLine || togLines[i] === l), 'TOPIC-02b: all other lines byte-identical');
+    const togBack = TS.toggleStep(tog, stepLine, false);
+    assert(togBack === sample, 'TOPIC-02c: toggle back restores original text');
+    const crlf = sample.replace(/\n/g, '\r\n');
+    const crlfTog = TS.toggleStep(crlf, stepLine, true);
+    assert((crlfTog.match(/\n/g) || []).length === (crlfTog.match(/\r\n/g) || []).length, 'TOPIC-02d: CRLF preserved on CRLF text (no lone LF)');
+    assert(crlfTog.split('\r\n')[stepLine] === '- [x] 待推进', 'TOPIC-02e: CRLF toggle applied to correct line');
+    assert(TS.toggleStep(sample, 0, true) === sample, 'TOPIC-02f: non-checkbox line untouched');
+
+    // ③ addStep: 末尾条目后追加, 不越下一个 ##; 章节缺失补建; 未知章节保留
+    const added = TS.addStep(sample, '新步骤');
+    const idxNew = added.indexOf('- [ ] 新步骤');
+    const idxLast = added.indexOf('- [X] 大写完成');
+    const idxIdeas = added.indexOf('## 想法');
+    assert(idxNew > idxLast && idxNew < idxIdeas, 'TOPIC-03a: addStep appends after last item before next ##');
+    assert(added.includes('## 备注\n- [ ] 章节外的复选框不算'), 'TOPIC-03b: unknown trailing section preserved');
+    const noSec = TS.addStep('自由文本\n- [ ] 顶层框\n', '补建步骤');
+    assert(noSec.startsWith('自由文本\n- [ ] 顶层框\n') && noSec.includes('## 执行步骤 (Checklist)\n- [ ] 补建步骤\n'), 'TOPIC-03c: missing Checklist section appended at end');
+    const emptySec = TS.addStep('## 执行步骤 (Checklist)\n\n## 想法 (Ideas)\n', '首条');
+    const esLines = emptySec.split('\n');
+    assert(esLines[1] === '- [ ] 首条' && esLines[2] === '' && esLines[3] === '## 想法 (Ideas)', 'TOPIC-03d: empty Checklist section inserts under heading');
+
+    // ④ addProgress: Timeline 顶部插入 / 格式精确 / 最新在上 / 缺失补建
+    const prog = TS.addProgress(sample, '新进展', '2026-10-20 12:00');
+    const tlIdx = prog.indexOf('## 进展日志 (Timeline)');
+    const newIdx = prog.indexOf('- **[2026-10-20 12:00]** 新进展');
+    const oldIdx = prog.indexOf('- **[2026-10-20 10:40]** 进展A');
+    assert(newIdx > tlIdx && newIdx < oldIdx, 'TOPIC-04a: addProgress inserts at Timeline top (newest first)');
+    const progMissing = TS.addProgress('无章节\n', 'x', '2026-10-21 08:30');
+    assert(progMissing.startsWith('无章节\n') && progMissing.includes('## 进展日志 (Timeline)\n- **[2026-10-21 08:30]** x\n'), 'TOPIC-04b: missing Timeline section appended at end');
+
+    // ⑤ 往返幂等: 含未知章节与手写文字的样本, 未触及部分逐字不变
+    const messy = '# 标题\n\n手写自由文本，不得改动。\n\n## 执行步骤\n- [ ] a\n\n## 奇怪章节\n保留我！！\n- [ ] 不在步骤区\n\n结尾文本\n';
+    const prM = TS.parseTaskBody(messy);
+    let m1 = TS.toggleStep(messy, prM.steps[0].line, true);
+    m1 = TS.addStep(m1, 'b');
+    m1 = TS.addProgress(m1, 'p1', '2026-10-22 09:00');
+    assert(m1.startsWith('# 标题\n\n手写自由文本，不得改动。\n'), 'TOPIC-05a: handwritten head preserved verbatim');
+    assert(m1.includes('## 奇怪章节\n保留我！！\n- [ ] 不在步骤区\n\n结尾文本\n'), 'TOPIC-05b: unknown section & tail preserved verbatim');
+    const prM2 = TS.parseTaskBody(m1);
+    assert(prM2.steps.length === 2 && prM2.steps[0].done && prM2.steps[1].label === 'b', 'TOPIC-05c: checklist ops applied inside loose section');
+    assert(prM2.timeline.length === 1 && prM2.timeline[0].text === 'p1', 'TOPIC-05d: progress appended into newly built Timeline');
+
+    // ⑥ calcProgress / calcIdle
+    const cp = TS.calcProgress([{ done: true }, { done: false }, { done: true }]);
+    assert(cp.done === 2 && cp.total === 3 && cp.percent === 67, `TOPIC-06a: calcProgress 2/3 (got ${cp.percent}%)`);
+    const cp0 = TS.calcProgress([]);
+    assert(cp0.done === 0 && cp0.total === 0 && cp0.percent === null, 'TOPIC-06b: calcProgress total=0 → percent null');
+    const t0 = Date.now();
+    const idle0 = TS.calcIdle(t0, t0, 'in_progress');
+    assert(idle0.days === 0 && idle0.label === '今日推进' && idle0.warn === false, 'TOPIC-06c: calcIdle 0 天 → 今日推进');
+    const idle3 = TS.calcIdle(t0 - 3 * 86400000, t0, 'in_progress');
+    assert(idle3.days === 3 && idle3.label === '3天前' && idle3.warn === false, 'TOPIC-06d: calcIdle 3 天不告警');
+    const idle7 = TS.calcIdle(t0 - 7 * 86400000, t0, 'in_progress');
+    assert(idle7.days === 7 && idle7.warn === true, 'TOPIC-06e: calcIdle 7 天告警');
+    const idle10 = TS.calcIdle(t0 - 10 * 86400000, t0, 'in_progress');
+    assert(idle10.days === 10 && idle10.label === '10天前' && idle10.warn === true, 'TOPIC-06f: calcIdle 10 天告警文案');
+    const idlePaused = TS.calcIdle(t0 - 10 * 86400000, t0, 'paused');
+    assert(idlePaused.days === 10 && idlePaused.warn === false, 'TOPIC-06g: paused 专题不告警');
+
+    // ⑦ sanitizeTopicDirName + 重名后缀
+    assert(TS.sanitizeTopicDirName('a/b:c*d?"<>|#%& x', '20261020') === '20261020-abcd-x', 'TOPIC-07a: illegal chars stripped');
+    assert(TS.sanitizeTopicDirName('  hello   world  ', '2026-10-20') === '20261020-hello-world', 'TOPIC-07b: spaces→dash, dashes in date tolerated');
+    const longTitle = '超长标题'.repeat(15);
+    const sanLong = TS.sanitizeTopicDirName(longTitle, '20261020');
+    assert(sanLong === '20261020-' + '超长标题'.repeat(10), `TOPIC-07c: title truncated to 40 chars (got len ${sanLong.length})`);
+    assert(TS.sanitizeTopicDirName('  ///  ', '20261020') === '20261020', 'TOPIC-07d: all-illegal title falls back to bare date');
+
+    // ⑧ parseWikiLink
+    assert(TS.parseWikiLink('[[a/b.md|别名]]') === 'a/b.md', 'TOPIC-08a: wikilink alias stripped');
+    assert(TS.parseWikiLink('[[a/b.md#锚点]]') === 'a/b.md', 'TOPIC-08b: wikilink anchor stripped');
+    assert(TS.parseWikiLink('a/b.md') === 'a/b.md', 'TOPIC-08c: plain string passthrough');
+    assert(TS.parseWikiLink('[[a/b|c#d]]') === 'a/b', 'TOPIC-08d: alias+anchor both stripped');
+
+    // ⑨ canStar 边界 (上限 3)
+    const mkT = (id, starred, status) => ({ id, starred, status: status || 'in_progress' });
+    const star2 = [mkT('a', true), mkT('b', true)];
+    assert(TS.canStar(star2, mkT('c', false)) === true, 'TOPIC-09a: 2 starred → new star allowed');
+    const star3 = [mkT('a', true), mkT('b', true), mkT('c', true)];
+    assert(TS.canStar(star3, mkT('d', false)) === false, 'TOPIC-09b: 3 starred → new star rejected');
+    assert(TS.canStar(star3, mkT('a', true)) === true, 'TOPIC-09c: already-starred can always unstar');
+    const starPaused = [mkT('a', true), mkT('b', true), mkT('c', true, 'paused')];
+    assert(TS.canStar(starPaused, mkT('d', false)) === true, 'TOPIC-09d: paused starred does not count toward limit');
+
+    // ⑩ createTopic / archive (最小 vault+fileManager+metadataCache mock)
+    const _parseFmMock = (content) => {
+      const m = /^---\n([\s\S]*?)\n---/.exec(String(content));
+      const fm = {};
+      if (!m) return fm;
+      for (const line of m[1].split('\n')) {
+        const mm = /^([A-Za-z_]+):\s*(.*)$/.exec(line);
+        if (!mm) continue;
+        let v = mm[2].trim();
+        if (v === '[]') v = [];
+        else if (v === 'true') v = true;
+        else if (v === 'false') v = false;
+        else if (v.startsWith('"') && v.endsWith('"')) v = v.slice(1, -1).replace(/\\"/g, '"');
+        fm[mm[1]] = v;
+      }
+      return fm;
+    };
+    const mockNodes = new Map();
+    const mockFm = new Map();
+    const mkFolderN = (p) => {
+      const n = { name: p.split('/').pop(), path: p, children: [] };
+      mockNodes.set(p, n);
+      const par = p.split('/').slice(0, -1).join('/');
+      if (par && mockNodes.has(par)) mockNodes.get(par).children.push(n);
+      return n;
+    };
+    const mkFileN = (p, c) => {
+      const n = { name: p.split('/').pop(), path: p, extension: p.split('.').pop(), stat: { mtime: Date.now() }, content: c };
+      mockNodes.set(p, n);
+      const par = p.split('/').slice(0, -1).join('/');
+      if (par && mockNodes.has(par)) mockNodes.get(par).children.push(n);
+      mockFm.set(p, _parseFmMock(c));
+      return n;
+    };
+    const mockApp = {
+      vault: {
+        adapter: { exists: async (p) => mockNodes.has(p) },
+        getAbstractFileByPath: (p) => mockNodes.get(p) || null,
+        createFolder: async (p) => { if (!mockNodes.has(p)) mkFolderN(p); return mockNodes.get(p); },
+        create: async (p, c) => mkFileN(p, c),
+        read: async (f) => f.content,
+        modify: async (f, c) => { f.content = c; mockFm.set(f.path, _parseFmMock(c)); },
+        process: async (f, fn) => { f.content = fn(f.content); return f.content; },
+        rename: async (f, newPath) => {
+          const oldPath = f.path;
+          const oldPar = mockNodes.get(oldPath.split('/').slice(0, -1).join('/'));
+          if (oldPar) oldPar.children = oldPar.children.filter(c => c !== f);
+          const moves = [];
+          for (const [p, n] of [...mockNodes.entries()]) {
+            if (p === oldPath || p.startsWith(oldPath + '/')) moves.push([p, n]);
+          }
+          for (const [p, n] of moves) {
+            const np = newPath + p.slice(oldPath.length);
+            mockNodes.delete(p);
+            n.path = np;
+            mockNodes.set(np, n);
+            if (mockFm.has(p)) { mockFm.set(np, mockFm.get(p)); mockFm.delete(p); }
+          }
+          f.name = newPath.split('/').pop();
+          const newPar = mockNodes.get(newPath.split('/').slice(0, -1).join('/'));
+          if (newPar) newPar.children.push(f);
+        },
+        on: () => ({}), offref: () => {}
+      },
+      fileManager: {
+        processFrontMatter: async (file, fn) => {
+          const fm = mockFm.get(file.path) || {};
+          fn(fm);
+          mockFm.set(file.path, fm);
+        }
+      },
+      metadataCache: {
+        getFileCache: (f) => ({ frontmatter: mockFm.get(f.path) || {} }),
+        on: () => ({}), offref: () => {}
+      }
+    };
+
+    const svc = new TS.TopicService({ app: mockApp, rootPath: 'topics' });
+    const created = await svc.createTopic({ title: 'USB-PD 专项研究', track: 'deep', module: 'USB', goal: '搞清楚 PD' });
+    assert(/^\d{8}-USB-PD/.test(created.id), `TOPIC-10a: createTopic dir name is YYYYMMDD-短标题 (got ${created.id})`);
+    const taskNode = mockNodes.get(`${created.dir}/00-TASK.md`);
+    assert(!!taskNode && taskNode.content.includes('## 执行步骤 (Checklist)') && taskNode.content.includes('## 想法 (Ideas)') && taskNode.content.includes('## 进展日志 (Timeline)'), 'TOPIC-10b: 00-TASK.md contains all three sections');
+    const fmCreated = mockFm.get(taskNode.path);
+    assert(fmCreated.title === 'USB-PD 专项研究' && fmCreated.track === 'deep' && fmCreated.module === 'USB' && fmCreated.status === 'in_progress' && fmCreated.starred === false && fmCreated.goal === '搞清楚 PD', 'TOPIC-10c: frontmatter fields written');
+    assert(Array.isArray(fmCreated.jira) && Array.isArray(fmCreated.published_docs) && Array.isArray(fmCreated.linked_refs), 'TOPIC-10d: list fields initialized as []');
+    const created2 = await svc.createTopic({ title: 'USB-PD 专项研究', track: 'deep', module: 'USB' });
+    assert(created2.id === created.id + '-2', `TOPIC-10e: duplicate dir name gets -2 suffix (got ${created2.id})`);
+    const scanned = await svc.scan();
+    assert(scanned.length === 2 && scanned.every(t => t.id && t.taskFile), `TOPIC-10f: scan() returns topics (got ${scanned.length})`);
+    const t1 = scanned.find(t => t.id === created.id);
+    assert(t1 && t1.title === 'USB-PD 专项研究' && t1.timeline.length === 1, 'TOPIC-10g: scanned topic has fm title + initial timeline entry');
+    // 扫描忽略 _ 开头目录
+    mkFolderN('topics/_Seeds');
+    mkFileN('topics/_Seeds/20261020-x.md', '---\ntitle: x\n---\n');
+    const scanned2 = await svc.scan();
+    assert(scanned2.length === 2, 'TOPIC-10h: _-prefixed dirs skipped by scan');
+    // archive: 移入 _Archived + status done + 重名后缀
+    mkFolderN('topics/_Archived');
+    mkFolderN(`topics/_Archived/${created.id}`);
+    await svc.archive(t1);
+    assert(mockNodes.has(`topics/_Archived/${created.id}-2`), `TOPIC-10i: archive moves dir into _Archived with dedupe suffix`);
+    assert(!mockNodes.has(`${created.dir}`), 'TOPIC-10j: original dir removed after archive');
+    const fmArchived = mockFm.get(`topics/_Archived/${created.id}-2/00-TASK.md`);
+    assert(fmArchived && fmArchived.status === 'done', 'TOPIC-10k: archive sets status: done');
+  }
+
+  // --- Suite 31: TOPIC-P1B —— 想法行操作 + 种子池 + 记灵感去向 (P1b) ---
+  console.log('\n>>> Suite 31: TOPIC-P1B (Ideas / Seeds / Idea Capture)');
+  {
+    const TS = require(path.join(pluginDir, 'services', 'topic-service.js'));
+    const ICP = require(path.join(pluginDir, 'components', 'idea-capture-palette.js'));
+
+    // ① parseTaskBody ideas 新字段: label/date/source/struck + text 保持原义
+    const ideaSample = [
+      '## 想法 (Ideas)',
+      '- 💡 **[2026-10-21]** 想法一 · 来源A',
+      '- ~~💡 **[2026-10-20]** 已划掉 · JIRA-1~~',
+      '- 💡 **[2026-10-19]** 无来源想法',
+      ''
+    ].join('\n');
+    const pri = TS.parseTaskBody(ideaSample);
+    assert(pri.ideas.length === 3, `IDEA-01a: all idea items parsed (got ${pri.ideas.length})`);
+    assert(pri.ideas[0].label === '想法一' && pri.ideas[0].date === '2026-10-21' && pri.ideas[0].source === '来源A' && pri.ideas[0].struck === false, 'IDEA-01b: label/date/source/struck parsed');
+    assert(pri.ideas[0].text.includes('💡 **[2026-10-21]** 想法一'), 'IDEA-01c: text keeps raw line content (P1a compat)');
+    assert(pri.ideas[1].struck === true && pri.ideas[1].label === '已划掉' && pri.ideas[1].source === 'JIRA-1', 'IDEA-01d: struck item parsed');
+    assert(pri.ideas[2].label === '无来源想法' && pri.ideas[2].source === '', 'IDEA-01e: no-source idea parsed');
+
+    // ② addIdea: 顶部插入 / 缺失补建 / 格式精确
+    const ai = TS.addIdea(ideaSample, '新想法', '2026-10-22', 'SRC');
+    assert(ai.split('\n')[1] === '- 💡 **[2026-10-22]** 新想法 · SRC', 'IDEA-02a: addIdea inserts at Ideas top with exact format');
+    const aiNoSrc = TS.addIdea(ideaSample, '无来源', '2026-10-22');
+    assert(aiNoSrc.split('\n')[1] === '- 💡 **[2026-10-22]** 无来源', 'IDEA-02b: addIdea without source omits trailing dot');
+    const aiMissing = TS.addIdea('自由文本\n', 'X', '2026-10-22');
+    assert(aiMissing.startsWith('自由文本\n') && aiMissing.includes('## 想法 (Ideas)\n- 💡 **[2026-10-22]** X\n'), 'IDEA-02c: missing Ideas section appended at end');
+    const aiNewest = TS.addIdea(ideaSample, '最新', '2026-10-23');
+    assert(aiNewest.indexOf('最新') < aiNewest.indexOf('想法一'), 'IDEA-02d: newest idea on top');
+
+    // ③ ideaToStep: 删行 + 追加步骤 + 其余字节不变; 非法目标原样返回
+    const ideaBase = [
+      '## 执行步骤 (Checklist)',
+      '- [ ] 旧步骤',
+      '',
+      '## 想法 (Ideas)',
+      '- 💡 **[2026-10-21]** 变成步骤 · SRC',
+      '- 💡 **[2026-10-20]** 留下',
+      '',
+      '## 进展日志 (Timeline)',
+      ''
+    ].join('\n');
+    const prB = TS.parseTaskBody(ideaBase);
+    const i2s = TS.ideaToStep(ideaBase, prB.ideas[0].line);
+    assert(!i2s.includes('变成步骤 · SRC'), 'IDEA-03a: idea line removed (incl. line end)');
+    const idxNewStep = i2s.indexOf('- [ ] 变成步骤');
+    assert(idxNewStep > i2s.indexOf('- [ ] 旧步骤') && idxNewStep < i2s.indexOf('## 想法'), 'IDEA-03b: label appended as - [ ] step inside Checklist');
+    assert(i2s.includes('## 想法 (Ideas)\n- 💡 **[2026-10-20]** 留下\n'), 'IDEA-03c: other idea line byte-preserved');
+    const struckBase = '## 想法 (Ideas)\n- ~~💡 **[2026-10-20]** 划掉的~~\n';
+    const prStruck = TS.parseTaskBody(struckBase);
+    assert(TS.ideaToStep(struckBase, prStruck.ideas[0].line) === struckBase, 'IDEA-03d: struck idea → unchanged');
+    assert(TS.ideaToStep(ideaBase, 0) === ideaBase, 'IDEA-03e: non-idea line → unchanged');
+    assert(TS.ideaToStep(ideaBase, 999) === ideaBase, 'IDEA-03f: out-of-range line → unchanged');
+
+    // ④ strikeIdea 幂等 + 仅目标行变化
+    const st = TS.strikeIdea(ideaBase, prB.ideas[0].line);
+    const stLines = st.split('\n');
+    const baseLines = ideaBase.split('\n');
+    assert(stLines[prB.ideas[0].line] === '- ~~💡 **[2026-10-21]** 变成步骤 · SRC~~', 'IDEA-04a: strikeIdea wraps content in ~~');
+    assert(baseLines.every((l, i) => i === prB.ideas[0].line || stLines[i] === l), 'IDEA-04b: other lines byte-identical');
+    const stParsed = TS.parseTaskBody(st);
+    assert(stParsed.ideas[0].struck === true, 'IDEA-04c: struck flag set after strike');
+    const stLineIdx = stParsed.ideas[0].line;
+    assert(TS.strikeIdea(st, stLineIdx) === st, 'IDEA-04d: strikeIdea idempotent');
+
+    // ⑤ removeIdeaLine
+    const rm = TS.removeIdeaLine(ideaBase, prB.ideas[0].line);
+    assert(!rm.includes('变成步骤'), 'IDEA-05a: removeIdeaLine drops the line');
+    assert(rm.split('\n').length === baseLines.length - 1, 'IDEA-05b: exactly one line removed');
+    assert(rm.includes('## 想法 (Ideas)\n- 💡 **[2026-10-20]** 留下\n'), 'IDEA-05c: neighbours preserved');
+    assert(TS.removeIdeaLine(ideaBase, 0) === ideaBase, 'IDEA-05d: non-idea line → unchanged');
+
+    // ⑥ parseSeedBody + addWater
+    const seedSample = [
+      '## 想法',
+      '灵感全文第一行',
+      '第二行',
+      '',
+      '## 浇水',
+      '- **[2026-10-22 09:00]** 浇水A',
+      '- **[2026-10-21 08:00]** 浇水B',
+      ''
+    ].join('\n');
+    const psb = TS.parseSeedBody(seedSample);
+    assert(psb.idea === '灵感全文第一行\n第二行', `SEED-01a: seed idea body parsed (got "${psb.idea}")`);
+    assert(psb.waters.length === 2 && psb.waters[0].time === '2026-10-22 09:00' && psb.waters[0].text === '浇水A', 'SEED-01b: water entries parsed newest-first');
+    const aw = TS.addWater(seedSample, '浇水C', '2026-10-23 10:00');
+    assert(aw.indexOf('- **[2026-10-23 10:00]** 浇水C') > aw.indexOf('## 浇水') && aw.indexOf('- **[2026-10-23 10:00]** 浇水C') < aw.indexOf('- **[2026-10-22 09:00]** 浇水A'), 'SEED-02a: addWater inserts at 浇水 top (newest first)');
+    const awMissing = TS.addWater('## 想法\nx\n', 'w', '2026-10-23 10:00');
+    assert(awMissing.includes('## 浇水\n- **[2026-10-23 10:00]** w\n'), 'SEED-02b: missing 浇水 section appended at end');
+
+    // ⑦ seedEffectiveStatus
+    assert(TS.seedEffectiveStatus('seed', 2) === 'seed', 'SEED-03a: 2 waters → seed');
+    assert(TS.seedEffectiveStatus('seed', 3) === 'growing', 'SEED-03b: 3 waters → growing');
+    assert(TS.seedEffectiveStatus('sprouted', 9) === 'sprouted', 'SEED-03c: sprouted unchanged');
+    assert(TS.seedEffectiveStatus('growing', 0) === 'growing', 'SEED-03d: growing unchanged');
+
+    // ⑧ inferCaptureTarget 全分支
+    const capTopics = [
+      { id: 'T1', status: 'in_progress', jira: ['SPE123-1'] },
+      { id: 'T2', status: 'paused', jira: ['SPE123-2'] }
+    ];
+    const tgt1 = TS.inferCaptureTarget({ selectedTopicId: 'T1' }, capTopics);
+    assert(tgt1.type === 'topic' && tgt1.id === 'T1', 'CAP-01a: selected in_progress topic wins');
+    assert(TS.inferCaptureTarget({ selectedTopicId: 'T2' }, capTopics).type === 'seed', 'CAP-01b: selected paused topic → seed fallback');
+    const tgt3 = TS.inferCaptureTarget({ jiraKey: 'spe123-1' }, capTopics);
+    assert(tgt3.type === 'topic' && tgt3.id === 'T1', 'CAP-01c: jira key match is case-insensitive');
+    assert(TS.inferCaptureTarget({ jiraKey: 'SPE123-2' }, capTopics).type === 'seed', 'CAP-01d: jira key hitting paused topic → seed');
+    assert(TS.inferCaptureTarget({}, capTopics).type === 'seed', 'CAP-01e: no context → seed');
+    assert(TS.inferCaptureTarget({ selectedTopicId: 'NOPE' }, capTopics).type === 'seed', 'CAP-01f: unknown selectedTopicId → seed');
+
+    // ⑨ isJiraKey
+    assert(TS.isJiraKey('SPE123-1') === true && TS.isJiraKey('ABC-12') === true, 'CAP-02a: jira key positives');
+    assert(TS.isJiraKey('spe123-1') === false && TS.isJiraKey('A-1') === false && TS.isJiraKey('SPE-1x') === false && TS.isJiraKey('') === false, 'CAP-02b: jira key negatives');
+
+    // ⑩ shouldYieldCtrlI
+    const elCm = { closest: (sel) => (sel === '.cm-editor' ? elCm : null) };
+    const elMon = { closest: (sel) => (sel === '.monaco-editor' ? elMon : null) };
+    const elPlain = { closest: () => null };
+    assert(ICP.shouldYieldCtrlI(elCm) === true && ICP.shouldYieldCtrlI(elMon) === true, 'CAP-03a: editor ancestors yield Ctrl+I');
+    assert(ICP.shouldYieldCtrlI(elPlain) === false && ICP.shouldYieldCtrlI(null) === false && ICP.shouldYieldCtrlI(undefined) === false, 'CAP-03b: input/null/plain element does not yield');
+    assert(typeof ICP.IdeaCapturePalette === 'function', 'CAP-03c: IdeaCapturePalette class exported');
+
+    // ⑪ mock vault 集成 (含 fileManager.renameFile)
+    const _parseFm31 = (content) => {
+      const m = /^---\n([\s\S]*?)\n---/.exec(String(content));
+      const fm = {};
+      if (!m) return fm;
+      for (const line of m[1].split('\n')) {
+        const mm = /^([A-Za-z_]+):\s*(.*)$/.exec(line);
+        if (!mm) continue;
+        let v = mm[2].trim();
+        if (/^\[.*\]$/.test(v)) v = v === '[]' ? [] : v.slice(1, -1).split(',').map(x => x.trim().replace(/^"|"$/g, '').replace(/\\"/g, '"'));
+        else if (v === 'true') v = true;
+        else if (v === 'false') v = false;
+        else if (v.startsWith('"') && v.endsWith('"')) v = v.slice(1, -1).replace(/\\"/g, '"');
+        fm[mm[1]] = v;
+      }
+      return fm;
+    };
+    const mockNodes31 = new Map();
+    const mockFm31 = new Map();
+    const mkFolderN31 = (p) => {
+      const n = { name: p.split('/').pop(), path: p, children: [] };
+      mockNodes31.set(p, n);
+      const par = p.split('/').slice(0, -1).join('/');
+      if (par && mockNodes31.has(par)) mockNodes31.get(par).children.push(n);
+      return n;
+    };
+    const mkFileN31 = (p, c) => {
+      const n = { name: p.split('/').pop(), path: p, extension: p.split('.').pop(), stat: { mtime: Date.now() }, content: c };
+      mockNodes31.set(p, n);
+      const par = p.split('/').slice(0, -1).join('/');
+      if (par && mockNodes31.has(par)) mockNodes31.get(par).children.push(n);
+      mockFm31.set(p, _parseFm31(c));
+      return n;
+    };
+    const mockVault31 = {
+      adapter: { exists: async (p) => mockNodes31.has(p) },
+      getAbstractFileByPath: (p) => mockNodes31.get(p) || null,
+      createFolder: async (p) => { if (!mockNodes31.has(p)) mkFolderN31(p); return mockNodes31.get(p); },
+      create: async (p, c) => mkFileN31(p, c),
+      read: async (f) => f.content,
+      modify: async (f, c) => { f.content = c; mockFm31.set(f.path, _parseFm31(c)); },
+      process: async (f, fn) => { f.content = fn(f.content); return f.content; },
+      rename: async (f, newPath) => {
+        const oldPath = f.path;
+        const oldPar = mockNodes31.get(oldPath.split('/').slice(0, -1).join('/'));
+        if (oldPar) oldPar.children = oldPar.children.filter(c => c !== f);
+        const moves = [];
+        for (const [p, n] of [...mockNodes31.entries()]) {
+          if (p === oldPath || p.startsWith(oldPath + '/')) moves.push([p, n]);
+        }
+        for (const [p, n] of moves) {
+          const np = newPath + p.slice(oldPath.length);
+          mockNodes31.delete(p);
+          n.path = np;
+          mockNodes31.set(np, n);
+          if (mockFm31.has(p)) { mockFm31.set(np, mockFm31.get(p)); mockFm31.delete(p); }
+        }
+        f.name = newPath.split('/').pop();
+        const newPar = mockNodes31.get(newPath.split('/').slice(0, -1).join('/'));
+        if (newPar) newPar.children.push(f);
+      },
+      on: () => ({}), offref: () => {}
+    };
+    const mockApp31 = {
+      vault: mockVault31,
+      fileManager: {
+        processFrontMatter: async (file, fn) => {
+          const fm = mockFm31.get(file.path) || {};
+          fn(fm);
+          mockFm31.set(file.path, fm);
+        },
+        renameFile: async (file, newPath) => mockVault31.rename(file, newPath)
+      },
+      metadataCache: {
+        getFileCache: (f) => ({ frontmatter: mockFm31.get(f.path) || {} }),
+        on: () => ({}), offref: () => {}
+      }
+    };
+
+    const svc31 = new TS.TopicService({ app: mockApp31, rootPath: 'topics' });
+
+    // createSeed: 文件名/重名后缀/fm/两章节
+    const s1 = await svc31.createSeed({ text: '灵感一行\n第二行', source: 'jira', source_ref: 'SPE123-1' });
+    assert(/^\d{8}-.+\.md$/.test(s1.id) && s1.path === `topics/_Seeds/${s1.id}`, `SEED-10a: createSeed writes into _Seeds with date name (got ${s1.id})`);
+    const s1n = mockNodes31.get(s1.path);
+    assert(s1n.content.includes('## 想法\n灵感一行\n第二行\n') && s1n.content.includes('## 浇水'), 'SEED-10b: seed body has 想法(全文)+浇水 sections');
+    const sfm1 = mockFm31.get(s1.path);
+    assert(sfm1.status === 'seed' && sfm1.source === 'jira' && sfm1.source_ref === 'SPE123-1' && sfm1.title === '灵感一行', 'SEED-10c: seed frontmatter fields');
+    const s2 = await svc31.createSeed({ text: '灵感一行\n第二行' });
+    assert(s2.id === s1.id.replace('.md', '-2.md'), `SEED-10d: filename collision → -2 suffix (got ${s2.id})`);
+
+    // scanSeeds 忽略 _Withered 子目录
+    mkFolderN31('topics/_Seeds/_Withered');
+    mkFileN31('topics/_Seeds/_Withered/20261020-dead.md', '---\ntitle: dead\nstatus: withered\n---\n\n## 想法\nx\n\n## 浇水\n');
+    const seeds0 = await svc31.scanSeeds();
+    assert(seeds0.length === 2 && !seeds0.some(s => s.id.includes('dead')), 'SEED-11a: scanSeeds top-level only, _Withered ignored');
+
+    // water ×3 → growing
+    let so = seeds0.find(s => s.id === s1.id);
+    await svc31.water(so, 'w1');
+    so = (await svc31.scanSeeds()).find(s => s.id === s1.id);
+    assert(so.waters.length === 1 && so.status === 'seed', 'SEED-12a: 1st water recorded, still seed');
+    await svc31.water(so, 'w2');
+    so = (await svc31.scanSeeds()).find(s => s.id === s1.id);
+    assert(so.waters.length === 2 && so.status === 'seed', 'SEED-12b: 2 waters → still seed');
+    await svc31.water(so, 'w3');
+    so = (await svc31.scanSeeds()).find(s => s.id === s1.id);
+    assert(so.waters.length === 3 && so.status === 'growing', 'SEED-12c: 3rd water → growing');
+    assert(so.waters[0].text === 'w3', 'SEED-12d: newest water on top');
+    assert(mockFm31.get(so.path).status === 'growing', 'SEED-12e: fm status updated to growing');
+
+    // sprout: 专题字段/jira/Timeline 顺序/种子移入 00-SEED.md
+    const wTimesBefore = so.waters.map(w => w.time);
+    const spr = await svc31.sprout(so, { track: 'deep', module: 'USB' });
+    const sprTaskPath = `${spr.dir}/00-TASK.md`;
+    const sprFm = mockFm31.get(sprTaskPath);
+    assert(sprFm.title === '灵感一行' && sprFm.goal === '灵感一行' && sprFm.track === 'deep' && sprFm.module === 'USB', 'SEED-13a: sprout topic fields (goal = idea first line)');
+    assert(Array.isArray(sprFm.jira) && sprFm.jira.includes('SPE123-1'), 'SEED-13b: source_ref jira key → topic jira');
+    const sprParsed = TS.parseTaskBody(mockNodes31.get(sprTaskPath).content);
+    assert(sprParsed.timeline[0].text === '发芽自种子', 'SEED-13c: timeline top = 发芽自种子');
+    assert(sprParsed.timeline.length === 4 && sprParsed.timeline[1].text === '💧 w3' && sprParsed.timeline[3].text === '💧 w1', 'SEED-13d: water history migrated newest-first below sprout entry');
+    assert(sprParsed.timeline[1].time === wTimesBefore[0] && sprParsed.timeline[3].time === wTimesBefore[2], 'SEED-13e: water timestamps preserved verbatim');
+    assert(mockNodes31.has(`${spr.dir}/00-SEED.md`), 'SEED-13f: seed moved into topic dir as 00-SEED.md');
+    assert(mockFm31.get(`${spr.dir}/00-SEED.md`).status === 'sprouted', 'SEED-13g: seed status = sprouted');
+    assert(!mockNodes31.has(s1.path), 'SEED-13h: original seed path removed');
+
+    // mergeSeed: 移入 <专题>/_seeds/ + Ideas 顶部并入条目 + status merged
+    const s2Obj = (await svc31.scanSeeds()).find(s => s.id === s2.id);
+    const sprTopic = (await svc31.scan()).find(t => t.id === spr.id);
+    await svc31.mergeSeed(s2Obj, sprTopic);
+    assert(mockNodes31.has(`${spr.dir}/_seeds/${s2.id}`), `SEED-14a: merged seed moved into <topic>/_seeds/`);
+    assert(mockFm31.get(`${spr.dir}/_seeds/${s2.id}`).status === 'merged', 'SEED-14b: seed status = merged');
+    const mgParsed = TS.parseTaskBody(mockNodes31.get(sprTaskPath).content);
+    assert(mgParsed.ideas.length >= 1 && mgParsed.ideas[0].label === s2Obj.title && mgParsed.ideas[0].source.includes('并入 [['), 'SEED-14c: topic Ideas top has 并入 entry with wikilink');
+
+    // discardSeed: 移入 _Withered + status withered + 文件仍在 + 不再被扫描
+    const s3 = await svc31.createSeed({ text: '丢弃的种子' });
+    await svc31.discardSeed({ id: s3.id, path: s3.path, file: s3.file });
+    const wPath = `topics/_Seeds/_Withered/${s3.id}`;
+    assert(mockNodes31.has(wPath) && !mockNodes31.has(s3.path), 'SEED-15a: discarded seed moved into _Withered (not deleted)');
+    assert(mockFm31.get(wPath).status === 'withered', 'SEED-15b: seed status = withered');
+    assert(!(await svc31.scanSeeds()).some(s => s.id === s3.id), 'SEED-15c: withered seed excluded from scanSeeds');
+
+    // forkIdea: 想法 → 种子, 原想法行移除
+    const ft = await svc31.createTopic({ title: '分叉源专题', track: 'work', module: 'GEN' });
+    await svc31.addIdea(ft, '分叉想法', 'S');
+    const ftScan = (await svc31.scan()).find(t => t.id === ft.id);
+    const fkSeed = await svc31.forkIdea(ftScan, ftScan.ideas[0].line);
+    assert(fkSeed && fkSeed.file, 'SEED-16a: forkIdea creates a seed');
+    const fkFm = mockFm31.get(fkSeed.path);
+    assert(fkFm.source === 'note' && fkFm.source_ref === `[[${ft.dir}/00-TASK]]` && fkFm.track === 'work' && fkFm.module === 'GEN', 'SEED-16b: forked seed inherits topic track/module + note source_ref');
+    assert(TS.parseSeedBody(mockNodes31.get(fkSeed.path).content).idea === '分叉想法', 'SEED-16c: forked seed carries idea label as body');
+    assert(TS.parseTaskBody(mockNodes31.get(`${ft.dir}/00-TASK.md`).content).ideas.length === 0, 'SEED-16d: original idea line removed from topic');
+
+    // captureIdea 两种去向
+    const capR1 = await svc31.captureIdea({ text: '记入专题的想法', target: { type: 'topic', id: ft.id }, context: { source: 'manual' } });
+    assert(capR1.kind === 'topic', 'CAP-10a: topic target → kind topic');
+    const ftIdeas = TS.parseTaskBody(mockNodes31.get(`${ft.dir}/00-TASK.md`).content).ideas;
+    assert(ftIdeas.length === 1 && ftIdeas[0].label === '记入专题的想法', 'CAP-10b: captured idea appended to topic Ideas');
+    const capR2 = await svc31.captureIdea({ text: '新捕获种子', target: { type: 'seed', track: 'deep' }, context: { source: 'jira', source_ref: 'SPE123-9' } });
+    assert(capR2.kind === 'seed' && mockFm31.get(capR2.seed.path).track === 'deep' && mockFm31.get(capR2.seed.path).source_ref === 'SPE123-9', 'CAP-10c: seed target → createSeed with context');
+  }
+
+  // --- Suite 32: JIRA-SANDBOX —— 排查建档统一 (一单一目录 + DBG 草稿) + 记灵感上下文合并 (P1c) ---
+  console.log('\n>>> Suite 32: JIRA-SANDBOX (Debug Sandbox & Naming)');
+  {
+    const JSS = require(path.join(pluginDir, 'services', 'jira-sandbox-service.js'));
+    const ICP = require(path.join(pluginDir, 'components', 'idea-capture-palette.js'));
+
+    // ① inferDbgNaming: components > summary > description; CN/EN; 默认 COMMON/GEN
+    const n1 = JSS.inferDbgNaming({ components: ['MTK Connectivity'], summary: 'sm8650 显示问题', description: 'usb pd' });
+    assert(n1.platform === 'MTK' && n1.module === 'CONN', `DBG-01a: components beats summary/description (got ${n1.platform}/${n1.module})`);
+    const n2 = JSS.inferDbgNaming({ components: [], summary: 'SM8650 充电异常', description: 'mt6789 usb' });
+    assert(n2.platform === 'QCOM' && n2.module === 'CHG', `DBG-01b: summary beats description, sm8650→QCOM, 充电→CHG (got ${n2.platform}/${n2.module})`);
+    const n3 = JSS.inferDbgNaming({ description: 'mt6789 kernel panic 死机' });
+    assert(n3.platform === 'MTK' && n3.module === 'KERN', `DBG-01c: mt6789→MTK, kernel→KERN from description (got ${n3.platform}/${n3.module})`);
+    const n4 = JSS.inferDbgNaming({});
+    assert(n4.platform === 'COMMON' && n4.module === 'GEN', 'DBG-01d: empty issue → COMMON/GEN');
+    const n5 = JSS.inferDbgNaming({ components: ['展锐 Audio'], summary: '喇叭无声' });
+    assert(n5.platform === 'UNISOC' && n5.module === 'AUD', `DBG-01e: 展锐→UNISOC, Audio→AUD (got ${n5.platform}/${n5.module})`);
+    const n6 = JSS.inferDbgNaming({ summary: 'USB 充电异常' });
+    assert(n6.module === 'CHG', `DBG-01f: CHG listed before USB in rule order (got ${n6.module})`);
+
+    // ② sanitizeDbgTitle
+    assert(JSS.sanitizeDbgTitle('SPE123-1', 'a/b:c*d?"<>|#%&^[]! x') === 'SPE123-1-abcd-x', 'DBG-02a: illegal chars stripped, space→dash');
+    assert(JSS.sanitizeDbgTitle('SPE123-1', '充电（PD）异常！') === 'SPE123-1-充电PD异常', 'DBG-02b: full-width punct stripped');
+    const longS = '超长摘要'.repeat(10); // 40 chars
+    const tLong = JSS.sanitizeDbgTitle('K-1', longS);
+    assert(tLong === 'K-1-' + '超长摘要'.repeat(6), `DBG-02c: short title truncated to 24 chars (got ${tLong.length})`);
+    assert(JSS.sanitizeDbgTitle('SPE123-1', '') === 'SPE123-1', 'DBG-02d: empty summary → KEY only');
+    assert(JSS.sanitizeDbgTitle('SPE123-1', '  多空   白  ') === 'SPE123-1-多空-白', 'DBG-02e: whitespace collapsed to single dash');
+
+    // ③ buildDbgFileName: 精确格式 / ≤80 / 超长只截标题
+    const fn1 = JSS.buildDbgFileName(
+      { key: 'SPE123-163', summary: '电量计信息缺失' },
+      new Date(2026, 9, 20),
+      { platform: 'UNISOC', module: 'CHG' }
+    );
+    assert(fn1 === 'SPE123-163-电量计信息缺失_v0.1_20261020_UNISOC_CHG_DBG.md', `DBG-03a: exact filename (got ${fn1})`);
+    const fn2 = JSS.buildDbgFileName(
+      { key: 'SPECIALPROJECT-123456789', summary: 'x'.repeat(60) },
+      new Date(2026, 9, 20),
+      { platform: 'COMMON', module: 'GEN' }
+    );
+    assert(fn2.length <= 80 && fn2.startsWith('SPECIALPROJECT-123456789') && fn2.endsWith('_v0.1_20261020_COMMON_GEN_DBG.md'), `DBG-03b: ≤80, KEY + suffix preserved (len ${fn2.length})`);
+
+    // ④ buildDbgNoteContent: fm/tags/四章节顺序/占位/评论引用块
+    const issueA = {
+      key: 'SPE123-163', summary: '充电异常', url: 'http://jira/x', status: 'In Progress',
+      assignee: '张三', reporter: '李四', components: ['Charger'],
+      description: '描述正文第一行'
+    };
+    const c1 = JSS.buildDbgNoteContent(issueA, [{ author: '王五', created: '2026-10-20', body: '评论一行\n评论二行' }], new Date(2026, 9, 20), { platform: 'QCOM', module: 'CHG' });
+    assert(c1.includes('doctype: DBG') && c1.includes('version: v0.1') && c1.includes('status: draft'), 'DBG-04a: doctype/version/status in fm');
+    assert(c1.includes('platform: [QCOM]') && c1.includes('module: [CHG]'), 'DBG-04b: platform/module fm');
+    assert(c1.includes('"#platform/qcom"') && c1.includes('"#module/charger"') && c1.includes('"#doctype/dbg"') && c1.includes('"#status/draft"'), 'DBG-04c: four tags');
+    assert(c1.includes('jira_key: "SPE123-163"') && c1.includes('jira_url: "http://jira/x"'), 'DBG-04d: jira fields');
+    const iR = c1.indexOf('## 复现现象');
+    const iS = c1.indexOf('## 源码调用链');
+    const iV = c1.indexOf('## 验证结论');
+    const iP = c1.indexOf('## Patch');
+    assert(iR > 0 && iR < iS && iS < iV && iV < iP, 'DBG-04e: four DBG sections in order');
+    assert(c1.includes('- 测试条件/版本:') && c1.includes('```text\n```'), 'DBG-04f: 复现现象 prompts + empty code block');
+    assert(c1.includes('> 评论一行') && c1.includes('> 评论二行') && c1.includes('👤 王五'), 'DBG-04g: comment body quote-wrapped');
+    const c2 = JSS.buildDbgNoteContent({ key: 'X-1', summary: '' }, [], new Date(2026, 9, 20), { platform: 'COMMON', module: 'GEN' });
+    assert(c2.includes('*(暂无详细描述)*') && c2.includes('*(暂无历史注释记录)*'), 'DBG-04h: empty desc/comments placeholders');
+    assert(c2.includes('platform: [COMMON]') && c2.includes('"#platform/common"') && c2.includes('"#module/general"'), 'DBG-04i: COMMON/GEN → common/general tags');
+
+    // ⑤ 服务: mock vault (复用 Suite 30/31 写法)
+    const mockNodes32 = new Map();
+    const mkFolderN32 = (p) => {
+      const n = { name: p.split('/').pop(), path: p, children: [] };
+      mockNodes32.set(p, n);
+      const par = p.split('/').slice(0, -1).join('/');
+      if (par && mockNodes32.has(par)) mockNodes32.get(par).children.push(n);
+      return n;
+    };
+    const mkFileN32 = (p, c, mtime) => {
+      const n = { name: p.split('/').pop(), path: p, extension: p.split('.').pop(), stat: { mtime: mtime || Date.now() }, content: c };
+      mockNodes32.set(p, n);
+      const par = p.split('/').slice(0, -1).join('/');
+      if (par && mockNodes32.has(par)) mockNodes32.get(par).children.push(n);
+      return n;
+    };
+    const mockVault32 = {
+      adapter: { exists: async (p) => mockNodes32.has(p) },
+      getAbstractFileByPath: (p) => mockNodes32.get(p) || null,
+      createFolder: async (p) => { if (!mockNodes32.has(p)) mkFolderN32(p); return mockNodes32.get(p); },
+      create: async (p, c) => mkFileN32(p, c),
+      read: async (f) => f.content
+    };
+    const svc32 = new JSS.JiraSandboxService({ app: { vault: mockVault32 } });
+    const issue32 = { key: 'SPE123-163', summary: '充电异常', url: 'http://jira/x', components: ['Charger'] };
+
+    // exists 真假
+    assert((await svc32.exists('SPE123-163')) === false, 'SBX-01a: exists false before create');
+    // create 首次: 建目录+草稿, 不建 attachments
+    const r1 = await svc32.create(issue32, [], new Date(2026, 9, 20));
+    assert(r1.created === true && r1.folder === '00-Inbox/03-Quick-Note/SPE123-163', `SBX-01b: first create makes dir (got ${r1.folder})`);
+    assert(/00-Inbox\/03-Quick-Note\/SPE123-163\/.+_DBG\.md$/.test(r1.file.path), `SBX-01c: DBG draft path (got ${r1.file.path})`);
+    assert(!mockNodes32.has('00-Inbox/03-Quick-Note/SPE123-163/attachments'), 'SBX-01d: attachments dir NOT created');
+    assert(r1.file.content.includes('## 复现现象') && r1.file.content.includes('doctype: DBG'), 'SBX-01e: draft content has DBG fm + sections');
+    assert((await svc32.exists('SPE123-163')) === true, 'SBX-01f: exists true after create');
+    // 再次 create: 返回已有草稿 created:false, 不重复建文件
+    const filesBefore = [...mockNodes32.keys()].filter(p => p.endsWith('.md')).length;
+    const r2 = await svc32.create(issue32, []);
+    assert(r2.created === false && r2.file.path === r1.file.path, 'SBX-02a: second create returns existing draft');
+    assert([...mockNodes32.keys()].filter(p => p.endsWith('.md')).length === filesBefore, 'SBX-02b: no new file on second create');
+    // 目录存在但无 DBG → 补建
+    mkFolderN32('00-Inbox/03-Quick-Note/OTHER-1');
+    mkFileN32('00-Inbox/03-Quick-Note/OTHER-1/note.md', 'x');
+    const r3 = await svc32.create({ key: 'OTHER-1', summary: '' }, [], new Date(2026, 9, 20));
+    assert(r3.created === true && r3.file.name.endsWith('_DBG.md'), 'SBX-03a: dir without DBG → draft created');
+    // createDraft 重名 …_DBG-2.md
+    const d1 = await svc32.createDraft(issue32, [], new Date(2026, 9, 20));
+    assert(d1.name === r1.file.name.replace(/_DBG\.md$/, '_DBG-2.md'), `SBX-04a: createDraft dedupes with -2 (got ${d1.name})`);
+    const d2 = await svc32.createDraft(issue32, [], new Date(2026, 9, 20));
+    assert(d2.name.endsWith('_DBG-3.md'), `SBX-04b: second draft → -3 (got ${d2.name})`);
+    // list: 递归 + md 优先 + mtime 降序 + 上限 50
+    mkFolderN32('00-Inbox/03-Quick-Note/SPE123-163/attachments');
+    mkFileN32('00-Inbox/03-Quick-Note/SPE123-163/attachments/log.txt', 'log', 1000);
+    mkFileN32('00-Inbox/03-Quick-Note/SPE123-163/old.md', 'x', 500);
+    const lst = await svc32.list('SPE123-163');
+    assert(lst.length === 5 && lst.some(f => f.name === 'log.txt'), `SBX-05a: list recursive includes attachments (got ${lst.length})`);
+    const firstNonMd = lst.findIndex(f => f.extension !== 'md');
+    assert(lst.slice(0, firstNonMd === -1 ? lst.length : firstNonMd).every(f => f.extension === 'md'), 'SBX-05b: md files first');
+    assert(lst[firstNonMd].name === 'log.txt', 'SBX-05c: non-md after md');
+    for (let i = 0; i < 55; i++) mkFileN32(`00-Inbox/03-Quick-Note/OTHER-1/f${i}.txt`, 'x', i);
+    assert((await svc32.list('OTHER-1')).length === 50, 'SBX-05d: list capped at 50');
+    const lst2 = await svc32.list('OTHER-1');
+    assert(lst2[0].extension === 'md', 'SBX-05e: md files still first under cap');
+    assert((await svc32.list('NOPE-9')).length === 0, 'SBX-05f: missing dir → empty list');
+
+    // ⑥ mergeCaptureContext: 合并语义 + 显式 null/'' 屏蔽
+    const baseCtx = { selectedTopicId: 'T1', jiraKey: null, activeFilePath: 'a/b.md', selectionText: 'sel', selectionFromAgent: true };
+    const mCtx = ICP.mergeCaptureContext(baseCtx, { jiraKey: 'SPE123-163', selectedTopicId: null, activeFilePath: null, selectionText: '', selectionFromAgent: false, module: 'CHG' });
+    assert(mCtx.jiraKey === 'SPE123-163' && mCtx.module === 'CHG', 'CTX-01a: override keys win');
+    assert(mCtx.selectedTopicId === null && mCtx.activeFilePath === null && mCtx.selectionText === '' && mCtx.selectionFromAgent === false, 'CTX-01b: explicit null/empty mask base values');
+    const mCtx2 = ICP.mergeCaptureContext(baseCtx, { jiraKey: 'K-1' });
+    assert(mCtx2.activeFilePath === 'a/b.md' && mCtx2.selectionText === 'sel' && mCtx2.selectedTopicId === 'T1', 'CTX-01c: unspecified keys keep base values');
+    assert(baseCtx.jiraKey === null && baseCtx.selectionText === 'sel', 'CTX-01d: base object not mutated');
+  }
+
+  // --- Suite 33: JIRA-P2A —— 联调提示词 / 结单分流 / 升为专题 (P2a) ---
+  console.log('\n>>> Suite 33: JIRA-P2A (Tools Prompts / Triage / Promote)');
+  {
+    const JSS = require(path.join(pluginDir, 'services', 'jira-sandbox-service.js'));
+    const TS = require(path.join(pluginDir, 'services', 'topic-service.js'));
+
+    const issP = { key: 'SPE123-163', summary: '充电异常', url: 'http://x', components: ['Charger'] };
+    const pCtx = {
+      sandboxDir: '00-Inbox/03-Quick-Note/SPE123-163',
+      draftPath: '00-Inbox/03-Quick-Note/SPE123-163/x_DBG.md',
+      module: 'CHG', platform: 'QCOM'
+    };
+
+    // ① 三个联调提示词
+    const pa = JSS.buildAttachmentPrompt(issP, pCtx);
+    assert(pa.includes('SPE123-163') && pa.includes('jira_list_attachments') && pa.includes('jira_download_attachment') && pa.includes('/attachments/') && pa.includes('复现现象') && pa.includes('不存在请先创建'), 'P2A-01a: attachment prompt tools/dir/section/create-hint');
+    const ps = JSS.buildSourcePrompt(issP, pCtx);
+    assert(ps.includes('opengrok_list_projects') && ps.includes('opengrok_search_code') && ps.includes('opengrok_read_file') && ps.includes('源码调用链') && ps.includes('CHG') && ps.includes('行号'), 'P2A-01b: source prompt opengrok tools/section/module');
+    const pg = JSS.buildGerritPrompt(issP, pCtx);
+    assert(pg.includes('gerrit_search_changes') && pg.includes('gerrit_get_diff') && pg.includes('gerrit_get_comments') && pg.includes('## Patch') && pg.includes('SPE123-163'), 'P2A-01c: gerrit prompt tools/section');
+
+    // ② buildCasePrompt
+    const pc = JSS.buildCasePrompt(issP, pCtx);
+    assert(pc.includes('tabonkb-inbox-ingest') && pc.includes('_v1.0_') && pc.includes('_CASE.md'), 'P2A-02a: case prompt skill + naming template');
+    assert(pc.includes('04-Debug-Case') && pc.includes('05-Charger'), 'P2A-02b: CHG → 05-Charger landing dir');
+    assert(pc.includes('#issue/') && pc.includes('确认') && pc.includes('归类裁决') && pc.includes('Oplog'), 'P2A-02c: #issue/ tag + L2 confirm wording');
+    const pcGen = JSS.buildCasePrompt(issP, { ...pCtx, module: 'GEN' });
+    assert(pcGen.includes('01-Directory-Spec'), 'P2A-02d: GEN → 01-Directory-Spec 裁决提示');
+
+    // ③ toolIdForModule
+    assert(JSS.toolIdForModule('CHG') === 'battery-charger' && JSS.toolIdForModule('PWR') === 'battery-charger', 'P2A-03a: CHG/PWR → battery-charger');
+    assert(JSS.toolIdForModule('DISP') === 'logic' && JSS.toolIdForModule('') === 'logic' && JSS.toolIdForModule('GEN') === 'logic', 'P2A-03b: others → logic');
+
+    // ④ findTopicByJira (纯函数)
+    assert(TS.findTopicByJira([{ id: 't1', jira: ['SPE-1', 'ABC-2'] }], 'abc-2').id === 't1', 'P2A-04a: case-insensitive jira hit');
+    assert(TS.findTopicByJira([{ id: 't1', jira: 'not-array' }], 'X-1') === null, 'P2A-04b: jira non-array tolerated');
+    assert(TS.findTopicByJira([{ id: 't1', jira: ['A-1'] }], 'B-2') === null && TS.findTopicByJira(null, 'A-1') === null, 'P2A-04c: no hit / null topics → null');
+
+    // ⑤ readDisposition / setDisposition (mock vault + fm)
+    const _parseFm33 = (content) => {
+      const m = /^---\n([\s\S]*?)\n---/.exec(String(content));
+      const fm = {};
+      if (!m) return fm;
+      for (const line of m[1].split('\n')) {
+        const mm = /^([A-Za-z_]+):\s*(.*)$/.exec(line);
+        if (!mm) continue;
+        let v = mm[2].trim();
+        if (/^\[.*\]$/.test(v)) v = v === '[]' ? [] : v.slice(1, -1).split(',').map(x => x.trim().replace(/^"|"$/g, '').replace(/\\"/g, '"'));
+        else if (v === 'true') v = true;
+        else if (v === 'false') v = false;
+        else if (v.startsWith('"') && v.endsWith('"')) v = v.slice(1, -1).replace(/\\"/g, '"');
+        fm[mm[1]] = v;
+      }
+      return fm;
+    };
+    const nodes33 = new Map();
+    const fm33 = new Map();
+    const mkFolder33 = (p) => {
+      const n = { name: p.split('/').pop(), path: p, children: [] };
+      nodes33.set(p, n);
+      const par = p.split('/').slice(0, -1).join('/');
+      if (par && nodes33.has(par)) nodes33.get(par).children.push(n);
+      return n;
+    };
+    const mkFile33 = (p, c, mtime) => {
+      const n = { name: p.split('/').pop(), path: p, extension: p.split('.').pop(), stat: { mtime: mtime || Date.now() }, content: c };
+      nodes33.set(p, n);
+      const par = p.split('/').slice(0, -1).join('/');
+      if (par && nodes33.has(par)) nodes33.get(par).children.push(n);
+      fm33.set(p, _parseFm33(c));
+      return n;
+    };
+    const mockVault33 = {
+      adapter: { exists: async (p) => nodes33.has(p) },
+      getAbstractFileByPath: (p) => nodes33.get(p) || null,
+      createFolder: async (p) => { if (!nodes33.has(p)) mkFolder33(p); return nodes33.get(p); },
+      create: async (p, c) => mkFile33(p, c),
+      read: async (f) => f.content,
+      modify: async (f, c) => { f.content = c; fm33.set(f.path, _parseFm33(c)); },
+      process: async (f, fn) => { f.content = fn(f.content); return f.content; },
+      rename: async (f, newPath) => {
+        const oldPath = f.path;
+        const oldPar = nodes33.get(oldPath.split('/').slice(0, -1).join('/'));
+        if (oldPar) oldPar.children = oldPar.children.filter(c => c !== f);
+        const moves = [];
+        for (const [p, n] of [...nodes33.entries()]) {
+          if (p === oldPath || p.startsWith(oldPath + '/')) moves.push([p, n]);
+        }
+        for (const [p, n] of moves) {
+          const np = newPath + p.slice(oldPath.length);
+          nodes33.delete(p);
+          n.path = np;
+          nodes33.set(np, n);
+          if (fm33.has(p)) { fm33.set(np, fm33.get(p)); fm33.delete(p); }
+        }
+        f.name = newPath.split('/').pop();
+        const newPar = nodes33.get(newPath.split('/').slice(0, -1).join('/'));
+        if (newPar) newPar.children.push(f);
+      },
+      delete: async (f) => {
+        const kill = (p) => {
+          const n = nodes33.get(p);
+          if (!n) return;
+          if (n.children) for (const c of [...n.children]) kill(c.path);
+          nodes33.delete(p); fm33.delete(p);
+        };
+        const par = nodes33.get(f.path.split('/').slice(0, -1).join('/'));
+        if (par) par.children = par.children.filter(c => c !== f);
+        kill(f.path);
+      }
+    };
+    const mockApp33 = {
+      vault: mockVault33,
+      fileManager: {
+        processFrontMatter: async (file, fn) => {
+          const fm = fm33.get(file.path) || {};
+          fn(fm);
+          fm33.set(file.path, fm);
+        },
+        renameFile: async (file, newPath) => mockVault33.rename(file, newPath)
+      },
+      metadataCache: { getFileCache: (f) => ({ frontmatter: fm33.get(f.path) || {} }) }
+    };
+
+    const svcBox = new JSS.JiraSandboxService({ app: mockApp33 });
+    mkFolder33('00-Inbox');
+    mkFolder33('00-Inbox/03-Quick-Note');
+    const dbgPath = '00-Inbox/03-Quick-Note/SPE123-163/x_DBG.md';
+    mkFolder33('00-Inbox/03-Quick-Note/SPE123-163');
+    mkFile33(dbgPath, '---\ntitle: t\ndoctype: DBG\nupdated: 2026-10-20\n---\nbody');
+    const d0 = await svcBox.readDisposition('SPE123-163');
+    assert(d0.disposition === '' && d0.closed_at === '', 'P2A-05a: empty disposition default');
+    await svcBox.setDisposition('SPE123-163', 'closed', new Date(2026, 9, 22));
+    const d1 = await svcBox.readDisposition('SPE123-163');
+    assert(d1.disposition === 'closed' && d1.closed_at === '2026-10-22', 'P2A-05b: closed writes disposition + closed_at');
+    assert(fm33.get(dbgPath).updated === '2026-10-22', 'P2A-05c: existing updated field refreshed');
+    await svcBox.setDisposition('SPE123-163', 'topic', new Date(2026, 9, 23));
+    const d2 = await svcBox.readDisposition('SPE123-163');
+    assert(d2.disposition === 'topic' && d2.closed_at === '2026-10-22', 'P2A-05d: topic does not touch closed_at');
+    await svcBox.setDisposition('SPE123-163', 'closed', new Date(2026, 9, 25));
+    assert((await svcBox.readDisposition('SPE123-163')).closed_at === '2026-10-25', 'P2A-05e: re-close refreshes closed_at (idempotent)');
+    let threwND = false;
+    try { await svcBox.setDisposition('NONE-1', 'closed'); } catch (e) { threwND = e.message === 'NO_DRAFT'; }
+    assert(threwND, 'P2A-05f: no draft → NO_DRAFT');
+    assert((await svcBox.findDraft('NONE-1')) === null && (await svcBox.findDraft('SPE123-163')).path === dbgPath, 'P2A-05g: findDraft hit/miss');
+
+    // ⑥ promoteFromJira (mock)
+    const tsvc = new TS.TopicService({ app: mockApp33, rootPath: 'topics' });
+    mkFile33('00-Inbox/03-Quick-Note/SPE123-163/notes.md', 'notes');
+    mkFolder33('00-Inbox/03-Quick-Note/SPE123-163/attachments');
+    mkFile33('00-Inbox/03-Quick-Note/SPE123-163/attachments/log.txt', 'log');
+    const tp = await tsvc.promoteFromJira({ key: 'SPE123-163', summary: '充电异常分析' }, { module: 'CHG', platform: 'QCOM', sandboxDir: '00-Inbox/03-Quick-Note/SPE123-163' });
+    const taskPath = `${tp.dir}/00-TASK.md`;
+    const tfm = fm33.get(taskPath);
+    assert(tfm.title === '[SPE123-163] 充电异常分析' && tfm.track === 'work' && tfm.module === 'CHG' && tfm.goal === '充电异常分析', 'P2A-06a: topic fm title/track/module/goal');
+    assert(Array.isArray(tfm.jira) && tfm.jira.includes('SPE123-163'), 'P2A-06b: topic jira array');
+    assert(nodes33.has(`${tp.dir}/x_DBG.md`) && nodes33.has(`${tp.dir}/notes.md`) && nodes33.has(`${tp.dir}/attachments/log.txt`), 'P2A-06c: sandbox children (incl attachments/) moved to topic dir top');
+    assert(!nodes33.has('00-Inbox/03-Quick-Note/SPE123-163'), 'P2A-06d: emptied sandbox dir deleted');
+    assert(fm33.get(`${tp.dir}/x_DBG.md`).disposition === 'topic', 'P2A-06e: moved draft fm disposition=topic');
+    const taskBody = nodes33.get(taskPath).content;
+    const parsedT = TS.parseTaskBody(taskBody);
+    assert(taskBody.includes('源自 Jira SPE123-163：充电异常分析') && taskBody.includes(`[[${tp.dir}/x_DBG]]`), 'P2A-06f: timeline entry + draft wikilink');
+    assert(parsedT.steps.some(s => String(s.label || '').includes('梳理 SPE123-163 排查结论')), 'P2A-06g: checklist step added');
+
+    // 同名冲突加后缀: 沙盒里混入 00-TASK.md
+    mkFolder33('00-Inbox/03-Quick-Note/SPEC-1');
+    mkFile33('00-Inbox/03-Quick-Note/SPEC-1/00-TASK.md', 'shadow');
+    const tp2 = await tsvc.promoteFromJira({ key: 'SPEC-1', summary: 'x' }, { sandboxDir: '00-Inbox/03-Quick-Note/SPEC-1' });
+    assert(nodes33.has(`${tp2.dir}/00-TASK-2.md`), 'P2A-06h: name collision → -2 suffix, 00-TASK.md not overwritten');
+
+    // 残留不删: _moveFile 对顽固文件抛错 → 目录保留
+    mkFolder33('00-Inbox/03-Quick-Note/STUB-1');
+    mkFile33('00-Inbox/03-Quick-Note/STUB-1/keep.md', 'k');
+    mkFile33('00-Inbox/03-Quick-Note/STUB-1/stubborn.txt', 's');
+    const tsvcB = new TS.TopicService({ app: mockApp33, rootPath: 'topics' });
+    const origMove = tsvcB._moveFile.bind(tsvcB);
+    tsvcB._moveFile = async (f, p) => { if (f.name === 'stubborn.txt') throw new Error('IO locked'); return origMove(f, p); };
+    let threwMove = false;
+    try { await tsvcB.promoteFromJira({ key: 'STUB-1', summary: 'x' }, { sandboxDir: '00-Inbox/03-Quick-Note/STUB-1' }); } catch (e) { threwMove = true; }
+    assert(threwMove && nodes33.has('00-Inbox/03-Quick-Note/STUB-1'), 'P2A-06i: move failure propagates, non-empty dir kept');
+
+    // 沙盒不存在仍成功
+    const tp3 = await tsvc.promoteFromJira({ key: 'NOBOX-1', summary: '无沙盒' }, { sandboxDir: '00-Inbox/03-Quick-Note/NOBOX-1' });
+    assert(tp3.id && Array.isArray(fm33.get(`${tp3.dir}/00-TASK.md`).jira) && fm33.get(`${tp3.dir}/00-TASK.md`).jira.includes('NOBOX-1'), 'P2A-06j: missing sandbox → topic still created');
+
+    // ⑦ ensureTopicFromJira: 命中不重复创建
+    const e1 = await tsvc.ensureTopicFromJira({ key: 'SPE123-163', summary: 'x' }, {});
+    assert(e1.created === false && e1.topic.id === tp.id, 'P2A-07a: existing topic reused (created:false)');
+    const e2 = await tsvc.ensureTopicFromJira({ key: 'NEW-9', summary: '新单' }, {});
+    assert(e2.created === true && e2.topic.id, 'P2A-07b: new jira → created:true');
+    const e3 = await tsvc.ensureTopicFromJira({ key: 'NEW-9', summary: '新单' }, {});
+    assert(e3.created === false && e3.topic.id === e2.topic.id, 'P2A-07c: second call does not duplicate');
+  }
+
+  // --- Suite 34: TOPIC-P2B —— 智能与治理 (入库提示词/AI/自动浇水/枯萎/归档②) ---
+  console.log('\n>>> Suite 34: TOPIC-P2B (Smart & Governance)');
+  {
+    const TS = require(path.join(pluginDir, 'services', 'topic-service.js'));
+    const JSS = require(path.join(pluginDir, 'services', 'jira-sandbox-service.js'));
+
+    const t34 = {
+      id: 't1', dir: 'topics/t1', title: '充电深耕', track: 'deep', module: 'CHG',
+      status: 'in_progress', goal: '吃透快充框架',
+      steps: [{ label: '读框架', done: true }, { label: '画调用链', done: false }],
+      timeline: [{ label: '开工' }, { label: '读完 HAL' }, { label: '整理笔记' }],
+      ideas: [{ label: '想法甲', struck: false }, { label: '想法乙', struck: true }],
+      published_docs: [], linked_refs: []
+    };
+    const f34 = { path: 'topics/t1/draft.md', name: 'draft.md' };
+
+    // ① buildIngestPrompt
+    const ip = TS.buildIngestPrompt(t34, f34, { platform: 'QCOM', module: 'CHG', doctype: 'DBG', targetDir: '', moduleDir: '05-Charger' });
+    assert(ip.includes('tabonkb-inbox-ingest'), 'P2B-01a: skill name');
+    assert(ip.includes('99-Meta/02-Naming-Spec.md') && ip.includes('v1.2'), 'P2B-01b: naming spec ref');
+    assert(ip.includes('topics/t1/draft.md') && ip.includes('topics/t1'), 'P2B-01c: file path + topic dir');
+    assert(ip.includes('QCOM') && ip.includes('CHG') && ip.includes('DBG'), 'P2B-01d: platform/module/doctype');
+    assert(ip.includes('01-Directory-Spec') && ip.includes('03-Driver/05-Charger/'), 'P2B-01e: auto-dir ruling + module dir suggestion');
+    assert(ip.includes('归类裁决') && ip.includes('确认后再执行'), 'P2B-01f: L2 confirm wording');
+    assert(ip.includes('published_docs') && ip.includes('进展日志') && ip.includes('📦 入库'), 'P2B-01g: published_docs + timeline append');
+    assert(ip.includes('不删除') && ip.includes('原草稿'), 'P2B-01h: keep original draft');
+    const ip2 = TS.buildIngestPrompt(t34, f34, { platform: 'COMMON', module: 'GEN', doctype: 'NOTE', targetDir: '', moduleDir: '' });
+    assert(ip2.includes('请按 01-Directory-Spec 裁决'), 'P2B-01i: missing moduleDir wording');
+    const ip3 = TS.buildIngestPrompt(t34, f34, { platform: 'COMMON', module: 'GEN', doctype: 'NOTE', targetDir: '08-Learning/x', moduleDir: '' });
+    assert(ip3.includes('08-Learning/x'), 'P2B-01j: explicit targetDir passed through');
+
+    // ② buildDecomposePrompt
+    const dp = TS.buildDecomposePrompt(t34);
+    assert(dp.includes('吃透快充框架') && dp.includes('充电深耕'), 'P2B-02a: goal + title');
+    assert(dp.includes('读框架') && dp.includes('画调用链'), 'P2B-02b: checklist items');
+    assert(dp.includes('整理笔记') && dp.includes('读完 HAL'), 'P2B-02c: recent progress');
+    assert(dp.includes('确认') && dp.includes('执行步骤'), 'P2B-02d: confirm-before-append');
+
+    // ③ buildEvaluatePrompt
+    const seed34 = { path: 'topics/_Seeds/s1.md', title: '快充想法', idea: '研究 vbus', waters: [{ text: 'x' }], source: 'manual', source_ref: '' };
+    const ep = TS.buildEvaluatePrompt(seed34, { weknoraTools: ['weknora_search', 'weknora_read_document'] });
+    assert(ep.includes('weknora_search') && ep.includes('weknora_read_document'), 'P2B-03a: weknoraTools verbatim');
+    assert(ep.includes('topics/_Seeds/s1.md') && ep.includes('研究 vbus'), 'P2B-03b: seed path + idea');
+    assert(ep.includes('✨评估') && ep.includes('## 浇水'), 'P2B-03c: water format');
+    assert(/空.*track|track.*空/.test(ep) || ep.includes('空字段'), 'P2B-03d: only empty fm fields');
+    const epNone = TS.buildEvaluatePrompt(seed34, {});
+    assert(epNone.includes('请使用可用的 WeKnora 检索工具'), 'P2B-03e: missing tools fallback');
+
+    // ④ seedKeywords
+    const kw = TS.seedKeywords('charger IC 快充异常 vbus the and vbus');
+    assert(kw.includes('charger') && kw.includes('vbus'), 'P2B-04a: ascii tokens');
+    assert(!kw.includes('the') && !kw.includes('and') && !kw.includes('ic'), 'P2B-04b: stopwords + len>=3');
+    assert(kw.includes('快充') && kw.includes('充异') && kw.includes('异常'), 'P2B-04c: CJK bigrams');
+    assert(kw.filter(x => x === 'vbus').length === 1, 'P2B-04d: dedup');
+
+    // ⑤ seedMatchesDoc
+    const s5 = { module: 'CHG', title: '快充异常', idea: '充电 vbus' };
+    assert(TS.seedMatchesDoc(s5, { module: ['chg'], text: '充电 异常 vbus' }) === true, 'P2B-05a: module match + score>=3 + ci');
+    assert(TS.seedMatchesDoc({ ...s5 }, { module: ['CHG'], text: '快充 异常' }) === false, 'P2B-05b: score 2 no trigger');
+    assert(TS.seedMatchesDoc({ ...s5, module: '' }, { module: ['CHG'], text: '快充 异常 vbus 充电' }) === false, 'P2B-05c: empty module no trigger');
+    assert(TS.seedMatchesDoc(s5, { module: ['DISP'], text: '快充 异常 vbus 充电' }) === false, 'P2B-05d: module mismatch no trigger');
+
+    // ⑥ parseSeedBody auto/line + removeWaterLine
+    const sb = ['# x', '', '## 想法', 'idea', '', '## 浇水', '- **[2026-01-01 10:00]** 手动', '- **[2026-01-02 10:00]** 关联：[[a/b]] ·auto', ''].join('\n');
+    const pb = TS.parseSeedBody(sb);
+    assert(pb.waters.length === 2 && pb.waters[0].auto === false && pb.waters[1].auto === true, 'P2B-06a: auto flag');
+    assert(pb.waters[1].text.includes('·auto') && pb.waters[1].line === 7, 'P2B-06b: text keeps suffix + line index');
+    const rm = TS.removeWaterLine(sb, pb.waters[1].line);
+    assert(!rm.includes('关联：[[a/b]]') && rm.includes('手动'), 'P2B-06c: removeWaterLine removes only target');
+    const rmBad = TS.removeWaterLine(sb, 99);
+    assert(rmBad === sb, 'P2B-06d: illegal line returns unchanged');
+    assert(TS.isAutoWater({ text: 'x ·auto' }) === true && TS.isAutoWater({ text: 'x' }) === false, 'P2B-06e: isAutoWater');
+
+    // ⑦ shouldWitherSeed
+    const now34 = new Date('2026-10-20T00:00:00').getTime();
+    const d89 = new Date(now34 - 89 * 86400000);
+    const d90 = new Date(now34 - 90 * 86400000);
+    const fmt34 = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:00`;
+    assert(TS.shouldWitherSeed({ status: 'seed', touched: fmt34(d89) }, now34) === false, 'P2B-07a: 89d no');
+    assert(TS.shouldWitherSeed({ status: 'seed', touched: fmt34(d90) }, now34) === true, 'P2B-07b: 90d yes');
+    assert(TS.shouldWitherSeed({ status: 'sprouted', touched: fmt34(d90) }, now34) === false, 'P2B-07c: sprouted never');
+    assert(TS.shouldWitherSeed({ status: 'seed', created: '2026-07-20', touched: '' }, now34) === true, 'P2B-07d: missing touched uses created');
+    assert(TS.shouldWitherSeed({ status: 'seed' }, now34) === false, 'P2B-07e: both missing → false');
+    assert(TS.shouldWitherSeed({ status: 'growing', touched: fmt34(d90) }, now34) === true, 'P2B-07f: growing withers');
+
+    // ⑧-⑭ mock vault
+    const _parseFm34 = (content) => {
+      const m = /^---\n([\s\S]*?)\n---/.exec(String(content));
+      const fm = {};
+      if (!m) return fm;
+      for (const line of m[1].split('\n')) {
+        const mm = /^([A-Za-z_]+):\s*(.*)$/.exec(line);
+        if (!mm) continue;
+        let v = mm[2].trim();
+        if (/^\[.*\]$/.test(v)) v = v === '[]' ? [] : v.slice(1, -1).split(',').map(x => x.trim().replace(/^"|"$/g, '').replace(/\\"/g, '"'));
+        else if (v === 'true') v = true;
+        else if (v === 'false') v = false;
+        else if (v.startsWith('"') && v.endsWith('"')) v = v.slice(1, -1).replace(/\\"/g, '"');
+        fm[mm[1]] = v;
+      }
+      return fm;
+    };
+    const nodes34 = new Map();
+    const fm34 = new Map();
+    const mkFolder34 = (p) => {
+      const n = { name: p.split('/').pop(), path: p, children: [] };
+      nodes34.set(p, n);
+      const par = p.split('/').slice(0, -1).join('/');
+      if (par && nodes34.has(par)) nodes34.get(par).children.push(n);
+      return n;
+    };
+    const mkFile34 = (p, c, mtime) => {
+      const n = { name: p.split('/').pop(), path: p, extension: p.split('.').pop(), stat: { mtime: mtime || Date.now() }, content: c };
+      nodes34.set(p, n);
+      const par = p.split('/').slice(0, -1).join('/');
+      if (par && nodes34.has(par)) nodes34.get(par).children.push(n);
+      fm34.set(p, _parseFm34(c));
+      return n;
+    };
+    const mockVault34 = {
+      adapter: { exists: async (p) => nodes34.has(p) },
+      getAbstractFileByPath: (p) => nodes34.get(p) || null,
+      createFolder: async (p) => { if (!nodes34.has(p)) mkFolder34(p); return nodes34.get(p); },
+      create: async (p, c) => mkFile34(p, c),
+      read: async (f) => f.content,
+      modify: async (f, c) => { f.content = c; },
+      process: async (f, fn) => { f.content = fn(f.content); return f.content; },
+      rename: async (f, newPath) => {
+        const oldPath = f.path;
+        const oldPar = nodes34.get(oldPath.split('/').slice(0, -1).join('/'));
+        if (oldPar) oldPar.children = oldPar.children.filter(c => c !== f);
+        const moves = [];
+        for (const [p, n] of [...nodes34.entries()]) {
+          if (p === oldPath || p.startsWith(oldPath + '/')) moves.push([p, n]);
+        }
+        for (const [p, n] of moves) {
+          const np = newPath + p.slice(oldPath.length);
+          nodes34.delete(p);
+          n.path = np; n.name = np.split('/').pop();
+          nodes34.set(np, n);
+          if (fm34.has(p)) { fm34.set(np, fm34.get(p)); fm34.delete(p); }
+        }
+        const newPar = nodes34.get(newPath.split('/').slice(0, -1).join('/'));
+        if (newPar) newPar.children.push(f);
+      },
+      delete: async (f) => {
+        const kill = (p) => {
+          const n = nodes34.get(p);
+          if (!n) return;
+          if (n.children) for (const c of [...n.children]) kill(c.path);
+          nodes34.delete(p); fm34.delete(p);
+        };
+        const par = nodes34.get(f.path.split('/').slice(0, -1).join('/'));
+        if (par) par.children = par.children.filter(c => c !== f);
+        kill(f.path);
+      }
+    };
+    const mockApp34 = {
+      vault: mockVault34,
+      fileManager: {
+        processFrontMatter: async (file, fn) => {
+          const fm = fm34.get(file.path) || {};
+          fn(fm);
+          fm34.set(file.path, fm);
+        },
+        renameFile: async (file, newPath) => mockVault34.rename(file, newPath)
+      },
+      metadataCache: { getFileCache: (f) => ({ frontmatter: fm34.get(f.path) || {} }) }
+    };
+    const svc = new TS.TopicService({ app: mockApp34, rootPath: 'topics' });
+
+    // isAutoWaterDocPath
+    assert(TS.isAutoWaterDocPath('03-Driver/a.md', 'topics') === true, 'P2B-08a: in-scope md true');
+    assert(TS.isAutoWaterDocPath('03-Driver/a.png', 'topics') === false, 'P2B-08b: png false');
+    assert(TS.isAutoWaterDocPath('00-Inbox/x.md', 'topics') === false, 'P2B-08c: inbox false');
+    assert(TS.isAutoWaterDocPath('topics/t1/00-TASK.md', 'topics') === false, 'P2B-08d: topic root false');
+    assert(TS.isAutoWaterDocPath('02-Random/x.md', 'topics') === false, 'P2B-08e: out-of-scope false');
+
+    // ⑧ autoWaterForDoc
+    mkFolder34('topics'); mkFolder34('topics/_Seeds'); mkFolder34('03-Driver');
+    const sd1 = await svc.createSeed({ text: '快充异常 vbus 掉电', module: 'CHG', source: 'manual' });
+    const sdS = await svc.createSeed({ text: '快充异常 vbus 掉电 sprouted', module: 'CHG', source: 'manual' });
+    fm34.set(sdS.path, { ...fm34.get(sdS.path), status: 'sprouted' });
+    const docP = '03-Driver/充电异常-vbus-日志.md';
+    mkFile34(docP, '---\nmodule: CHG\ntitle: "充电异常 vbus 日志"\ntags: [driver]\n---\nbody');
+    const n1 = await svc.autoWaterForDoc(docP);
+    assert(n1 === 1, 'P2B-08f: in-scope doc waters matching seed only');
+    let body1 = nodes34.get(sd1.path).content;
+    assert(body1.includes('关联：[[03-Driver/充电异常-vbus-日志]] ·auto'), 'P2B-08g: ·auto label appended');
+    const n1b = await svc.autoWaterForDoc(docP);
+    assert(n1b === 0, 'P2B-08h: repeated call no duplicate');
+    assert((await svc.autoWaterForDoc('00-Inbox/x.md')) === 0
+      && (await svc.autoWaterForDoc('topics/t1/00-TASK.md')) === 0
+      && (await svc.autoWaterForDoc('99-Meta/x.md')) === 0, 'P2B-08i: inbox/topic/out-of-scope skipped');
+    // third water → growing
+    mkFile34('03-Driver/d2.md', '---\nmodule: CHG\ntitle: "充电异常 vbus 之二"\n---\nb');
+    mkFile34('03-Driver/d3.md', '---\nmodule: CHG\ntitle: "充电异常 vbus 之三"\n---\nb');
+    await svc.autoWaterForDoc('03-Driver/d2.md');
+    const n3 = await svc.autoWaterForDoc('03-Driver/d3.md');
+    assert(n3 === 1 && fm34.get(sd1.path).status === 'growing', 'P2B-08j: 3rd water → fm growing');
+
+    // ⑨ autoWaterForIssue
+    const sdRef = await svc.createSeed({ text: '排查想法', module: 'GEN', source: 'jira', source_ref: 'SPEC-9' });
+    const ni = await svc.autoWaterForIssue({ key: 'spec-9', summary: '任意' });
+    assert(ni === 1 && nodes34.get(sdRef.path).content.includes('工单 spec-9 已关闭 ·auto'), 'P2B-09a: source_ref equality (ci)');
+    assert((await svc.autoWaterForIssue({ key: 'SPEC-9', summary: 'x' })) === 0, 'P2B-09b: same label dedup');
+    const sdKw = await svc.createSeed({ text: '快充异常 vbus', module: 'CHG', source: 'manual' });
+    const ni2 = await svc.autoWaterForIssue({ key: 'SPE-77', summary: '充电异常 vbus 掉电', components: ['Charger'] });
+    assert(ni2 >= 1 && nodes34.get(sdKw.path).content.includes('工单 SPE-77 已关闭 ·auto'), 'P2B-09c: module+keyword hit');
+    const sdGen = await svc.createSeed({ text: '泛泛想法 vbus', module: 'DISP', source: 'manual' });
+    const niGen = await svc.autoWaterForIssue({ key: 'GEN-1', summary: 'vbus 泛泛想法', components: [] });
+    assert(!nodes34.get(sdGen.path).content.includes('GEN-1'), 'P2B-09d: GEN module excluded from kw match');
+
+    // ⑩ unwater
+    const sdU = await svc.createSeed({ text: 'u1', module: 'CHG' });
+    await svc.water(sdU, 'w1'); await svc.water(sdU, 'w2'); await svc.water(sdU, 'w3');
+    assert(fm34.get(sdU.path).status === 'growing', 'P2B-10a: 3 waters → growing');
+    const pbU = TS.parseSeedBody(nodes34.get(sdU.path).content);
+    await svc.unwater({ ...sdU, file: nodes34.get(sdU.path), status: 'growing' }, pbU.waters[0].line);
+    const pbU2 = TS.parseSeedBody(nodes34.get(sdU.path).content);
+    assert(pbU2.waters.length === 2 && fm34.get(sdU.path).status === 'seed', 'P2B-10b: unwater → <3 reverts to seed');
+
+    // ⑪ witherStaleSeeds
+    const sdOld = await svc.createSeed({ text: 'old seed', module: 'CHG' });
+    const sdNew = await svc.createSeed({ text: 'new seed', module: 'CHG' });
+    fm34.set(sdOld.path, { ...fm34.get(sdOld.path), touched: '2025-06-01 00:00', created: '2025-06-01' });
+    const nw = await svc.witherStaleSeeds(new Date('2025-09-15').getTime());
+    assert(nw === 1, 'P2B-11a: only stale seed withered');
+    const oldName = sdOld.id;
+    assert(nodes34.has(`topics/_Seeds/_Withered/${oldName}`), 'P2B-11b: moved to _Withered');
+    assert(!nodes34.has(`topics/_Seeds/${oldName}`), 'P2B-11c: removed from _Seeds top');
+    assert(fm34.get(`topics/_Seeds/_Withered/${oldName}`).status === 'withered', 'P2B-11d: status=withered');
+    assert(nodes34.has(sdNew.path), 'P2B-11e: fresh seed untouched');
+
+    // ⑫ scanWithered / reviveSeed
+    const wl = await svc.scanWithered();
+    assert(wl.length === 1 && wl[0].status === 'withered', 'P2B-12a: scanWithered finds record');
+    mkFile34(`topics/_Seeds/${oldName}`, 'conflict'); // 占位制造重名
+    await svc.reviveSeed(wl[0]);
+    const revivedPath = `topics/_Seeds/${oldName.replace(/\.md$/, '-2.md')}`;
+    assert(nodes34.has(revivedPath), 'P2B-12b: revive dedupes name conflict');
+    assert(!nodes34.has(`topics/_Seeds/_Withered/${oldName}`), 'P2B-12c: removed from _Withered');
+    const rfm = fm34.get(revivedPath);
+    assert(rfm.status === 'seed' && rfm.touched && rfm.touched !== '2025-06-01 00:00', 'P2B-12d: status=seed + touched refreshed');
+
+    // ⑬ addPublishedDoc
+    const tpA = await svc.createTopic({ title: '专题A', module: 'CHG' });
+    const ok1 = await svc.addPublishedDoc({ ...tpA, published_docs: [] }, { path: '03-Driver/doc-x.md' });
+    const tfileA = nodes34.get(`${tpA.dir}/00-TASK.md`);
+    assert(ok1 === true && fm34.get(tfileA.path).published_docs.includes('[[03-Driver/doc-x]]'), 'P2B-13a: published_docs gets [[no-ext]]');
+    assert(tfileA.content.includes('📦 入库：[[03-Driver/doc-x]]'), 'P2B-13b: timeline entry');
+    const ok2 = await svc.addPublishedDoc({ ...tpA, published_docs: ['[[03-Driver/doc-x]]'] }, { path: '03-Driver/doc-x.md' });
+    assert(ok2 === false && fm34.get(tfileA.path).published_docs.length === 1, 'P2B-13c: dedup');
+
+    // ⑭ archive ideasToSeeds
+    const tpB = await svc.createTopic({ title: '专题B', module: 'CHG', track: 'deep' });
+    await svc.addIdea(tpB, '想法一');
+    await svc.addIdea(tpB, '想法二');
+    let parsedB = TS.parseTaskBody(nodes34.get(`${tpB.dir}/00-TASK.md`).content);
+    const struckLine = parsedB.ideas[1].line;
+    await svc.strikeIdea(tpB, struckLine);
+    parsedB = TS.parseTaskBody(nodes34.get(`${tpB.dir}/00-TASK.md`).content); // 重取 struck 状态
+    const tpBf = (await svc.scan()).find(t => t.id === tpB.id);
+    const ar = await svc.archive(tpBf, { ideasToSeeds: true });
+    assert(ar.seedsCreated === 1, 'P2B-14a: only unstruck idea → 1 seed');
+    assert(ar.archivedPath.startsWith('topics/_Archived/'), 'P2B-14b: archived path returned');
+    assert(nodes34.has(`${ar.archivedPath}/00-TASK.md`), 'P2B-14c: topic folder moved to _Archived');
+    const newSeeds = await svc.scanSeeds();
+    const convSeed = newSeeds.find(s => String(s.source_ref).includes('_Archived'));
+    assert(convSeed && convSeed.source === 'note' && convSeed.source_ref === `[[${ar.archivedPath}/00-TASK]]`, 'P2B-14d: source_ref points at archived task');
+    const unstruckIdeas = parsedB.ideas.filter(i => !i.struck);
+    const converted = newSeeds.filter(s => String(s.source_ref).includes('_Archived'));
+    assert(converted.length === unstruckIdeas.length && converted.every(s => s.track === 'deep' && s.module === 'CHG'), 'P2B-14e: seed count + track/module inherited');
+    // 无 ideasToSeeds → 旧行为
+    const tpC = await svc.createTopic({ title: '专题C', module: 'DISP' });
+    await svc.addIdea(tpC, '遗留想法');
+    const tpCf = (await svc.scan()).find(t => t.id === tpC.id);
+    const ar2 = await svc.archive(tpCf);
+    assert(ar2.seedsCreated === 0 && nodes34.has(`${ar2.archivedPath}/00-TASK.md`), 'P2B-14f: plain archive unchanged');
+  }
+
+  // --- Suite 35: TOPIC-P3 —— 周回顾 + 能力雷达 (P3) ---
+  console.log('\n>>> Suite 35: TOPIC-P3 (Weekly Review / Radar)');
+  {
+    const TS = require(path.join(pluginDir, 'services', 'topic-service.js'));
+    const RS = require(path.join(pluginDir, 'services', 'radar-service.js'));
+
+    // ① isoWeekKey (期望值按 ISO 8601: 周四定年, 周一为起点)
+    assert(TS.isoWeekKey(new Date('2026-01-01T12:00:00')) === '2026-W01', 'P3-01a: 2026-01-01 Thu → W01');
+    assert(TS.isoWeekKey(new Date('2026-12-31T12:00:00')) === '2026-W53', 'P3-01b: 2026-12-31 Thu → 2026-W53');
+    assert(TS.isoWeekKey(new Date('2027-01-01T12:00:00')) === '2026-W53', 'P3-01c: 2027-01-01 Fri → 仍 2026-W53');
+    assert(TS.isoWeekKey(new Date('2027-01-03T12:00:00')) === '2026-W53', 'P3-01d: 周日 2027-01-03 → W53');
+    assert(TS.isoWeekKey(new Date('2027-01-04T12:00:00')) === '2027-W01', 'P3-01e: 周一 2027-01-04 → W01');
+    assert(TS.isoWeekKey(new Date('2024-12-29T12:00:00')) === '2024-W52', 'P3-01f: 闰年 2024-12-29 Sun → W52');
+    assert(TS.isoWeekKey(new Date('2024-12-30T12:00:00')) === '2025-W01', 'P3-01g: 2024-12-30 Mon → 2025-W01');
+    assert(TS.isoWeekKey(new Date('2020-12-31T12:00:00')) === '2020-W53', 'P3-01h: 闰年 2020-12-31 → W53');
+
+    // ② shouldShowWeeklyReview
+    const now35 = new Date('2026-10-19T10:00:00'); // 周一
+    const wk35 = TS.isoWeekKey(now35);
+    assert(TS.shouldShowWeeklyReview('', now35, false) === false, 'P3-02a: no content → false');
+    assert(TS.shouldShowWeeklyReview(wk35, now35, true) === false, 'P3-02b: same week key → false');
+    assert(TS.shouldShowWeeklyReview('2026-W42', now35, true) === true, 'P3-02c: diff week + content → true');
+
+    // ③ buildWeeklyReviewPlan
+    const tDay = 86400000;
+    const mkIdea35 = (label, daysAgo, struck) => ({ line: 0, label, struck: !!struck, date: new Date(now35.getTime() - daysAgo * tDay).toISOString().slice(0, 10) });
+    const topics35 = [
+      { id: 't1', title: 'T1', status: 'in_progress', starred: true, ideas: [mkIdea35('旧想法A', 20), mkIdea35('新想法', 2), mkIdea35('已划掉', 30, true), mkIdea35('边界14天', 14)] },
+      { id: 't2', title: 'T2', status: 'in_progress', starred: false, ideas: [mkIdea35('旧想法B', 16)] },
+      { id: 't3', title: 'T3', status: 'paused', starred: false, ideas: [mkIdea35('暂停的', 100)] },
+      { id: 't4', title: 'T4', status: 'done', starred: false, ideas: [mkIdea35('已完成的', 100)] }
+    ];
+    const seeds35 = [
+      { id: 'g1', title: 'G1', status: 'growing', waters: [1, 2, 3, 4, 5], module: 'CHG' },
+      { id: 'g2', title: 'G2', status: 'growing', waters: [1, 2, 3], module: 'DISP' },
+      { id: 'g3', title: 'G3', status: 'growing', waters: [1], module: 'PWR' },
+      { id: 'g4', title: 'G4', status: 'growing', waters: [], module: 'AI' },
+      { id: 's1', title: 'S1', status: 'seed', waters: [], module: 'CHG' },
+      { id: 'sp', title: 'SP', status: 'sprouted', waters: [1, 2, 3], module: 'CHG' }
+    ];
+    const plan35 = TS.buildWeeklyReviewPlan(topics35, seeds35, now35);
+    assert(plan35.topics.length === 2 && plan35.topics[0].id === 't1' && plan35.topics[0].starred === true && plan35.topics[1].starred === false, 'P3-03a: topics = in_progress only, starred kept');
+    assert(plan35.seeds.map(s => s.id).join(',') === 'g1,g2,g3', 'P3-03b: seeds growing only, water desc, top3');
+    assert(plan35.seeds.every(s => typeof s.waterCount === 'number'), 'P3-03c: waterCount field');
+    const il = plan35.ideas.map(i => i.label);
+    assert(il.includes('旧想法A') && il.includes('旧想法B') && il.includes('边界14天'), 'P3-03d: ≥14d unstruck ideas incl 14d boundary');
+    assert(!il.includes('新想法') && !il.includes('已划掉') && !il.includes('暂停的') && !il.includes('已完成的'), 'P3-03e: fresh/struck/non-inprogress excluded');
+    assert(plan35.ideas[0].label === '旧想法A' && il.length === 3, 'P3-03f: oldest first');
+    // 取前 5
+    const manyIdeas = [{ id: 'tx', title: 'X', status: 'in_progress', ideas: [mkIdea35('a', 90), mkIdea35('b', 80), mkIdea35('c', 70), mkIdea35('d', 60), mkIdea35('e', 50), mkIdea35('f', 40)] }];
+    assert(TS.buildWeeklyReviewPlan(manyIdeas, [], now35).ideas.length === 5, 'P3-03g: ideas capped at 5');
+
+    // ④ computeRadar (返回顺序 = RADAR_MODULES, 字段 code/label/D/J/A/active/raw/score/zone)
+    const pushDocs = (arr, mod, dt, n, ts) => { for (let i = 0; i < n; i++) arr.push({ module: mod, doctype: dt, ts: ts != null ? ts : 0 }); };
+    const docs35 = [];
+    pushDocs(docs35, 'DISP', 'ARCH', 16); pushDocs(docs35, 'DISP', 'DBG', 1);            // D=50 → 100 familiar
+    pushDocs(docs35, 'CAM', 'ARCH', 6); pushDocs(docs35, 'CAM', 'DBG', 1);              // D=20 → 40 familiar(边界)
+    pushDocs(docs35, 'AUD', 'ARCH', 6); pushDocs(docs35, 'AUD', 'CODE', 1);             // D=19.5 → 39 expand
+    pushDocs(docs35, 'USB', 'CODE', 5);                                               // D=7.5 → 15 expand(边界)
+    pushDocs(docs35, 'PWR', 'DBG', 3); pushDocs(docs35, 'PWR', 'SPEC', 1);              // D=7 → 14 (+active→expand)
+    docs35.push({ module: 'GEN', doctype: 'ARCH', ts: 0 });                           // GEN 不参与
+    docs35.push({ module: 'CHG', doctype: 'MEET', ts: 0 });                           // 权重 0
+    const topicsR = [{ id: 'tp', status: 'in_progress', module: 'PWR' }, { id: 'tq', status: 'in_progress', module: 'ai' }];
+    const radar35 = RS.computeRadar({ docs: docs35, jiraClosed: { DISP: 2, GEN: 5 }, topics: topicsR, nowMs: 0, weights: { doc: 1, jira: 0, act: 0 } });
+    const by = Object.fromEntries(radar35.map(r => [r.code, r]));
+    assert(radar35.length === RS.RADAR_MODULES.length && radar35[0].code === 'DISP', 'P3-04a: 18 axes in RADAR_MODULES order');
+    assert(by.DISP.D === 50 && by.DISP.score === 100 && by.DISP.zone === 'familiar', 'P3-04b: max normalized to 100');
+    assert(by.DISP.J === 2, 'P3-04b2: jiraClosed count-map counted (GEN dropped)');
+    assert(by.CAM.score === 40 && by.CAM.zone === 'familiar', 'P3-04c: score 40 → familiar boundary');
+    assert(by.AUD.score === 39 && by.AUD.zone === 'expand', 'P3-04d: score 39 → expand');
+    assert(by.USB.score === 15 && by.USB.zone === 'expand', 'P3-04e: score 15 → expand boundary');
+    assert(by.PWR.score === 14 && by.PWR.zone === 'expand' && by.PWR.active === true, 'P3-04f: 14 + active topic → expand');
+    assert(by.AI.score === 0 && by.AI.zone === 'expand' && by.AI.active === true, 'P3-04g: 0 + active topic (ci) → expand');
+    assert(by.SEC.zone === 'blank' && by.SEC.active === false, 'P3-04h: 0 no topic → blank');
+    assert(!radar35.some(r => r.code === 'GEN'), 'P3-04i: GEN not in modules');
+    assert(by.CHG.D === 0, 'P3-04j: weight-0 doctype contributes 0');
+    // jira count-map + 默认权重 (jira-only → 100)
+    const radar35b = RS.computeRadar({ docs: [], jiraClosed: { KERN: 2 }, topics: [], nowMs: 0 });
+    const byb = Object.fromEntries(radar35b.map(r => [r.code, r]));
+    assert(byb.KERN.J === 2 && byb.KERN.score === 100, 'P3-04k: jira counted, jira-only → 100');
+    // active: 89/91 天边界 (只对权重>0 计)
+    const docsAct = [
+      { module: 'SNS', doctype: 'NOTE', ts: 0 },            // 89d 前 → active
+      { module: 'SNS', doctype: 'NOTE', ts: -2 * tDay },    // 91d 前 → 不活跃
+      { module: 'SNS', doctype: 'MEET', ts: 0 }             // 权重 0 → 不计活跃
+    ];
+    const rAct = RS.computeRadar({ docs: docsAct, topics: [], nowMs: 89 * tDay });
+    assert(rAct.find(r => r.code === 'SNS').A === 1, 'P3-04l: 89d in / 91d out + weight-0 not counted');
+    // 全零
+    const rZero = RS.computeRadar({ docs: [], topics: [], nowMs: 0 });
+    assert(rZero.every(r => r.score === 0), 'P3-04m: all zero → all 0');
+    // 多模块文档各计一次 (大小写不敏感)
+    const rMulti = RS.computeRadar({ docs: [{ module: ['CHG', 'usb'], doctype: 'DBG', ts: 0 }], topics: [], nowMs: 0 });
+    assert(rMulti.find(r => r.code === 'CHG').D === 2 && rMulti.find(r => r.code === 'USB').D === 2, 'P3-04n: multi-module doc counts each (ci)');
+    // 默认权重公式 raw = 0.6D + 0.3J + 0.1A
+    const rW = RS.computeRadar({ docs: [{ module: 'WB', doctype: 'DBG', ts: 0 }], jiraClosed: { WB: 1 }, topics: [], nowMs: 0 });
+    assert(Math.abs(rW.find(r => r.code === 'WB').raw - (0.6 * 2 + 0.3 * 1 + 0.1 * 1)) < 1e-9, 'P3-04o: raw = 0.6D+0.3J+0.1A');
+
+    // ⑤ quarterKey / prevQuarterKey / diffRadar
+    assert(RS.quarterKey(new Date('2026-10-20')) === '2026-Q4' && RS.quarterKey(new Date('2027-01-15')) === '2027-Q1', 'P3-05a: quarterKey');
+    assert(RS.prevQuarterKey('2027-Q1') === '2026-Q4' && RS.prevQuarterKey('2026-Q4') === '2026-Q3', 'P3-05b: prevQuarterKey cross-year');
+    const diff35 = RS.diffRadar([{ code: 'CHG', score: 60 }, { code: 'USB', score: 10 }], { CHG: 40 });
+    assert(diff35[0].delta === 20 && diff35[1].delta === null, 'P3-05c: delta; missing code → null');
+    assert(RS.diffRadar([{ code: 'X', score: 5 }], null)[0].delta === null, 'P3-05d: no snapshot → null');
+
+    // ⑥ recommendSeedsForBlank
+    const radarRec = [
+      { code: 'AI', label: 'AI', zone: 'blank' },
+      { code: 'HW', label: '硬件', zone: 'blank' },
+      { code: 'CHG', label: '充电', zone: 'familiar' }
+    ];
+    const seedsRec = [
+      { id: 'a', title: 'AI种子1', module: 'ai', status: 'seed', waters: [] },
+      { id: 'b', title: 'AI种子2', module: 'AI', status: 'growing', waters: [1, 2, 3] },
+      { id: 'c', title: 'AI已发芽', module: 'AI', status: 'sprouted', waters: [] },
+      { id: 'd', title: '充电种子', module: 'CHG', status: 'seed', waters: [] }
+    ];
+    const recs35 = RS.recommendSeedsForBlank(radarRec, seedsRec);
+    assert(recs35.length === 2 && recs35[0].code === 'AI' && recs35[1].code === 'HW', 'P3-06a: blank only, both listed');
+    assert(recs35[0].seeds.map(s => s.id).join(',') === 'b,a', 'P3-06b: seeds sorted by waters desc, sprouted excluded');
+    assert(recs35[1].seeds.length === 0, 'P3-06c: blank w/o seeds still returned');
+    assert(!recs35.some(r => r.code === 'CHG'), 'P3-06d: familiar excluded');
+    // 每模块最多 3 颗
+    const manySeeds = [1, 2, 3, 4].map(n => ({ id: `s${n}`, title: `S${n}`, module: 'HW', status: 'seed', waters: new Array(n).fill(1) }));
+    const recsCap = RS.recommendSeedsForBlank(radarRec, manySeeds);
+    assert(recsCap.find(r => r.code === 'HW').seeds.length === 3 && recsCap.find(r => r.code === 'HW').seeds[0].id === 's4', 'P3-06e: capped at 3, water desc');
+
+    // ⑦ RadarService.collectDocs / collectJiraClosed / 快照 (mock)
+    const fm35 = new Map();
+    const allFiles35 = [];
+    const mkF35 = (p, fm, mtime) => {
+      const f = { path: p, name: p.split('/').pop(), extension: 'md', stat: { mtime: mtime || 0 } };
+      fm35.set(p, fm || {});
+      allFiles35.push(f);
+      return f;
+    };
+    mkF35('03-Driver/a.md', { module: ['chg', 'usb'], doctype: 'DBG', updated: '2026-10-01' }, 5);
+    mkF35('00-Inbox/x.md', { module: 'CHG', doctype: 'NOTE' });
+    mkF35('99-Meta/m.md', { module: 'AI', doctype: 'NOTE' });
+    mkF35('topics/t1/00-TASK.md', { module: 'DISP', doctype: 'NOTE' });
+    mkF35('08-Learning/nomod.md', { doctype: 'NOTE' });                       // 缺 module → 跳过
+    mkF35('08-Learning/nodt.md', { module: 'AI' });                            // 缺 doctype → 跳过
+    mkF35('08-Learning/01-Materials/l.md', { module: 'AI', doctype: 'arch' }, 7); // doctype 小写→大写; 无 fm 日期 → mtime
+    const storage35 = (() => { let m = {}; return { getItem: k => (k in m ? m[k] : null), setItem: (k, v) => { m[k] = String(v); }, _dump: () => ({ ...m }) }; })();
+    const tsvcStub = { rootPath: 'topics', scan: async () => topicsR, scanSeeds: async () => seedsRec };
+    const radarSvc = new RS.RadarService({
+      app: { vault: { getMarkdownFiles: () => allFiles35 }, metadataCache: { getFileCache: f => ({ frontmatter: fm35.get(f.path) || {} }) } },
+      topicService: tsvcStub,
+      getJiraIssues: () => [
+        { key: 'WB-1', summary: '充电异常', statusCategory: 'done' },
+        { key: 'WB-2', summary: '屏闪 display', statusCategory: 'done' },
+        { key: 'WB-3', summary: 'zzz 无关事项', statusCategory: 'done' },
+        { key: 'WB-4', summary: '充电相关问题', statusCategory: 'in progress' }
+      ],
+      categorizeDone: i => String(i.statusCategory || '').toLowerCase() === 'done',
+      storage: storage35
+    });
+    const coll = await radarSvc.collectDocs();
+    assert(coll.length === 2, 'P3-07a: collectDocs excludes Inbox/Meta/topics + no-module/no-doctype skipped');
+    const cd1 = coll.find(d => d.module.includes('CHG'));
+    assert(cd1.module.join(',') === 'CHG,USB' && cd1.doctype === 'DBG', 'P3-07b: array module upper + doctype');
+    assert(cd1.ts === Date.parse('2026-10-01'), 'P3-07c: fm.updated preferred over mtime');
+    const cd2 = coll.find(d => d.module.includes('AI'));
+    assert(cd2.ts === 7 && cd2.doctype === 'ARCH', 'P3-07d: missing fm date → mtime + doctype upper');
+    const jm = radarSvc.collectJiraClosed();
+    assert(jm.CHG === 1 && jm.DISP === 1 && Object.keys(jm).length === 2, 'P3-07e: done issues → module counts, GEN/in-progress dropped');
+    const jmEmpty = new RS.RadarService({ app: { vault: { getMarkdownFiles: () => [] }, metadataCache: { getFileCache: () => ({}) } } }).collectJiraClosed();
+    assert(Object.keys(jmEmpty).length === 0, 'P3-07f: missing getter → {}');
+    const comp1 = await radarSvc.compute(Date.parse('2026-10-20'));
+    assert(Array.isArray(comp1) && comp1.length === RS.RADAR_MODULES.length, 'P3-07g: compute → 18-entry radar');
+    assert(comp1.find(r => r.code === 'DISP').J === 1, 'P3-07h: compute feeds cached jira counts');
+    // 快照读写
+    radarSvc.saveSnapshot('2026-Q4', comp1);
+    const snapNow = JSON.parse(storage35._dump()['tabonkb-radar-snapshots']);
+    assert(snapNow['2026-Q4'] && typeof snapNow['2026-Q4'].CHG === 'number', 'P3-07i: snapshot written under quarter key');
+    assert(radarSvc.prevQuarterSnapshot(new Date('2026-10-20')) === null, 'P3-07j: no prev-quarter snapshot → null');
+    storage35.setItem('tabonkb-radar-snapshots', JSON.stringify({ '2026-Q3': { CHG: 5 }, '2026-Q4': { CHG: 9 } }));
+    const prevS = radarSvc.prevQuarterSnapshot(new Date('2026-10-20'));
+    assert(prevS && prevS.CHG === 5, 'P3-07k: prev quarter snapshot loaded');
+    // 只保留最近 8 个季度
+    const snaps9 = {};
+    for (let y = 2020; y <= 2021; y++) for (let q = 1; q <= 4; q++) snaps9[`${y}-Q${q}`] = { CHG: y * 10 + q };
+    snaps9['2022-Q1'] = { CHG: 1 };
+    storage35.setItem('tabonkb-radar-snapshots', JSON.stringify(snaps9));
+    radarSvc.saveSnapshot('2022-Q2', comp1);
+    const after8 = Object.keys(JSON.parse(storage35._dump()['tabonkb-radar-snapshots']));
+    assert(after8.length === 8 && after8.includes('2022-Q2') && !after8.includes('2020-Q1'), 'P3-07l: snapshots pruned to latest 8 quarters');
+
+    // ⑧ applyWeeklyReview (mock vault, 复用 Suite34 模式)
+    const _parseFm35 = (content) => {
+      const m = /^---\n([\s\S]*?)\n---/.exec(String(content));
+      const fm = {};
+      if (!m) return fm;
+      for (const line of m[1].split('\n')) {
+        const mm = /^([A-Za-z_]+):\s*(.*)$/.exec(line);
+        if (!mm) continue;
+        let v = mm[2].trim();
+        if (/^\[.*\]$/.test(v)) v = v === '[]' ? [] : v.slice(1, -1).split(',').map(x => x.trim().replace(/^"|"$/g, '').replace(/\\"/g, '"'));
+        else if (v === 'true') v = true;
+        else if (v === 'false') v = false;
+        else if (v.startsWith('"') && v.endsWith('"')) v = v.slice(1, -1).replace(/\\"/g, '"');
+        fm[mm[1]] = v;
+      }
+      return fm;
+    };
+    const nodes35 = new Map();
+    const fm35b = new Map();
+    const mkFolder35 = (p) => {
+      const n = { name: p.split('/').pop(), path: p, children: [] };
+      nodes35.set(p, n);
+      const par = p.split('/').slice(0, -1).join('/');
+      if (par && nodes35.has(par)) nodes35.get(par).children.push(n);
+      return n;
+    };
+    const mkFile35 = (p, c) => {
+      const n = { name: p.split('/').pop(), path: p, extension: p.split('.').pop(), stat: { mtime: Date.now() }, content: c };
+      nodes35.set(p, n);
+      const par = p.split('/').slice(0, -1).join('/');
+      if (par && nodes35.has(par)) nodes35.get(par).children.push(n);
+      fm35b.set(p, _parseFm35(c));
+      return n;
+    };
+    const vault35 = {
+      adapter: { exists: async (p) => nodes35.has(p) },
+      getAbstractFileByPath: (p) => nodes35.get(p) || null,
+      createFolder: async (p) => { if (!nodes35.has(p)) mkFolder35(p); return nodes35.get(p); },
+      create: async (p, c) => mkFile35(p, c),
+      read: async (f) => f.content,
+      modify: async (f, c) => { f.content = c; },
+      process: async (f, fn) => { f.content = fn(f.content); return f.content; },
+      rename: async (f, newPath) => {
+        const oldPath = f.path;
+        const oldPar = nodes35.get(oldPath.split('/').slice(0, -1).join('/'));
+        if (oldPar) oldPar.children = oldPar.children.filter(c => c !== f);
+        const moves = [];
+        for (const [p, n] of [...nodes35.entries()]) {
+          if (p === oldPath || p.startsWith(oldPath + '/')) moves.push([p, n]);
+        }
+        for (const [p, n] of moves) {
+          const np = newPath + p.slice(oldPath.length);
+          nodes35.delete(p);
+          n.path = np; n.name = np.split('/').pop();
+          nodes35.set(np, n);
+          if (fm35b.has(p)) { fm35b.set(np, fm35b.get(p)); fm35b.delete(p); }
+        }
+        const newPar = nodes35.get(newPath.split('/').slice(0, -1).join('/'));
+        if (newPar) newPar.children.push(f);
+      },
+      delete: async (f) => {
+        const kill = (p) => {
+          const n = nodes35.get(p);
+          if (!n) return;
+          if (n.children) for (const c of [...n.children]) kill(c.path);
+          nodes35.delete(p); fm35b.delete(p);
+        };
+        const par = nodes35.get(f.path.split('/').slice(0, -1).join('/'));
+        if (par) par.children = par.children.filter(c => c !== f);
+        kill(f.path);
+      }
+    };
+    const app35 = {
+      vault: vault35,
+      fileManager: {
+        processFrontMatter: async (file, fn) => { const fm = fm35b.get(file.path) || {}; fn(fm); fm35b.set(file.path, fm); },
+        renameFile: async (file, newPath) => vault35.rename(file, newPath)
+      },
+      metadataCache: { getFileCache: (f) => ({ frontmatter: fm35b.get(f.path) || {} }) }
+    };
+    const svc35 = new TS.TopicService({ app: app35, rootPath: 'topics' });
+
+    // focus 重置: t1 starred→保持, t2→true, t3→false(不在 focusIds)
+    const rt1 = await svc35.createTopic({ title: '甲', module: 'CHG' });
+    const rt2 = await svc35.createTopic({ title: '乙', module: 'DISP' });
+    const rt3 = await svc35.createTopic({ title: '丙', module: 'PWR' });
+    await svc35._setFm(rt1.taskFile, { starred: true });
+    await svc35._setFm(rt3.taskFile, { starred: true });
+    const awr = await svc35.applyWeeklyReview({ focusIds: [rt1.id, rt2.id] });
+    assert(awr.focused === 2, 'P3-08a: focused count (t2 on, t3 off)');
+    const fmA = fm35b.get(`${rt1.dir}/00-TASK.md`), fmB = fm35b.get(`${rt2.dir}/00-TASK.md`), fmC = fm35b.get(`${rt3.dir}/00-TASK.md`);
+    assert(fmA.starred === true && fmB.starred === true && fmC.starred === false, 'P3-08b: starred reset by focusIds');
+    await svc35.applyWeeklyReview({ focusIds: [rt1.id, rt2.id, rt3.id, 'extra-x'] });
+    assert(fm35b.get(`${rt3.dir}/00-TASK.md`).starred === true, 'P3-08c: >3 ids truncated to 3');
+    // seedActions: sprout / discard / keep
+    const sd35a = await svc35.createSeed({ text: '要发芽', module: 'USB', track: 'broad' });
+    const sd35b = await svc35.createSeed({ text: '要丢弃', module: 'CAM' });
+    const sd35c = await svc35.createSeed({ text: '要保留', module: 'SEC' });
+    const awr2 = await svc35.applyWeeklyReview({
+      seedActions: { [sd35a.id]: 'sprout', [sd35b.id]: 'discard', [sd35c.id]: 'keep' }
+    });
+    assert(awr2.sprouted === 1 && awr2.discarded === 1, 'P3-08d: sprout + discard executed');
+    assert(nodes35.has(`topics/_Seeds/_Withered/${sd35b.id}`), 'P3-08e: discard → _Withered');
+    assert(nodes35.has(sd35c.path), 'P3-08f: keep untouched');
+    const sproutedSeedPaths = [...nodes35.keys()].filter(p => p.endsWith('/00-SEED.md'));
+    assert(!nodes35.has(sd35a.path) && sproutedSeedPaths.length >= 1, 'P3-08g: sprouted seed file moved into topic dir');
+    const sprDir = sproutedSeedPaths[0].split('/').slice(0, -1).join('/');
+    assert(fm35b.get(sproutedSeedPaths[0]).status === 'sprouted' && fm35b.get(`${sprDir}/00-TASK.md`).track === 'broad', 'P3-08h: sprout uses seed track/module');
+    // ideaActions: 同专题 3 条 —— 首 strike / 中 step / 末 fork (行号降序执行不错位)
+    const rt4 = await svc35.createTopic({ title: '想法专题', module: 'CHG' });
+    await svc35.addIdea(rt4, '想法一');
+    await svc35.addIdea(rt4, '想法二');
+    await svc35.addIdea(rt4, '想法三');
+    const parsed35 = TS.parseTaskBody(nodes35.get(`${rt4.dir}/00-TASK.md`).content);
+    // addIdea 顶部插入: 文件顺序 = 想法三(line低), 想法二(中), 想法一(line高)
+    const iTop = parsed35.ideas[0], iMid = parsed35.ideas[1], iBot = parsed35.ideas[2];
+    const seedsBefore = [...nodes35.keys()].filter(p => p.startsWith('topics/_Seeds/') && p.endsWith('.md')).length;
+    const awr3 = await svc35.applyWeeklyReview({
+      ideaActions: [
+        { topicId: rt4.id, line: iTop.line, label: iTop.label, action: 'strike' },
+        { topicId: rt4.id, line: iMid.line, label: iMid.label, action: 'step' },
+        { topicId: rt4.id, line: iBot.line, label: iBot.label, action: 'fork' }
+      ]
+    });
+    const body4 = nodes35.get(`${rt4.dir}/00-TASK.md`).content;
+    const parsedAfter = TS.parseTaskBody(body4);
+    assert(awr3.steps === 1 && awr3.forked === 1 && awr3.struck === 1, 'P3-08i: three actions counted');
+    assert(body4.includes('~~') && parsedAfter.ideas.length === 1 && parsedAfter.ideas[0].struck === true && parsedAfter.ideas[0].label === iTop.label, 'P3-08j: top idea struck in place, others removed');
+    assert(parsedAfter.steps.some(s => String(s.label).includes(iMid.label)), 'P3-08l: mid idea → step');
+    const seedsAfter = [...nodes35.keys()].filter(p => p.startsWith('topics/_Seeds/') && p.endsWith('.md')).length;
+    assert(seedsAfter > seedsBefore, 'P3-08m: bottom idea → new seed');
+    // 单项失败不中断
+    const rt5 = await svc35.createTopic({ title: '失败专题', module: 'AI' });
+    await svc35.addIdea(rt5, '会失败');
+    await svc35.addIdea(rt5, '会成功');
+    const p5 = TS.parseTaskBody(nodes35.get(`${rt5.dir}/00-TASK.md`).content);
+    const origStep = svc35.ideaToStep.bind(svc35);
+    svc35.ideaToStep = async () => { throw new Error('boom'); };
+    const awr4 = await svc35.applyWeeklyReview({
+      ideaActions: [
+        { topicId: rt5.id, line: p5.ideas[0].line, action: 'step' },
+        { topicId: rt5.id, line: p5.ideas[1].line, action: 'strike' }
+      ]
+    });
+    svc35.ideaToStep = origStep;
+    assert(awr4.struck === 1 && awr4.steps === 0, 'P3-08n: failing item skipped, others continue');
+
+    // ⑨ main.js bundle 级断言: 拼接后 P3 入口图标与渲染函数名必须存在
+    {
+      const mainSrc = fs.readFileSync(path.join(pluginDir, 'main.js'), 'utf8');
+      assert(mainSrc.includes('🗓') && mainSrc.includes('📡'), 'P3-09a: main.js contains 🗓/📡 entry icons');
+      assert(mainSrc.includes('_openReview') && mainSrc.includes('_toggleRadar') && mainSrc.includes('_renderRadarSvg'), 'P3-09b: main.js contains P3 render functions');
+    }
+  }
+
+  // --- Suite 36: LOCAL-EXEC —— 本地 cmd 执行器内核 + 字节级文件搬运 (local-exec-core.js) ---
+  console.log('\n>>> Suite 36: LOCAL-EXEC (Local cmd Executor Core)');
+  {
+    const lxc = require(path.join(pluginDir, 'services', 'local-exec-core.js'));
+    const VAULT = 'D:\\work\\Mgmt\\TabonKB';
+    const TMP = require('os').tmpdir();
+    const ctxL = {
+      writeRoots: [VAULT, TMP, '\\\\192.168.1.62\\tankaikun\\01\\pri_project\\driver\\public'],
+      vaultRoot: VAULT,
+      cwd: VAULT
+    };
+    const lex = (c, m) => lxc.checkLocalCommand(c, m, ctxL);
+    const denyReason = (c, m) => { const r = lex(c, m); return r.ok ? 'ALLOWED' : r.reason; };
+
+    // LXC-01: 复用转发与常量
+    assert(lxc.MODE_NAMES.readonly === '只读' && lxc.MODE_NAMES.full === '完全权限', 'LXC-01: MODE_NAMES 复用 remote-exec-core');
+    assert(typeof lxc.clampTimeoutSec === 'function' && lxc.clampTimeoutSec(3, 1) === 3, 'LXC-01: clampTimeoutSec 转发 (minSec=1 → 3)');
+
+    // LXC-02: 只读档检索类白名单放行
+    const roAllow = ['dir X:\\', 'type a.txt', 'certutil -hashfile f SHA256', 'findstr /i x f', 'git status', 'type "a&b"', 'attrib somefile.txt', 'sort /R f', 'robocopy a b /L'];
+    roAllow.forEach((c, i) => assert(lex(c, 'readonly').ok === true, `LXC-02-${i}: readonly allows ${JSON.stringify(c)} (got: ${denyReason(c, 'readonly')})`));
+
+    // LXC-03: 只读档拒绝 (写动词/脚本宿主/链式/展开)
+    const roDeny = ['copy a b', 'del f', 'powershell -c 1', 'echo', 'set', 'dir & whoami', 'dir | more', 'echo x > a', '%PATH%', '`', 'dir;ver', 'type C:\\a^&b', 'dir "a%b"', 'dir a^&b', 'certutil -encode a b', 'attrib +r f', 'attrib /s f', 'sort /o out.txt in.txt', 'robocopy a b', 'mkdir x', 'git push', 'git reset --hard'];
+    roDeny.forEach((c, i) => assert(lex(c, 'readonly').ok === false, `LXC-03-${i}: readonly rejects ${JSON.stringify(c)} (got: ${lex(c, 'readonly').ok ? 'ALLOWED' : 'denied'})`));
+
+    // LXC-04: 读写档写动词边界 (写目标限定 vaultRoot/writeRoots/TEMP)
+    const rwCases = [
+      ['copy D:\\src\\f ' + VAULT + '\\a\\f', true],
+      ['copy a b', false],                                    // 相对 dst 不在写根
+      ['del ' + VAULT + '\\x\\f', true],
+      ['del ' + VAULT, false],                                // 写根本身禁止删除
+      ['del ..', false],
+      ['del ' + VAULT + '\\..\\x', false],                    // .. 段
+      ['robocopy a b /MIR', false],
+      ['copy a D:\\x\\f', false],                             // 界外绝对路径
+      ['mkdir ' + VAULT + '\\sub', true],
+      ['move ' + VAULT + '\\a ' + VAULT + '\\b', true],
+      ['move ' + VAULT + ' ' + VAULT + '\\b', false],         // move 源=写根本身视同删除
+      ['move ' + VAULT + '\\a\\f.txt ' + VAULT, true],        // 评审加固: move 目标=写根本身合法 (移入根目录)
+      ['move ' + VAULT + '\\a ' + VAULT, true],               // move VAULT\a(非根)→VAULT 合法移入
+      ['move D:\\x\\f ' + VAULT + '\\f', false],              // 评审加固: move 源在写根外拒绝
+      ['move ' + VAULT + ' ' + VAULT + '\\sub', false],       // move 源=写根本身视同删根
+      ['ren ' + VAULT + '\\a.txt b.txt', true],
+      ['ren ' + VAULT + '\\a.txt x\\b.txt', false],           // ren 新名须裸文件名
+      ['rmdir ' + VAULT, false],
+      ['powershell -c 1', false],
+      ['node -e 1', false],
+      ['set PATH', false],
+      ['type a.txt', true],
+      ['git log --oneline -3', true],
+      ['git push', false],
+      ['git -C ' + VAULT + ' status', true],
+      ['git -C D:\\else status', false],
+      ['git -C ..\\x status', false],
+      ['dir /s ' + VAULT, true]
+    ];
+    rwCases.forEach(([c, ok], i) => assert(lex(c, 'readwrite').ok === ok, `LXC-04-${i}: readwrite ${ok ? 'allows' : 'rejects'} ${JSON.stringify(c).slice(0, 60)}${ok ? '' : ' (' + denyReason(c, 'readwrite') + ')'}`));
+
+    // LXC-05: 完全权限档仅拦灾难级
+    const fullCases = [
+      ['powershell -c x', true],
+      ['node -e x', true],
+      ['copy a b', true],
+      ['del ' + VAULT + '\\tmp\\f', true],
+      ['reg query HKLM', true],
+      ['format C:', false],
+      ['shutdown', false],
+      ['diskpart', false],
+      ['del C:\\', false],
+      ['del \\', false],
+      ['rd C:\\Windows', false],
+      ['reg add HKLM', false],
+      ['cipher /w D:\\', false],
+      ['takeown /f x', false],
+      ['bcdedit /set x y', false],
+      ['icacls D:\\x /grant u:f', false],
+      ['set', false]
+    ];
+    fullCases.forEach(([c, ok], i) => assert(lex(c, 'full').ok === ok, `LXC-05-${i}: full ${ok ? 'allows' : 'rejects'} ${JSON.stringify(c).slice(0, 50)}${ok ? '' : ' (' + denyReason(c, 'full') + ')'}`));
+
+    // LXC-06: 凭据/密钥路径全档硬拦截
+    const credCases = [
+      'type C:\\u\\.ssh\\id_rsa',
+      'copy C:\\x\\.aws\\credentials d:\\t',
+      'dir "%USERPROFILE%\\Cookies"',
+      'type NTUSER.DAT',
+      'type C:\\Windows\\System32\\config\\SAM',
+      'type "C:\\u\\AppData\\Local\\X\\Login Data"'
+    ];
+    credCases.forEach((c) => {
+      for (const m of ['readonly', 'readwrite', 'full']) {
+        assert(!lex(c, m).ok, `LXC-06: ${m} rejects credential path ${JSON.stringify(c).slice(0, 55)}`);
+      }
+    });
+    // 搜索 pattern 位不误伤 (与 remote-exec-core 同思路)
+    assert(lex('findstr "id_rsa" a.txt', 'readonly').ok === true, 'LXC-06b: findstr pattern position not scanned');
+    assert(lex('findstr /g:.ssh\\lst a.txt', 'readonly').ok === false, 'LXC-06c: findstr /g: file flag scanned');
+
+    // LXC-07: localWriteTargetOk / isRootItself
+    assert(lxc.localWriteTargetOk('\\\\192.168.1.62\\tankaikun\\01\\pri_project\\driver\\public\\f', ctxL) === true, 'LXC-07: UNC 写根前缀命中');
+    assert(lxc.localWriteTargetOk('\\??\\' + VAULT + '\\sub\\f', ctxL) === true, 'LXC-07: \\??\\ 前缀规范化后命中');
+    assert(lxc.localWriteTargetOk('c:\\', ctxL) === false, 'LXC-07: 盘符根拒绝');
+    assert(lxc.localWriteTargetOk('sub\\f', ctxL) === false, 'LXC-07: 相对路径拒绝');
+    assert(lxc.localWriteTargetOk(VAULT + '2\\x', ctxL) === false, 'LXC-07: 前缀边界 (TabonKB2 不误命中)');
+    assert(lxc.localWriteTargetOk(VAULT + '\\.git\\config', ctxL) === false, 'LXC-07: .git 组件拒绝');
+    assert(lxc.localWriteTargetOk(VAULT, ctxL) === true && lxc.isRootItself(VAULT, VAULT) === true, 'LXC-07: 写根本身命中且可识别');
+    assert(lxc.isRootItself(VAULT + '\\x', VAULT) === false, 'LXC-07: isRootItself 非根为 false');
+    // 8.3 短名/长路径双形态 (os.tmpdir()→ADMINI~1, AI 常用 Administrator 长名, 双形态都在写根内都应命中)
+    const TMP_SHORT = 'C:\\Users\\ADMINI~1\\AppData\\Local\\Temp', TMP_LONG = 'C:\\Users\\Administrator\\AppData\\Local\\Temp';
+    const ctxBoth = { writeRoots: [TMP_SHORT, TMP_LONG], vaultRoot: VAULT };
+    assert(lxc.localWriteTargetOk(TMP_SHORT + '\\tw\\f.txt', ctxBoth) === true, 'LXC-07b: TEMP 短名形态命中');
+    assert(lxc.localWriteTargetOk(TMP_LONG + '\\tw\\f.txt', ctxBoth) === true, 'LXC-07b: TEMP 长路径形态命中');
+
+    // LXC-09: 评审加固 —— 删除/移动类目标禁通配符 (防 * 展开清空写根)
+    const wildDeny = [
+      'del /s ' + VAULT + '\\*',
+      'del /q ' + VAULT + '\\?.md',
+      'rd /s /q ' + VAULT + '\\*',
+      'move ' + VAULT + '\\* ' + VAULT + '\\sub',
+      'ren ' + VAULT + '\\* x',
+      'del ' + VAULT + '\\sub\\*.tmp'
+    ];
+    wildDeny.forEach((c, i) => assert(lex(c, 'readwrite').ok === false, `LXC-09-${i}: readwrite rejects wildcard del/move/ren ${JSON.stringify(c).slice(0, 60)}`));
+    assert(lex('del ' + VAULT + '\\sub\\f.tmp', 'readwrite').ok === true, 'LXC-09: 非通配正常删除放行');
+    assert(lex('copy a ' + VAULT, 'readwrite').ok === true, 'LXC-09: copy dst=写根本身放行 (copy 不禁通配/根)');
+
+    // LXC-10: 评审加固 —— 带文件值旗标参与凭据扫描 (xcopy /EXCLUDE, robocopy /JOB·LOG·UNILOG)
+    assert(lex('xcopy D:\\x ' + VAULT + '\\a /EXCLUDE:C:\\u\\.ssh\\key', 'readwrite').ok === false, 'LXC-10: xcopy /EXCLUDE 值凭据路径拒绝');
+    assert(lex('robocopy a b /JOB:C:\\u\\.ssh\\key', 'readwrite').ok === false, 'LXC-10: robocopy /JOB 值凭据路径拒绝');
+    assert(lex('robocopy a b /LOG+:C:\\u\\.ssh\\key', 'full').ok === false, 'LXC-10: robocopy /LOG+ 值凭据路径拒绝 (全档扫描)');
+    assert(lex('xcopy D:\\x ' + VAULT + '\\a /EXCLUDE:' + VAULT + '\\ok.txt', 'readwrite').ok === true, 'LXC-10: xcopy /EXCLUDE 合法路径不误伤');
+
+    // LXC-08: 接线断言 (源码级)
+    const bridgeSrc = fs.readFileSync(path.join(pluginDir, 'pi-agent-bridge.js'), 'utf8');
+    assert(bridgeSrc.includes('local_exec'), 'LXC-08: --tools 注册 local_exec');
+    assert(bridgeSrc.includes('local_copy') && bridgeSrc.includes('local_move'), 'LXC-08: --tools 注册 local_copy/local_move');
+    assert(bridgeSrc.includes('local-exec-portal.ts'), 'LXC-08: getExtensionPaths 注册 local-exec-portal.ts');
+    assert(bridgeSrc.includes('TABONKB_VAULT_PATH'), 'LXC-08: spawn env 注入 TABONKB_VAULT_PATH');
+    const lpSrc = fs.readFileSync(path.join(pluginDir, 'extensions', 'local-project-portal.ts'), 'utf8');
+    assert(lpSrc.includes('local_copy') && lpSrc.includes('local_move') && lpSrc.includes('local-exec-core.js'), 'LXC-08: local-project-portal 注册 local_copy/local_move 并加载内核');
+    const leSrc = fs.readFileSync(path.join(pluginDir, 'extensions', 'local-exec-portal.ts'), 'utf8');
+    assert(leSrc.includes('local_exec') && leSrc.includes('checkLocalCommand'), 'LXC-08: local-exec-portal 注册 local_exec 并调用 checkLocalCommand');
+    assert(leSrc.includes('realpathSync.native') && lpSrc.includes('realpathSync.native'), 'LXC-08: 两 portal 写根均补 realpath 长路径形态');
+    assert(leSrc.includes('taskkill') && leSrc.includes('TextDecoder'), 'LXC-08: local-exec-portal 进程树杀 + GBK 解码');
+
+    // LXC-11: 评审加固 —— 源码级断言 (local_move 源限写根 / killTree 进程树杀)
+    assert(lpSrc.includes('local_move 会删除源文件'), 'LXC-11: local_move 非 full 档源须在写根内');
+    assert(leSrc.includes('taskkill') && leSrc.includes('/T') && leSrc.includes('killTree'), 'LXC-11: runLocal 超时/中止改 taskkill /T /F 杀进程树');
   }
 
   // Summary
