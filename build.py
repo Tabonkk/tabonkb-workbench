@@ -28,6 +28,7 @@ files = [
     f"{plugin_dir}\\mcp\\codegraph-mcp-shared.js",
     f"{plugin_dir}\\mcp\\powerz-mcp-shared.js",
     f"{plugin_dir}\\mcp\\dslogic-mcp-shared.js",
+    f"{plugin_dir}\\mcp\\file-ref-hint-shared.js",
     f"{plugin_dir}\\mcp\\dsh-mcp-shared.js",
     f"{plugin_dir}\\services\\gerrit-service.js",
     f"{plugin_dir}\\services\\drawio-broker.js",
@@ -806,6 +807,8 @@ new_constructor = """class TabonKBWorkbenchView extends ItemView {
       if (Array.isArray(issues) && issues.length > 0) {
         this.homeTrendIssues = issues;
         this.updateHomeTrendCard();
+        if (typeof this.updateHomeTaskCard === 'function') this.updateHomeTaskCard();
+        if (typeof this._homePaintKpis === 'function') this._homePaintKpis();
         if (this.homeHeatCardEl) {
           this.updateHomeHeatmapCard();
         }
@@ -1679,6 +1682,9 @@ new_constructor = """class TabonKBWorkbenchView extends ItemView {
           try {
             this._auLedgerScan(true);
             if (this.agentUsageCardEl && this.agentUsageCardEl.isConnected) this.updateAgentUsageCard();
+            if (this._homeAiCardEl && this._homeAiCardEl.isConnected) this.updateHomeAiCard();
+            if (this._homeTaskCardEl && this._homeTaskCardEl.isConnected) this.updateHomeTaskCard();
+            if (typeof this._homePaintKpis === 'function') this._homePaintKpis();
             if (this.homeHeatCardEl && this.homeHeatCardEl.isConnected) this.updateHomeHeatmapCard();
           } catch (_) {} finally {
             cache.warming = false;
@@ -2046,6 +2052,10 @@ new_constructor = """class TabonKBWorkbenchView extends ItemView {
         const needRender = !this._mqRenderedOnce || force || (snap && snap.fromCache !== true);
         if (needRender && this.agentUsageCardEl && this.agentUsageCardEl.isConnected) {
           this.updateAgentUsageCard(true);
+        }
+        if (needRender && this._homeAiCardEl && this._homeAiCardEl.isConnected) {
+          this.updateHomeAiCard();
+          if (typeof this._homePaintKpis === 'function') this._homePaintKpis();
         }
         return snap;
       })
@@ -3156,7 +3166,7 @@ new_overview = """    // 1. 文档打标：命名规范后缀 _平台_模块_类
       if (!platform) {
         if (p.includes('qcom') || p.includes('qualcomm')) platform = 'QCOM';
         else if (p.includes('mtk') || p.includes('mediatek')) platform = 'MTK';
-        else if (p.includes('unisoc')) platform = 'UNISOC';
+        else if (p.includes('unisoc') || p.includes('sprd') || p.includes('spreadtrum') || p.includes('展锐')) platform = 'UNISOC';
         else if (p.includes('samsung') || p.includes('exynos')) platform = 'EXYNOS';
         else if (p.includes('multi')) platform = 'MULTI';
         else platform = 'COMMON';
@@ -3397,7 +3407,8 @@ if idx_render != -1 and idx_cpanel != -1:
       // 4. Render Context-Aware Top Bar.
       // Explore owns its own sub-navigation and search surface, so the global
       // search/Agent Hub row would only duplicate controls on that page.
-      if (this.activeTab !== 'explore' && this.activeTab !== 'manage' && this.activeTab !== 'harness' && this.activeTab !== 'tools') {
+      // 首页已将搜索舱内嵌进流光 Hero 横幅，独立顶栏会造成重复控件，故跳过。
+      if (this.activeTab !== 'home' && this.activeTab !== 'explore' && this.activeTab !== 'manage' && this.activeTab !== 'harness' && this.activeTab !== 'tools') {
         this.renderTopBar(mainPanel);
       }
 
@@ -3425,6 +3436,8 @@ if idx_render != -1 and idx_cpanel != -1:
         mainPanel.addClass('tw-main-manage', 'tw-main-fullbleed');
         this.renderManageTab(stage);
       } else {
+        stage.addClass('tw-stage-onepage');
+        mainPanel.addClass('tw-main-onepage');
         this.renderHomeTab(stage);
       }
     } catch (err) {
@@ -3466,6 +3479,11 @@ if idx_render != -1 and idx_cpanel != -1:
     this.agentUsageCardEl = null;
     this.contextCard = null;
     this.tableCard = null;
+    this._homeTaskCardEl = null;
+    this._homeAiCardEl = null;
+    this._homeKbCardEl = null;
+    this._homeKpiRefs = null;
+    this._homeTcEls = null;
   }
 
   getExploreSubTab() {
@@ -3963,108 +3981,1118 @@ if idx_render != -1 and idx_cpanel != -1:
   }
 
     renderHomeTab(stage) {
-    const wrap = stage.createDiv({ cls: 'tw-stage-home tabonkb-workbench-wrap' });
+    const wrap = stage.createDiv({ cls: 'tw-stage-home tabonkb-workbench-wrap tw-home-onepage' });
 
-    // Layer 2: 走势图 + 热力图
-    const chartsGrid = wrap.createDiv({ cls: 'tw-charts-grid' });
+    // 一页式首页不再挂载重型旧组件(拓扑/热力图/任务长表/快速过滤条),
+    // 置空陈旧引用防止 detached DOM 被旧更新链路误写
+    this.tableCard = null;
+    this.contextCard = null;
+    this.homeTrendCardEl = null;
+    this.homeHeatCardEl = null;
+    this.agentUsageCardEl = null;
+    this.graphCanvas = null;
+    this.selectedKnowledgeNode = null;
+    this.knowledgePanelMode = 'overview';
 
-    // Trend Chart (dynamically bound to real Jira data with time dimension pills)
-    this.renderHomeTrendCard(chartsGrid);
+    // ── 三段式一页布局: 流光 Hero(≈32%) → 三列图表(弹性撑满) → 工具链灯带(≈12%) ──
+    this._renderHomeHero(wrap);
 
-    // Heatmap Card (dynamically bound to multi-source engineering data)
-    this.renderHomeHeatmapCard(chartsGrid);
+    const grid = wrap.createDiv({ cls: 'tw-home-grid' });
+    this._renderHomeTaskCard(grid);   // ① 任务与技术深耕汇总
+    this._renderHomeAiCard(grid);     // ② AI 模型与 Token 用量
+    this._renderHomeKbCard(grid);     // ⑤ 知识库资料汇总
 
-    // Agent Usage Quota Strip (multi-agent token consumption breakdown)
-    this.renderAgentUsageCard(wrap);
+    this._renderHomeToolchain(wrap);  // ④ 工具链状态灯带
 
-    // Layer 3: Knowledge Workspace (Graph + Dynamic Context Panel)
-    const workspaceWrap = wrap.createDiv({ cls: 'tw-knowledge-workspace dashboard-knowledge-workspace', id: 'twKnowledgeWorkspace' });
-    
-    // Left: Graph Card (降级保护: 拓扑组件异常不拖垮整个工作台)
-    const graphCard = workspaceWrap.createDiv({ cls: 'tw-card tw-graph-card' });
+    // 异步数据源: Jira 走势 / Magpie 快照 / 工具链连通探针, 完成后定点刷新
+    this.loadHomeTrendData(false);
+    if (this.magpieObs) this.refreshMagpieObservability(false);
+    this._homeProbeToolchain(false);
+  }
+
+  // ==========================================================================
+  // Home One-Page Dashboard (一页式零滚动仪表盘)
+  // ==========================================================================
+
+  // 数据聚合: 一次收集 KPI/三列卡所需的全部统计口径 (账本自带 10s 缓存, 重复调用廉价)
+  _homeDashStats() {
+    const files = (this.app && this.app.vault && typeof this.app.vault.getFiles === 'function') ? this.app.vault.getFiles() : [];
+    const issues = this.getHomeTrendIssues();
+    const trend = this.calculateHomeTrendData(issues, this.getHomeTrendTimeRange(), 460, 110);
+    let au = null;
+    try { au = this.collectAgentUsageStats(this.agentUsageRange); } catch (e) { au = null; }
+    const topics = this._homeTopicDirs();
+    const now = Date.now();
+    let pdfCount = 0;
+    for (const f of files) { if (/\\.pdf$/i.test(f.name || '')) pdfCount++; }
+    const added7 = this.realDocs.filter(d => d.mtime && (now - d.mtime) <= 7 * 86400000).length;
+    const added30 = this.realDocs.filter(d => d.mtime && (now - d.mtime) <= 30 * 86400000).length;
+    const kb = this._homeKbStats(files);
+    const omniReady = !!(globalThis.omnisearch || (this.app.plugins && this.app.plugins.plugins && this.app.plugins.plugins.omnisearch));
+    return { files, issues, trend, au, topics, added7, added30, kb, pdfCount, omniReady };
+  }
+
+  // 专题目录扫描: 07-Project/00-Personal-Topics 下每个非下划线目录 = 一个技术深耕专题
+  _homeTopicDirs() {
     try {
-      this.graphCanvas = new ForceGraphCanvas(graphCard, {
-        onNodeClick: (node) => {
-          const nextMode = node ? 'detail' : 'overview';
-          if (this.knowledgePanelMode === nextMode && this.selectedKnowledgeNode === node) {
-            return;
-          }
-          this.selectedKnowledgeNode = node;
-          this.knowledgePanelMode = nextMode;
-          if (this.contextProvider) {
-            if (node) this.contextProvider.setKnowledgeNode(node);
-            else this.contextProvider.clearKnowledgeNode();
-          }
-          this.renderContextPanel();
-        },
-        onNodeDblClick: (node) => {
-          if (node) this.openTarget(node.id, node.title);
-        }
-      });
-      if (this.graphData.nodes.length > 0) {
-        this.graphCanvas.setData(this.graphData);
+      const root = this.app && this.app.vault && typeof this.app.vault.getAbstractFileByPath === 'function'
+        ? this.app.vault.getAbstractFileByPath('07-Project/00-Personal-Topics') : null;
+      if (!root || !Array.isArray(root.children)) return [];
+      const walkMax = (f) => {
+        let mx = 0;
+        if (f.children) { for (const c of f.children) mx = Math.max(mx, walkMax(c)); }
+        else if (f.stat && f.stat.mtime) mx = f.stat.mtime;
+        return mx;
+      };
+      const out = [];
+      for (const dir of root.children) {
+        if (!dir.children || String(dir.name || '').startsWith('_')) continue;
+        out.push({ name: dir.name, mtime: walkMax(dir) });
       }
-    } catch (gErr) {
-      console.warn('[TabonKB] Topology init degraded:', gErr);
-      try { wkTopoWriteLog(this.app.vault.adapter.basePath, 'GRAPHCARD: ' + (gErr && gErr.stack || gErr)); } catch (e) {}
-      this.graphCanvas = null;
-      graphCard.innerHTML = '<div style="padding:28px;font-size:11px;color:var(--text-muted);">拓扑组件初始化异常 (已降级, 不影响工作台其它区域), 详见插件目录 weknora-topo-error.log</div>';
+      return out;
+    } catch (e) { return []; }
+  }
+
+  // 命名规范盘点: 与 renderOverviewMode 同口径 (_平台_模块_类型 后缀优先, 路径回退)
+  _homeKbStats(files) {
+    const KNOWN_DOCTYPES = ['REF','GUIDE','NOTE','ARCH','SPEC','RPT','CHK','CASE','LOG','IDX','CODE','PLAN','DBG'];
+    const PATH_MODULE_RULES = [
+      ['charger', 'CHG'], ['battery', 'CHG'], ['chg', 'CHG'],
+      ['power', 'PWR'], ['thermal', 'PWR'], ['pmic', 'PWR'],
+      ['camera', 'CAM'], ['kernel', 'KERN'], ['display', 'DISP'],
+      ['usb', 'USB'], ['typec', 'USB'],
+      ['security', 'SEC'], ['tee', 'SEC'],
+      ['connect', 'CONN'], ['wifi', 'CONN'], ['bluetooth', 'CONN'],
+      ['audio', 'AUD'], ['touch', 'TP'],
+      ['storage', 'STOR'], ['emmc', 'STOR'],
+      ['modem', 'MODEM'], ['ril', 'MODEM'],
+      ['sensor', 'SEN'], ['input', 'INPUT'], ['spec', 'SPEC'],
+      ['toolchain', 'BUILD'], ['compiler', 'BUILD'],
+      ['crash', 'DBG'], ['panic', 'DBG'], ['debug', 'DBG'], ['trace', 'DBG'],
+      ['test', 'TEST'], ['cert', 'TEST'],
+      ['hardware', 'HW'], ['datasheet', 'HW'],
+      ['project', 'PROJ'], ['platform', 'PLAT']
+    ];
+    let mdTotal = 0, tagged = 0, vendor = 0;
+    const modCounts = new Map(), platCounts = new Map();
+    for (const f of (files || [])) {
+      const p = String(f.path || '').toLowerCase();
+      const name = String(f.name || '');
+      const ext = (/\\.[a-z0-9]+$/i.exec(name) || [''])[0].toLowerCase();
+      const isMd = ext === '.md';
+      if (isMd) mdTotal++;
+      if (p.includes('08-vendor-docs')) vendor++;
+      const toks = name.replace(/\\.[^.]+$/, '').split('_');
+      const suffixed = toks.length >= 3 && KNOWN_DOCTYPES.includes(toks[toks.length - 1].toUpperCase());
+      if (suffixed && isMd) tagged++;
+      let platform = '';
+      if (suffixed) {
+        const cand = toks[toks.length - 3].toUpperCase();
+        if (/^[A-Z][A-Z0-9-]{0,8}$/.test(cand)) platform = cand;
+      }
+      if (!platform) {
+        if (p.includes('qcom') || p.includes('qualcomm')) platform = 'QCOM';
+        else if (p.includes('mtk') || p.includes('mediatek')) platform = 'MTK';
+        else if (p.includes('unisoc') || p.includes('sprd') || p.includes('spreadtrum') || p.includes('展锐')) platform = 'UNISOC';
+        else if (p.includes('samsung') || p.includes('exynos')) platform = 'EXYNOS';
+        else if (p.includes('multi')) platform = 'MULTI';
+        else platform = 'COMMON';
+      }
+      platCounts.set(platform, (platCounts.get(platform) || 0) + 1);
+      let module = '';
+      if (suffixed) {
+        const m = toks[toks.length - 2].toUpperCase();
+        if (/^[A-Z][A-Z0-9-]{1,8}$/.test(m)) module = m;
+      }
+      if (!module) {
+        const hit = PATH_MODULE_RULES.find(([k]) => p.includes(k));
+        module = hit ? hit[1] : '';
+      }
+      if (!module) module = (p.startsWith('99-meta') || p.startsWith('00-inbox')) ? 'META' : 'GEN';
+      modCounts.set(module, (modCounts.get(module) || 0) + 1);
+    }
+    const clusterMods = [...modCounts.entries()].filter(([m]) => m !== 'GEN' && m !== 'META').sort((a, b) => b[1] - a[1]);
+    const withSummary = this.realDocs.filter(d => d.summary && d.summary !== '（暂无详细说明）').length;
+    return {
+      total: (files || []).length,
+      mdTotal, tagged, vendor,
+      tagRate: mdTotal ? Math.round(tagged / mdTotal * 100) : 0,
+      summaryRate: this.realDocs.length ? Math.round(withSummary / this.realDocs.length * 100) : 0,
+      clusterCount: clusterMods.length,
+      topModules: clusterMods.slice(0, 2).map(([m]) => m),
+      modTop5: clusterMods.slice(0, 5).map(([m, c]) => ({ m, c })),
+      modTotal: clusterMods.reduce((s, [, c]) => s + c, 0),
+      platCounts
+    };
+  }
+
+  _homeJiraCat(iss) {
+    const s = String(iss.status || '').toLowerCase();
+    const c = String(iss.statusCategory || '').toLowerCase();
+    if (c === 'done' || s.includes('closed') || s.includes('done') || s.includes('resolved') || s.includes('fixed') || s.includes('已解决') || s.includes('解决') || s.includes('关闭') || s.includes('完成')) return 'done';
+    if (s.includes('阻塞') || s.includes('待原厂') || s.includes('blocked') || s.includes('hold') || s.includes('waiting') || s.includes('挂起')) return 'block';
+    if (s.includes('review') || s.includes('verify') || s.includes('测试') || s.includes('评审') || s.includes('待验')) return 'verify';
+    if (c === 'indeterminate' || s.includes('progress') || s.includes('处理') || s.includes('进行')) return 'prog';
+    return 'todo';
+  }
+
+  // 专题活跃序列: 各分桶内"被触碰"的专题数 (目录递归最大 mtime), tasksData 静态排障专题日期并入
+  _homeTopicSeries(bucketEnds) {
+    const out = (bucketEnds || []).map(() => 0);
+    if ((bucketEnds || []).length < 2) return out;
+    const step = bucketEnds[1] - bucketEnds[0];
+    const lo0 = bucketEnds[0] - step;
+    const bump = (ts) => {
+      if (!ts) return;
+      for (let i = 0; i < bucketEnds.length; i++) {
+        const lo = i === 0 ? lo0 : bucketEnds[i - 1];
+        if (ts > lo && ts <= bucketEnds[i]) { out[i]++; break; }
+      }
+    };
+    for (const dir of this._homeTopicDirs()) bump(dir.mtime);
+    for (const t of (this.tasksData || [])) {
+      const m = /(\\d{1,2})-(\\d{1,2})/.exec(t.date || '');
+      if (!m) continue;
+      const dt = new Date();
+      dt.setMonth(parseInt(m[1], 10) - 1, parseInt(m[2], 10));
+      dt.setHours(12, 0, 0, 0);
+      bump(dt.getTime());
+    }
+    return out;
+  }
+
+  // Catmull-Rom → Bezier 平滑折线路径 (控制点 y 钳制在相邻点区间±6, 防过冲垂直突变)
+  _homeSmooth(pts) {
+    if (!pts.length) return '';
+    if (pts.length === 1) return `M ${pts[0].x},${pts[0].y}`;
+    if (pts.length === 2) return `M ${pts[0].x},${pts[0].y} L ${pts[1].x},${pts[1].y}`;
+    let d = `M ${pts[0].x.toFixed(1)},${pts[0].y.toFixed(1)}`;
+    for (let i = 0; i < pts.length - 1; i++) {
+      const p0 = pts[i - 1] || pts[i], p1 = pts[i], p2 = pts[i + 1], p3 = pts[i + 2] || p2;
+      const lo = Math.min(p1.y, p2.y) - 6, hi = Math.max(p1.y, p2.y) + 6;
+      const c1x = p1.x + (p2.x - p0.x) / 6;
+      const c1y = Math.max(lo, Math.min(hi, p1.y + (p2.y - p0.y) / 6));
+      const c2x = p2.x - (p3.x - p1.x) / 6;
+      const c2y = Math.max(lo, Math.min(hi, p2.y - (p3.y - p1.y) / 6));
+      d += ` C ${c1x.toFixed(1)},${c1y.toFixed(1)} ${c2x.toFixed(1)},${c2y.toFixed(1)} ${p2.x.toFixed(1)},${p2.y.toFixed(1)}`;
+    }
+    return d;
+  }
+
+  // 大环形分布图: 130px 直径 / 16px 描边 / 段间白色间隙 / 22px 中心大数字
+  _homeDonutSvg(segs, centerNum, centerCap) {
+    const total = Math.max(1, segs.reduce((s, x) => s + x.count, 0));
+    const R = 55, C = 2 * Math.PI * R, GAP = 3;
+    let off = 0, arcs = '';
+    const multi = segs.filter(s => s.count > 0).length > 1;
+    for (const s of segs) {
+      if (s.count <= 0) continue;
+      const frac = s.count / total;
+      const dash = Math.max(0.8, frac * C - (multi ? GAP : 0));
+      arcs += `<circle cx="65" cy="65" r="${R}" fill="none" stroke="${s.color}" stroke-width="16" stroke-dasharray="${dash.toFixed(2)} ${(C - dash).toFixed(2)}" stroke-dashoffset="${(-off * C).toFixed(2)}"><title>${escapeHtml(s.label)} ${s.count}</title></circle>`;
+      off += frac;
+    }
+    return `<svg viewBox="0 0 130 130" class="tw-home-donut-svg" role="img">
+      <g transform="rotate(-90 65 65)"><circle cx="65" cy="65" r="${R}" fill="none" stroke="var(--background-primary, #fff)" stroke-width="16"/>${arcs}</g>
+      <text x="65" y="63" class="tw-home-donut-num" text-anchor="middle">${centerNum}</text>
+      <text x="65" y="81" class="tw-home-donut-cap" text-anchor="middle">${centerCap || '活跃任务'}</text></svg>`;
+  }
+
+  // 任务日期 'MM-DD' → 今年时间戳 (与 _homeTopicSeries 同口径)
+  _homeTaskTs(dateStr) {
+    const m = /(\\d{1,2})-(\\d{1,2})/.exec(dateStr || '');
+    if (!m) return 0;
+    const dt = new Date();
+    dt.setMonth(parseInt(m[1], 10) - 1, parseInt(m[2], 10));
+    dt.setHours(12, 0, 0, 0);
+    return dt.getTime();
+  }
+
+  // 通用分桶计数: 时间戳列表 → 与 bucketEnds 对齐的序列
+  _homeBucketSeries(bucketEnds, tsList) {
+    const out = (bucketEnds || []).map(() => 0);
+    if ((bucketEnds || []).length < 2) return out;
+    const step = bucketEnds[1] - bucketEnds[0];
+    const lo0 = bucketEnds[0] - step;
+    for (const ts of (tsList || [])) {
+      if (!ts) continue;
+      for (let i = 0; i < bucketEnds.length; i++) {
+        const lo = i === 0 ? lo0 : bucketEnds[i - 1];
+        if (ts > lo && ts <= bucketEnds[i]) { out[i]++; break; }
+      }
+    }
+    return out;
+  }
+
+  // 多系列平滑面积图: SVG 按容器实测像素 1:1 渲染(3 网格虚线 + Y 轴整偶刻度), series=[{name,v,c}]
+  _homeMultiTrendSvg(xC, series, W, H) {
+    if (!xC || !xC.length) return '<div class="tw-home-empty">暂无走势数据</div>';
+    const padT = 12, padB = 10;
+    const baseY = H - padB;
+    const rawMax = Math.max(0, ...series.flatMap(s => s.v || []));
+    const yMax = Math.max(4, Math.ceil(rawMax / 2) * 2);
+    const Y = (v) => baseY - Math.max(1, (v / yMax) * (baseY - padT));
+    const grid = [0, 0.5, 1].map(f => {
+      const y = Math.round(baseY - f * (baseY - padT));
+      return `<line x1="24" y1="${y}" x2="${W - 6}" y2="${y}" class="${f === 0 ? 'tw-home-mt-base' : 'tw-home-mt-grid'}"/><text x="20" y="${y + 3}" class="tw-home-mt-ytick" text-anchor="end">${Math.round(yMax * f)}</text>`;
+    }).join('');
+    let grads = '', paths = '', dots = '';
+    series.forEach((s, si) => {
+      const pts = xC.map((x, i) => ({ x, y: Y((s.v || [])[i] || 0) }));
+      const line = this._homeSmooth(pts);
+      const area = `${line} L ${xC[xC.length - 1]},${baseY} L ${xC[0]},${baseY} Z`;
+      grads += `<linearGradient id="twHomeMtS${si}" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="${s.c}" stop-opacity=".28"/><stop offset="100%" stop-color="${s.c}" stop-opacity=".03"/></linearGradient>`;
+      paths += `<path d="${area}" fill="url(#twHomeMtS${si})"/><path d="${line}" fill="none" stroke="${s.c}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
+      dots += xC.map((x, i) => `<circle cx="${x}" cy="${Y((s.v || [])[i] || 0)}" r="2.1" fill="#fff" stroke="${s.c}" stroke-width="1.8"/>`).join('');
+    });
+    return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" class="tw-home-mt-svg"><defs>${grads}</defs>${grid}${paths}${dots}</svg>`;
+  }
+
+  // v6.0 正向缓存命中率拱门(220x120): 弧心(110,96) r=76, 蓝→青→翠渐变, 无告警刻度(命中率为正向指标)
+  _homeGaugeSvg(pct, savedTxt, totalTxt) {
+    const p = Math.max(0, Math.min(100, pct));
+    const dash = Math.max(0.4, p);
+    return `<svg viewBox="0 0 220 120" width="214" height="117" class="tw-home-gauge-svg">
+      <defs><linearGradient id="aiGaugeGrad" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#3B82F6"/><stop offset="55%" stop-color="#06B6D4"/><stop offset="100%" stop-color="#10B981"/></linearGradient></defs>
+      <path d="M 34 96 A 76 76 0 0 1 186 96" fill="none" stroke="#E2E8F0" stroke-width="16" stroke-linecap="butt"/>
+      <path d="M 34 96 A 76 76 0 0 1 186 96" fill="none" stroke="url(#aiGaugeGrad)" stroke-width="16" stroke-linecap="butt" pathLength="100" stroke-dasharray="${dash} 100"/>
+      <text x="110" y="76" class="tw-home-gauge-num" text-anchor="middle">${p.toFixed(1)}%</text>
+      <text x="110" y="91" class="tw-home-gauge-hit" text-anchor="middle">缓存命中率</text>
+      <text x="110" y="114" class="tw-home-gauge-cap" text-anchor="middle">已复用 ${savedTxt} / 总吞吐 ${totalTxt}</text></svg>`;
+  }
+
+  // ── Section 1: 流光 Hero (Hi Tabon + Omnisearch 舱 + 5 张磨砂 KPI) ──
+  _renderHomeHero(wrap) {
+    const hero = wrap.createDiv({ cls: 'tw-home-hero' });
+    const HERO_3D_GLASS_B64 = "data:image/webp;base64,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";
+    hero.innerHTML = `
+      <div class="tw-home-hero-glow" aria-hidden="true"></div>
+      <img class="tw-hero-3d-art" src="${HERO_3D_GLASS_B64}" alt="" aria-hidden="true" draggable="false" />
+      <div class="tw-home-hero-top">
+        <div class="tw-home-hero-title">
+          <span class="tw-home-hero-title-tx">Hi Tabon</span>
+        </div>
+        <div class="tw-home-hero-right">
+          <div class="tw-home-omni" title="Omnisearch 全库检索 · Enter 唤起大窗 · ESC 清空">
+            <span class="tw-home-omni-ic">${getIconPark('search', 14)}</span>
+            <input type="text" class="tw-home-omni-input" placeholder="Omnisearch 全库检索…" value="${escapeHtml(this.keyword || '')}" spellcheck="false">
+            <span class="tw-home-omni-badge" title="已索引资产规模">–</span>
+          </div>
+          <button type="button" class="clickable-icon tw-home-agent-btn" title="唤起/收起 Agent 协同抽屉">${getIconPark('robot', 14)}<span>唤起 Agent</span></button>
+        </div>
+      </div>
+      <div class="tw-home-kpis"></div>`;
+
+    const kpiDefs = [
+      { k: 'tasks', t: '活跃待办任务',   nav: () => this.setActiveTab('tasks'),                              tip: '未完结 Jira + 深耕任务 · 点击前往任务页' },
+      { k: 'ai',    t: 'AI Token 吞吐', nav: () => { if (this.agentDrawer) this.agentDrawer.toggle(); }, tip: '当期 Token 消耗 · 点击唤起 Agent' },
+      { k: 'omni',  t: '全库检索索引',   nav: () => this.openOmnisearchModal(this.keyword || ''),            tip: '全库可检索文件 · 点击唤起 Omnisearch' },
+      { k: 'tc',    t: '工具链连通',     nav: () => this._homeProbeToolchain(true),                          tip: '在线服务/总数 · 点击重新探测' },
+      { k: 'kb',    t: '研发沉淀笔记',   nav: () => this._homeGotoManage('documents'),                       tip: 'Markdown 研发笔记 · 点击前往资产清单' }
+    ];
+    const kpiWrap = hero.querySelector('.tw-home-kpis');
+    for (const def of kpiDefs) {
+      const el = kpiWrap.createDiv({ cls: 'tw-home-kpi' });
+      el.dataset.kpi = def.k;
+      el.title = def.tip;
+      el.setAttribute('role', 'button');
+      el.innerHTML = `
+        <div class="tw-home-kpi-top"><span class="tw-home-kpi-title">${def.t}</span><span class="tw-home-kpi-badge">–</span></div>
+        <div class="tw-home-kpi-num">–</div>`;
+      el.onclick = () => def.nav();
     }
 
-    // Right: Context Panel Card
-    this.contextCard = workspaceWrap.createDiv({ cls: 'tw-card tw-context-panel-card' });
-    this.renderContextPanel();
-
-    // Layer 4: 快速过滤 + 任务列表 / 资料清单
-    const stats = this.getVaultStats();
-    const filtersBar = wrap.createDiv({ cls: 'tw-card tw-filters-bar' });
-    filtersBar.innerHTML = `
-      <span style="font-size:10px; color:var(--text-muted); margin-right:2px;">快速过滤:</span>
-      <button class="tw-chip ${this.moduleFilter==='Charger'?'active':''}" data-mod="Charger">充电/CHG ${stats.modules.charger || 17}</button>
-      <button class="tw-chip ${this.moduleFilter==='Spec'?'active':''}" data-mod="Spec">Spec/规范 ${stats.modules.spec || 14}</button>
-      <button class="tw-chip ${this.moduleFilter==='Display'?'active':''}" data-mod="Display">Display ${stats.modules.display || 2}</button>
-      <button class="tw-chip ${this.moduleFilter==='Crash'?'active':''}" data-mod="Crash">Crash/Panic ${stats.modules.crash || 1}</button>
-      <button class="tw-chip ${this.platformFilter==='MTK'?'active':''}" data-plat="MTK">联发科 ${stats.mtkCount || 6}</button>
-      <button class="tw-chip ${this.platformFilter==='QCOM'?'active':''}" data-plat="QCOM">楂橀€?${stats.qcomCount || 1}</button>
-      <button class="tw-chip ${this.platformFilter==='MULTI'?'active':''}" data-plat="MULTI">多平台 ${stats.multiCount || 5}</button>
-    `;
-
-    filtersBar.querySelectorAll('[data-mod]').forEach(btn => {
-      btn.onclick = () => {
-        const mod = btn.dataset.mod;
-        if (this.moduleFilter === mod) {
-          this.moduleFilter = '';
-          this.graphCanvas?.filterModule('all');
-        } else {
-          this.moduleFilter = mod;
-          this.platformFilter = '';
-          this.graphCanvas?.filterModule(mod);
-        }
-        if (this.contextProvider) this.contextProvider.setFilter(this.moduleFilter);
-        this.currentTab = 'docs';
-        this.renderTableOnly();
-        filtersBar.querySelectorAll('[data-mod]').forEach(b => b.toggleClass('active', b.dataset.mod === this.moduleFilter));
+    this._homeKpiRefs = {
+      root: hero,
+      omniBadge: hero.querySelector('.tw-home-omni-badge'),
+      kpis: {}
+    };
+    hero.querySelectorAll('.tw-home-kpi').forEach(el => {
+      this._homeKpiRefs.kpis[el.dataset.kpi] = {
+        num: el.querySelector('.tw-home-kpi-num'),
+        badge: el.querySelector('.tw-home-kpi-badge')
       };
     });
 
-    filtersBar.querySelectorAll('[data-plat]').forEach(btn => {
-      btn.onclick = () => {
-        const plat = btn.dataset.plat;
-        if (this.platformFilter === plat) {
-          this.platformFilter = '';
-        } else {
-          this.platformFilter = plat;
-          this.moduleFilter = '';
+    // ── 内嵌 Omnisearch: 实时联动 handleOmniSearch / Enter 唤起大窗 / ESC 清空 ──
+    const input = hero.querySelector('.tw-home-omni-input');
+    if (input) {
+      input.addEventListener('input', (e) => {
+        this.keyword = e.target.value.trim();
+        if (this.tabKeywords) this.tabKeywords.home = this.keyword;
+        if (this.contextProvider) this.contextProvider.setKeyword(this.keyword);
+        clearTimeout(this.searchDebounceTimer);
+        this.searchDebounceTimer = setTimeout(async () => { await this.handleOmniSearch(this.keyword); }, 200);
+      });
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          this.openOmnisearchModal(this.keyword);
+        } else if (e.key === 'Escape') {
+          this.keyword = '';
+          input.value = '';
+          if (this.tabKeywords) this.tabKeywords.home = '';
+          if (this.contextProvider) this.contextProvider.setKeyword('');
+          this.omnisearchResults = null;
+          clearTimeout(this.searchDebounceTimer);
         }
-        if (this.contextProvider) this.contextProvider.setFilter(this.platformFilter);
-        this.currentTab = 'docs';
-        this.renderTableOnly();
-        filtersBar.querySelectorAll('[data-plat]').forEach(b => b.toggleClass('active', b.dataset.plat === this.platformFilter));
+      });
+    }
+
+    const agentBtn = hero.querySelector('.tw-home-agent-btn');
+    if (agentBtn && this.agentDrawer) {
+      if (this.agentDrawer.isOpen()) agentBtn.classList.add('active');
+      agentBtn.onclick = () => this.agentDrawer.toggle();
+      this.agentDrawer.onToggle((isOpen) => {
+        if (agentBtn.isConnected) agentBtn.classList.toggle('active', isOpen);
+      });
+    }
+
+    this._homePaintKpis();
+  }
+
+  // KPI/北极星数字定点刷新 (不重建 DOM, 避免打断搜索输入焦点)
+  _homePaintKpis() {
+    const r = this._homeKpiRefs;
+    if (!r || !r.root || !r.root.isConnected) return;
+    const d = this._homeDashStats();
+    const t = d.trend || {};
+    const auT = (d.au && d.au.totals) ? d.au.totals : { tokens: 0 };
+    const auK = (d.au && d.au.kpis) ? d.au.kpis : { hitRate: 0 };
+    const hitPct = Math.round((auK.hitRate || 0) * 1000) / 10;
+    const openTasks = (t.openCount || 0) + d.topics.length;
+    const conv = t.convergenceRate || 0;
+    const tc = this._homeTcSummary();
+    const set = (key, num, badge, badgeCls) => {
+      const ref = r.kpis[key];
+      if (!ref) return;
+      if (ref.num) ref.num.textContent = num;
+      if (ref.badge) ref.badge.className = 'tw-home-kpi-badge' + (badgeCls ? ' ' + badgeCls : '');
+      if (ref.badge) ref.badge.textContent = badge;
+    };
+    const totalWork = (d.issues || []).length + (this.tasksData || []).length + d.topics.length;
+    set('tasks', String(openTasks), `总单 ${totalWork} · 闭环 ${conv}%`, conv >= 60 ? 'is-good' : 'is-warn');
+    set('ai', `${this.fmtUsageTok(auT.tokens || 0)} tok`, `复用 ${hitPct}%`, hitPct >= 30 ? 'is-good' : '');
+    set('omni', String(d.files.length), d.omniReady ? (d.omniMs > 0 ? `${d.omniMs}ms 极速` : '<12ms 极速') : '本地索引', 'is-good');
+    set('tc', `${tc.online}/6`, tc.done ? `${Math.round(tc.online / 6 * 100)}% 在线` : '探测中', tc.done ? (tc.online >= 5 ? 'is-good' : 'is-warn') : '');
+    set('kb', `${this.realDocs.length} 篇`, `另含 ${d.kb.vendor || 0} 原厂文档`, 'is-good');
+    if (r.omniBadge) r.omniBadge.textContent = `${this.realDocs.length} MD · ${d.pdfCount} PDF`;
+  }
+
+  // ── 中列①: 任务与技术深耕汇总 (Jira 工单 + 本地专题 双源) ──
+  _renderHomeTaskCard(grid) {
+    const card = grid.createDiv({ cls: 'tw-card tw-home-card tw-home-task-card' });
+    this._homeTaskCardEl = card;
+    this.updateHomeTaskCard();
+  }
+
+  updateHomeTaskCard() {
+    const card = this._homeTaskCardEl;
+    if (!card || !card.isConnected) return;
+    const d = this._homeDashStats();
+    const t = d.trend;
+    const catg = this._homeTaskCategory || 'jira';
+    const range = this.getHomeTrendTimeRange();
+    const rangeKey = range === 'week' ? 'week' : 'month';
+    // ── 分类切换: Jira 工单四态 / Task 深耕任务四态, 圆环中心=类目总数 ──
+    let segs, centerNum, centerCap, trendSeries, trendTitle;
+    if (catg === 'jira') {
+      const c4 = { done: 0, prog: 0, verify: 0, block: 0 };
+      for (const iss of (d.issues || [])) {
+        const k = this._homeJiraCat(iss);
+        c4[k === 'verify' ? 'verify' : (k in c4 ? k : 'prog')]++;
+      }
+      segs = [
+        { label: '已解决',      count: c4.done,   color: '#10B981' },
+        { label: '排查中',      count: c4.prog,   color: '#4F46E5' },
+        { label: '待验证/评审', count: c4.verify, color: '#06B6D4' },
+        { label: '阻塞/待原厂', count: c4.block,  color: '#F43F5E' }
+      ];
+      centerNum = (d.issues || []).length; centerCap = 'Jira 工单';
+      const ns = t.newSeries || [], ds = t.doneSeries || [];
+      const open = []; let acc = 0;
+      for (let i = 0; i < ns.length; i++) { acc = Math.max(0, acc + (ns[i] || 0) - (ds[i] || 0)); open.push(acc); }
+      trendSeries = [
+        { name: '新增', v: ns,   c: '#4F46E5' },
+        { name: '闭环', v: ds,   c: '#10B981' },
+        { name: '在办', v: open, c: '#06B6D4' }
+      ];
+      trendTitle = 'Jira 工单走势';
+    } else {
+      const lt = this.tasksData || [];
+      const doing = lt.filter(x => /排查|进行|prog/i.test(String(x.status || ''))).length;
+      const done = lt.filter(x => /已闭环|已完成|done|closed/i.test(String(x.status || ''))).length;
+      const hold = lt.filter(x => /阻塞|挂起|待启动|block|hold|wait/i.test(String(x.status || ''))).length;
+      const topic = d.topics.length;
+      const other = Math.max(0, lt.length - doing - done - hold);
+      segs = [
+        { label: '进行中',      count: doing,        color: '#8B5CF6' },
+        { label: '已完成',      count: done,         color: '#10B981' },
+        { label: '深耕专题',    count: topic,        color: '#06B6D4' },
+        { label: '待启动/挂起', count: hold + other, color: '#F59E0B' }
+      ];
+      centerNum = lt.length + topic; centerCap = '深耕任务';
+      trendSeries = [
+        { name: '新增任务', v: [], c: '#8B5CF6' },
+        { name: '完成任务', v: [], c: '#10B981' },
+        { name: '深耕专题', v: [], c: '#06B6D4' }
+      ];
+      trendTitle = '深耕任务走势';
+    }
+    const segTotal = Math.max(1, segs.reduce((s, x) => s + x.count, 0));
+    // ── 优先级 Top3 紧急任务行 (随 Jira|Task 联动) ──
+    const JIRA_ST = { done: ['已解决', '#10B981'], prog: ['排查中', '#4F46E5'], verify: ['待验证', '#06B6D4'], block: ['阻塞', '#F43F5E'] };
+    let prioItems = [];
+    if (catg === 'jira') {
+      const rank = (p) => { p = String(p || '').toLowerCase(); return p === 'blocker' || p === 'highest' ? 0 : p === 'critical' ? 1 : p === 'major' || p === 'high' ? 2 : p === 'medium' ? 3 : 4; };
+      prioItems = (d.issues || []).filter(iss => this._homeJiraCat(iss) !== 'done')
+        .sort((a, b) => rank(a.priority) - rank(b.priority)).slice(0, 3)
+        .map(iss => {
+          const c = this._homeJiraCat(iss), st = JIRA_ST[c] || JIRA_ST.prog;
+          return { kind: 'jira', ref: iss, tag: iss.key, title: iss.summary || iss.key, stTxt: st[0], stColor: st[1] };
+        });
+    } else {
+      const tRank = (s) => /阻塞|block/i.test(s) ? 0 : /排查|进行|prog/i.test(s) ? 1 : /待启动|挂起|hold|wait/i.test(s) ? 2 : 3;
+      prioItems = (this.tasksData || []).filter(tk => !/已闭环|已完成|done|closed/i.test(String(tk.status || '')))
+        .sort((a, b) => tRank(a.status || '') - tRank(b.status || '')).slice(0, 3)
+        .map(tk => {
+          const sc = /阻塞/i.test(tk.status || '') ? '#F43F5E' : /排查|进行/i.test(tk.status || '') ? '#8B5CF6' : '#F59E0B';
+          return { kind: 'task', ref: tk, tag: tk.module || '任务', title: tk.title || '', stTxt: tk.status || '进行中', stColor: sc };
+        });
+    }
+    const prioRows = prioItems.length ? prioItems.map((it, i) => `
+      <div class="tw-pt-row" data-i="${i}" role="button" title="${escapeAttr(it.tag)} ${escapeAttr(it.title)}">
+        ${it.kind === 'jira' ? `<b class="tw-pt-key">${escapeHtml(it.tag)}</b>` : `<i class="tw-pt-mod">${escapeHtml(it.tag)}</i>`}
+        <span class="tw-pt-title">${escapeHtml(it.title)}</span>
+        <em class="tw-pt-st" style="color:${it.stColor};background:${it.stColor}1F">${escapeHtml(it.stTxt)}</em>
+      </div>`).join('') : '<div class="tw-home-empty">暂无紧急任务</div>';
+    card.innerHTML = `
+      <div class="tw-home-card-head">
+        <span class="tw-home-card-title">任务与技术深耕</span>
+        <div class="tw-home-seg tw-home-seg-cat" role="tablist">
+          <button type="button" class="clickable-icon tw-home-seg-btn${catg === 'jira' ? ' active' : ''}" data-c="jira">Jira</button>
+          <button type="button" class="clickable-icon tw-home-seg-btn${catg === 'task' ? ' active' : ''}" data-c="task">Task</button>
+        </div>
+        <div class="tw-home-seg tw-home-seg-rg" role="tablist">
+          <button type="button" class="clickable-icon tw-home-seg-btn${rangeKey === 'week' ? ' active' : ''}" data-r="week">周</button>
+          <button type="button" class="clickable-icon tw-home-seg-btn${rangeKey === 'month' ? ' active' : ''}" data-r="month">月</button>
+        </div>
+      </div>
+      <div class="tw-home-task-top">
+        <div class="tw-home-donut-wrap">${this._homeDonutSvg(segs, centerNum, centerCap)}</div>
+        <div class="tw-home-tgrid">
+          ${segs.map(s => `<div class="tw-home-tcell"><div class="tw-home-tcell-l1"><i style="background:${s.color}"></i><span>${s.label}</span></div><div class="tw-home-tcell-l2"><b>${s.count}</b><em>${Math.round(s.count / segTotal * 100)}%</em></div></div>`).join('')}
+        </div>
+      </div>
+      <div class="tw-home-trend">
+        <div class="tw-home-trend-head"><span>${trendTitle} · ${rangeKey === 'week' ? '近7日' : '近30日'}</span><span class="tw-home-trend-legend">${trendSeries.map(s => `<i style="background:${s.c}"></i>${s.name}`).join('')}</span></div>
+        <div class="tw-home-trend-svgbox"></div>
+        <div class="tw-home-mt-labels">${(t.labels || []).map((lb, i) => `<span class="${i === (t.labels || []).length - 1 ? 'is-end' : ''}">${escapeHtml(lb)}</span>`).join('')}</div>
+        <div class="tw-home-trend-tip"></div>
+      </div>
+      <div class="tw-home-priority-tasks">
+        <div class="tw-home-pt-head"><span>优先级 Top 3</span><em>${catg === 'jira' ? '未完结工单' : '紧急深耕任务'}</em></div>
+        ${prioRows}
+      </div>`;
+    card.querySelectorAll('.tw-home-seg-cat .tw-home-seg-btn').forEach(btn => {
+      btn.onclick = () => {
+        const c = btn.dataset.c;
+        if (!c || c === catg) return;
+        this._homeTaskCategory = c;
+        this.updateHomeTaskCard();
       };
     });
+    card.querySelectorAll('.tw-home-seg-rg .tw-home-seg-btn').forEach(btn => {
+      btn.onclick = () => {
+        const rv = btn.dataset.r;
+        if (!rv || rv === rangeKey) return;
+        this.saveHomeTrendTimeRange(rv);
+        this.updateHomeTaskCard();
+        this._homePaintKpis();
+      };
+    });
+    card.querySelectorAll('.tw-pt-row').forEach(el => {
+      el.onclick = () => {
+        const it = prioItems[parseInt(el.dataset.i || '0', 10)];
+        if (!it) return;
+        if (it.kind === 'jira') this._homeOpenJiraIssue(it.ref);
+        else this._homeOpenTaskFile(it.ref && it.ref.path);
+      };
+    });
+    // 实测宽高重绘: SVG 按容器像素 1:1 渲染, 杜绝 preserveAspectRatio 拉伸变形
+    const tbox = card.querySelector('.tw-home-trend-svgbox');
+    const drawTrend = () => {
+      if (!tbox || !tbox.isConnected) return;
+      const w = Math.round(tbox.clientWidth), h = Math.round(tbox.clientHeight);
+      if (w < 60 || h < 40) return;
+      const td = this.calculateHomeTrendData(d.issues || [], range, w, h);
+      // 按最新分桶(trend.bucketEnds)在实测宽度下重算当前类型序列
+      if (catg === 'task') {
+        const be = td.bucketEnds || [];
+        const addTs = [], doneTs = [];
+        for (const tk of (this.tasksData || [])) {
+          const ts = this._homeTaskTs(tk.date);
+          if (!ts) continue;
+          addTs.push(ts);
+          if (/已闭环|已完成|done|closed/i.test(String(tk.status || ''))) doneTs.push(ts);
+        }
+        const topicTs = this._homeTopicDirs().map(x => x.mtime).filter(Boolean);
+        trendSeries[0].v = this._homeBucketSeries(be, addTs);
+        trendSeries[1].v = this._homeBucketSeries(be, doneTs);
+        trendSeries[2].v = this._homeBucketSeries(be, topicTs);
+      } else {
+        const ns = td.newSeries || [], ds = td.doneSeries || [];
+        const open = []; let acc = 0;
+        for (let i = 0; i < ns.length; i++) { acc = Math.max(0, acc + (ns[i] || 0) - (ds[i] || 0)); open.push(acc); }
+        trendSeries[0].v = ns; trendSeries[1].v = ds; trendSeries[2].v = open;
+      }
+      tbox.innerHTML = this._homeMultiTrendSvg(td.xCoords, trendSeries, w, h);
+      tbox._xc = td.xCoords || [];
+      tbox._lbl = td.labels || [];
+      tbox._det = td.dateDetails || [];
+      tbox._defs = trendSeries;
+    };
+    drawTrend();
+    if (this._homeTrendResizeObs) { try { this._homeTrendResizeObs.disconnect(); } catch (e) {} this._homeTrendResizeObs = null; }
+    if (typeof ResizeObserver !== 'undefined' && tbox) {
+      let roT = 0;
+      this._homeTrendResizeObs = new ResizeObserver(() => {
+        clearTimeout(roT);
+        roT = setTimeout(drawTrend, 90);
+      });
+      this._homeTrendResizeObs.observe(tbox);
+    }
+    const tip = card.querySelector('.tw-home-trend-tip');
+    if (tbox && tip) {
+      tbox.onmousemove = (e) => {
+        const xc = tbox._xc || [];
+        if (!xc.length) return;
+        const rect = tbox.getBoundingClientRect();
+        if (rect.width <= 0) return;
+        const mx = e.clientX - rect.left;
+        let idx = 0, minD = Infinity;
+        for (let i = 0; i < xc.length; i++) {
+          const dd = Math.abs(xc[i] - mx);
+          if (dd < minD) { minD = dd; idx = i; }
+        }
+        const rows = (tbox._defs || []).map(s => `<span style="color:${s.c};font-weight:600">${escapeHtml(s.name)} ${(s.v || [])[idx] || 0}</span>`).join('');
+        tip.innerHTML = `<b>${escapeHtml((tbox._det && tbox._det[idx]) || (tbox._lbl && tbox._lbl[idx]) || '')}</b>${rows}`;
+        tip.classList.add('is-on');
+        const tw = tip.offsetWidth || 84;
+        let lx = xc[idx] > rect.width / 2 ? xc[idx] - tw - 10 : xc[idx] + 10;
+        lx = Math.max(4, Math.min(rect.width - tw - 4, lx));
+        tip.style.left = (lx + (tbox.offsetLeft || 0)) + 'px';
+      };
+      tbox.onmouseleave = () => { tip.classList.remove('is-on'); };
+    }
+    this._homePaintKpis();
+  }
 
-    this.tableCard = wrap.createDiv({ cls: 'tw-card tw-table-card' });
-    this.renderTableOnly();
+  // ── 中列②: AI 模型与 Token 用量 (Magpie 网关 + 本地账本 双源融合) ──
+  _renderHomeAiCard(grid) {
+    const card = grid.createDiv({ cls: 'tw-card tw-home-card tw-home-ai-card' });
+    this._homeAiCardEl = card;
+    this.updateHomeAiCard();
+    // Agent 回合结束自动重算 (与旧大卡同一绑定守卫, 两处卡片都兼容刷新)
+    if (!this._agentUsageBound && this.agentHub && typeof this.agentHub.on === 'function') {
+      this._agentUsageBound = true;
+      const schedule = () => {
+        if (this._auLedgerCache) this._auLedgerCache.at = 0;
+        setTimeout(() => {
+          if (this._homeAiCardEl && this._homeAiCardEl.isConnected) { this.updateHomeAiCard(); this._homePaintKpis(); }
+          if (this.agentUsageCardEl && this.agentUsageCardEl.isConnected) this.updateAgentUsageCard();
+        }, 400);
+        this.refreshMagpieObservability(true);
+      };
+      this.agentHub.on('turn_end', schedule);
+      this.agentHub.on('agent_settled', schedule);
+    }
+  }
+
+  updateHomeAiCard() {
+    const card = this._homeAiCardEl;
+    if (!card || !card.isConnected) return;
+    let stats = null;
+    try { stats = this.collectAgentUsageStats(this.agentUsageRange); } catch (e) { stats = null; }
+    if (!stats) {
+      card.innerHTML = `<div class="tw-home-card-head"><span class="tw-home-card-title">AI 模型与用量</span></div><div class="tw-home-empty">账本初始化中…</div>`;
+      return;
+    }
+    const range = stats.range;
+    const fmt = (n) => this.fmtUsageTok(n);
+    // 双源融合口径与 updateAgentUsageCard 一致: Magpie 精确账本 + 本地未代理 Agent 差额
+    const snap = this._mqLastSnapshot;
+    const gwOnline = !!(snap && snap.online);
+    const mu = (gwOnline && snap.usage && this.magpieObs && snap.usage.period === this.magpieObs.mapPeriod(range)) ? snap.usage : null;
+    const gwIds = new Set();
+    if (mu && Array.isArray(mu.agents)) for (const a of mu.agents) gwIds.add(a.id);
+    const ng = { input: 0, output: 0, cache: 0, cacheW: 0, turns: 0, costUsd: 0, savedUsd: 0 };
+    const modelMap = new Map();
+    const addModel = (rawName, agentId, tin, tout, tcr, trn) => {
+      const nm = this.normalizeModelName(rawName, agentId);
+      const e = modelMap.get(nm) || { tin: 0, tout: 0, tcr: 0, trn: 0 };
+      e.tin += tin; e.tout += tout; e.tcr += tcr; e.trn += trn || 0;
+      modelMap.set(nm, e);
+    };
+    if (mu && Array.isArray(mu.models)) {
+      for (const m of mu.models) addModel(m.model, null, m.input || 0, m.output || 0, m.cache_read || 0, m.turns || 0);
+    }
+    for (const r of stats.rows) {
+      if (gwIds.has(r.id)) continue;
+      ng.input += r.input; ng.output += r.output; ng.cache += r.cache; ng.cacheW += r.cacheW;
+      ng.turns += r.turns; ng.costUsd += r.costUsd; ng.savedUsd += r.savedUsd;
+      for (const ml of (r.modelList || [])) addModel(ml.name, r.id, ml.in || 0, ml.out || 0, ml.cr || 0, ml.turns || 0);
+    }
+    const tokIn = mu ? (mu.input || 0) + ng.input : stats.totals.input;
+    const tokOut = mu ? (mu.output || 0) + ng.output : stats.totals.output;
+    const tokCr = mu ? (mu.cache_read || 0) + ng.cache : stats.totals.cache;
+    const tokCw = mu ? (mu.cache_write || 0) + ng.cacheW : stats.totals.cacheW;
+    const calls = mu ? (mu.calls || 0) + ng.turns : stats.kpis.turns;
+    const cost = mu ? (mu.cost || 0) + ng.costUsd : stats.totals.costUsd;
+    const hitDenom = tokIn + tokCr + tokCw;
+    const hitPct = hitDenom > 0 ? (tokCr / hitDenom) * 100 : 0;
+    const grandTok = Math.max(1, tokIn + tokOut + tokCr);
+    const models = [...modelMap.entries()]
+      .map(([name, v]) => ({ name, tin: v.tin, tout: v.tout, tcr: v.tcr, trn: v.trn, tot: v.tin + v.tout + v.tcr }))
+      .sort((a, b) => b.tot - a.tot)
+      .slice(0, 4);
+    // Top4 占比不足 100% 时自动补「其他模型 (Others)」第 5 行
+    const othersTot = models.length ? Math.max(0, grandTok - models.reduce((s, m) => s + m.tot, 0)) : 0;
+    if (othersTot > 0) models.push({ name: '其他模型 (Others)', tot: othersTot, isOther: true });
+    // v6.0 语义双色条: 缓存复用(蓝) vs 实际消耗(紫), 100% 满宽浅灰底槽参照, 右列 tok·pct
+    const modelRows = models.length ? models.map((m) => {
+      const share = Math.round(m.tot / grandTok * 100);
+      const bw = Math.max(8, share);
+      const netFrac = m.tot ? ((m.tin || 0) + (m.tout || 0)) / m.tot * 100 : 0;
+      const vNet = Math.min(90, Math.max(netFrac, 20));
+      const vCache = Math.max(10, 100 - vNet);
+      const cCache = m.isOther ? '#94A3B8' : '#3B82F6';
+      const cNet = m.isOther ? '#CBD5E1' : '#8B5CF6';
+      return `
+        <div class="tw-home-model-row" title="${escapeAttr(m.name)} · 缓存复用 ${fmt(m.tcr || 0)} / 实际消耗 ${fmt((m.tin || 0) + (m.tout || 0))}${m.trn ? ' · ' + m.trn + ' 轮' : ''}">
+          <span class="tw-home-model-name">${escapeHtml(m.name)}</span>
+          <div class="tw-home-model-track"><span class="tw-home-model-bar" style="width:${bw}%"><i style="width:${vCache.toFixed(1)}%;background:${cCache}"></i><i style="width:${vNet.toFixed(1)}%;background:${cNet}"></i></span></div>
+          <span class="tw-home-model-pct"><em>${fmt(m.tot)}</em> · <b>${share}%</b></span>
+        </div>`;
+    }).join('') : '<div class="tw-home-empty">当前周期暂无模型用量</div>';
+    // 等效节省成本: 与 updateAgentUsageCard 同口径 (本地省费 + Magpie 模型按价差推导)
+    let savedUsd = mu ? ng.savedUsd : (stats.kpis.savedUsd || 0);
+    if (mu && Array.isArray(mu.models)) {
+      for (const m of mu.models) {
+        const pr = this._auModelPricing(m.model);
+        if (pr) savedUsd += Math.max(0, ((m.cache_read || 0) / 1e6) * (pr.in - pr.cacheRead));
+      }
+    }
+    const avgDurS = stats.kpis.avgDurS || 0;
+    card.innerHTML = `
+      <div class="tw-home-card-head">
+        <span class="tw-home-card-title">AI 模型与用量</span>
+        <span class="tw-home-gw ${gwOnline ? 'is-on' : ''}" title="${gwOnline ? 'Magpie 观测网关在线' : 'Magpie 离线, 当前展示本地账本'}">${gwOnline ? 'Magpie 网关' : '本地账本'}</span>
+        <div class="tw-home-seg" role="tablist">
+          <button type="button" class="clickable-icon tw-home-seg-btn${range === 'today' ? ' active' : ''}" data-r="today">今日</button>
+          <button type="button" class="clickable-icon tw-home-seg-btn${range === 'week' ? ' active' : ''}" data-r="week">7日</button>
+          <button type="button" class="clickable-icon tw-home-seg-btn${range === 'month' ? ' active' : ''}" data-r="month">30日</button>
+        </div>
+      </div>
+      <div class="tw-home-models">
+        <div class="tw-home-models-legend"><span><i style="background:#3B82F6"></i>缓存复用</span><span><i style="background:#8B5CF6"></i>实际消耗</span></div>
+        ${modelRows}
+      </div>
+      <div class="tw-home-ai-bottom">
+        <div class="tw-home-ai-nums">
+          <div class="tw-home-ai-stat"><b>${fmt(tokCr)}<i>tok</i></b><span>累计缓存节省</span></div>
+          <div class="tw-home-ai-stat"><b>${calls}<i>轮</i></b><span>总调用会话</span></div>
+          <div class="tw-home-ai-stat"><b>~$${savedUsd.toFixed(2)}</b><span>等效节省成本</span></div>
+          <div class="tw-home-ai-stat"><b>${avgDurS > 0 ? avgDurS.toFixed(1) + '<i>s</i>' : '–'}</b><span>平均响应耗时</span></div>
+        </div>
+        <div class="tw-home-gauge">${this._homeGaugeSvg(hitPct, fmt(tokCr), fmt(grandTok))}</div>
+      </div>`;
+    card.querySelectorAll('.tw-home-seg-btn').forEach(btn => {
+      btn.onclick = () => {
+        const r = btn.dataset.r;
+        if (!r || r === range) return;
+        this.saveAgentUsageRange(r);
+        this.updateHomeAiCard();
+        this._homePaintKpis();
+        this.refreshMagpieObservability(true);
+      };
+    });
+    this._homePaintKpis();
+  }
+
+  // ── 中列⑤: 知识库资料汇总 (治理完备率 + 2x2 资产瓷砖) ──
+  _renderHomeKbCard(grid) {
+    const card = grid.createDiv({ cls: 'tw-card tw-home-card tw-home-kb-card' });
+    this._homeKbCardEl = card;
+    this.updateHomeKbCard();
+  }
+
+  updateHomeKbCard() {
+    const card = this._homeKbCardEl;
+    if (!card || !card.isConnected) return;
+    const d = this._homeDashStats();
+    const kb = d.kb;
+    const platEntries = [...(kb.platCounts || new Map()).entries()].filter(([p]) => p !== 'COMMON');
+    const platTotal = platEntries.length;
+    const mtkN = (kb.platCounts && kb.platCounts.get('MTK')) || 0;
+    const qcomN = (kb.platCounts && kb.platCounts.get('QCOM')) || 0;
+    const topMods = (kb.topModules || []).join(' / ') || '–';
+    const modTops = kb.modTop5 || [];
+    const modMax = modTops.length ? Math.max(1, modTops[0].c) : 1;
+    const MOD_COLORS = ['#2563EB', '#8B5CF6', '#0D9488', '#D97706', '#E11D48'];
+    const tile = (ic, icCls, num, cap, sub, tip) => `
+      <div class="tw-home-tile" role="button" tabindex="0" title="${escapeAttr(tip)}">
+        <span class="tw-home-tile-ic ${icCls}">${getIconPark(ic, 20)}</span>
+        <div class="tw-home-tile-tx">
+          <div class="tw-home-tile-l1"><b class="tw-home-tile-num">${num}</b><span class="tw-home-tile-cap">${cap}</span></div>
+          <div class="tw-home-tile-sub">${sub}</div>
+        </div>
+      </div>`;
+    const plat3 = [
+      { nm: 'MTK 平台',   c: '#3B82F6', n: mtkN },
+      { nm: '展锐平台',   c: '#06B6D4', n: (kb.platCounts && kb.platCounts.get('UNISOC')) || 0 },
+      { nm: '高通平台',   c: '#8B5CF6', n: qcomN }
+    ];
+    const plat3Total = Math.max(1, plat3.reduce((s, x) => s + x.n, 0));
+    card.innerHTML = `
+      <div class="tw-home-card-head">
+        <span class="tw-home-card-title">知识库资料汇总</span>
+      </div>
+      <div class="tw-home-plats">
+        ${plat3.map(x => {
+          const pct = Math.round(x.n / plat3Total * 100);
+          return `<div class="tw-home-plat" title="${escapeAttr(x.nm)} · ${x.n} 篇 · 占三大平台 ${pct}%">
+            <div class="tw-home-plat-head"><span>${x.nm}</span><b>${x.n}<em> 篇</em></b></div>
+            <div class="tw-home-plat-track"><i style="width:${Math.max(4, pct)}%;background:${x.c}"></i></div>
+            <div class="tw-home-plat-pct" style="color:${x.c}">${pct}%</div>
+          </div>`;
+        }).join('')}
+      </div>
+      <div class="tw-home-mods">
+        <div class="tw-home-mods-head">核心模块分布 <em>Top ${modTops.length || 5}</em></div>
+        ${modTops.length ? modTops.map((x, i) => `
+          <div class="tw-home-mod-row" title="${escapeAttr(x.m)} · ${x.c} 篇 · ${Math.round(x.c / Math.max(1, kb.modTotal) * 100)}%">
+            <span class="tw-home-mod-nm">${escapeHtml(x.m)}</span>
+            <span class="tw-home-mod-track"><i style="width:${Math.max(12, Math.round(Math.sqrt(x.c / modMax) * 100))}%;background:${MOD_COLORS[i % 5]}"></i></span>
+            <b class="tw-home-mod-ct">${x.c}<em> · ${Math.round(x.c / Math.max(1, kb.modTotal) * 100)}%</em></b>
+          </div>`).join('') : '<div class="tw-home-empty">暂无模块数据</div>'}
+      </div>
+      <div class="tw-home-tiles">
+        ${tile('file-text', 'ic-blue', this.realDocs.length, '研发笔记', `近30天 +${d.added30}`, 'Markdown 研发笔记 · 前往资产清单')}
+        ${tile('paper', 'ic-green', kb.vendor, '原厂原文', '08-vendor-docs', '原厂只读原文 PDF · 前往资产清单')}
+        ${tile('layers', 'ic-orange', kb.clusterCount, '知识模块', escapeHtml(topMods), '已识别知识模块 · 前往资产清单')}
+        ${tile('cpu', 'ic-purple', platTotal, '芯片平台', `MTK ${mtkN} / QCOM ${qcomN}`, '芯片平台分布 · 前往资产清单')}
+      </div>`;
+    card.querySelectorAll('.tw-home-tile').forEach(el => {
+      const go = () => this._homeGotoManage('documents');
+      el.onclick = go;
+      el.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } };
+    });
+  }
+
+  _homeGotoManage(sub) {
+    try { if (typeof localStorage !== 'undefined') localStorage.setItem('tabonkb-manage-subtab', sub || 'documents'); } catch (e) {}
+    this.setActiveTab('manage');
+  }
+
+  // 优先级行点击: Jira → 切任务页签并打开 Issue Inspector 抽屉; Task → 打开任务文档
+  _homeOpenJiraIssue(iss) {
+    try {
+      this.saveTasksSubTab('jira');
+      this.setActiveTab('tasks');
+      setTimeout(() => {
+        try { if (this.jiraPlatform && typeof this.jiraPlatform.openInspector === 'function') this.jiraPlatform.openInspector(iss); } catch (e) {}
+      }, 80);
+    } catch (e) {}
+  }
+
+  _homeOpenTaskFile(docPath) {
+    if (!docPath) return;
+    try {
+      const file = this.app?.vault?.getAbstractFileByPath(docPath);
+      if (file) this.app?.workspace?.getLeaf(false)?.openFile(file);
+      else this.app?.workspace?.openLinkText(docPath, '', false);
+    } catch (e) {}
+  }
+
+  _homePlugin() {
+    try { return this.plugin || this.app.plugins?.getPlugin?.('tabonkb-workbench') || this.app.plugins?.plugins?.['tabonkb-workbench'] || null; } catch (e) { return null; }
+  }
+
+  // ── Section 3: 工具链状态灯带 (6 服务连通探针, 45s TTL) ──
+  _homeToolchainDefs() {
+    const plugin = this._homePlugin();
+    const s = (plugin && plugin.settings) || {};
+    return [
+      { id: 'weknora',  name: 'WeKnora',      icon: 'network', configured: !!(s.weknora && s.weknora.baseUrl) },
+      { id: 'opengrok', name: 'OpenGrok',     icon: 'code',    configured: !!(s.opengrok && s.opengrok.baseUrl) },
+      { id: 'gerrit',   name: 'Gerrit',       icon: 'branch',  configured: !!(s.gerrit && s.gerrit.baseUrl) },
+      { id: 'dsh',      name: 'Agent 引擎',   icon: 'robot',   configured: !(s.dsh && s.dsh.enabled === false) },
+      { id: 'memory',   name: 'Agent Memory', icon: 'brain',   configured: true },
+      { id: 'jira',     name: 'Jira 门户',    icon: 'tasks',   configured: !!(s.jira && s.jira.baseUrl) }
+    ];
+  }
+
+  _renderHomeToolchain(wrap) {
+    const strip = wrap.createDiv({ cls: 'tw-home-tc-strip' });
+    strip.innerHTML = `
+      <div class="tw-home-tc-title">
+        <span class="tw-home-tc-title-ic">${getIconPark('link', 13)}</span>
+        <span>已连接工具链</span>
+        <b class="tw-home-tc-count">–/6</b>
+      </div>
+      <div class="tw-home-tc-items"></div>`;
+    const itemsEl = strip.querySelector('.tw-home-tc-items');
+    this._homeTcEls = {};
+    this._homeTcDefs = this._homeToolchainDefs();
+    for (const def of this._homeTcDefs) {
+      const item = itemsEl.createDiv({ cls: 'tw-home-tc-item is-checking' });
+      item.setAttribute('role', 'button');
+      item.setAttribute('tabindex', '0');
+      item.title = '检测中…';
+      item.innerHTML = `
+        <span class="tw-home-tc-ic tc-${def.id}">${getIconPark(def.icon, 13)}</span>
+        <span class="tw-home-tc-name">${def.name}</span>
+        <span class="tw-home-tc-dot"></span>
+        <span class="tw-home-tc-meta">···</span>`;
+      item.onclick = () => this._homeTcTogglePop(def, item);
+      item.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); this._homeTcTogglePop(def, item); } };
+      this._homeTcEls[def.id] = item;
+    }
+    this._homeTcCountEl = strip.querySelector('.tw-home-tc-count');
+    // 点击工具项外部任意处关闭详情浮层 (一次绑定; capture 阶段先于 item.onclick 清空, 配合 _popAt 防抖实现再点关闭)
+    if (!this._homeTcDocBound) {
+      this._homeTcDocBound = true;
+      document.addEventListener('pointerdown', (e) => {
+        if (!e.target || typeof e.target.closest !== 'function') return;
+        if (e.target.closest('.tw-tool-detail-popover')) return;
+        document.querySelectorAll('.tw-tool-detail-popover').forEach(p => p.remove());
+      }, true);
+    }
+    this._homePaintTc();
+  }
+
+  // 工具详情浮层: 标题(图标+全称+状态签) + 参数行 + [重新探测][打开配置/面板]
+  _homeTcTogglePop(def, item) {
+    const had = item.querySelector('.tw-tool-detail-popover');
+    const strip = item.closest('.tw-home-tc-strip');
+    if (strip) strip.querySelectorAll('.tw-tool-detail-popover').forEach(p => p.remove());
+    // 再次点击同一项 → 关闭 (capture 阶段刚被外部监听清空时不重开)
+    if (had || (item._popAt && Date.now() - item._popAt < 450)) { item._popAt = 0; return; }
+    item._popAt = Date.now();
+    const r = (this._homeTcCache && this._homeTcCache.res && this._homeTcCache.res[def.id]) || null;
+    const st = (!r || r.state === 'checking') ? 'checking' : r.state;
+    const stTxt = st === 'ok' ? '● 运行正常' : st === 'off' ? '● 未配置' : st === 'checking' ? '● 探测中' : '● 未运行';
+    const rows = (r && r.rows) || (r ? [{ k: '状态', v: r.title || r.meta || '' }] : [{ k: '状态', v: '探测中…' }]);
+    const pop = document.createElement('div');
+    pop.className = 'tw-tool-detail-popover';
+    pop.innerHTML = `
+      <div class="tw-tdp-head"><span class="tw-home-tc-ic tc-${def.id}">${getIconPark(def.icon, 13)}</span><b>${escapeHtml(def.name)}</b><em class="is-${st}">${stTxt}</em></div>
+      <div class="tw-tdp-rows">${rows.map(x => `<div class="tw-tdp-row"><span>${escapeHtml(x.k)}</span><b>${escapeHtml(String(x.v))}</b></div>`).join('')}</div>
+      <div class="tw-tdp-acts">
+        <button type="button" class="clickable-icon tw-tdp-btn" data-act="probe">重新探测</button>
+        <button type="button" class="clickable-icon tw-tdp-btn" data-act="open">打开配置/面板</button>
+      </div>`;
+    pop.addEventListener('pointerdown', e => e.stopPropagation());
+    pop.addEventListener('click', e => e.stopPropagation());
+    item.appendChild(pop);
+    pop.querySelector('[data-act="probe"]').onclick = async (e) => {
+      e.stopPropagation();
+      const btn = e.currentTarget;
+      btn.textContent = '探测中…';
+      const plugin = this._homePlugin();
+      const s = (plugin && plugin.settings) || {};
+      const rr = await this._homeProbeOne(def, plugin, s);
+      const cache = this._homeTcCache || (this._homeTcCache = { at: 0, res: {}, running: false });
+      cache.res[def.id] = rr;
+      this._homePaintTc();
+      item._popAt = 0;
+      pop.remove();
+      this._homeTcTogglePop(def, item);
+    };
+    pop.querySelector('[data-act="open"]').onclick = (e) => {
+      e.stopPropagation();
+      pop.remove();
+      this._homeTcNavigate(def);
+    };
+  }
+
+  _homeTcSummary() {
+    const res = (this._homeTcCache && this._homeTcCache.res) || {};
+    let online = 0, msSum = 0, msN = 0, done = true;
+    for (const def of (this._homeTcDefs || this._homeToolchainDefs())) {
+      const r = res[def.id];
+      if (!r || r.state === 'checking') { done = false; continue; }
+      if (r.state === 'ok') { online++; if (r.latencyMs != null) { msSum += r.latencyMs; msN++; } }
+    }
+    return { online, avgMs: msN ? Math.round(msSum / msN) : null, done };
+  }
+
+  _homePaintTc() {
+    if (!this._homeTcEls) return;
+    const res = (this._homeTcCache && this._homeTcCache.res) || {};
+    for (const def of (this._homeTcDefs || [])) {
+      const el = this._homeTcEls[def.id];
+      if (!el || !el.isConnected) continue;
+      const r = res[def.id];
+      let st = (!r || r.state === 'checking') ? 'checking' : r.state;
+      // 在线但延迟 ≥1000ms → 黄灯告警
+      if (st === 'ok' && r.latencyMs != null && r.latencyMs >= 1000) st = 'warn';
+      el.className = `tw-home-tc-item is-${st}`;
+      const meta = el.querySelector('.tw-home-tc-meta');
+      if (meta) {
+        let mv = !r ? '···' : (r.meta || '—');
+        if (r && r.latencyMs != null && r.latencyMs >= 1000) mv = (r.latencyMs / 1000).toFixed(1) + 's';
+        meta.textContent = mv;
+      }
+      el.title = !r ? '检测中…' : (r.title || '');
+    }
+    const sum = this._homeTcSummary();
+    if (this._homeTcCountEl && this._homeTcCountEl.isConnected) {
+      this._homeTcCountEl.textContent = `${sum.online}/6 正常`;
+    }
+    this._homePaintKpis();
+  }
+
+  _homeTcSet(id, res) {
+    const cache = this._homeTcCache || (this._homeTcCache = { at: 0, res: {}, running: false });
+    cache.res[id] = res;
+    this._homePaintTc();
+  }
+
+  _homeProbeToolchain(force) {
+    const cache = this._homeTcCache || (this._homeTcCache = { at: 0, res: {}, running: false });
+    const now = Date.now();
+    if (!force) {
+      if (Object.keys(cache.res).length && (now - cache.at) < 45000) { this._homePaintTc(); return; }
+      if (cache.running) return;
+    }
+    cache.running = true;
+    const defs = this._homeTcDefs || this._homeToolchainDefs();
+    const plugin = this._homePlugin();
+    const s = (plugin && plugin.settings) || {};
+    Promise.allSettled(defs.map(async (def) => {
+      const r = await this._homeProbeOne(def, plugin, s);
+      cache.res[def.id] = r;
+      this._homePaintTc();
+    })).finally(() => { cache.running = false; cache.at = Date.now(); this._homePaintTc(); });
+  }
+
+  // 单服务探针: 复用各 Service 自带连接测试; 全程只读, 不落盘不打印凭据
+  async _homeProbeOne(def, plugin, s) {
+    if (!def.configured) return { state: 'off', meta: '未配置', title: `${def.name} · 未配置, 点击前往设置` };
+    const t0 = Date.now();
+    const ms = () => Date.now() - t0;
+    try {
+      switch (def.id) {
+        case 'weknora': {
+          const svc = new WeknoraService();
+          if (!svc.isConfigured()) return { state: 'off', meta: '缺 Key', title: 'WeKnora · Base URL 或 API Key 未配置' };
+          const r = await svc.ping(2600);
+          const wkLat = r.latencyMs != null ? r.latencyMs : ms();
+          return r.ok
+            ? { state: 'ok', meta: `${wkLat}ms`, latencyMs: wkLat, title: `WeKnora 知识图谱 · ${s.weknora.baseUrl}`, rows: [{ k: '服务地址', v: s.weknora.baseUrl || '—' }, { k: '实时响应延迟', v: `${wkLat}ms` }, { k: '服务能力', v: '知识图谱 / RAG 检索' }] }
+            : { state: 'fail', meta: '离线', title: `WeKnora 连接失败 · ${r.error || ''}`, rows: [{ k: '服务地址', v: s.weknora.baseUrl || '—' }, { k: '实时响应延迟', v: '超时/失败' }, { k: '错误信息', v: r.error || '连接失败' }] };
+        }
+        case 'opengrok': {
+          const svc = new OpengrokService();
+          svc.timeoutMs = 3500;
+          const r = await svc.testConnection();
+          const n = (r && r.projectsCount != null) ? r.projectsCount : 0;
+          return (r && r.ok)
+            ? { state: 'ok', meta: `${ms()}ms`, latencyMs: ms(), title: `OpenGrok · ${s.opengrok.baseUrl} · ${n} 工程`, rows: [{ k: '服务地址', v: s.opengrok.baseUrl || '—' }, { k: '实时响应延迟', v: `${ms()}ms` }, { k: '已索引工程', v: `${n} 个` }] }
+            : { state: 'fail', meta: '离线', title: `OpenGrok 连接失败 · ${(r && r.error) || ''}`, rows: [{ k: '服务地址', v: s.opengrok.baseUrl || '—' }, { k: '实时响应延迟', v: '超时/失败' }, { k: '错误信息', v: (r && r.error) || '连接失败' }] };
+        }
+        case 'gerrit': {
+          const svc = new GerritService();
+          svc.timeoutMs = 3500;
+          const r = await svc.testConnection();
+          return (r && r.ok)
+            ? { state: 'ok', meta: `${ms()}ms`, latencyMs: ms(), title: `Gerrit · ${s.gerrit.baseUrl}${r.version ? ' · ' + r.version : ''}`, rows: [{ k: '服务地址', v: s.gerrit.baseUrl || '—' }, { k: '实时响应延迟', v: `${ms()}ms` }, { k: 'Gerrit 版本', v: r.version || '—' }] }
+            : { state: 'fail', meta: '离线', title: `Gerrit 连接失败 · ${(r && r.error) || ''}`, rows: [{ k: '服务地址', v: s.gerrit.baseUrl || '—' }, { k: '实时响应延迟', v: '超时/失败' }, { k: '错误信息', v: (r && r.error) || '连接失败' }] };
+        }
+        case 'dsh': {
+          const st = plugin && plugin.dshDaemon && typeof plugin.dshDaemon.getStatus === 'function' ? plugin.dshDaemon.getStatus() : null;
+          const adapters = this.agentHub && this.agentHub.adapters ? this.agentHub.adapters.size : 0;
+          const dshPort = (st && st.port) || (s.dsh && s.dsh.port) || 3080;
+          if (st && st.status === 'running') return { state: 'ok', meta: `:${dshPort}`, title: `Agent 引擎运行中 · ${adapters} 适配器`, rows: [{ k: 'DSH 端口', v: String(dshPort) }, { k: '运行状态', v: 'running' }, { k: '活跃适配器', v: `${adapters} 个` }] };
+          if (st && st.status === 'starting') return { state: 'checking', meta: '启动中', title: 'Agent 引擎启动中', rows: [{ k: 'DSH 端口', v: String(dshPort) }, { k: '运行状态', v: 'starting' }] };
+          return { state: 'fail', meta: '未运行', title: `Agent 引擎未运行 · 端口 ${dshPort}`, rows: [{ k: 'DSH 端口', v: String(dshPort) }, { k: '运行状态', v: 'stopped' }, { k: '活跃适配器', v: `${adapters} 个` }] };
+        }
+        case 'memory':
+          return this._homeProbeMemory();
+        case 'jira': {
+          const r = await Promise.race([
+            plugin && plugin.jiraService && typeof plugin.jiraService.testConnection === 'function' ? plugin.jiraService.testConnection() : Promise.resolve({ ok: false, message: '服务未初始化' }),
+            new Promise(res => setTimeout(() => res({ ok: false, message: '探测超时' }), 4500))
+          ]);
+          const cs = plugin && plugin.jiraService && typeof plugin.jiraService.getCacheStatus === 'function' ? plugin.jiraService.getCacheStatus() : null;
+          const portals = [s.vendorPortals && s.vendorPortals.mtk && s.vendorPortals.mtk.url ? 'MTK' : '', s.vendorPortals && s.vendorPortals.unisoc && s.vendorPortals.unisoc.url ? 'UNISOC' : ''].filter(Boolean).join('/');
+          const pTip = portals ? ` · 门户 ${portals}` : '';
+          return (r && r.ok)
+            ? { state: 'ok', meta: `${cs && cs.count != null ? cs.count + ' 单' : ms() + 'ms'}`, latencyMs: ms(), title: `Jira · ${s.jira.baseUrl}${pTip}`, rows: [{ k: '服务地址', v: s.jira.baseUrl || '—' }, { k: '实时响应延迟', v: `${ms()}ms` }, { k: '已缓存工单', v: `${cs && cs.count != null ? cs.count : 0} 单` }] }
+            : { state: 'fail', meta: '离线', title: `Jira 连接失败${pTip}`, rows: [{ k: '服务地址', v: s.jira.baseUrl || '—' }, { k: '实时响应延迟', v: '超时/失败' }, { k: '错误信息', v: '连接失败' }] };
+        }
+      }
+    } catch (e) {
+      return { state: 'fail', meta: '异常', title: `${def.name} · ${(e && e.message) || '探测异常'}` };
+    }
+    return { state: 'off', meta: '未配置', title: `${def.name} · 未配置` };
+  }
+
+  // Agent Memory: 会话持久化文件 + 凭据存储挂载 + 会话/记忆条目数
+  _homeProbeMemory() {
+    try {
+      const fs = require('fs'), path = require('path');
+      const dir = path.join(this.app?.vault?.adapter?.basePath || '', '.obsidian', 'plugins', 'tabonkb-workbench');
+      const hasHist = fs.existsSync(path.join(dir, '.chat-history.json'));
+      const hasSecrets = fs.existsSync(path.join(dir, '.secrets.json'));
+      let sessions = 0, msgs = 0;
+      const sm = this.agentHub && this.agentHub.sessionManager;
+      if (sm && sm.agents) {
+        for (const a of sm.agents.values()) {
+          sessions += (a.sessions || []).length;
+          for (const se of (a.sessions || [])) msgs += (se.messages || []).length;
+        }
+      }
+      if (!hasHist && !hasSecrets && !sessions) return { state: 'off', meta: '未就绪', title: 'Agent Memory · 无持久化数据', rows: [{ k: '持久化目录', v: '.obsidian/plugins/tabonkb-workbench' }, { k: '持久化文件', v: '无' }] };
+      return {
+        state: 'ok',
+        meta: `${sessions} 会话`,
+        title: `Agent Memory · ${sessions} 会话 / ${msgs} 条记忆${hasSecrets ? ' · 凭据已挂载' : ''}`,
+        rows: [
+          { k: '持久化文件', v: [hasHist ? 'chat-history' : '', hasSecrets ? 'secrets' : ''].filter(Boolean).join(' + ') || '—' },
+          { k: '活跃会话', v: `${sessions} 会话` },
+          { k: '记忆条目', v: `${msgs} 条` }
+        ]
+      };
+    } catch (e) {
+      return { state: 'fail', meta: '异常', title: 'Agent Memory 探测异常' };
+    }
+  }
+
+  _homeTcNavigate(def) {
+    const res = (this._homeTcCache && this._homeTcCache.res && this._homeTcCache.res[def.id]) || null;
+    if (!def.configured || (res && res.state === 'off')) { this._homeOpenSettings(); return; }
+    switch (def.id) {
+      case 'weknora': this._homeGotoManage('graph'); break;
+      case 'opengrok': this.setActiveTab('explore'); break;
+      case 'gerrit': this.setActiveTab('explore'); break;
+      case 'dsh': this.setActiveTab('harness'); break;
+      case 'memory': if (this.agentDrawer) { if (!this.agentDrawer.isOpen()) this.agentDrawer.open(); } break;
+      case 'jira': this.setActiveTab('tasks'); break;
+      default: break;
+    }
+  }
+
+  _homeOpenSettings() {
+    try {
+      const setting = this.app && this.app.setting;
+      if (setting && typeof setting.open === 'function') {
+        setting.open();
+        if (typeof setting.openTabById === 'function') setting.openTabById('tabonkb-workbench');
+      }
+    } catch (e) {}
   }
 
   getTasksSubTab() {

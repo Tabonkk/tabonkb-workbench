@@ -63,6 +63,8 @@ class DshWorkbenchView {
     this._authUnsub = null;
     this._activeFileUnsub = null;
     this._dshSid = '__draft__';
+    // 输入栏权限档 (bridge 经 state-req 上报): 'readonly'|'readwrite'|'full'|null
+    this._dshPerm = null;
     this._boundOnMouseMove = null;
     this._boundOnMouseUp = null;
 
@@ -75,6 +77,7 @@ class DshWorkbenchView {
       }
       if (evt.data.type === 'tabonkb-dsh-ctx-state-req') {
         this._dshSid = this._normalizeDshSid(evt.data.sid);
+        this._dshPerm = evt.data.perm || null;
         this._migrateDshDraftTo(this._dshSid);
         this._mirrorDshCtxToAgent(this.getDshCtxState(this._dshSid), this._dshSid);
         this.sendDshCtxState();
@@ -831,11 +834,12 @@ div[data-sidebar-collapsed] div[class*="_root"][class*="_collapsed"] {
         selectedJiraIssue: vals.jira || null,
         selectedProject: vals.opengrok || 'auto',
         selectedGerritFilter: vals.gerrit || 'all',
+        permission: this._dshPerm || null,
         source: 'dsh',
         sid: skey,
         updatedAt: Date.now()
       };
-      // state-req 随 bridge 轮询高频触发: 同值跳过写盘 —— 先读现文件比对四字段+sid,
+      // state-req 随 bridge 轮询高频触发: 同值跳过写盘 —— 先读现文件比对四字段+sid+permission,
       // 内容一致则直接返回 (pi 侧覆写后内容不同会重新落盘, 自愈并发覆盖)
       try {
         const cur = JSON.parse(fs.readFileSync(target, 'utf8'));
@@ -844,6 +848,7 @@ div[data-sidebar-collapsed] div[class*="_root"][class*="_collapsed"] {
           JSON.stringify(cur.selectedJiraIssue || null) === JSON.stringify(payload.selectedJiraIssue) &&
           (cur.selectedProject || 'auto') === payload.selectedProject &&
           (cur.selectedGerritFilter || 'all') === payload.selectedGerritFilter &&
+          (cur.permission || null) === payload.permission &&
           cur.sid === payload.sid && cur.source === 'dsh') {
           return;
         }

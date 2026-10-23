@@ -7,6 +7,7 @@ const { DRAWIO_MCP_SERVER_NAME, DRAWIO_MCP_TOOL_HINT, drawioMcpScriptPath } = re
 const { POWERZ_MCP_SERVER_NAME, POWERZ_MCP_TOOL_HINT, powerzMcpScriptPath } = require('../mcp/powerz-mcp-shared.js');
 const { DSLOGIC_MCP_SERVER_NAME, DSLOGIC_MCP_TOOL_HINT, dslogicMcpScriptPath } = require('../mcp/dslogic-mcp-shared.js');
 const { JIRA_MCP_SERVER_NAME, JIRA_MCP_TOOL_HINT, jiraMcpScriptPath, buildJiraEnv } = require('../mcp/jira-mcp-shared.js');
+const { buildFileRefHint } = require('../mcp/file-ref-hint-shared.js');
 const fs = require('fs');
 const path = require('path');
 const child_process = require('child_process');
@@ -783,7 +784,7 @@ class AntigravityAdapter extends AgentAdapter {
     this.ensureMcpConfiguration();
 
     // 拼接 TabonKB 专有工具指令提示词
-    const allHints = WEKNORA_MCP_TOOL_HINT + VENDOR_MCP_TOOL_HINT + GERRIT_MCP_TOOL_HINT + OPENGROK_MCP_TOOL_HINT + DRAWIO_MCP_TOOL_HINT + POWERZ_MCP_TOOL_HINT + DSLOGIC_MCP_TOOL_HINT + JIRA_MCP_TOOL_HINT;
+    const allHints = WEKNORA_MCP_TOOL_HINT + VENDOR_MCP_TOOL_HINT + GERRIT_MCP_TOOL_HINT + OPENGROK_MCP_TOOL_HINT + DRAWIO_MCP_TOOL_HINT + POWERZ_MCP_TOOL_HINT + DSLOGIC_MCP_TOOL_HINT + JIRA_MCP_TOOL_HINT + buildFileRefHint(vaultPath);
     const promptText = text + allHints;
 
     const args = [
@@ -1114,7 +1115,7 @@ class AntigravityAdapter extends AgentAdapter {
             toolName: prev.name,
             durationMs: duration,
             isError: false,
-            output: toolInfo.output || '调用成功'
+            output: toolInfo.output || ''
           });
           this.setStatus('thinking', 'Antigravity 正在整理结果...');
           // 工具执行完毕，后续可能进入新一轮推演

@@ -1,3 +1,126 @@
+## [1.9.0] - 2026-10-23
+### Released
+- **正式发布 TabonKB 研发工作台 V1.9.0 里程碑版本**：
+  - **涉及文件**：
+    - `manifest.json`（版本升至 1.9.0）
+    - `mcp/file-ref-hint-shared.js`（新增：跨 Agent 提示词绝对路径格式硬约束与当前工程锚点注入）
+    - `sync-mem-models.py`（新增：Agent Memory 模型目录一键同步工具，支持 models.json 与 cordis patch 更新）
+    - `services/file-locator-core.js`、`pi-drawer-view.js`（Linux 路径解码与定位链路修复，杜绝工程路径嵌套错误）
+    - `pi-drawer-view.js`、`styles.css`（过程面板工具调用明细、耗时与结果首行摘要、可折叠滚动终端内框、运行中与超时静默预警）
+    - `build.py`、`main.js`、`styles.css`（首页全新重构为「一页式零滚动仪表盘」v1.0~v6.0，流光 Hero、语义双色条、三平台分布卡、优先级 Top3 舱）
+    - `docs/test_runner.js`（测试套件扩充至 1226 项单测 100% 全绿）
+  - **问题背景**：首页仪表盘一页式视觉与数据语义定稿重塑、过程面板工具执行细节透视、Agent 引用绝对路径强制规范以及多端模型同步工具全面就绪，收敛发布正式里程碑版本。
+  - **核心修改逻辑**：
+    1. **一页式仪表盘全维重塑**：Hero 极光与 3D 玻璃雕塑、语义双色模型条（缓存复用/实际消耗）、芯片三平台分布卡、优先级 Top3 快捷通道；
+    2. **过程面板可观测性跃升**：工具明细展开终端内框、真实耗时与静默卡死检测、持久化快照支持历史恢复；
+    3. **文件引用与定位闭环**：提示词注入绝对路径强约束，Linux 绝对路径 1:1 精确映射 SSH 直读；
+    4. **单测套件扩充**：全量 1226 项单元测试自动化验证 100% 全绿。
+  - **验证状态**：`py build.py` 打包通过；`node -c main.js` 语法验证通过；全量 1226 项自动化单元测试 100% 全绿 PASS。
+  - **执行 Agent**：Antigravity
+
+## [1.8.1] - 2026-10-22
+### Fixed
+- **fix(file-locator): Agent 给出的 Linux 绝对路径（`file:///dfb/tankaikun/share/...`）被吞掉首个 `/` 后误当相对路径、拼接进当前工程目录导致「无法读取文件」**
+  - **涉及文件**：`services/file-locator-core.js`（`decodeTarget`）、`pi-drawer-view.js`（`resolveCodeFilePath`）、`docs/test_runner.js`（FL-01g~k）、`main.js`（编译产物）
+  - **问题背景**：点击对话中 `tcpc_sc2150.c` 链接，报错路径为 `Y:\01\pri_project\driver\mt6789\E200Q\base\tankaikun\share\01\pri_project\driver\...`（工程目录 + 残缺 Linux 路径嵌套），此前 `hardware_info.c` 同类现象反复出现。Agent 给的路径本身唯一且正确，失败发生在插件解码阶段而非搜索阶段
+  - **根因**：`decodeTarget` 用 `/^file:\/\/\/?/` 剥 `file:///`，对盘符路径（`file:///Y:/..`）正确，但对 Linux 绝对路径把首个 `/` 一并吃掉 → `dfb/tankaikun/...`；`resolveCodeFilePath` 步骤 2 只认 `/dfb/tankaikun/share/` 带前导 `/`，未命中 → 判为 `rel_partial` → 走工程前缀拼接（`path.join(Y:\01, priDriverRel, strippedNorm)`），`strippedNorm` 剥不掉 `tankaikun\share\01` → 产生不存在的嵌套路径；SSH 阶段又按该错路径 `cat`，必然失败
+  - **核心修改逻辑**：1) `decodeTarget` 仅当 `file:///` 后紧跟盘符才吃掉第三个 `/`，Linux 绝对路径保留前导 `/`；2) `resolveCodeFilePath` 对无前导 `/` 的 `dfb/tankaikun/`、`home/tankaikun/` 兜底补 `/`（Agent 手写/Markdown 渲染丢斜杠场景）。修复后唯一路径 1:1 映射 `Y:\`/`Z:\` 并直读，不再进入模糊搜索
+  - **验证状态**：新增 FL-01g~k 断言（file:///dfb、file:///home、盘符不回归、`resolveCodeFilePath` 在已选 E200Q 工程下仍 1:1 映射）；见本次构建/测试输出
+  - **执行 Agent**：Devin
+
+### Added
+- **feat(file-ref): 各 Agent 提示词统一注入「文件引用必须完整绝对路径」硬规则 + 工作台 AGENTS.md 新增第 6 章**
+  - **涉及文件**：
+    - `mcp/file-ref-hint-shared.js`（新增：`buildFileRefHint(vaultBasePath)` 拼装格式硬规则 + `fileRefReadActiveProject` 读 `active-context.json` 取当前工程锚点；工程缺失时回退 `Y:\01` / `/dfb/tankaikun/share/01`；全部 try/catch 静默降级，永不阻塞发送）
+    - `build.py`（模块清单插入 `mcp\\file-ref-hint-shared.js`，供扁平拼接提升函数声明）
+    - `providers/antigravity-adapter.js`（`allHints` 末尾追加）、`providers/gemini-adapter.js`（`promptText`）、`providers/hermes-adapter.js`（`prompt` 长串末尾）、`providers/dsh-adapter.js`（`proc.stdin.write(text + hint)`）、`providers/pi-adapter.js`（`bridge.sendMessage(text + hint)`）、`providers/codex-adapter.js`（新增 `promptWithHint`，`exec` 新建 / `exec resume` 两分支共用）、`providers/niceaigc-adapter.js`（摘要注入之后追加，保证切模型摘要分支不覆盖规则）
+    - `AGENTS.md`（vault 根新增第 6 章「AI 对话文件引用路径规范」，CLI 以 `cwd=vaultPath` 启动自动读取，作为提示词丢失时的第二道声明）
+    - `main.js`（编译产物）
+  - **问题背景**：对话中点击 `extcon-mtk-usb.c` 链接报错路径 `Y:\01\pri_project\driver\mt6789\E2000\base\extcon-mtk-usb.c`——Agent 只输出裸文件名，插件 `classifyTarget` 判 `bare` 后按当前工程拼接猜测，`E2000` 在磁盘上根本不存在（真实为 `E200Q`，且其下还有 `kernel/kernel_device_modules-6.12/drivers/misc/mediatek/extcon/` 深层级），本地 stat 与 SSH `find -name` 全落空。SSH 分层定位本身已验证 1s 可命中，问题纯粹在「模型不给完整路径」
+  - **核心修改逻辑**：1) 新增共享模块统一生成 `[系统指令] 文件引用格式 (强制)` —— 禁裸文件名、必须来自本轮 read/grep/opengrok 真实返回、行号 `:NN` 后缀、显式列出当前工程 `fullPathWin <-> linuxPath` 与项目定制树的 `kernel/kernel_device_modules-<ver>/drivers/...` 深层级，并给一条真实形态示例；2) 各 provider 只在 `send()` 组装 prompt 的末端追加一行，不改动既有 MCP HINT 顺序与任何事件流；3) 规则文本每轮现算（读 `active-context.json`），切换工程即自动换锚点，无需重启插件
+  - **验证状态**：`node -c` 8 个改动文件全部通过；`python build.py` 打包通过（`main.js` 内 `buildFileRefHint` 出现 7 处：1 定义 + 6 调用）；`node -c main.js` 通过；`node docs/test_runner.js` 全量 **1226 项** 100% 全绿（exit 0）；实机调用 `buildFileRefHint('D:/work/Mgmt/TabonKB')` 输出确认锚点为 `Y:\01 <-> /dfb/tankaikun/share/01` + `pri_project/driver/mt6789/E200Q/base`
+  - **执行 Agent**：Devin (SWE-2 Max)
+
+- **过程面板工具明细「真实名 + 参数 + 耗时 + 结果摘要 + 可展开输出内框」与回合级耗时/静默预警**
+  - **涉及文件**：
+    - `pi-drawer-view.js`（`_toolCallCore`/`_toolOutputLine`/`_fmtToolDur`/`_extractToolOutputText` 新增：拆出 `name(args)` 核——已知参数键未命中时 `pickAny` 取任意首个字符串参数兜底、仍空则裸名，杜绝 `bash()` 空括号；结果首行摘要（≤60 字）、耗时短格式（ms/x.xs/xs/分秒）、结果统一取文本（MCP `{content:[{text}]}`/`{text}`/JSON 化，裁剪 2KB）；`_summarizeToolCall` 改为「核 + `→ 结果`/`✗ — 错误` + ` · 耗时`」全量串（上限 120 字），持久化 toolSummaries 同源携带；`_buildToolDetailRow` 行构建统一抽出——`name(args)` 主文本 + `.tw-tool-dur` 耗时徽标（运行中显示「运行 X」并随 tick 刷新，>60s `.warn` 琥珀 >5min `.stall` 红）+ `→ .tw-tool-result` 结果摘要 + **可展开 `.tw-tool-output-box` 输出内框**（输出多行或 >60 字时挂载，**默认展开**成终端式深色滚动内框（150px max-height + 独立滚动），点结果摘要或行尾 `⌃/⌄` 收起，`toolStep._closedOutputs` 记收起态防重建丢失，实时与历史恢复共用；`_toolOutputLine` 跳过 `Command exited with code N.` 样板首行取真实内容首行做摘要）；`serializedSteps` 每步增存轻量 `toolCalls` 快照（id/name/args/dur/isError/error/output），恢复时优先生成富行、旧数据回退 toolSummaries 字符串；`handleToolEnd` 新增 `result` 参数接 pi 侧结果并存 `toolCallRef.output`（随消息序列化，失败回退 error 文案）；`handleToolStart/End`、四个 thinking/text 事件入口均打点 `msg.lastEventAt`；banner 单 1s 计时器 tick 内扇出三职——更新运行中工具徽标（`badgeEl`+`isConnected` 防陈旧）、`elapsed>10min` 头部加 `.slow` 琥珀「（耗时较长）」、`idle>3min` 判无响应转 `.stalled` 红「⚠ 用时 X · 已 N分钟无响应，可中止重试」（事件到达即自动复位）；`finishAssistantMessage` 收尾清 slow/stalled；`generateBatchToolSummary` 未知名兜底改列真实工具名（`manage_task、schedule 等`）；修 `scheduleAssistantThinkingRender` 旧缺陷——仅 thinking 步允许写 proseEl，工具步明细行不再被交叠思考文本清掉）
+    - `providers/antigravity-adapter.js`（DONE 步 `output` 移除 `'调用成功'` 占位兜底——无真实输出即空串，避免明细行出现 `→ 调用成功` 噪声）
+    - `styles.css`（`.tw-tool-dur`/`.warn`/`.stall` 徽标三档色、`.tw-tool-arr`/`.tw-tool-result` 结果摘要蓝灰、`.tw-tool-result.toggle` 可点态、`.tw-tool-out-caret` 开合符、`.tw-tool-output-box` 输出内框（无底色素描边框 + 150px max-height 滚动 + pre-wrap + 等宽，默认展开）+ `.tw-dsh-banner-status-text.slow`（琥珀）/`.stalled`（红）及全套暗色适配）
+    - `docs/test_runner.js`（`MockEl.textContent` 升级为真实语义——getter 聚合自身文本+children+_htmlKids、setter 清空子树，支撑明细行 span 装配的断言读取；STREAM-11 断言改前缀匹配——toolSummaries 现携带 `→ 结果 · 耗时` 尾缀，属预期增强非回归；Suite29 块内二次 `const { PiDrawerView }` 遮蔽外层绑定致 TDZ 崩溃，改独立名 `PiDrawerView29` 修复）
+  - **问题背景**：用户反馈过程面板看不出调了什么工具、执行结果不可见、22 分钟回合无法分辨是活跃还是卡死；排查发现 `tool_end` 事件的 result/output 一直被 `handleToolEnd` 丢弃（仅存耗时/错误），批次标签对 manage_task/schedule 等 MCP 工具泛化成「已调用工具」，`.tw-tool-card`/`.tw-tool-timer` 样式存在但无 JS 引用（死代码），无任何耗时/静默检测
+  - **核心修改逻辑**：1) 明细行 = `工具名(真实参数)` + 耗时徽标 + `→ 结果首行摘要`，参数键集扩至 action/rule/cron/title/key/issue_key 等，actionDesc 状态标签不再混入括号；2) 耗时识别走「单工具运行计时 + 事件静默判定」而非总时长阈值——22min 仍在刷工具的回合不误报；3) 全部 UI 计时复用既有 banner 1s interval 单 tick 扇出，零新增定时器；4) 结果存 `tc.output`（≤2KB）随会话历史序列化，重载恢复同源显示
+  - **验证状态**：`node -c pi-drawer-view.js`/`providers/antigravity-adapter.js` 语法通过；`py build.py` 打包通过；`node -c main.js` 通过；`node docs/test_runner.js` 全量 **1226 项** 100% 全绿 PASS（含 MockEl 语义升级与 Suite29 TDZ 修复后全量回归）。Obsidian 真实 UI 交互（徽标刷新/结果摘要/输出内框开合/无响应转红）待任务跑完重载后手验
+  - **执行 Agent**：Devin (SWE-2 Max)
+
+- **Pi Drawer 模型刷新按钮联动 .mem 目录同步**
+  - **涉及文件**：
+    - `pi-drawer-view.js`（`modelRefreshBtn` onclick：在 `adapter.reloadModels()` 前先 `await this._runMemModelSync()`；新增 `_runMemModelSync()` 方法——惰性 `require('child_process')`/`require('fs')`，按 `vault.adapter.basePath + .obsidian/plugins/tabonkb-workbench/sync-mem-models.py` 定位脚本，`execFile('py', [script], {timeout:30s, windowsHide:true})` 执行；返回 `{ok,changed,skipped,error}`，无 Node 环境/脚本缺失→skipped，同步有增删→Notice「✓ .mem 模型目录已从 Magpie 同步」，失败→Notice「⚠ Magpie 同步失败：…」且不阻塞原有刷新）
+    - `sync-mem-models.py`（新增：从 `07-Project/2026-agent_memory/` 迁入插件目录——工具代码归属工作台；从 Magpie `GET /v1/models` 生成 .mem 模型目录写入 `~/.pi/agent/models.json` 的 `providers.agentmemory.models` 与 `~/.dsh/profiles/desktop/cordis.patch.yml` 的 `llm-deepseek` 块；默认仅同步 INCLUDE_IDS 中已验证模型，`--all` 全量、`--dry-run` 预览、`--reasoning` 附加推理档位（默认关，与已验证形态一致）；写前自动 `*.bak-*-memsync` 备份）
+  - **问题背景**：Agent Memory 上游已改由服务器 instance-upstream 组管理（`grp-kvdoo4dz7a`，pi+dsh→Magpie），但客户端 .mem 模型目录仍需手动跑脚本同步；用户希望点模型选择器刷新按钮即完成「Magpie → 客户端目录」同步
+  - **核心修改逻辑**：刷新动作拆为两阶段——先执行同步脚本更新 models.json/patch（脚本失败仅告警不阻塞），再走原有 `reloadModels()` 重读模型列表；脚本路径相对 vault basePath 解析，兼容无脚本部署（skipped 静默走原刷新）
+  - **验证状态**：`node -c pi-drawer-view.js` 语法通过；`py build.py` 打包通过；`node -c main.js` 语法通过；`node docs/test_runner.js` 全量 1221 项单测 100% 全绿 PASS；UI 实机点击待用户验证
+  - **执行 Agent**：Devin (SWE-2 Max)
+- **首页重构为「一页式零滚动仪表盘」：流光 Hero(32%) + 三列图表卡(56%) + 工具链状态灯带(12%)**
+  - **涉及文件**：
+    - `build.py`（`multi_tab_render_methods` 内嵌视图块：`render()` 顶栏门控追加 `activeTab !== 'home'`（首页独立顶栏并入 Hero，其余页签不受影响）、首页分支 stage/mainPanel 增挂 `tw-stage-onepage`/`tw-main-onepage`；`renderHomeTab` 整体重写为三段式一页布局；新增 `_renderHomeHero`/`_homePaintKpis`/`_renderHomeTaskCard`/`updateHomeTaskCard`/`_renderHomeAiCard`/`updateHomeAiCard`/`_renderHomeKbCard`/`updateHomeKbCard`/`_renderHomeToolchain`/`_homeProbeToolchain`/`_homeProbeOne`/`_homeProbeMemory`/`_homePaintTc`/`_homeTcSummary`/`_homeTcNavigate`/`_homeGotoManage`/`_homeOpenSettings`/`_homePlugin`/`_homeToolchainDefs`/`_homeDashStats`/`_homeKbStats`/`_homeTopicDirs`/`_homeTopicSeries`/`_homeJiraCat`/`_homeSmooth`/`_homeDonutSvg`/`_homeMiniTrendSvg`/`_homeGaugeSvg` 一组首页方法；`_auLedgerScan` 预热回调与 `refreshMagpieObservability` 完成回调、`loadHomeTrendData` 成功分支均追加首页卡片定点刷新钩子；`_disposeStageResources` 增补 `_homeTaskCardEl`/`_homeAiCardEl`/`_homeKbCardEl`/`_homeKpiRefs`/`_homeTcEls` 清理）
+    - `styles.css`（文件尾部整段新增 `tw-home-*` 样式体系：一页舞台锁高 overflow:hidden、流光极光 Hero（三层径向渐变 + glow 漂移动画 + 3D 透视磨砂装饰浮卡）、胶囊搜索舱与主色 Agent 按钮、5 张磨砂玻璃 KPI、三列等高卡片（环形图/双折线面积图/模型三色堆叠条/半圆环仪表/治理进度条/2×2 资产瓷砖）、工具链呼吸灯带（is-ok 绿呼吸/is-fail 红/is-off 灰/is-checking 蓝脉冲）、`body[data-tw-active-mode="dark"]` 全套深色极光适配、≤860px 窄窗滚动兜底；`.tw-home-onepage button` 显式 appearance/background/border/box-shadow 重置，杜绝原生按钮灰框污染）
+    - `main.js`（py build.py 重新编译生成）
+  - **问题背景**：旧首页为纵向滚屏仪表盘（趋势卡 + 20 周热力图 + Agent 用量大卡 + ForceGraph 拓扑 + 上下文面板 + 快速过滤条 + 任务/资料长表格），首屏信息密度低、重型组件多、与「管理」页拓扑能力重复；需要按参考稿改造为一屏到底的数字仪表盘
+  - **核心修改逻辑**：1) 首页渲染改走全新 `_renderHome*` 链路，ForceGraph/热力图/长表格/快速过滤条不再实例化，相关 DOM 引用（tableCard/contextCard/homeTrendCardEl/homeHeatCardEl/agentUsageCardEl/graphCanvas）渲染前显式置空，旧更新方法凭既有 `isConnected`/null 守卫自然失效；2) Hero 内嵌唯一搜索舱——input 联动 `handleOmniSearch`（200ms 防抖）、Enter 唤起 `openOmnisearchModal`、ESC 清空，角标实时展示 `N MD · M PDF` 索引规模；3) 5 张 KPI 与北极星指标由 `_homePaintKpis` 定点刷新（不重建 DOM，保住输入焦点），数据源全部真实：Jira 工单（`getHomeTrendIssues`/`calculateHomeTrendData` 与任务页同缓存链路）、Agent 账本（`collectAgentUsageStats` + Magpie 网关快照按 updateAgentUsageCard 双源融合口径）、vault 文件/摘要/命名盘点（`_homeKbStats` 与 renderOverviewMode 同 `_平台_模块_类型` 口径）、专题目录递归 mtime 扫描；4) 工具链灯带 6 服务真实探针——WeKnora `ping(2.6s)`、OpenGrok/Gerrit `testConnection(3.5s)`、Jira `testConnection`（4.5s 竞速兜底）、DSH `dshDaemon.getStatus()`、Agent Memory 本地持久化文件+会话计数，45s TTL 缓存、单项完成即刷新；5) 未配置项点击统一跳设置页，已配置项按归属跳 manage/explore/harness/tasks/Agent 抽屉
+  - **验证状态**：`py build.py` 打包通过（Successfully bundled）；`node -c main.js` 语法通过；`node docs/test_runner.js` 全量 **1226 项**自动化单元测试 100% 全绿 PASS；Impeccable 检测器新增代码 0 告警；Obsidian 真实界面渲染/交互（Hero 动画、图表悬停、探针回显、深浅主题）当前环境无法驱动，待用户手验
+  - **执行 Agent**：Devin (SWE-2 Max)
+
+- **首页仪表盘 v2 视觉精修：比例失衡/空白断层/SVG 文字拉伸变形/控件简陋全面根治**
+  - **涉及文件**：
+    - `build.py`（`multi_tab_render_methods` 内嵌视图块：`_renderHomeHero` 删除 `tw-home-hero-deco`/`tw-home-hero-glass` 斜方块装饰改为「标题行→北极星行→KPI 行」紧凑三段；`_homeDonutSvg` 升级 130px 直径/16px 描边/段间白隙/22px 中心数字；`_homeMiniTrendSvg` 改为实测像素 W/H 参数化渲染（彻底弃用 `preserveAspectRatio="none"`，SVG 内不再放文字）；`updateHomeTaskCard` 趋势区拆为 `tw-home-trend-svgbox`(实测尺寸 SVG) + `tw-home-mt-labels`(HTML 11px 弹性日期行) + 复用 `_homeTrendResizeObs` 做 90ms 防抖重绘，悬停浮窗坐标改按实测像素换算；`_homeSmooth` 控制点 y 钳制相邻点区间±6 防过冲陡变；`updateHomeAiCard` 模型行改「名 100px｜13px 三色堆叠条｜粗体占比｜Token 数」、底部改「左双指标块(累计节省/会话成本) + 右 200×112 大仪表」；`_homeGaugeSvg` 升级 200×112 半圆拱/18px 描边/靛-青-紫渐变/26px 中心百分比；`_homeKbStats` 新增 `modTop4` 输出；`updateHomeKbCard` 新增「核心模块分布 Top4 彩色比例条」区、治理百分比改彩色徽章、瓷砖改「38px 彩底图标块 + 20px 数字」横向布局；`_renderHomeToolchain`/`_homePaintTc` 工具项改「彩色图标块 + 名称 + ● connected 状态胶囊 + 等宽延迟」，丢弃圆点元素）
+    - `styles.css`（tw-home 区块整体重写：Hero 定高 204px、KPI 卡 72px/`rgba(255,255,255,.7)` 磨砂/上行标题+胶囊下行 23px 大数字；三列卡 `gap:16px` 取代空间硬撑；环形图 128px/图例行 26px 定高；模型条 13px/6px 圆角三色（靛蓝缓存 #6366F1/青蓝输入 #06B6D4/紫粉输出 #D946EF）；治理条 10px + 浅底彩色百分比徽章；瓷砖固定 78px/`#F8FAFC`/四色图标块；工具链项去框平铺 + `::before` 1px 竖分隔 + 状态胶囊绿/红/橙/蓝四态；深色适配与 ≤860px 兜底同步更新）
+    - `main.js`（py build.py 重新编译生成）
+  - **问题背景**：v1 实机渲染与设计预期差距大——Hero 高度虚胖且有两块简陋半透明斜方块、三列卡片靠 `space-between` 把内容撑在顶底致中部大片死白、趋势图 `preserveAspectRatio="none"` 把日期文字纵向拉成条形码、模型进度条仅 4px、仪表圆圈过小偏居右下、知识瓷砖为无图标空旷大灰框、工具链项框中套框
+  - **核心修改逻辑**：按 7 项精确视觉规范逐项重构——Hero 收紧至 204px 三行排布；卡片内间距固定 16px 由图表本体放大填充；环形图放大至 128px 渲染尺寸；趋势图 SVG 改为容器实测像素 1:1 渲染并挂 ResizeObserver 随侧栏/窗口自适应，日期刻度移到 HTML 层彻底免疫拉伸；模型堆叠条加粗至 13px 三色分段；缓存效率改为占据下半幅的大号半圆拱仪表；知识卡新增 Top4 模块分布条填充、瓷砖固定 78px 高左图标右数字；工具链项去除胶囊外框改为极浅竖线分隔的扁平布局。期间发现 IDE 旧缓冲区回写覆盖 build.py 尾部三处编辑，已用 Python 补丁脚本直写磁盘补齐
+  - **验证状态**：`py build.py` 打包通过；`node -c main.js` 语法通过；`node docs/test_runner.js` 全量 **1226 项**自动化单元测试 100% 全绿 PASS；styles.css 花括号 4180/4180 平衡；`tw-home-hero-deco`/`tw-home-tc-dot`/`preserveAspectRatio="none"` 已从首页产物中移除，实测宽高 SVG + HTML 日期行 + 200×112 仪表 + Top4 模块条 + 状态胶囊均已确认落入 main.js；Obsidian 实机视觉待用户重载复核
+  - **执行 Agent**：Devin (SWE-2 Max)
+
+- **首页仪表盘 v3 防留白弹性修正：300px 白洞/幽灵 Tooltip/歪斜仪表/裸露底衬/Hero 空洞五连根治**
+  - **涉及文件**：
+    - `build.py`（`multi_tab_render_methods` 内嵌视图块：`_renderHomeHero` 新增 `tw-home-hero-ribbon` 三层半透明蓝紫贝塞尔流光丝带 SVG（中央偏左 44% 起、路径/高光椭圆四路交错漂移动画）；`_homeMiniTrendSvg` 增补 3 条水平网格虚线 + Y 轴刻度值（`tw-home-mt-ytick`，0/max/2/max 三档，复用 xCoords 25px 左留白）；`updateHomeTaskCard` 上半部图例改 2×2 白底指标格（`tw-home-tcell` 色点+名+19px 数+占比）、趋势区加头行（标题+双色图例）且 Tooltip 改 `.is-on` 类显隐（弃用 `hidden` 属性，根治 CSS display:flex 压过 UA `[hidden]` 导致的常驻幽灵白框）、浮窗 left 补 `offsetLeft` 对齐；`_homeGaugeSvg` 按规范重写为正宗 180° 水平上半圆拱门——固定 `M 20 94 A 80 80 0 0 1 180 94` 路径 + `pathLength="100"` + `stroke-dasharray="pct 100"`（废弃旧自算 large-arc-flag 致 3/4 歪斜圆的弧段拼接）；`updateHomeAiCard` 模型行改 #F8FAFC 柔光条卡（上行图标+名｜占比+Tok·轮次，下行 12px 圆角槽三色堆叠）、底部指标区改 2×2 四格（缓存节省/总会话/等效省费 `savedUsd` 双源口径/平均响应 `avgDurS`）；`updateHomeKbCard` 治理条改并排双小卡（22px 数+8px 底条）、模块分布 Top5（`modTop5`）、瓷砖图标升至 40px）
+    - `styles.css`（tw-home 区块整体重写为 v3 弹性公式：Hero `flex:0 0 240px`、网格 `flex:1 1 0;min-height:0`、灯带 `flex:0 0 52px`；三列卡 `justify-content:flex-start;gap:14px;padding:18px 20px` 且子区块全部以 `flex` 弹性撑满——趋势容器 `flex:1;min-height:160px`、模型列表 `space-evenly`、模块区 `flex:1;space-evenly`、AI 底块 `flex:0 0 165px`，卡片纵向流内零 `space-between`/零 `margin-top:auto`；新增 `tw-home-tcell`/`tw-home-gcards`/`tw-home-model-l1`/`tw-home-mt-ytick`/丝带四路 keyframes；`tw-home-trend-tip` 默认 `display:none!important;opacity:0!important` 仅 `.is-on` 显示；深色主题 `#F8FAFC`→`rgba(255,255,255,.045)` 全套映射）
+    - `main.js`（py build.py 重新编译生成）
+  - **问题背景**：v2 实机仍存 5 缺陷——三列卡中部近 300px 死白断层；趋势 Tooltip 白框常驻（`hidden` 属性被类选择器 `display:flex` 覆盖失效）；半圆环弧段 large-arc-flag 计算错误画成歪斜 3/4 圆；卡片子区块缺 #F8FAFC 底衬裸露大白底；Hero 中部偏右无装饰显空
+  - **核心修改逻辑**：按防留白弹性公式重构——卡片统一 `flex-start+gap14px`，纵向不再依赖空间分配，改由各子区块 `flex` 值自然吸附（趋势/模块区 `flex:1` 弹性吃满、环形区/底块 `flex:0 0` 定高）；Tooltip 显隐改类驱动；半圆环弃用逐段弧长拼接改 `pathLength` 百分比映射标准拱门路径；各子区块统一 `#F8FAFC` 16px 圆角底衬；Hero 补 3D 流光丝带弥补中部视觉
+  - **验证状态**：`py build.py` 打包通过；`node -c main.js` 语法通过；`node docs/test_runner.js` 全量 **1226 项**自动化单元测试 100% 全绿 PASS；styles.css 花括号 4207/4207 平衡；`tw-home-hero-ribbon`/`tw-home-tcell`/`tw-home-gcards`/`aiGaugeGrad`/`pathLength="100"`/`modTop5`/`tw-home-mt-ytick` 均已确认落入 main.js；卡片纵向流 space-between/margin-top:auto 清零（仅存行内水平分布与固定高 Hero 内锚底）；Obsidian 实机视觉待用户重载复核
+  - **执行 Agent**：Devin (SWE-2 Max)
+
+- **首页仪表盘 v4.0 细节精修：3D 丝带雕塑/Jira|Task 双维切换/多色分段条/平底半圆+阈值刻度/平方根防极值/状态灯+详情浮层**
+  - **涉及文件**：
+    - `build.py`（`multi_tab_render_methods` 内嵌视图块：`_renderHomeHero` 换装 `.tw-hero-3d-art` 高光折射 SVG（ribbonMain 天蓝-靛-紫-粉流体渐变 + ribbonEdge 边缘高光 + 微倾磨砂芯片卡 + softGlow 弥散光晕 + 双折射脊线）；`_homePaintKpis` 索引库徽章缺省 `<12ms 极速`、工具链徽章改 `N% 在线`、北极星大数改 `openTasks+realDocs` 综合产出（cap 同步改「任务与知识综合产出」）；`_homeJiraCat` 拆出独立 `verify` 类目；`updateHomeTaskCard` 头部新增 `Jira|Task`+`周|月` 双分段胶囊（`this._homeTaskCategory`/`saveHomeTrendTimeRange`），Jira 模式四类（已解决#10B981/排查中#4F46E5/待验证评审#06B6D4/阻塞待原厂#F43F5E，中心=Jira 总单数）Task 模式四类（进行中#8B5CF6/已完成#10B981/深耕专题#06B6D4/待启动挂起#F59E0B，中心=任务+专题总数）；`_homeMiniTrendSvg` 重构为 `_homeMultiTrendSvg(xC,series,W,H)` 多系列平滑面积图（Y 轴 `yMax=Math.max(4,Math.ceil(rawMax/2)*2)` 整偶刻度杜绝 1/1/0）；新增 `_homeTaskTs`/`_homeBucketSeries` 分桶助手，Task 序列（新增/完成/深耕专题）与 Jira 序列（新增/闭环/存量在办累计差）随类型联动；`_homeGaugeSvg` 重写 `viewBox 0 0 210 105` 平底半圆 `M 20 92 A 70 70 0 0 1 160 92` + `linecap:butt` + Warn(75% 绿)/Crit(95% 红) 外延刻度线与小字 + 中心「已省 X / 总吞吐 Y」；`updateHomeAiCard` Top4 不足自动补 `其他模型 (Others)` 灰段行、模型条三色改 `#38BDF8`/`#818CF8`/`#C084FC`；`updateHomeKbCard` 模块条改 `sqrt` 软缩放 `max(12,sqrt(c/max)*100)` 防极值压缩 + 右端 `篇数 · 占比`；`_homeKbStats` 新增 `modTotal`；工具链项标记改「彩色图标+全名+8px 状态灯（绿呼吸/黄告警 is-warn(延迟≥1000ms)/红离线/灰脉冲）+核心数值（≥1000ms 自动 `N.Ns`）」，`_renderHomeToolchain` 点击改弹 `.tw-tool-detail-popover` 详情浮层（标题状态签+3~4 参数行+重新探测/打开配置双按钮，外部点击/再次点击关闭），`_homeProbeOne`/`_homeProbeMemory` 各返回补 `rows` 参数数组）
+    - `styles.css`（`.tw-hero-3d-art` 定位 left:36%/top:-10px/320×190；`.tw-home-omni-input` 加 `!important` 强重置消灰框；`.tw-home-models` 收进 `#F8FAFC` radius14 紧凑容器、`.tw-home-model-row` 去卡片化；`.tw-home-tc-state` 全套替换为 `.tw-home-tc-dot` 8px 圆点 + twTcBreathe/twTcPulse 动画；`.tw-home-mod-row` 网格 `52px 1fr 66px`；新增 `.tw-home-seg-cat`/`seg-rg` 边距、`.tw-home-gauge-tick`、`.tw-tool-detail-popover`/`.tw-tdp-*` 浮层体系与深色映射）
+    - `main.js`（py build.py 重新编译生成）
+  - **问题背景**：v3 实机仍存 6 项缺陷——Hero 中央装饰简陋紫色折线感；搜索框灰色内边框；索引库徽章漏字（`ms 极速` 无数字）、工具链超时 `1687ms` 被标绿、北极星与索引卡数字重复；任务卡缺 Jira/Task 类型维度且 Y 轴出现重复 `1` 刻度；模型列表散列白底、无 Others 补齐；半圆环缺阈值刻度；工具链仍显示状态词、缺详情交互
+  - **核心修改逻辑**：1) Hero 装饰按用户提供的精确 SVG 还原为立体流体玻璃丝带雕塑；2) 任务卡引入双维状态机（类型×时间），圆环四态/趋势多曲线/图例全部联动切换；3) 趋势刻度算法改为向上取整偶数域；4) 模型条统一浅灰容器+三色分段+Others 兜底；5) 半圆环用 `pathLength=100` 百分比弧长映射标准几何路径；6) 工具链去文字化改纯色呼吸灯 + 悬停详情浮层交互闭环
+  - **验证状态**：`py build.py` 打包通过；`node -c main.js` 语法通过；`node docs/test_runner.js` 全量 **1226 项**自动化单元测试 100% 全绿 PASS；styles.css 花括号 4222/4222 平衡；`tw-hero-3d-art`/`_homeTaskCategory`/`_homeMultiTrendSvg`/`tw-home-tc-dot`/`tw-tool-detail-popover`/`其他模型`/`M 20 92 A 70 70` 均已确认落入 main.js；Obsidian 实机视觉待用户重载复核
+  - **实机热修复**：首次重载报 `centerCap is not defined` 渲染异常——根因是 `_homeDonutSvg` 模板引用了第三参 `centerCap` 但函数签名仍为 `(segs, centerNum)` 两参；已补签名 `(segs, centerNum, centerCap)`（未传参时回落 `活跃任务` 兜底），重新构建 + `node -c` + 1226 项单测全绿
+  - **执行 Agent**：Devin (SWE-2 Max)
+
+- **首页仪表盘 v5.0 定稿精修：Hi Tabon 标题/3D 玻璃雕塑 Base64 图/KPI 口径对齐/优先级 Top3 舱/单行撞色模型条/220×120 大拱门仪表**
+  - **涉及文件**：
+    - `build.py`（`multi_tab_render_methods` 内嵌视图块：`_renderHomeHero` 标题改 `Hi Tabon`（20px/800/#0F172A + `WORKBENCH OVERVIEW` 灰标），彻底删除 `tw-home-hero-north` 大数字行（含 `northNum`/`northSub` 引用与北极星绘制），中央装饰由手写 SVG 换装 `HERO_3D_GLASS_B64` Base64 webp 透明柔化 `<img>`（radial-gradient mask 羽化边缘）；`kpiDefs` 五卡标题口径对齐（活跃待办任务/AI Token 吞吐/全库检索索引/工具链连通/研发沉淀笔记），`_homePaintKpis` 徽章同步（`总单 N · 闭环 N%`、`复用 N%`、`Nms 极速`、`N% 在线`、`另含 N 原厂文档`）、知识卡数字改 `N 篇`；`updateHomeTaskCard` 趋势区下方新增 `.tw-home-priority-tasks` 优先级 Top3 舱——Jira 模式按 Blocker/Critical/Major/High 排序取未完结 Top3（优先级色点+工单号+标题+状态胶囊），Task 模式按 阻塞>排查中>待启动 取本地深耕 Top3（模块标签+标题+状态胶囊），行点击分别走 `_homeOpenJiraIssue`(切任务页签+`jiraPlatform.openInspector`) / `_homeOpenTaskFile`(vault 打开)；`updateHomeAiCard` 模型行重构为单行三列 grid `128px 1fr 44px`（名/条/占比），分段条逐行撞色 5 组色板（#60A5FA·#38BDF8·#A855F7 / #F97316·#34D399·#8B5CF6 / #C084FC·#38BDF8·#6366F1 / #2DD4BF·#A855F7 / Others 灰），总宽按占比缩放（保底 18%）且净输入/输出段强制最小视觉占比 18%/14%，悬停 title 展示真实 Token 明细；`_homeGaugeSvg` 放大重写 `viewBox 0 0 220 120` 弧心(110,96) r=76 `M 34 96 A 76 76 0 0 1 186 96` 16px 描边，Warn(76% 绿)/Crit(95% 红, end-anchor 防越界) 外延刻度，中心 24px 百分比、基线外侧 y=114 独立 `已省 X / 总吞吐 Y`；`_homeOpenJiraIssue`/`_homeOpenTaskFile` 新增）
+    - `styles.css`（`.tw-hero-3d-art` 改 img 定位 left:48%/top:-4px/280px + radial mask-image 柔化；`.tw-home-hero-title-tx` 升 20px/800/#0F172A；`tw-home-hero-north*` 全套移除；`.tw-home-trend` min-height 160→105px；新增 `.tw-home-priority-tasks`/`.tw-pt-row`/`.tw-pt-dot`/`.tw-pt-key`/`.tw-pt-mod`/`.tw-pt-title`/`.tw-pt-st` 体系；`.tw-home-models` 改 pad 14/16 radius16 gap12；`.tw-home-model-row` 改 `grid-template-columns:128px 1fr 44px`、`.tw-home-model-name` 12px/600/#1E293B、`.tw-home-model-track` 透明底 12px 高、`.tw-home-model-bar` radius4、新增 `.tw-home-model-pct` 等宽粗体右对齐；`.tw-home-gauge-num` 24px/`.tw-home-gauge-cap` 11.5px #475569；`.tw-home-model-l1`/`-ic`/`-meta`/`sg-*` 旧规则与 `tw-home-model-track`/`tw-home-model-row` 深色项清理；新增 `.tw-pt-*`/模型名/占比/仪表数字全套深色映射）
+    - `main.js`（py build.py 重新编译生成）
+  - **问题背景**：v4.0 实机走查后用户提出 6 项定稿要求——Hero 中央需嵌入参考图实抠的 3D 玻璃雕塑图且标题拟人化、删除第二行大数字释放通透空间；五张 KPI 卡数字与下方图表存在口径歧义需对齐；任务卡底部需补「最紧急 3 项」直达入口；模型行「上字下条」两行式松散且缓存占 90% 时只剩单色；半圆环偏小且底部文字塞在两脚间挤压
+  - **核心修改逻辑**：1) Hero 去北极星行改双层结构 + Base64 webp 雕塑图（mask 羽化融入极光底）；2) KPI 标题/徽章全部按用户口径改写，消除与图表数字歧义；3) 任务卡新增优先级舱复用 `_homeJiraCat`/status 正则做紧急度排序，Jira 行直达 Inspector 抽屉、Task 行直达 vault 文档；4) 模型行单行化 + 视觉保底分段（vf2≥18/vf3≥14）防单段吞没；5) 仪表几何参数按 220×120 重写并分离中心数字与基线说明文字
+  - **验证状态**：`py build.py` 打包通过；`node -c main.js` 语法通过；`node docs/test_runner.js` 全量 **1226 项**自动化单元测试 100% 全绿 PASS；styles.css 花括号 4218/4218 平衡；`HERO_3D_GLASS_B64`/`Hi Tabon`/`tw-home-priority-tasks`/`tw-pt-row`/`M 34 96 A 76 76`/`tw-home-model-pct`/`_homeOpenJiraIssue`/`_homeOpenTaskFile` 均已确认落入 main.js；`tw-home-hero-north`/`tw-home-hero-num` 已清零；Obsidian 实机视觉待用户重载复核
+  - **执行 Agent**：Devin (SWE-2 Max)
+
+- **首页仪表盘 v6.0 视觉与数据语义精修：全局字体统一/英文副标清零/AI 卡语义双色条+2×2 白格+正向命中环/三平台分布卡/Top3 灰蓝工单签**
+  - **涉及文件**：
+    - `build.py`（`multi_tab_render_methods` 内嵌视图块：`_renderHomeHero` 删除 `tw-home-hero-kicker` WORKBENCH OVERVIEW；`updateHomeTaskCard` 头部删除 `tw-home-card-sub` 与 `闭环 N%` 徽章（闭环率已在顶部 KPI 卡呈现），优先级行去 `.tw-pt-dot` 圆点、`pDot` 字段清理；`updateHomeAiCard` 标题改 `AI 模型与用量`、两处英文副标删除，模型行重构为**语义双色条**——`grid-template-columns: 120px 1fr 86px`、100% 满宽 `#E2E8F0` 10px 圆角底槽、内条按占比缩放（保底 8%）、内部两段 `缓存复用 #3B82F6`+`实际消耗 #8B5CF6`（净耗视觉保底 20%，Others 降级为 `#94A3B8`/`#CBD5E1` 灰对），右列 `fmt(tot) · share%`（Token 灰 + 百分比粗体），`.tw-home-models` 容器顶部右侧新增 `● 缓存复用 / ● 实际消耗` 图例行；`_homeGaugeSvg` 删除 Warn(76%)/Crit(95%) 告警刻度（缓存命中率为正向指标），渐变改 `#3B82F6→#06B6D4→#10B981` 正向蓝翠，中心 `N%` 22px/700 + `缓存命中率` 11px/600/#10B981，基线外侧改 `已复用 X / 总吞吐 Y`；`updateHomeKbCard` 删除 `tw-home-card-sub`/「命名口径」徽章/「命名规范打标率」「文档摘要完备率」双卡及 `gcard` 助手，顶部改 `.tw-home-plats` 三大芯片平台分布卡（MTK 蓝/展锐青/高通紫：头部 平台名+`N 篇`，底部满槽彩条+占三平台总数百分比），`_homeKbStats` 平台识别补 `sprd|spreadtrum|展锐`→UNISOC（任务页平台统计同步 `replace_all`））
+    - `styles.css`（`.tw-stage-home, .tw-stage-home *` 强制系统无衬线栈 + `tabular-nums` + 抗锯齿，禁用等宽打字机字体；`.tw-home-card-head` 改 `justify-content: space-between` + `nowrap` 修右侧胶囊溢出；`.tw-home-card-title` 14px/700；删除 `.tw-home-card-sub`/`.tw-home-card-badge`/`.tw-home-hero-kicker`/`.tw-pt-dot`/`.tw-home-gauge-tick`/`.tw-home-gcard*` 死规则；字号四档收敛（大数字 20~22/700、标题 14/700、正文 12/500-600、辅助 11/500-600）；`.tw-home-model-*` 改满槽双色语义条 + 图例行；`.tw-home-ai-stat` 改 2×2 白底圆角小格防数字挤贴；`.tw-home-gauge-num` 22px + 新增 `.tw-home-gauge-hit`；`.tw-home-plat*` 三平台卡全套；`.tw-pt-key`/`.tw-pt-mod` 改 `#F1F5F9` 灰蓝小标签；`.tw-home-mod-nm`/`.tw-home-model-pct`/`.tw-home-tc-meta`/`.tw-tdp-row b` 去 `font-family:monospace`；`.tw-home-seg-cat`/`.tw-home-gw` `margin-left:auto` 右顶对齐；全套新元素深色映射：`.tw-home-plat`/`.tw-home-ai-stat` 浅层底、`.tw-home-plat-track`/`.tw-home-model-track` 10% 白底、`.tw-home-model-pct b`/`.tw-home-plat-head b` 亮色、`.tw-pt-key`/`.tw-pt-mod` 暗标签、`.tw-home-gauge-hit` #34D399、`.tw-home-models-legend` muted）
+    - `main.js`（py build.py 重新编译生成）
+  - **问题背景**：用户 v5.0 实机走查后提出 v6.0 五项定稿要求——英文大写副标与老式等宽字体造成视觉杂乱且挤压右侧胶囊出界；模型条逐行撞色无语义（看不出缓存与净耗关系），命中率被误标 Warn/Crit 告警线，四项指标数字互相挤贴；知识卡顶部治理率口径低频且占位；任务卡头部闭环徽章与 KPI 重复、Top3 工单号圆点+等宽字显脏
+  - **核心修改逻辑**：1) 四处英文副标 DOM 全删 + 头部 space-between 布局根治胶囊溢出；2) `.tw-stage-home *` 全局无衬线 `!important` + tabular-nums 统一数字排印；3) 模型条从「撞色美观」改「语义可读」——蓝=缓存复用、紫=实际消耗 + 图例 + `tok·pct` 数字锚点，长度与右列数字一一对应；4) 命中率改正向渐变环、指标改独立白格；5) 知识卡顶部按真实 `platCounts`（补 sprd/展锐 识别）改三平台占比卡
+  - **验证状态**：`py build.py` 打包通过；`node -c main.js` 语法通过；`node docs/test_runner.js` 全量 **1226 项**自动化单元测试 100% 全绿 PASS；styles.css 花括号 4221/4221 平衡；`tw-home-plats`/`tw-home-models-legend`/`tw-home-gauge-hit`/`缓存命中率`/`已复用` 均已确认落入 main.js；`WORKBENCH OVERVIEW`/`TASK & TECH`/`AI MODEL &`/`KNOWLEDGE ASSETS`/`tw-home-card-sub`/`Warn`/`Crit` 全部清零；Obsidian 实机视觉待用户重载复核
+  - **执行 Agent**：Devin (SWE-2 Max)
+
 ## [1.8.0] - 2026-10-22
 ### Released
 - **正式发布 TabonKB 研发工作台 V1.8.0 里程碑版本**：
@@ -121,6 +244,18 @@
   - **核心修改逻辑**：去掉对未注册变量的依赖（插件内全局仅此一处 `{{...}}`）；新增测试防止以后在 persona 文本中再引入未注册变量
   - **验证状态**：`py build.py` 通过；`node -c main.js` 通过；全量 **1185 项** 100% 全绿；生成 YAML 中 `{{` 计数为 0。真实 DSH 需重载插件并重启 daemon 后手验
   - **执行 Agent**：Devin (SWE-2 High)
+- **DSH 内 agent 基础能力二期：project_edit_file / project_compile 写与编译工具 + DSH 权限档三档门控**
+  - **涉及文件**：
+    - `services/dsh-daemon-manager.js`（ctx-bridge 脚本 `getDshContextBridgeScript`：新增 `readPermMode()`——复用 `findPermPill()` 锚点 `textEl.textContent` 映射「仅可查看→readonly / 工作区内修改→readwrite / 完全权限→full / 匹配不到→null」；`askHost` 的 `tabonkb-dsh-ctx-state-req` 载荷追加 `perm: readPermMode()`，随 ~1.2s 轮询上报 host）
+    - `components/dsh-workbench-view.js`（构造器新增 `this._dshPerm=null`；`tabonkb-dsh-ctx-state-req` 处理器存 `this._dshPerm = evt.data.perm || null`；`_mirrorDshCtxToAgent` 落盘 payload 追加 `permission` 字段（null 也为 null），去重比较纳入 `(cur.permission || null) === payload.permission`——档位变化自愈重写）
+    - `services/workbench-context.js`（`readLiveContext`/`getHostContext` 透传 `permission` 字段（原样 string|null）；新增 `permLabel`（readonly→仅可查看 / readwrite→工作区内修改 / full→完全权限 / 其他→未侦测到）、`_wbPermGate`（仅 readwrite/full 放行，其余 isError 含档名与「输入栏切到工作区内修改或完全权限」指引）、`_wbSpawnCompile`（移植 Pi 版 spawn ssh -T BatchMode ConnectTimeout=20、stdout 滚动截 500KB、600s 超时 kill+taskkill 强杀进程树）与 `setWorkbenchCompileRunner` 测试注入点；`runWorkbenchTool` 新增 `project_edit_file`（权限闸→project_read_file 同款路径穿越防线→scope 仅 project/public→工程解析与来源回显同 read→routeEditTarget 路由客制化层/公共层（基线只读永不写入）→target_content 精确匹配→.bak 备份→写入→header 回显 targetRel/物理路径/scope/派生态/来源/权限档）与 `project_compile`（权限闸→readwrite 档 build_type 仅枚举 driver/dtbo/dts/kernel 且 extra_args 须匹配 `/^[-\w .=:\/]*$/` 且 ≤80 字符，full 档任意命令但 build_type/extra_args 拒换行/NUL→构造命令→注入执行器→成功尾 1500 字/失败 extractCompilerErrors/超时强杀回显）；`workbench_context` 输出新增「权限档」行；`WORKBENCH_TOOLS` 补两个 schema（描述写明权限档要求与基线只读）；`wbLoadLocalProjectService` bundle 早返面补齐 routeEditTarget/buildCompileCommand/extractCompilerErrors/getWinSshBin/safeExistsSync/safeReadFileSync/safeWriteFileSync）
+    - `mcp/dsh-mcp-shared.js`（workbench 条目 `toolCallTimeoutMs` 30000→650000——编译阻塞上限 600s+余量，该值是上限不是等待；驱动开发预设 persona §七 追加第 6/7 条——改本地工程代码用 project_edit_file（自动路由客制化层/基线只读，需权限档非仅可查看）；远程编译用 project_compile（需非仅可查看档；工作区内修改档仅预置编译类型，自定义命令需完全权限档）；公共小节未动）
+    - `docs/test_runner.js`（Suite 16c `DSH-WB-01` 追加 36 项断言：bridge 三档文案映射与 `perm:` 载荷、host `_dshPerm` 存储与镜像 `permission` 字段+去重纳入、permLabel 全映射、临时 active-context 四态（readonly/readwrite/full/缺失）门控——readonly 与缺失全部 isError、readwrite 下临时三层树真实写入 pri 层+.bak/target_content 不匹配报错/scope=public 写公共层/非法 scope 与穿越路径拒绝、编译经 `setWorkbenchCompileRunner` 注入桩只走到构造命令边界（不真发 ssh）枚举类型与干净 extra_args 放行、readwrite 下自定义 build_type 与 `; rm -rf`/`a && b`/`x > y` 脏参 isError、full 档自定义命令通过校验层且换行仍拒、失败分支 extractCompilerErrors、非 DSH 宿主拒绝、WORKBENCH_TOOLS schema/工具清单 5 项/toolCallTimeoutMs=650000/persona 指引断言）
+    - `main.js`（py build.py 重新编译生成）
+  - **问题背景**：P1 已落地只读穿透（workbench_context/project_list/project_read_file），二期补齐写与远程编译能力；DSH 输入栏自带三档权限胶囊（仅可查看/工作区内修改/完全权限）是天然的授权边界——写与编译必须挂到该档位上，readonly 一律拒绝、readwrite 收敛到预置编译类型与白名单参数、full 开放自定义远程命令，杜绝 agent 越权执行任意远程命令或污染原厂基线
+  - **核心修改逻辑**：1) 权限档采集链路——iframe bridge `readPermMode()` 读权限胶囊文案随 state-req 上报 → host `_dshPerm` 缓存 → `_mirrorDshCtxToAgent` 写 `active-context.json.permission`（纳入同值去重，pi 侧覆写后自愈重写）→ MCP 子进程 `readLiveContext` 采信（仅 source==='dsh'）；2) 工具层 `_wbPermGate` 统一门控，文案给出当前档名与切换指引；3) `project_edit_file` 复用三层逆向穿透与安全路由，`routeEditTarget` 保证基线永不写入，`.bak` 先备后写；4) `project_compile` 分档校验——readwrite 档 `WB_PRESET_BUILD_TYPES` 枚举 + extra_args 白名单正则（`;`/`&&`/`>` 等注入字符全拒），full 档任意命令仅拒换行/NUL；5) spawn 与超时强杀移植 Pi 版（`-T -o BatchMode=yes -o ConnectTimeout=20`，600s kill+taskkill），`setWorkbenchCompileRunner` 留测试注入点不真发 ssh
+  - **验证状态**：`py build.py` 打包通过（Successfully bundled）；`node -c main.js` 语法验证通过；`node docs/test_runner.js` 全量 **1221 项**自动化单元测试 100% 全绿 PASS（基线 1185 + 新增 36）；真实 MCP 冒烟（stdio spawn workbench-mcp + 临时 active-context + 临时三层树）：tools/list 返回 5 工具、readonly 档 edit 拦截文案正确、readwrite 档真实写入客制化层并生成 .bak、readwrite 自定义命令被拦、workbench_context 回显权限档行；未真发 SSH 编译（注入桩与 temp 树隔离）。真实 DSH 内权限胶囊采集与切档联动待用户手验（不重启 DSH/Obsidian 未做 UI 级验证）
+  - **执行 Agent**：Devin
 
 ### Added
 - **会话历史支持置顶与重命名**

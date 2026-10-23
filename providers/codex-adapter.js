@@ -2,6 +2,7 @@ const { AgentAdapter, getAgentBrandSvg } = require('./agent-adapter-base.js');
 const fs = require('fs');
 const path = require('path');
 const child_process = require('child_process');
+const { buildFileRefHint } = require('../mcp/file-ref-hint-shared.js');
 
 /**
  * CodexAdapter: Native integration for Codex CLI.
@@ -130,6 +131,8 @@ class CodexAdapter extends AgentAdapter {
     const sandbox = this.permissionMode === 'readonly' ? 'read-only'
       : (this.permissionMode === 'full' ? 'danger-full-access' : 'workspace-write');
     const vaultPath = this.vaultBasePath || process.cwd();
+    // 文件引用格式硬规则: 强制完整绝对路径, 见 mcp/file-ref-hint-shared.js
+    const promptWithHint = text + buildFileRefHint(this.vaultBasePath);
 
     let args = [];
     if (this.threadId) {
@@ -139,7 +142,7 @@ class CodexAdapter extends AgentAdapter {
         'exec',
         'resume',
         this.threadId,
-        text,
+        promptWithHint,
         '--json'
       ];
     } else {
@@ -150,7 +153,7 @@ class CodexAdapter extends AgentAdapter {
         '--json',
         '-s', sandbox,
         '-C', vaultPath,
-        text
+        promptWithHint
       ];
     }
 

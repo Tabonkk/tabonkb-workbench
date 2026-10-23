@@ -15,6 +15,7 @@ const { buildWeknoraEnv } = require('../mcp/weknora-mcp-shared.js');
 const { buildOpengrokEnv } = require('../mcp/opengrok-mcp-shared.js');
 const { buildGerritEnv } = require('../mcp/gerrit-mcp-shared.js');
 const { buildJiraEnv } = require('../mcp/jira-mcp-shared.js');
+const { buildFileRefHint } = require('../mcp/file-ref-hint-shared.js');
 const child_process = require('child_process');
 const fs = require('fs');
 const path = require('path');
@@ -395,7 +396,7 @@ class DshAdapter extends AgentAdapter {
           this.finish(code === 0, code === 0 ? '' : `DSH exited with code ${code}`, resolve);
         });
 
-        proc.stdin.write(text, 'utf8');
+        proc.stdin.write(text + buildFileRefHint(this.vaultBasePath), 'utf8');
         proc.stdin.end();
       } catch (err) {
         this.finish(false, err.message, resolve);

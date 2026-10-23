@@ -6,6 +6,7 @@ const { buildGerritEnv, ensureHermesGerritMcp, GERRIT_MCP_TOOL_HINT } = require(
 const { buildJiraEnv, ensureHermesJiraMcp, JIRA_MCP_TOOL_HINT } = require('../mcp/jira-mcp-shared.js');
 const { ensureHermesCodegraphMcp, CODEGRAPH_MCP_TOOL_HINT } = require('../mcp/codegraph-mcp-shared.js');
 const { ensureHermesDrawioMcp, DRAWIO_MCP_TOOL_HINT } = require('../mcp/drawio-mcp-shared.js');
+const { buildFileRefHint } = require('../mcp/file-ref-hint-shared.js');
 const child_process = require('child_process');
 const fs = require('fs');
 const path = require('path');
@@ -360,7 +361,7 @@ class HermesAdapter extends AgentAdapter {
     this.setStatus('thinking', 'Hermes is thinking');
     this.emit('turn_start');
 
-    const prompt = (contextPayload ? `${text}\n\n${JSON.stringify(contextPayload)}` : text) + VENDOR_MCP_TOOL_HINT + WEKNORA_MCP_TOOL_HINT + OPENGROK_MCP_TOOL_HINT + GERRIT_MCP_TOOL_HINT + CODEGRAPH_MCP_TOOL_HINT + DRAWIO_MCP_TOOL_HINT + JIRA_MCP_TOOL_HINT;
+    const prompt = (contextPayload ? `${text}\n\n${JSON.stringify(contextPayload)}` : text) + VENDOR_MCP_TOOL_HINT + WEKNORA_MCP_TOOL_HINT + OPENGROK_MCP_TOOL_HINT + GERRIT_MCP_TOOL_HINT + CODEGRAPH_MCP_TOOL_HINT + DRAWIO_MCP_TOOL_HINT + JIRA_MCP_TOOL_HINT + buildFileRefHint(this.vaultBasePath);
     const bin = this.resolveBinary();
     const modelId = (this.selectedModel && this.selectedModel.id) || this.readDefaultModel().id;
     const spawnArgs = this.buildChatArgs(modelId);

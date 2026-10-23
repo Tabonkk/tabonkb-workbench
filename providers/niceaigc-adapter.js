@@ -1,4 +1,5 @@
 const { AgentAdapter, getAgentBrandSvg } = require('./agent-adapter-base.js');
+const { buildFileRefHint } = require('../mcp/file-ref-hint-shared.js');
 const crypto = require('crypto');
 
 function estTokensFromText(s) {
@@ -1263,6 +1264,8 @@ class NiceAigcAdapter extends AgentAdapter {
         promptText = digest + '\n\n--- 以上为历史对话摘要（因切换模型开启新会话而自动注入），请结合上下文回答以下新问题 ---\n\n' + text;
       }
     }
+    // 文件引用格式硬规则: 强制完整绝对路径 (见 mcp/file-ref-hint-shared.js)
+    promptText += buildFileRefHint(this.vaultBasePath);
 
     // 多模态图片预处理: 若计划走 Web 协议，先尝试通过 /backend-api/files 预上传
     let webAttachments = [];

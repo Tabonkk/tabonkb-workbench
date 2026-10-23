@@ -2,6 +2,7 @@ const { AgentAdapter, getAgentBrandSvg } = require('./agent-adapter-base.js');
 const fs = require('fs');
 const path = require('path');
 const child_process = require('child_process');
+const { buildFileRefHint } = require('../mcp/file-ref-hint-shared.js');
 
 let PiAgentBridgeClass = null;
 try {
@@ -458,7 +459,7 @@ class PiAdapter extends AgentAdapter {
       return { success: false, error: 'PiBridge 未就绪' };
     }
     this.isStreaming = true;
-    return await this.bridge.sendMessage(text, contextPayload);
+    return await this.bridge.sendMessage(text + buildFileRefHint(this.vaultBasePath), contextPayload);
   }
 
   /**

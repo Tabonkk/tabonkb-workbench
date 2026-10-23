@@ -32,7 +32,7 @@ async function runAllSuites() {
   console.log('>>> Suite 1: Code Integrity & Manifest Verification');
   const manifest = JSON.parse(fs.readFileSync(path.join(pluginDir, 'manifest.json'), 'utf8'));
   assert(manifest.id === 'tabonkb-workbench', 'manifest.json has correct id');
-  assert(manifest.version === '1.8.0', 'manifest.json has version 1.8.0');
+  assert(manifest.version === '1.9.0', 'manifest.json has version 1.9.0');
   assert(fs.existsSync(path.join(pluginDir, 'main.js')), 'main.js exists');
   assert(fs.existsSync(path.join(pluginDir, 'styles.css')), 'styles.css exists');
 
@@ -903,6 +903,159 @@ async function runAllSuites() {
   assert(/env:\s*\n\s*TABONKB_MCP_HOST: "dsh"/.test(patchY), 'DSH-WB-01: generated YAML carries env section');
   assert(!/TABONKB_MCP_HOST.*password|password.*TABONKB_MCP_HOST/i.test(patchY), 'DSH-WB-01: env section carries no secrets');
 
+  // 6) P2: 权限档采集 (bridge→host→active-context.json) 与 写/编译门控
+  assert(ctxBridgeSrc.includes('readPermMode') && ctxBridgeSrc.includes('perm: readPermMode()'),
+    'DSH-WB-01: bridge state-req payload carries perm from readPermMode()');
+  assert(ctxBridgeSrc.includes("indexOf('仅可查看')") && ctxBridgeSrc.includes("indexOf('工作区内修改')") && ctxBridgeSrc.includes("indexOf('完全权限')") &&
+    ctxBridgeSrc.includes("return 'readonly'") && ctxBridgeSrc.includes("return 'readwrite'") && ctxBridgeSrc.includes("return 'full'"),
+    'DSH-WB-01: bridge maps three perm pill labels to mode ids');
+  assert(dshViewSrc.includes('this._dshPerm = evt.data.perm || null') && dshViewSrc.includes('permission: this._dshPerm || null'),
+    'DSH-WB-01: host stores perm from state-req and mirrors permission field');
+  assert(dshViewSrc.includes('(cur.permission || null) === payload.permission'),
+    'DSH-WB-01: mirror dedup comparison includes permission');
+
+  // 镜像行为: _dshPerm 驱动 permission 字段 + 纳入去重比较
+  const permVaultDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tw-perm-'));
+  fs.mkdirSync(path.join(permVaultDir, '.obsidian', 'plugins', 'tabonkb-workbench'), { recursive: true });
+  const permView = new DshWorkbenchView({ app: { vault: { adapter: { basePath: permVaultDir } } }, plugin: {} });
+  const permActx = path.join(permVaultDir, '.obsidian', 'plugins', 'tabonkb-workbench', 'active-context.json');
+  permView._dshPerm = 'readwrite';
+  permView._mirrorDshCtxToAgent(permView._dshCtxDefaults(), 'sess-P1');
+  let permJ = JSON.parse(fs.readFileSync(permActx, 'utf8'));
+  assert(permJ.permission === 'readwrite' && permJ.source === 'dsh' && permJ.sid === 'sess-P1',
+    'DSH-WB-01: mirror writes permission field into active-context.json');
+  const origWrite2 = fs.writeFileSync;
+  let permWrites = 0;
+  fs.writeFileSync = function (...a) { permWrites++; return origWrite2.apply(fs, a); };
+  try {
+    permView._mirrorDshCtxToAgent(permView._dshCtxDefaults(), 'sess-P1');
+    assert(permWrites === 0, 'DSH-WB-01: mirror dedup skips rewrite when permission unchanged');
+    permView._dshPerm = 'full';
+    permView._mirrorDshCtxToAgent(permView._dshCtxDefaults(), 'sess-P1');
+    assert(permWrites === 1, 'DSH-WB-01: permission change busts dedup and rewrites');
+  } finally {
+    fs.writeFileSync = origWrite2;
+  }
+  permJ = JSON.parse(fs.readFileSync(permActx, 'utf8'));
+  assert(permJ.permission === 'full', 'DSH-WB-01: rewritten mirror carries new permission');
+  permView._dshPerm = null;
+  permView._mirrorDshCtxToAgent(permView._dshCtxDefaults(), 'sess-P1');
+  permJ = JSON.parse(fs.readFileSync(permActx, 'utf8'));
+  assert(permJ.permission === null, 'DSH-WB-01: undetected perm mirrors as null field');
+  permView.dispose();
+
+  // permLabel 映射
+  assert(wbCtx.permLabel('readonly') === '仅可查看' && wbCtx.permLabel('readwrite') === '工作区内修改' &&
+    wbCtx.permLabel('full') === '完全权限' && wbCtx.permLabel(null) === '未侦测到' && wbCtx.permLabel('bogus') === '未侦测到',
+    'DSH-WB-01: permLabel maps modes to pill labels');
+
+  // 权限门控: 临时 active-context (source:'dsh') 驱动 readonly/readwrite/full/缺失 四态;
+  // edit 用临时三层树真实写入, compile 注入桩只走到构造命令边界 (不真发 ssh)
+  const wbPermFile = path.join(wbT, 'active-context-perm.json');
+  const writePermFile = (p) => fs.writeFileSync(wbPermFile, JSON.stringify(
+    Object.assign({ selectedLocalProject: wbFakeLp, source: 'dsh', sid: 'sess-P', updatedAt: Date.now() },
+      p ? { permission: p } : {})), 'utf8');
+  const t2EditFile = path.join(wbProjRoot, 'pri_project', 'driver', 'mt6858', 'K90GF2', 'base', 'drivers', 'e.c');
+  fs.writeFileSync(t2EditFile, 'int e = 1;\n', 'utf8');
+  const t1EditFile = path.join(wbProjRoot, 'pri_project', 'driver', 'public', 'drivers', 'e2.c');
+  fs.writeFileSync(t1EditFile, 'int e2 = 2;\n', 'utf8');
+
+  const oldWbHost3 = process.env.TABONKB_MCP_HOST;
+  const oldWbAcf3 = process.env.TABONKB_ACTIVE_CONTEXT_FILE;
+  let captured = null;
+  wbCtx.setWorkbenchCompileRunner(async (o) => { captured = o; return { ok: true, code: 0, elapsed: 1.5, stdout: 'BUILD OK tail\n', stderr: '' }; });
+  try {
+    process.env.TABONKB_MCP_HOST = 'dsh';
+    process.env.TABONKB_ACTIVE_CONTEXT_FILE = wbPermFile;
+    // a) readonly 档: edit/compile 全部拒绝, 报错含档名与切换指引
+    writePermFile('readonly');
+    let r = await wbCtx.runWorkbenchTool('project_edit_file', { file_path: 'drivers/e.c', target_content: 'int e = 1;', replacement_content: 'int e = 9;' });
+    assert(r.isError === true && r.text.includes('仅可查看') && r.text.includes('工作区内修改') && r.text.includes('完全权限'),
+      'DSH-WB-01: readonly blocks project_edit_file with perm hint');
+    r = await wbCtx.runWorkbenchTool('project_compile', { build_type: 'driver' });
+    assert(r.isError === true && r.text.includes('仅可查看') && r.text.includes('权限档'),
+      'DSH-WB-01: readonly blocks project_compile');
+    // b) 权限档缺失 (无 permission 字段): 全部拒绝, 档名「未侦测到」
+    writePermFile(null);
+    r = await wbCtx.runWorkbenchTool('project_edit_file', { file_path: 'drivers/e.c', target_content: 'a', replacement_content: 'b' });
+    assert(r.isError === true && r.text.includes('未侦测到'), 'DSH-WB-01: missing permission blocks project_edit_file');
+    r = await wbCtx.runWorkbenchTool('project_compile', { build_type: 'driver' });
+    assert(r.isError === true && r.text.includes('未侦测到'), 'DSH-WB-01: missing permission blocks project_compile');
+    // c) readwrite 档: edit 真实写入 pri 客制化层 + 生成 .bak
+    writePermFile('readwrite');
+    r = await wbCtx.runWorkbenchTool('project_edit_file', { file_path: 'drivers/e.c', target_content: 'int e = 1;', replacement_content: 'int e = 9;' });
+    assert(r.isError === false && r.text.includes('代码修改成功') && r.text.includes('pri_project/driver/mt6858/K90GF2/base') && r.text.includes('工作区内修改'),
+      'DSH-WB-01: readwrite allows project_edit_file into pri layer');
+    assert(fs.readFileSync(t2EditFile, 'utf8') === 'int e = 9;\n' && fs.readFileSync(t2EditFile + '.bak', 'utf8') === 'int e = 1;\n',
+      'DSH-WB-01: edit writes target file + .bak backup');
+    r = await wbCtx.runWorkbenchTool('project_edit_file', { file_path: 'drivers/e.c', target_content: 'NOT_EXIST', replacement_content: 'x' });
+    assert(r.isError === true && r.text.includes('project_read_file'),
+      'DSH-WB-01: unmatched target_content errors with read_file hint');
+    r = await wbCtx.runWorkbenchTool('project_edit_file', { file_path: 'drivers/e2.c', target_content: 'int e2 = 2;', replacement_content: 'int e2 = 8;', scope: 'public' });
+    assert(r.isError === false && fs.readFileSync(t1EditFile, 'utf8') === 'int e2 = 8;\n',
+      'DSH-WB-01: scope=public routes write into public layer');
+    r = await wbCtx.runWorkbenchTool('project_edit_file', { file_path: 'drivers/e.c', target_content: 'a', replacement_content: 'b', scope: 'baseline' });
+    assert(r.isError === true && /scope/.test(r.text), 'DSH-WB-01: invalid scope rejected');
+    r = await wbCtx.runWorkbenchTool('project_edit_file', { file_path: '../escape.c', target_content: 'a', replacement_content: 'b' });
+    assert(r.isError === true && r.text.includes('必须是工程内相对路径'), 'DSH-WB-01: traversal path rejected for edit');
+    // d) readwrite 档 compile: 预置类型放行 (桩捕获构造命令)
+    captured = null;
+    r = await wbCtx.runWorkbenchTool('project_compile', { build_type: 'driver' });
+    assert(r.isError === false && r.text.includes('编译成功') && captured && captured.cmd.includes('build.sh -p mt6858 -m K90GF2 -k driver'),
+      'DSH-WB-01: readwrite compile runs preset type via injected runner');
+    captured = null;
+    r = await wbCtx.runWorkbenchTool('project_compile', { build_type: 'dts', extra_args: '-j8' });
+    assert(r.isError === false && captured && captured.cmd.includes('-k dtbo -j8'),
+      'DSH-WB-01: readwrite compile dts maps to dtbo with clean extra_args');
+    r = await wbCtx.runWorkbenchTool('project_compile', { build_type: 'echo hi' });
+    assert(r.isError === true && r.text.includes('完全权限'), 'DSH-WB-01: readwrite rejects custom build_type');
+    for (const bad of ['; rm -rf', 'a && b', 'x > y']) {
+      r = await wbCtx.runWorkbenchTool('project_compile', { build_type: 'driver', extra_args: bad });
+      assert(r.isError === true && r.text.includes('完全权限'),
+        `DSH-WB-01: readwrite rejects injected extra_args: ${JSON.stringify(bad)}`);
+    }
+    // e) full 档: 自定义命令通过校验层 (桩捕获); 换行仍拒
+    writePermFile('full');
+    captured = null;
+    r = await wbCtx.runWorkbenchTool('project_compile', { build_type: 'uptime -a' });
+    assert(r.isError === false && captured && captured.cmd.includes('uptime -a'),
+      'DSH-WB-01: full perm allows arbitrary remote command');
+    r = await wbCtx.runWorkbenchTool('project_compile', { build_type: 'driver', extra_args: '-j8\nrm -rf /' });
+    assert(r.isError === true && /换行|NUL/.test(r.text), 'DSH-WB-01: full perm still rejects newline extra_args');
+    wbCtx.setWorkbenchCompileRunner(async () => ({ ok: false, code: 2, elapsed: 3, stdout: 'cc1: error: bad code\n', stderr: '' }));
+    r = await wbCtx.runWorkbenchTool('project_compile', { build_type: 'driver' });
+    assert(r.isError === true && r.text.includes('编译失败') && r.text.includes('error: bad code'),
+      'DSH-WB-01: compile failure extracts compiler errors');
+    // 非 DSH 宿主: 全部拒绝 (视同未侦测到)
+    delete process.env.TABONKB_MCP_HOST;
+    r = await wbCtx.runWorkbenchTool('project_edit_file', { file_path: 'drivers/e.c', target_content: 'a', replacement_content: 'b' });
+    assert(r.isError === true && r.text.includes('未侦测到'), 'DSH-WB-01: non-DSH host blocks project_edit_file');
+    process.env.TABONKB_MCP_HOST = 'dsh';
+  } finally {
+    wbCtx.setWorkbenchCompileRunner(null);
+    if (oldWbHost3 === undefined) delete process.env.TABONKB_MCP_HOST; else process.env.TABONKB_MCP_HOST = oldWbHost3;
+    if (oldWbAcf3 === undefined) delete process.env.TABONKB_ACTIVE_CONTEXT_FILE; else process.env.TABONKB_ACTIVE_CONTEXT_FILE = oldWbAcf3;
+  }
+
+  // schema/超时断言: WORKBENCH_TOOLS 含新工具且描述写明权限档; workbench 条目 650000
+  const wbToolAll = (wbCtx.WORKBENCH_TOOLS || []).map(t => t.name);
+  assert(wbToolAll.includes('project_edit_file') && wbToolAll.includes('project_compile'),
+    'DSH-WB-01: WORKBENCH_TOOLS registers edit/compile tools');
+  const editSchema = wbCtx.WORKBENCH_TOOLS.find(t => t.name === 'project_edit_file');
+  const compSchema = wbCtx.WORKBENCH_TOOLS.find(t => t.name === 'project_compile');
+  assert(editSchema && editSchema.description.includes('权限档') && editSchema.description.includes('基线只读'),
+    'DSH-WB-01: edit schema documents perm gate + baseline read-only');
+  assert(compSchema && compSchema.description.includes('权限档') && compSchema.description.includes('完全权限'),
+    'DSH-WB-01: compile schema documents perm tiers');
+  assert(wbToolNames.includes('project_edit_file') && wbToolNames.includes('project_compile'),
+    'DSH-WB-01: MCP tools/list exposes edit/compile tools');
+  const wbEntry2 = buildDshMcpEntries('d:\\work\\Mgmt\\TabonKB').find(e => e.config && e.config.serverName === 'workbench');
+  assert(wbEntry2 && wbEntry2.config.toolCallTimeoutMs === 650000,
+    'DSH-WB-01: workbench entry toolCallTimeoutMs=650000 (compile headroom)');
+  const presetJson2 = JSON.stringify(dshShared.buildTabonKbPresets('d:/vault-test'));
+  assert(presetJson2.includes('project_edit_file') && presetJson2.includes('project_compile') && presetJson2.includes('完全权限'),
+    'DSH-WB-01: persona wires project_edit_file/project_compile with perm tiers');
+
   // --- Suite 17: Antigravity CLI Adapter & Thinking Pipeline (AGY-ADP-01, AGY-THINK-01) ---
   console.log('\n>>> Suite 17: Antigravity CLI Adapter & Thinking Pipeline (AGY-ADP-01, AGY-THINK-01)');
   const { AntigravityAdapter, ensureAgyMcpServers } = require(path.join(pluginDir, 'providers', 'antigravity-adapter.js'));
@@ -1385,7 +1538,7 @@ async function runAllSuites() {
       this._listeners = {};
       this._html = '';
       this._htmlKids = [];
-      this.textContent = '';
+      this._text = '';
       this.value = '';
       this.title = '';
       this.placeholder = '';
@@ -1400,6 +1553,19 @@ async function runAllSuites() {
     set id(v) { this._attrs.id = v; }
     get firstChild() { return this.children[0] || this._htmlKids[0] || null; }
     get lastChild() { return this.children[this.children.length - 1] || null; }
+    // 对齐真实 DOM：textContent 聚合自身文本+子树；赋值清空子树（明细行改 span 装配后依赖此语义）
+    get textContent() {
+      let t = this._text || '';
+      for (const c of this.children) t += (c && c.textContent) || '';
+      for (const k of this._htmlKids) t += (k && k.textContent) || '';
+      return t;
+    }
+    set textContent(v) {
+      this._text = String(v == null ? '' : v);
+      this.children.length = 0;
+      this._htmlKids.length = 0;
+      this._html = '';
+    }
     get innerHTML() { return this._html; }
     set innerHTML(v) {
       this._html = String(v || '');
@@ -2396,7 +2562,9 @@ async function runAllSuites() {
     hubT.emit('agent_settled', {});
     const asst = smT._msgs.filter(m => m.role === 'assistant').pop();
     const toolStep = (asst.processSteps || []).find(s => s.type === 'tool');
-    assert(toolStep && Array.isArray(toolStep.toolSummaries) && toolStep.toolSummaries.includes('grep("shutdown")') && toolStep.toolSummaries.includes('read(mtk_charger.c)'),
+    assert(toolStep && Array.isArray(toolStep.toolSummaries)
+      && toolStep.toolSummaries.some(l => l.startsWith('grep("shutdown")'))
+      && toolStep.toolSummaries.some(l => l.startsWith('read(mtk_charger.c)')),
       'STREAM-11: persisted processSteps carry per-call summaries like read(x.c)/grep("..")');
 
     // 旧数据回退：无 toolSummaries 但 msg.toolCalls 存在 → banner 渲染合并摘要
@@ -2879,6 +3047,10 @@ async function runAllSuites() {
     assert(decodeTarget(vaultAbsReal) === vaultAbsReal, 'FL-01d: already-decoded Chinese path unchanged');
     assert(decodeTarget('file:///D:/x%20y.md') === 'D:/x y.md', 'FL-01e: file:/// prefix stripped and decoded');
     assert(decodeTarget('`x.c`') === 'x.c' && decodeTarget('[[x.c]]') === 'x.c', 'FL-01f: backtick/wikilink wrappers stripped');
+    assert(decodeTarget('file:///dfb/tankaikun/share/01/a.c') === '/dfb/tankaikun/share/01/a.c', 'FL-01g: file:///dfb keeps leading slash (linux abs)');
+    assert(decodeTarget('file:///home/tankaikun/a.c') === '/home/tankaikun/a.c', 'FL-01h: file:///home keeps leading slash');
+    assert(decodeTarget('file:///Y:/01/a.c') === 'Y:/01/a.c', 'FL-01i: file:///Y: drive slash still stripped');
+
 
     // FL-02: splitLine (行号锚点)
     assert(splitLine('a.c:85').line === 85 && splitLine('a.c:85').path === 'a.c', 'FL-02a: a.c:85 -> line 85');
@@ -2942,12 +3114,25 @@ async function runAllSuites() {
     cp29.activeFilter = ''; cp29.searchKeyword = ''; cp29.activeFile = null; cp29.app = null;
     const wire29 = cp29.formatPromptWithContext('用户原文');
     assert(wire29.includes('[文件引用]'), 'FL-08a: injected prompt contains [文件引用] rule');
-    const { PiDrawerView } = require(path.join(pluginDir, 'pi-drawer-view.js'));
-    const stripped29 = PiDrawerView.prototype._extractUserTextFromWire.call({}, wire29);
+    const { PiDrawerView: PiDrawerView29 } = require(path.join(pluginDir, 'pi-drawer-view.js'));
+    const stripped29 = PiDrawerView29.prototype._extractUserTextFromWire.call({}, wire29);
     assert(stripped29 === '用户原文', 'FL-08b: wire extraction restores user text without [文件引用] residue');
 
+    {
+      const D01 = Object.create(PiDrawerView29.prototype);
+      D01.vaultBasePath = 'D:/work/Mgmt/TabonKB';
+      D01.selectedLocalProject = { fullPathWin: 'Y:\\01', priDriverRel: 'pri_project/driver/mt6789/E200Q/base', publicDriverRel: 'pri_project/driver/public', linuxPath: '/dfb/tankaikun/share/01' };
+      D01.getSavedLocalProject = () => null;
+      const lp01 = 'dfb/tankaikun/share/01/pri_project/driver/mt6789/E200Q/base/kernel/tcpc_sc2150.c';
+      const r01a = D01.resolveCodeFilePath('file:///' + lp01);
+      const r01b = D01.resolveCodeFilePath(lp01);
+      const exp01 = 'Y:\\01\\pri_project\\driver\\mt6789\\E200Q\\base\\kernel\\tcpc_sc2150.c';
+      assert(r01a && r01a.filePath === exp01 && r01a.classification === 'server_abs', 'FL-01j: file:///dfb linux abs path maps 1:1 to Y: (no project-dir nesting)');
+      assert(r01b && r01b.filePath === exp01, 'FL-01k: slash-less dfb/tankaikun/... path also maps 1:1 to Y:');
+    }
+
     // FL-09: openVaultFileInSplit —— 建分栏/复用/失效重建/anchor 回退/失败回落 (stub workspace)
-    const Drawer29 = Object.create(PiDrawerView.prototype);
+    const Drawer29 = Object.create(PiDrawerView29.prototype);
     let created29 = 0, revealed29 = 0, getLeafCalls29 = 0;
     const opened29 = [];
     const anchorLeaf29 = { view: {}, parent: {} };

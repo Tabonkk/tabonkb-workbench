@@ -294,7 +294,7 @@ function buildDshMcpEntries(vaultBasePath) {
     }
   });
 
-  // 10. workbench (会话绑定上下文 + 本地工程三层穿透只读)
+  // 10. workbench (会话绑定上下文 + 本地工程三层穿透读/改/编译; 编译阻塞上限 600s, 超时值为上限不是等待)
   const workbenchPath = resolveScriptPath(vaultBasePath, 'workbench-mcp.js');
   entries.push({
     id: 'mcp-workbench',
@@ -306,7 +306,7 @@ function buildDshMcpEntries(vaultBasePath) {
       args: [workbenchPath],
       env: DSH_MCP_HOST_ENV,
       failOnStartupError: false,
-      toolCallTimeoutMs: 30000
+      toolCallTimeoutMs: 650000
     }
   });
 
@@ -551,7 +551,9 @@ Bringup 或多步疑难排障，先用规划模式拆成可观测的小步，每
 2. OpenGrok 工程：非 'auto' 即代表用户圈定的目标源码工程，opengrok_search_code / opengrok_list_projects 的 project 参数缺省时自动取该绑定值，跨库联检仅在用户明确要求时放宽。
 3. Jira 工单绑定：先用 jira_get_issue 拉取描述/复现条件，再 jira_list_attachments 与 jira_download_attachment 取证附件；上述工具缺省 issue_key 时自动使用绑定工单；答复引用工单号并贴合其环境。
 4. Gerrit 过滤器（all/open/merged/mine/reviewing）：gerrit_search_changes 的 query 缺省或未含 status:/owner:/reviewer: 时自动按绑定范围收窄，显式写这些操作符可覆盖。
-5. 上述绑定随 DSH 会话独立保存；workbench_context 显示未绑定时按无绑定处理，不要沿用上一会话的工程假设。`),
+5. 上述绑定随 DSH 会话独立保存；workbench_context 显示未绑定时按无绑定处理，不要沿用上一会话的工程假设。
+6. 改本地工程代码用 project_edit_file：target_content 先经 project_read_file 取精确原文；写入自动路由到客制化层/公共层（原厂基线只读永不写入），需 DSH 权限档非「仅可查看」。
+7. 远程编译用 project_compile：需权限档非「仅可查看」；「工作区内修改」档仅可跑预置编译类型（driver/dtbo/dts/kernel），自定义远程命令需「完全权限」档。`),
           planningGroup,
           compactionGroup
         ]

@@ -1193,14 +1193,23 @@ class PiDrawerView {
         const adapter = this.hub.getActiveAdapter();
         if (typeof adapter.reloadModels === 'function') {
           this.modelRefreshBtn.classList.add('rotating');
+          const app = this.app || (typeof window !== 'undefined' ? window.app : null);
+          const NoticeCls = typeof Notice !== 'undefined' ? Notice : (app?.Notice || class{});
           try {
+            // 先跑 Magpie → .mem 目录同步脚本（更新 pi models.json / dsh patch），
+            // 再由 reloadModels 重读 models.json；脚本失败不阻塞原有刷新。
+            const sync = await this._runMemModelSync();
             await Promise.resolve(adapter.reloadModels());
             const currentSearch = this.modelSearchInput ? this.modelSearchInput.value.trim() : '';
             this.renderModelPopover(currentSearch);
             this.updateModelSelectorPill();
-            const app = this.app || (typeof window !== 'undefined' ? window.app : null);
-            const NoticeCls = typeof Notice !== 'undefined' ? Notice : (app?.Notice || class{});
-            new NoticeCls('✓ 模型列表已实时同步最新', 2000);
+            if (sync.ok) {
+              new NoticeCls(sync.changed ? '✓ .mem 模型目录已从 Magpie 同步' : '✓ 模型列表已实时同步最新', 2000);
+            } else if (sync.skipped) {
+              new NoticeCls('✓ 模型列表已实时同步最新', 2000);
+            } else {
+              new NoticeCls('⚠ Magpie 同步失败：' + String(sync.error || '未知错误').slice(0, 80), 4000);
+            }
           } catch (err) {
             console.warn('[PiDrawerView] reloadModels error:', err);
           } finally {
@@ -1225,6 +1234,32 @@ class PiDrawerView {
         this.closeModelPopover();
       }
     }, { signal: this._docEventsAbort ? this._docEventsAbort.signal : undefined });
+  }
+
+  /** 执行插件目录下 sync-mem-models.py（Magpie → .mem 目录同步），
+   *  返回 { ok, changed, skipped, error }；无 Node 环境或脚本缺失时 skipped 跳过。 */
+  async _runMemModelSync() {
+    try {
+      const cp = (typeof child_process !== 'undefined' && child_process) ? child_process : (typeof require !== 'undefined' ? require('child_process') : null);
+      const fs = typeof require !== 'undefined' ? require('fs') : null;
+      if (!cp || typeof cp.execFile !== 'function' || !fs) return { ok: false, skipped: true };
+      const basePath = this.app?.vault?.adapter?.basePath;
+      if (!basePath) return { ok: false, skipped: true };
+      const script = path.join(basePath, '.obsidian', 'plugins', 'tabonkb-workbench', 'sync-mem-models.py');
+      if (!fs.existsSync(script)) return { ok: false, skipped: true };
+      const r = await new Promise((resolve) => {
+        cp.execFile('py', [script], { timeout: 30000, windowsHide: true }, (err, stdout, stderr) => {
+          resolve({ err, stdout: String(stdout || ''), stderr: String(stderr || '') });
+        });
+      });
+      if (r.err) {
+        const tail = (r.stderr || r.err.message || String(r.err)).trim().split('\n').pop();
+        return { ok: false, error: tail };
+      }
+      return { ok: true, changed: /→|\+ |\- /.test(r.stdout) };
+    } catch (err) {
+      return { ok: false, error: String((err && err.message) || err) };
+    }
   }
 
   openModelPopover() {
@@ -4090,16 +4125,28 @@ class PiDrawerView {
         `;
         bannerBody.appendChild(marker);
 
-        // 工具步骤：逐条压缩摘要明细（read(x.c)/grep("..")），展开 banner 可见；✗ 前缀行标红
-        if (step.type === 'tool' && Array.isArray(step.toolSummaries) && step.toolSummaries.length) {
+        // 工具步骤：优先 step.toolCalls 快照重建富明细行（含耗时/结果/可展开输出框）；
+        // 旧数据仅有 toolSummaries 字符串时回退纯文本行；✗ 前缀行标红
+        if (step.type === 'tool' && (
+          (Array.isArray(step.toolCalls) && step.toolCalls.length) ||
+          (Array.isArray(step.toolSummaries) && step.toolSummaries.length))) {
           anyToolSummaries = true;
           const sumEl = document.createElement('div');
           sumEl.className = 'tw-dsh-thinking-prose';
-          for (const line of step.toolSummaries) {
-            const row = document.createElement('div');
-            row.className = 'tw-tool-detail-line' + (String(line).startsWith('✗') ? ' error' : '');
-            row.textContent = line;
-            sumEl.appendChild(row);
+          if (Array.isArray(step.toolCalls) && step.toolCalls.length) {
+            for (const tc of step.toolCalls) {
+              const built = this._buildToolDetailRow(tc);
+              if (!built) continue;
+              sumEl.appendChild(built.row);
+              if (built.box) sumEl.appendChild(built.box);
+            }
+          } else {
+            for (const line of step.toolSummaries) {
+              const row = document.createElement('div');
+              row.className = 'tw-tool-detail-line' + (String(line).startsWith('✗') ? ' error' : '');
+              row.textContent = line;
+              sumEl.appendChild(row);
+            }
           }
           bannerBody.appendChild(sumEl);
         }
@@ -4113,17 +4160,15 @@ class PiDrawerView {
       }
       // 兼容旧数据：processSteps 无 toolSummaries 字段时，从 msg.toolCalls 合成一段合并摘要
       if (!anyToolSummaries && Array.isArray(msg.toolCalls) && msg.toolCalls.length) {
-        const lines = msg.toolCalls.map(tc => this._summarizeToolCall(tc)).filter(Boolean);
-        if (lines.length) {
+        const rows = msg.toolCalls.map(tc => this._buildToolDetailRow(tc)).filter(Boolean);
+        if (rows.length) {
           const prose = document.createElement('div');
           prose.className = 'tw-dsh-thinking-prose';
-          for (const line of lines.slice(0, 5)) {
-            const row = document.createElement('div');
-            row.className = 'tw-tool-detail-line' + (String(line).startsWith('✗') ? ' error' : '');
-            row.textContent = line;
-            prose.appendChild(row);
+          for (const r of rows.slice(0, 5)) {
+            prose.appendChild(r.row);
+            if (r.box) prose.appendChild(r.box);
           }
-          if (lines.length > 5) {
+          if (rows.length > 5) {
             const more = document.createElement('div');
             more.className = 'tw-tool-detail-line';
             more.textContent = '…';
@@ -4182,19 +4227,17 @@ class PiDrawerView {
         bannerBody.appendChild(prose);
       }
 
-      // 旧数据无 processSteps：补一段逐工具压缩摘要（read(x.c)/grep("..")），最多 5 条；✗ 前缀行标红
+      // 旧数据无 processSteps：补一段逐工具富明细（含耗时/结果/可展开输出框），最多 5 条
       if (hasTools) {
-        const lines = msg.toolCalls.map(tc => this._summarizeToolCall(tc)).filter(Boolean);
-        if (lines.length) {
+        const rows = msg.toolCalls.map(tc => this._buildToolDetailRow(tc)).filter(Boolean);
+        if (rows.length) {
           const prose = document.createElement('div');
           prose.className = 'tw-dsh-thinking-prose';
-          for (const line of lines.slice(0, 5)) {
-            const row = document.createElement('div');
-            row.className = 'tw-tool-detail-line' + (String(line).startsWith('✗') ? ' error' : '');
-            row.textContent = line;
-            prose.appendChild(row);
+          for (const r of rows.slice(0, 5)) {
+            prose.appendChild(r.row);
+            if (r.box) prose.appendChild(r.box);
           }
-          if (lines.length > 5) {
+          if (rows.length > 5) {
             const more = document.createElement('div');
             more.className = 'tw-tool-detail-line';
             more.textContent = '…';
@@ -4778,12 +4821,13 @@ class PiDrawerView {
     // 1. R1 修复: 先解码百分号编码 / file:// / 包裹字符, 再统一拆分行号锚点
     const dec = (typeof decodeTarget === 'function')
       ? decodeTarget(rawTarget)
-      : String(rawTarget).trim().replace(/^file:\/\/\/?/i, '');
+      : String(rawTarget).trim().replace(/^file:\/\/(?:\/(?=[A-Za-z]:))?/i, '');
     const sl = (typeof splitLine === 'function') ? splitLine(dec) : { path: dec, line: null };
     let clean = sl.path;
     if (sl.line) line = sl.line;
     // 清理尾部可能的冒号、句点或中文字符
     clean = clean.replace(/[:：\s，,。.]+$/, '');
+    clean = clean.replace(/^(?=(?:dfb|home)\/tankaikun\/)/, '/');
 
     // 2. Linux 远程服务器路径映射 (62 服务器与 31 服务器)
     if (clean.startsWith('/dfb/tankaikun/share/')) {
@@ -6966,9 +7010,32 @@ class PiDrawerView {
         clearInterval(bannerTimer);
         return;
       }
-      const elapsed = Date.now() - startTime;
+      const m = this.currentAssistantMessage;
+      const now = Date.now();
+      const elapsed = now - startTime;
+      // 运行中工具耗时徽标（单 tick 扇出，≤正在运行的工具数个 DOM 文本更新）
+      if (this.activeToolCards && this.activeToolCards.size) {
+        for (const [, info] of this.activeToolCards) {
+          if (info.badgeEl && info.badgeEl.isConnected) {
+            const ms = now - info.startTime;
+            info.badgeEl.textContent = `运行 ${this.formatDuration(ms)}`;
+            info.badgeEl.classList.toggle('warn', ms > 60000 && ms <= 300000);
+            info.badgeEl.classList.toggle('stall', ms > 300000);
+          }
+        }
+      }
+      // 头部状态：静默 >3min 判无响应（红）；总时长 >10min 标耗时较长（琥珀）
       if (statusTextEl) {
-        statusTextEl.textContent = `正在处理...，用时 ${this.formatDuration(elapsed)}`;
+        const idleMs = now - (m.lastEventAt || startTime);
+        if (idleMs > 180000) {
+          statusTextEl.textContent = `⚠ 用时 ${this.formatDuration(elapsed)} · 已 ${Math.max(1, Math.floor(idleMs / 60000))}分钟无响应，可中止重试`;
+          statusTextEl.classList.add('stalled');
+          statusTextEl.classList.remove('slow');
+        } else {
+          statusTextEl.textContent = `正在处理...，用时 ${this.formatDuration(elapsed)}${elapsed > 600000 ? '（耗时较长）' : ''}`;
+          statusTextEl.classList.toggle('slow', elapsed > 600000);
+          statusTextEl.classList.remove('stalled');
+        }
       }
     }, 1000);
 
@@ -6997,6 +7064,7 @@ class PiDrawerView {
       isThinking: false,
       toolCount: 0,
       toolCalls: [],
+      lastEventAt: startTime,
       rawText: '',
       steps: [],
       currentStep: null,
@@ -7057,6 +7125,7 @@ class PiDrawerView {
       this.createAssistantMessageBubble();
     }
     const msg = this.currentAssistantMessage;
+    msg.lastEventAt = Date.now();
     msg.isThinking = true;
     if (!msg.thinkingStartTime) msg.thinkingStartTime = (data && data.startTime) || Date.now();
     this.ensureThinkingStep();
@@ -7068,6 +7137,7 @@ class PiDrawerView {
       this.createAssistantMessageBubble();
     }
     const msg = this.currentAssistantMessage;
+    msg.lastEventAt = Date.now();
     msg.isThinking = true;
     if (!msg.thinkingStartTime) msg.thinkingStartTime = Date.now();
     msg.thinkingText = (msg.thinkingText || '') + delta;
@@ -7096,7 +7166,8 @@ class PiDrawerView {
       this._thinkingRenderRafId = null;
       if (!this.currentAssistantMessage) return;
       const msg = this.currentAssistantMessage;
-      if (msg.currentStep && msg.currentStep.proseEl) {
+      // 仅思考步写 proseEl；工具步的 proseEl 承载明细行，绝不能被思考文本清掉
+      if (msg.currentStep && msg.currentStep.type === 'thinking' && msg.currentStep.proseEl) {
         msg.currentStep.proseEl.textContent = msg.currentStep.text || '';
         if (msg.currentStep.text && msg.currentStep.text.trim()) {
           msg.currentStep.proseEl.style.display = 'block';
@@ -7115,6 +7186,7 @@ class PiDrawerView {
   handleThinkingEnd(data) {
     if (!this.currentAssistantMessage) return;
     const msg = this.currentAssistantMessage;
+    msg.lastEventAt = Date.now();
     msg.isThinking = false;
     if (this._thinkingRenderRafId) {
       cancelAnimationFrame(this._thinkingRenderRafId);
@@ -7147,6 +7219,7 @@ class PiDrawerView {
   handleThinkingRecap(data) {
     if (!this.currentAssistantMessage) return;
     const msg = this.currentAssistantMessage;
+    msg.lastEventAt = Date.now();
     const step = this.ensureThinkingStep();
     if (!step) return;
     if (step.markerEl) {
@@ -7176,6 +7249,7 @@ class PiDrawerView {
       this.createAssistantMessageBubble();
     }
     const msg = this.currentAssistantMessage;
+    msg.lastEventAt = Date.now();
     msg.rawText += delta;
 
     if (msg.rawText.trim().length > 0) {
@@ -7203,6 +7277,7 @@ class PiDrawerView {
       this.createAssistantMessageBubble();
     }
     const msg = this.currentAssistantMessage;
+    msg.lastEventAt = Date.now();
     msg.toolCount++;
 
     if (msg.bannerDividerEl) msg.bannerDividerEl.style.display = 'block';
@@ -7272,16 +7347,22 @@ class PiDrawerView {
     this.scrollToBottom();
   }
 
-  handleToolEnd({ toolCallId, toolName, durationMs, isError, error, output }) {
+  handleToolEnd({ toolCallId, toolName, durationMs, isError, error, output, result }) {
     const cardInfo = this.activeToolCards.get(toolCallId);
     if (!cardInfo) return;
     this.activeToolCards.delete(toolCallId);
+    if (this.currentAssistantMessage) this.currentAssistantMessage.lastEventAt = Date.now();
 
     const { toolStep, toolCallRef } = cardInfo;
     if (toolCallRef) {
       toolCallRef.durationMs = durationMs;
       toolCallRef.isError = isError;
       if (error) toolCallRef.error = String(error).slice(0, 300);
+      // 接住此前被丢弃的执行结果（pi result 对象 / agy output 字符串），
+      // 裁剪 2KB 落 toolCall 随消息序列化；明细行展示首行摘要、全文进 title
+      const outText = this._extractToolOutputText(result != null ? result : output);
+      if (outText) toolCallRef.output = outText;
+      else if (isError && toolCallRef.error) toolCallRef.output = toolCallRef.error;
     }
 
     if (toolStep && toolStep.labelEl) {
@@ -7346,6 +7427,7 @@ class PiDrawerView {
     // Update banner to completed state and collapse by default (matching DSH)
     if (msg.statusTextEl) {
       msg.statusTextEl.textContent = isAborted ? `已中止，用时 ${durationStr}` : `已完成，用时 ${durationStr}`;
+      msg.statusTextEl.classList.remove('slow', 'stalled');
     }
     if (msg.bannerEl) {
       msg.bannerEl.classList.add('collapsed');
@@ -7478,7 +7560,17 @@ class PiDrawerView {
       label: s.label,
       text: (s.text || '').trim(),
       // 每步附带逐工具压缩摘要（read(xxx.c)/grep("...") 级），供历史恢复时展示明细
-      toolSummaries: (s.toolCalls || []).map(tc => this._summarizeToolCall(tc)).filter(Boolean)
+      toolSummaries: (s.toolCalls || []).map(tc => this._summarizeToolCall(tc)).filter(Boolean),
+      // 轻量 toolCall 快照（含 output 摘要），供恢复时重建富明细行与可展开输出框
+      toolCalls: (s.toolCalls || []).map(tc => ({
+        toolCallId: tc.toolCallId,
+        toolName: tc.toolName,
+        args: tc.args,
+        durationMs: tc.durationMs,
+        isError: !!tc.isError,
+        error: tc.error,
+        output: tc.output
+      }))
     }));
 
     // 切段快照（仅内存缓冲用，不直接序列化）
@@ -9451,10 +9543,11 @@ class PiDrawerView {
   }
 
   /**
-   * 单个工具调用的压缩摘要（≤80 字符、去换行）：read(xxx.c) / grep("...") / bash(...) 级明细。
-   * 供历史恢复 banner 展开时展示逐步操作；未知工具回退 toolName，绝不抛错。
+   * 单个工具调用的核心摘要：read(xxx.c) / grep("...") / bash(...) / name(关键参数)。
+   * 不含结果/耗时/错误尾缀（由 _summarizeToolCall 与 _renderToolStepDetails 各自装配）；
+   * 未知工具回退 toolName，绝不抛错。
    */
-  _summarizeToolCall(tc) {
+  _toolCallCore(tc) {
     try {
       if (!tc || typeof tc !== 'object') return '';
       const name = String(tc.toolName || tc.name || 'tool');
@@ -9468,30 +9561,42 @@ class PiDrawerView {
         }
         return '';
       };
+      // 兜底：任意第一个非空字符串/数字参数值（键名不可知的 CLI 工具参数形态）
+      const pickAny = () => {
+        try {
+          for (const v of Object.values(args || {})) {
+            if (typeof v === 'string' && v) return v;
+            if (typeof v === 'number') return String(v);
+          }
+        } catch (_) {}
+        return '';
+      };
       const clip = (s, n = 60) => {
         const t = String(s || '').replace(/\s+/g, ' ').trim();
         return t.length > n ? t.slice(0, n) + '…' : t;
       };
       const base = (p) => String(p || '').split(/[\\/]/).filter(Boolean).pop() || String(p || '');
+      // 已知键未命中时取任意参数；仍为空则裸名，杜绝 name() 空括号
+      const withArg = (label, v, quoted) => {
+        const h = clip(v || pickAny(), 55);
+        return h ? `${label}(${quoted ? `"${h}"` : h})` : label;
+      };
       let out = '';
       if (/^(read|read_file|view_file|opengrok_read_file|open|cat)$/i.test(lname)) {
-        out = `read(${clip(base(pick('path', 'file_path', 'file', 'filePath', 'target', 'absPath')), 60)})`;
+        out = withArg('read', base(pick('path', 'file_path', 'file', 'filePath', 'target', 'absPath')));
       } else if (/^(grep|find|search|opengrok_search_code|glob|find_files|ls|list_dir)$/i.test(lname)) {
         const q = pick('pattern', 'query', 'q', 'regex', 'search', 'name', 'path', 'root');
-        out = `grep("${clip(q, 50)}")`;
+        out = withArg('grep', q, true);
       } else if (/^(bash|exec|terminal|command|run_command|shell|cmd)$/i.test(lname)) {
-        out = `bash(${clip(pick('command', 'cmd', 'script', 'input'), 55)})`;
+        out = withArg('bash', pick('command', 'cmd', 'script', 'input'));
       } else if (/^(write|write_to_file|replace_file_content|edit|update_file|apply_patch|create_file)$/i.test(lname)) {
-        out = `edit(${clip(base(pick('path', 'file_path', 'file', 'filePath', 'target')), 55)})`;
+        out = withArg('edit', base(pick('path', 'file_path', 'file', 'filePath', 'target')));
       } else if (/^update_plan$/i.test(lname)) {
         out = 'plan';
       } else {
-        const hint = tc.actionDesc || clip(pick('path', 'file_path', 'command', 'query', 'url', 'change_id', 'id'), 45);
-        out = hint ? `${name}(${clip(hint, 45)})` : name;
-      }
-      if (tc.isError) {
-        const e = clip(tc.error || '', 36);
-        out = `✗ ${out}${e ? ` — ${e}` : ''}`;
+        // 未知工具只取真实参数做括号摘要；actionDesc 是状态标签（如「正在调用: x」），不做参数
+        const hint = clip(pick('path', 'file_path', 'file', 'filePath', 'command', 'cmd', 'query', 'q', 'url', 'change_id', 'issue_key', 'action', 'rule', 'cron', 'title', 'key', 'name', 'task_id', 'id') || pickAny(), 45);
+        out = hint ? `${name}(${hint})` : name;
       }
       return out.length > 80 ? out.slice(0, 80) + '…' : out;
     } catch (_) {
@@ -9499,10 +9604,153 @@ class PiDrawerView {
     }
   }
 
+  /** 结果首行摘要（≤60 字、去换行）；跳过 "Command exited with code N." 工具样板首行取真实内容 */
+  _toolOutputLine(output, n = 60) {
+    const lines = String(output || '').split('\n').map(l => l.trim()).filter(Boolean);
+    if (!lines.length) return '';
+    let i = 0;
+    if (/^command exited with code \d+\.?$/i.test(lines[0]) && lines.length > 1) i = 1;
+    const t = lines[i];
+    return t.length > n ? t.slice(0, n) + '…' : t;
+  }
+
+  /**
+   * 单个工具调用的压缩明细串：name(args) + 结果/错误尾缀 + 耗时。
+   * 供历史恢复/持久化 toolSummaries；运行中工具由 _renderToolStepDetails 用 DOM 装配。
+   */
+  _summarizeToolCall(tc) {
+    const call = this._toolCallCore(tc);
+    if (!call) return '';
+    let out;
+    if (tc.isError) {
+      const e = this._toolOutputLine(tc.error || tc.output || '', 36);
+      out = `✗ ${call}${e ? ` — ${e}` : ''}`;
+    } else {
+      const r = this._toolOutputLine(tc.output);
+      out = r ? `${call} → ${r}` : call;
+    }
+    if (tc.durationMs != null && tc.durationMs > 0) {
+      out += ` · ${this._fmtToolDur(tc.durationMs)}`;
+    }
+    return out.length > 120 ? out.slice(0, 120) + '…' : out;
+  }
+
+  /** 工具结果统一取文本：字符串原样 / MCP {content:[{text}]} 拼接 / {text} / 其余 JSON 化；裁剪 2KB */
+  _extractToolOutputText(v) {
+    try {
+      if (v == null) return '';
+      let s = '';
+      if (typeof v === 'string') s = v;
+      else if (Array.isArray(v.content)) s = v.content.map(c => (c && typeof c.text === 'string') ? c.text : '').filter(Boolean).join('\n');
+      else if (typeof v.text === 'string') s = v.text;
+      else s = JSON.stringify(v);
+      s = String(s || '').replace(/\r\n?/g, '\n').trim();
+      return s.length > 2000 ? s.slice(0, 2000) + '…' : s;
+    } catch (_) { return ''; }
+  }
+
+  /** 工具耗时短格式：<1s→ms；<10s→x.x s；<60s→xs；否则「分秒」 */
+  _fmtToolDur(ms) {
+    const t = Math.max(0, Math.round(ms || 0));
+    if (t < 1000) return `${t}ms`;
+    if (t < 10000) return `${(t / 1000).toFixed(1)}s`;
+    if (t < 60000) return `${Math.round(t / 1000)}s`;
+    return this.formatDuration(t);
+  }
+
   /**
    * 渲染工具步逐条明细（read(x.c)/bash(...)）：填进 step.proseEl（此前空置），
    * 失败行标 error 类；title 悬停可见完整 args。实时/收尾都会调用，幂等重建。
    */
+  /**
+   * 单条工具明细行 DOM：name(args) + 耗时徽标 + → 结果摘要 + 可展开输出内框。
+   * 输出多行或 >60 字时挂 .tw-tool-output-box（滚动内框），点击结果摘要/行尾 ⌄ 开合；
+   * toolStep._openOutputs 记住展开态，重建不丢。返回 {row, box}，实时/恢复共用。
+   */
+  _buildToolDetailRow(tc, toolStep) {
+    const core = this._toolCallCore(tc);
+    if (!core) return null;
+    const running = this.activeToolCards.has(tc.toolCallId);
+    const row = document.createElement('div');
+    row.className = 'tw-tool-detail-line' + (tc.isError ? ' error' : '');
+    // 主文本：name(args)；失败加 ✗ — 错误
+    const main = document.createElement('span');
+    main.textContent = tc.isError
+      ? `✗ ${core}${tc.error ? ` — ${this._toolOutputLine(tc.error, 36)}` : ''}`
+      : core;
+    row.appendChild(main);
+    // 耗时徽标：运行中实时计（tick 更新 badgeEl），完成后定格；>60s 琥珀 >5min 红
+    const durMs = (tc.durationMs != null && tc.durationMs > 0) ? tc.durationMs : null;
+    if (running || durMs != null) {
+      const badge = document.createElement('span');
+      badge.className = 'tw-tool-dur';
+      if (running) {
+        const info = this.activeToolCards.get(tc.toolCallId);
+        const ms = Date.now() - (info.startTime || Date.now());
+        badge.textContent = `运行 ${this.formatDuration(ms)}`;
+        if (ms > 300000) badge.classList.add('stall'); else if (ms > 60000) badge.classList.add('warn');
+        info.badgeEl = badge;
+      } else {
+        badge.textContent = this._fmtToolDur(durMs);
+        if (durMs > 300000) badge.classList.add('stall'); else if (durMs > 60000) badge.classList.add('warn');
+      }
+      row.appendChild(badge);
+    }
+    // 结果摘要与展开内框
+    const out = String(tc.output || '');
+    const expandable = !!out && (out.indexOf('\n') !== -1 || out.length > 60);
+    let resEl = null;
+    if (!tc.isError && out) {
+      const arrow = document.createElement('span');
+      arrow.className = 'tw-tool-arr';
+      arrow.textContent = ' → ';
+      resEl = document.createElement('span');
+      resEl.className = 'tw-tool-result' + (expandable ? ' toggle' : '');
+      resEl.textContent = this._toolOutputLine(out);
+      row.appendChild(arrow);
+      row.appendChild(resEl);
+    }
+    let box = null;
+    let caret = null;
+    if (expandable) {
+      caret = document.createElement('span');
+      caret.className = 'tw-tool-out-caret';
+      const id = tc.toolCallId || core;
+      // 输出内框默认展开（用户点 ⌃ 收起后记入 _closedOutputs，重建保持收起态）
+      const closed = !!(toolStep && toolStep._closedOutputs && toolStep._closedOutputs.has(id));
+      caret.textContent = closed ? '⌄' : '⌃';
+      row.appendChild(caret);
+      box = document.createElement('div');
+      box.className = 'tw-tool-output-box';
+      box.textContent = out;
+      box.style.display = closed ? 'none' : 'block';
+      const toggle = () => {
+        const hide = box.style.display !== 'none';
+        box.style.display = hide ? 'none' : 'block';
+        caret.textContent = hide ? '⌄' : '⌃';
+        if (toolStep) {
+          toolStep._closedOutputs = toolStep._closedOutputs || new Set();
+          if (hide) toolStep._closedOutputs.add(id); else toolStep._closedOutputs.delete(id);
+        }
+      };
+      if (resEl) resEl.onclick = toggle;
+      caret.onclick = toggle;
+    }
+    try {
+      const parts = [];
+      const fullArgs = tc.args || tc.arguments || tc.input;
+      if (fullArgs) {
+        const a = JSON.stringify(fullArgs);
+        parts.push(a.length > 2000 ? a.slice(0, 2000) + '…' : a);
+      }
+      if (out) {
+        parts.push(out.length > 2000 ? out.slice(0, 2000) + '…' : out);
+      }
+      if (parts.length) row.title = parts.join('\n—— 输出 ——\n');
+    } catch (_) {}
+    return { row, box };
+  }
+
   _renderToolStepDetails(toolStep) {
     try {
       if (!toolStep || !toolStep.proseEl) return;
@@ -9510,19 +9758,10 @@ class PiDrawerView {
       if (!calls.length) { toolStep.proseEl.style.display = 'none'; return; }
       toolStep.proseEl.innerHTML = '';
       for (const tc of calls) {
-        const line = this._summarizeToolCall(tc);
-        if (!line) continue;
-        const row = document.createElement('div');
-        row.className = 'tw-tool-detail-line' + (tc.isError ? ' error' : '');
-        row.textContent = line;
-        try {
-          const fullArgs = tc.args || tc.arguments || tc.input;
-          if (fullArgs) {
-            const t = JSON.stringify(fullArgs);
-            row.title = t.length > 2000 ? t.slice(0, 2000) + '…' : t;
-          }
-        } catch (_) {}
-        toolStep.proseEl.appendChild(row);
+        const built = this._buildToolDetailRow(tc, toolStep);
+        if (!built) continue;
+        toolStep.proseEl.appendChild(built.row);
+        if (built.box) toolStep.proseEl.appendChild(built.box);
       }
       toolStep.proseEl.style.display = 'block';
     } catch (_) {}
@@ -9562,7 +9801,9 @@ class PiDrawerView {
       parts.push('已绘制架构图');
     }
     if (parts.length === 0) {
-      parts.push('已调用工具');
+      // 未登记工具（manage_task/schedule 等 MCP 工具）列出真实名而非泛化标签
+      const uniq = [...toolNames].filter(Boolean).slice(0, 2);
+      parts.push(uniq.length ? uniq.join('、') : '已调用工具');
     }
     let res = parts.slice(0, 3).join('，');
     if (!res.endsWith('等') && (parts.length > 1 || toolCalls.length > 2)) {

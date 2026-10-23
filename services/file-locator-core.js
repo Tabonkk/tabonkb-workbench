@@ -32,7 +32,7 @@ function decodeTarget(raw) {
     prev = s;
     s = s.replace(/^[`'"「『]+/, '').replace(/[`'"」』]+$/, '');
   } while (s !== prev);
-  s = s.replace(/^file:\/\/\/?/i, '');
+  s = s.replace(/^file:\/\/(?:\/(?=[A-Za-z]:))?/i, '');
   if (/%[0-9A-Fa-f]{2}/.test(s)) {
     try {
       s = decodeURIComponent(s);

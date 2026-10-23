@@ -915,7 +915,7 @@ function getDshContextBridgeScript() {
   function askHost() {
     try {
       if (window.parent && window.parent !== window) {
-        window.parent.postMessage({ type: 'tabonkb-dsh-ctx-state-req', sid: currentSid() }, '*');
+        window.parent.postMessage({ type: 'tabonkb-dsh-ctx-state-req', sid: currentSid(), perm: readPermMode() }, '*');
       }
     } catch (_) {}
   }
@@ -1502,6 +1502,20 @@ function getDshContextBridgeScript() {
     }
     cachedPermAnchor = { pill: pill, textEl: cand };
     return cachedPermAnchor;
+  }
+
+  // 权限档侦测: 输入栏权限胶囊选中档文案 → 三档模式 id
+  // 仅可查看→readonly / 工作区内修改→readwrite / 完全权限→full / 匹配不到→null
+  // 随 state-req 上报 host, 由 _mirrorDshCtxToAgent 写入 active-context.json 供 MCP 工具门控
+  function readPermMode() {
+    try {
+      var anchor = findPermPill();
+      var t = (anchor && anchor.textEl && anchor.textEl.textContent) || '';
+      if (t.indexOf('仅可查看') !== -1) return 'readonly';
+      if (t.indexOf('工作区内修改') !== -1) return 'readwrite';
+      if (t.indexOf('完全权限') !== -1) return 'full';
+    } catch (_) {}
+    return null;
   }
 
   function updateCtxChips() {

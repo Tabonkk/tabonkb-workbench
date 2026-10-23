@@ -1,5 +1,6 @@
 const { AgentAdapter, getAgentBrandSvg } = require('./agent-adapter-base.js');
 const { buildVendorEnv, ensureGeminiVendorMcp, VENDOR_MCP_TOOL_HINT } = require('../mcp/vendor-mcp-shared.js');
+const { buildFileRefHint } = require('../mcp/file-ref-hint-shared.js');
 const fs = require('fs');
 const path = require('path');
 const child_process = require('child_process');
@@ -154,7 +155,7 @@ class GeminiAdapter extends AgentAdapter {
       this.sessionId = this.generateSessionId();
     }
 
-    const promptText = text + VENDOR_MCP_TOOL_HINT;
+    const promptText = text + VENDOR_MCP_TOOL_HINT + buildFileRefHint(this.vaultBasePath);
     const args = [
       ...bin.prefixArgs,
       '--skip-trust',
